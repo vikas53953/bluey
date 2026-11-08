@@ -19,7 +19,7 @@ public sealed class StepOrderer : ITestCaseOrderer
 
     public IEnumerable<TTestCase> OrderTestCases<TTestCase>(IEnumerable<TTestCase> testCases)
         where TTestCase : ITestCase =>
-        testCases.OrderBy(OrderOf).ThenBy(t => t.TestMethod.Method.Name, StringComparer.Ordinal);
+        testCases.OrderBy(t => OrderOf(t)).ThenBy(t => t.TestMethod.Method.Name, StringComparer.Ordinal);
 
     private static int OrderOf(ITestCase testCase) =>
         testCase.TestMethod.Method
