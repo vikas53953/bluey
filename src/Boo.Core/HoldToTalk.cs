@@ -50,41 +50,187 @@ public sealed class HoldToTalkController
 
     public const string TapHint = "Hold to talk";
 
-    public HoldToTalkController(TimeProvider clock) => throw new NotImplementedException();
+    private static readonly TalkCommand[] StartOnly = { TalkCommand.StartListening };
+    private static readonly TalkCommand[] InterruptThenStart = { TalkCommand.Interrupt, TalkCommand.StartListening };
+    private static readonly TalkCommand[] SendOnly = { TalkCommand.StopAndSend };
+    private static readonly TalkCommand[] CancelOnly = { TalkCommand.Cancel };
+
+    private readonly TimeProvider _clock;
+    private bool _ctrlDown;
+    private bool _altDown;
+    private bool _spaceDown;
+    private bool _spaceTaken;
+    private bool _keyHold;
+    private bool _eyeHold;
+    private bool _playing;
+    private DateTimeOffset _holdStart;
+
+    public HoldToTalkController(TimeProvider clock)
+    {
+        ArgumentNullException.ThrowIfNull(clock);
+        _clock = clock;
+    }
 
     /// <summary>True between StartListening and the matching StopAndSend/Cancel.</summary>
-    public bool IsListening => throw new NotImplementedException();
+    public bool IsListening { get; private set; }
 
     /// <summary>Tell the controller whether a voice reply is currently playing, so the next hold interrupts it first.</summary>
-    public void SetPlaybackActive(bool playing) => throw new NotImplementedException();
+    public void SetPlaybackActive(bool playing) => _playing = playing;
 
     /// <summary>A chord key went down. <paramref name="isRepeat"/> is true for keyboard auto-repeat downs.</summary>
-    public TalkStep KeyDown(TalkKey key, bool isRepeat = false) => throw new NotImplementedException();
+    public TalkStep KeyDown(TalkKey key, bool isRepeat = false)
+    {
+        var wasDown = IsDown(key);
+        SetDown(key, true);
+        var fresh = !isRepeat && !wasDown;
+
+        if (fresh && key == TalkKey.Space && _ctrlDown && _altDown)
+        {
+            _spaceTaken = true;
+        }
+
+        if (fresh && !_keyHold && _ctrlDown && _altDown && _spaceDown)
+        {
+            _keyHold = true;
+            if (!IsListening)
+            {
+                return new TalkStep(Begin(), SwallowFor(key));
+            }
+        }
+
+        return Quiet(key);
+    }
 
     /// <summary>A chord key went up.</summary>
-    public TalkStep KeyUp(TalkKey key) => throw new NotImplementedException();
+    public TalkStep KeyUp(TalkKey key)
+    {
+        var swallow = SwallowFor(key);
+        SetDown(key, false);
+        if (key == TalkKey.Space)
+        {
+            _spaceTaken = false;
+        }
+
+        if (!_keyHold)
+        {
+            return new TalkStep(Array.Empty<TalkCommand>(), swallow);
+        }
+
+        _keyHold = false;
+        return _eyeHold ? new TalkStep(Array.Empty<TalkCommand>(), swallow) : End(swallow);
+    }
 
     /// <summary>The user pressed and is holding Boo's eyes with the mouse.</summary>
-    public TalkStep EyesPressed() => throw new NotImplementedException();
+    public TalkStep EyesPressed()
+    {
+        if (_eyeHold)
+        {
+            return TalkStep.None;
+        }
+
+        _eyeHold = true;
+        return IsListening ? TalkStep.None : new TalkStep(Begin());
+    }
 
     /// <summary>The user released Boo's eyes.</summary>
-    public TalkStep EyesReleased() => throw new NotImplementedException();
+    public TalkStep EyesReleased()
+    {
+        if (!_eyeHold)
+        {
+            return TalkStep.None;
+        }
+
+        _eyeHold = false;
+        return _keyHold ? TalkStep.None : End(false);
+    }
 
     /// <summary>
     /// Boo's window lost focus or mouse capture. Ends the eye-hold part of a hold as if the eyes were released
     /// (the mouse-up may never arrive). A keyboard hold is unaffected because the LL hook still sees key-ups.
     /// </summary>
-    public TalkStep FocusLost() => throw new NotImplementedException();
+    public TalkStep FocusLost() => EyesReleased();
 
     /// <summary>Global Stop / emergency (Ctrl+Alt+F12): Cancel immediately; later key/eye releases are ignored.</summary>
-    public TalkStep Stop() => throw new NotImplementedException();
+    public TalkStep Stop() => Abort();
 
     /// <summary>Workstation locked: Cancel immediately; later releases are ignored.</summary>
-    public TalkStep SessionLocked() => throw new NotImplementedException();
+    public TalkStep SessionLocked() => Abort();
 
     /// <summary>System is going to sleep: Cancel immediately; later releases are ignored.</summary>
-    public TalkStep Suspending() => throw new NotImplementedException();
+    public TalkStep Suspending() => Abort();
 
     /// <summary>Periodic check; returns StopAndSend once a hold exceeds <see cref="MaximumHold"/>.</summary>
-    public TalkStep Tick() => throw new NotImplementedException();
+    public TalkStep Tick()
+    {
+        if (!IsListening || _clock.GetUtcNow() - _holdStart <= MaximumHold)
+        {
+            return TalkStep.None;
+        }
+
+        _keyHold = false;
+        _eyeHold = false;
+        IsListening = false;
+        return new TalkStep(SendOnly);
+    }
+
+    private TalkCommand[] Begin()
+    {
+        IsListening = true;
+        _holdStart = _clock.GetUtcNow();
+        if (_playing)
+        {
+            _playing = false;
+            return InterruptThenStart;
+        }
+
+        return StartOnly;
+    }
+
+    private TalkStep End(bool swallow)
+    {
+        if (!IsListening)
+        {
+            return new TalkStep(Array.Empty<TalkCommand>(), swallow);
+        }
+
+        IsListening = false;
+        return _clock.GetUtcNow() - _holdStart < MinimumHold
+            ? new TalkStep(CancelOnly, swallow, TapHint)
+            : new TalkStep(SendOnly, swallow);
+    }
+
+    private TalkStep Abort()
+    {
+        _keyHold = false;
+        _eyeHold = false;
+        if (!IsListening)
+        {
+            return TalkStep.None;
+        }
+
+        IsListening = false;
+        return new TalkStep(CancelOnly);
+    }
+
+    private TalkStep Quiet(TalkKey key) =>
+        SwallowFor(key) ? new TalkStep(Array.Empty<TalkCommand>(), true) : TalkStep.None;
+
+    private bool SwallowFor(TalkKey key) => key == TalkKey.Space && _spaceTaken;
+
+    private bool IsDown(TalkKey key) => key switch
+    {
+        TalkKey.Ctrl => _ctrlDown,
+        TalkKey.Alt => _altDown,
+        _ => _spaceDown,
+    };
+
+    private void SetDown(TalkKey key, bool down)
+    {
+        switch (key)
+        {
+            case TalkKey.Ctrl: _ctrlDown = down; break;
+            case TalkKey.Alt: _altDown = down; break;
+            default: _spaceDown = down; break;
+        }
+    }
 }

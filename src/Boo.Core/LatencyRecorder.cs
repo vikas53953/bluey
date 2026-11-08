@@ -16,28 +16,71 @@ public sealed class LatencyRecorder
     public const double MedianTargetMs = 1500;
     public const double P95TargetMs = 3000;
 
+    private readonly List<LatencySample> _samples = new();
+    private bool _nextCold = true;
+
     /// <summary>A new recorder behaves as if just connected: its first recorded turn is cold.</summary>
-    public LatencyRecorder() => throw new NotImplementedException();
+    public LatencyRecorder()
+    {
+    }
 
     /// <summary>The realtime session (re)connected; the next recorded turn is cold.</summary>
-    public void Connected() => throw new NotImplementedException();
+    public void Connected() => _nextCold = true;
 
     /// <summary>Records one turn. Throws <see cref="ArgumentException"/> if firstAudio is before endOfSpeech.</summary>
-    public LatencySample Record(DateTimeOffset endOfSpeech, DateTimeOffset firstAudio) => throw new NotImplementedException();
+    public LatencySample Record(DateTimeOffset endOfSpeech, DateTimeOffset firstAudio)
+    {
+        var latency = firstAudio - endOfSpeech;
+        if (latency < TimeSpan.Zero)
+        {
+            throw new ArgumentException("First audio cannot precede end of speech.", nameof(firstAudio));
+        }
+
+        var sample = new LatencySample(_samples.Count + 1, latency, _nextCold);
+        _nextCold = false;
+        _samples.Add(sample);
+        return sample;
+    }
 
     /// <summary>All samples in recording order, turns numbered from 1.</summary>
-    public IReadOnlyList<LatencySample> Samples => throw new NotImplementedException();
+    public IReadOnlyList<LatencySample> Samples => _samples;
 
-    public int WarmCount => throw new NotImplementedException();
+    public int WarmCount => _samples.Count(s => !s.Cold);
 
-    public int ColdCount => throw new NotImplementedException();
+    public int ColdCount => _samples.Count(s => s.Cold);
 
     /// <summary>Median of warm turns in ms, or null when there are no warm samples.</summary>
-    public double? WarmMedianMs() => throw new NotImplementedException();
+    public double? WarmMedianMs()
+    {
+        var warm = SortedWarm();
+        if (warm.Length == 0)
+        {
+            return null;
+        }
+
+        var mid = warm.Length / 2;
+        return warm.Length % 2 == 1 ? warm[mid] : (warm[mid - 1] + warm[mid]) / 2.0;
+    }
 
     /// <summary>Nearest-rank p95 of warm turns in ms, or null when there are no warm samples.</summary>
-    public double? WarmP95Ms() => throw new NotImplementedException();
+    public double? WarmP95Ms()
+    {
+        var warm = SortedWarm();
+        if (warm.Length == 0)
+        {
+            return null;
+        }
+
+        var rank = (int)Math.Ceiling(0.95 * warm.Length);
+        return warm[Math.Clamp(rank, 1, warm.Length) - 1];
+    }
 
     /// <summary>True when at least <see cref="TargetWarmTurns"/> warm turns exist, median &lt;= 1500 ms and p95 &lt;= 3000 ms.</summary>
-    public bool MeetsTarget() => throw new NotImplementedException();
+    public bool MeetsTarget() =>
+        WarmCount >= TargetWarmTurns
+        && WarmMedianMs() <= MedianTargetMs
+        && WarmP95Ms() <= P95TargetMs;
+
+    private double[] SortedWarm() =>
+        _samples.Where(s => !s.Cold).Select(s => s.Latency.TotalMilliseconds).Order().ToArray();
 }
