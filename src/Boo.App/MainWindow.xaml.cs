@@ -1466,7 +1466,25 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            // Settle the session as Paused rather than leaving it Running: stopping only the tick timer kept the
+            // periodic capture checks firing on a session whose time no longer advanced, with Resume disabled.
+            _focusClock.Stop();
             _focusTimer.Stop();
+            StopFocusMonitoring();
+            try
+            {
+                if (_focus is { Status: Boo.Core.FocusStatus.Running })
+                {
+                    _focus.Pause("Focus monitoring stopped");
+                }
+                SaveFocusSnapshot();
+                UpdateFocusView();
+                SetFace(_faceInputs with { FocusPaused = true });
+            }
+            catch (Exception)
+            {
+                // The original failure is the one worth reporting.
+            }
             FocusStatus.Text = SanitizedError(ex, "Focus monitoring stopped safely.");
         }
     }
