@@ -1,22 +1,23 @@
 namespace Boo.Core;
 
 /// <summary>
-/// Truthful view of which global shortcuts Boo actually owns. Another app can hold Ctrl+Alt+B or Ctrl+Alt+F12
+/// Truthful view of which global shortcuts Boo actually owns. Another app can hold Ctrl+Alt+B, Ctrl+Alt+F12 or Ctrl+Alt+S
 /// (RegisterHotKey fails) and Windows can refuse the hold-to-talk keyboard hook; every failure is folded into one
 /// short, actionable message so a later status line cannot hide an earlier one.
 /// </summary>
-public sealed record ShortcutStatus(bool EmergencyStop, bool OpenPanel, bool HoldToTalk)
+public sealed record ShortcutStatus(bool EmergencyStop, bool OpenPanel, bool HoldToTalk, bool PauseAll = true)
 {
     public const string OpenGesture = "Ctrl+Alt+B";
     public const string EmergencyStopGesture = "Ctrl+Alt+F12";
     public const string HoldToTalkGesture = "Ctrl+Alt+Space";
+    public const string PauseAllGesture = "Ctrl+Alt+S";
 
     /// <summary>Before registration has been attempted: no failure is reported and no shortcut is advertised.</summary>
     public static ShortcutStatus Pending { get; } = new(false, false, false) { IsPending = true };
 
     public bool IsPending { get; private init; }
 
-    public bool AllAvailable => !IsPending && EmergencyStop && OpenPanel && HoldToTalk;
+    public bool AllAvailable => !IsPending && EmergencyStop && OpenPanel && HoldToTalk && PauseAll;
 
     public IReadOnlyList<string> UnavailableShortcuts
     {
@@ -27,10 +28,11 @@ public sealed record ShortcutStatus(bool EmergencyStop, bool OpenPanel, bool Hol
                 return Array.Empty<string>();
             }
 
-            var list = new List<string>(3);
+            var list = new List<string>(4);
             if (!OpenPanel) list.Add(OpenGesture);
             if (!EmergencyStop) list.Add(EmergencyStopGesture);
             if (!HoldToTalk) list.Add(HoldToTalkGesture);
+            if (!PauseAll) list.Add(PauseAllGesture);
             return list;
         }
     }
@@ -64,11 +66,22 @@ public sealed record ShortcutStatus(bool EmergencyStop, bool OpenPanel, bool Hol
                 parts.Add($"{HoldToTalkGesture} is unavailable. Use Talk or hold Boo's eyes to speak.");
             }
 
+            if (!PauseAll)
+            {
+                // The emergency-stop sentence above already explains the tray fallback when F12 is taken too.
+                parts.Add(EmergencyStop
+                    ? $"{PauseAllGesture} is used by another app; {EmergencyStopGesture} still stops Boo."
+                    : $"{PauseAllGesture} is used by another app.");
+            }
+
             return parts.Count == 0 ? null : string.Join(" ", parts);
         }
     }
 
-    /// <summary>A notch-sized hint (the notch has room for a few words only); null when everything works.</summary>
+    /// <summary>
+    /// A notch-sized hint (the notch has room for a few words only); null when everything works. Ctrl+Alt+S never
+    /// counts here: Ctrl+Alt+F12 (or the tray) still stops Boo, and the panel message explains it.
+    /// </summary>
     public string? NotchMessage
     {
         get
@@ -96,11 +109,16 @@ public sealed record ShortcutStatus(bool EmergencyStop, bool OpenPanel, bool Hol
 
     public ShortcutStatus WithGlobalHotkeys(bool emergencyStop, bool openPanel) =>
         IsPending
-            ? new ShortcutStatus(emergencyStop, openPanel, HoldToTalk: true)
+            ? new ShortcutStatus(emergencyStop, openPanel, HoldToTalk: true, PauseAll: true)
             : this with { EmergencyStop = emergencyStop, OpenPanel = openPanel };
 
     public ShortcutStatus WithHoldToTalk(bool holdToTalk) =>
         IsPending
-            ? new ShortcutStatus(EmergencyStop: true, OpenPanel: true, holdToTalk)
+            ? new ShortcutStatus(EmergencyStop: true, OpenPanel: true, holdToTalk, PauseAll: true)
             : this with { HoldToTalk = holdToTalk };
+
+    public ShortcutStatus WithPauseAll(bool pauseAll) =>
+        IsPending
+            ? new ShortcutStatus(EmergencyStop: true, OpenPanel: true, HoldToTalk: true, pauseAll)
+            : this with { PauseAll = pauseAll };
 }
