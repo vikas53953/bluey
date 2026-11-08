@@ -29,7 +29,7 @@ This is the quickest path from download to the three demos and a focus session. 
 ### 2. One-time setup
 
 1. Press **Ctrl+Alt+B** to open the full window (Boo starts in the background; the eyes sit in the top-center notch).
-2. In **Settings**, paste your OpenAI key into **Protected credential** and press **Save settings**. The key stays on this PC, protected by Windows; it is never part of the package or the repository.
+2. In **Settings**, paste your OpenAI key into **OpenAI key (voice + OpenAI text)** and press **Save settings**. The key stays on this PC, protected by Windows; it is never part of the package or the repository. To answer text requests with Claude or Gemini instead, see [AI providers](#ai-providers).
 3. Pick the **Display** Boo may look at and your **Microphone**. Screen sharing and the microphone show a visible indicator whenever they are active.
 
 Controls you will use: hold **Ctrl+Alt+Space** (or press and hold Boo's eyes) to talk, release to send. **Ctrl+Alt+F12**, **Ctrl+Alt+S** or **Stop** cancels capture, audio and pending work at any time and pauses a running focus session. While talking you can also say what you are working on ("I'm writing the intro for 30 minutes") to start a focus session, ask Boo to pause, resume or end it, or say bye to let Boo go quiet.
@@ -71,6 +71,13 @@ If something does not behave as described, note the build label from the ZIP nam
 The mini contains no product or profile text. Capture and microphone activity keep a disclosure visible while active. Native hover, appearance, window lifecycle and accessibility acceptance are still in progress; the exact observed evidence is linked from the status page.
 
 The package contains no API key. Existing local credentials are separate from the executable. If setup is needed, use the app's masked credential field, never a source file or chat message. Cloud-assisted features require the configured OpenAI account.
+
+## AI providers
+
+- **OpenAI is the default** for everything and needs no extra setup beyond the OpenAI key.
+- In **Settings > Text AI** you can switch the **Text AI provider** to **Anthropic Claude** or **Google Gemini**. The chosen provider answers screen explanations, research, focus nudges and focus classification. The model ids are editable; leave a box blank to use the default.
+- **Voice always uses OpenAI Realtime and the OpenAI key**, whichever text provider is selected.
+- Each provider has its own masked key box. Every key is protected with Windows DPAPI for your Windows account and kept in its own file in Boo's data directory (`credential.bin`, `credential.anthropic.bin`, `credential.gemini.bin`). A key never leaves the PC except to that vendor's official API origin, and it never appears in settings, logs, status text or error messages.
 
 ## Evidence and development
 

@@ -33,6 +33,12 @@ Edge cases found and fixed, each with new tests (Core 1028 pass / 1 skip; Integr
 
 Native checklists for each lane: docs/verification/2026-11-08-*-native-checklist.md.
 
+### Provider abstraction (8 Nov, plan: docs/plans/2026-11-08-multi-provider.md)
+
+| Area | What it adds | Evidence | Not yet proven by hand on Windows |
+| --- | --- | --- | --- |
+| Text AI provider choice | `IScreenAssistant` / `IFocusClassifier` behind `AssistantProviders`; OpenAI stays the default; Anthropic Claude and Google Gemini selectable in Settings > Text AI for screen explain, research, nudges and focus classification, with editable model ids; one DPAPI key file per provider; voice stays on OpenAI Realtime; "No {vendor} key yet" status per provider | Core + Providers build on Linux; Claude and Gemini clients are source-tested with mocked HTTP | Neither Claude nor Gemini has been exercised natively against the live APIs; the Settings UI (provider combo, model boxes, two new key boxes) has not been opened on Windows |
+
 ---
 
 ## Earlier status (7 Nov, Codex build 15)

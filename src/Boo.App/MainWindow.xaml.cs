@@ -52,13 +52,16 @@ public partial class MainWindow : Window
     private ScreenCapture? _capture;
     private AudioSession? _audio;
     private AudioUploadQueue? _audioUploads;
-    private ResponsesClient? _responses;
-    private DecisionsClient? _decisions;
+    private IScreenAssistant? _responses;
+    private IFocusClassifier? _decisions;
     private RealtimeClient? _realtime;
     private DesktopTools? _desktop;
     private SettingsStore? _settingsStore;
     private SessionStore? _sessionStore;
+    // OpenAI key store: voice (RealtimeClient) always uses it; text uses it only when OpenAI is the text provider.
     private CredentialStore? _credentialStore;
+    // One DPAPI-protected file per provider (AiProviders.CredentialFileName), created on first use.
+    private readonly Dictionary<AiProvider, CredentialStore> _credentialStores = new();
     private HttpClient? _http;
     private FocusSessionController? _focus;
     private CancellationTokenSource _focusCancellation = new();
@@ -388,8 +391,31 @@ public partial class MainWindow : Window
         ChirpMute.IsChecked = !_settings.ChirpsEnabled;
         StartWithWindowsBox.IsChecked = _settings.StartWithWindows;
         FileRootBox.Text = _settings.FileRoot ?? string.Empty;
+        LoadProviderSettings();
         LoadMicrophones();
         LoadUpdateSettings();
+    }
+
+    private void LoadProviderSettings()
+    {
+        var provider = _settings.Provider ?? new ProviderSettings();
+        // Combo items are in AiProvider enum order (OpenAI, Anthropic, Gemini).
+        TextProviderBox.SelectedIndex = Math.Clamp((int)provider.TextProvider, 0, Math.Max(0, TextProviderBox.Items.Count - 1));
+        AnthropicModelBox.Text = provider.AnthropicModel;
+        AnthropicFocusModelBox.Text = provider.AnthropicFocusModel;
+        GeminiModelBox.Text = provider.GeminiModel;
+        GeminiFocusModelBox.Text = provider.GeminiFocusModel;
+    }
+
+    /// <summary>The protected key file for one provider; OpenAI keeps its historical credential.bin.</summary>
+    private CredentialStore StoreFor(AiProvider provider)
+    {
+        if (!_credentialStores.TryGetValue(provider, out var store))
+        {
+            store = new CredentialStore(Path.Combine(_dataDirectory, AiProviders.CredentialFileName(provider)));
+            _credentialStores[provider] = store;
+        }
+        return store;
     }
 
     private void LoadAppearance()
@@ -1520,11 +1546,18 @@ public partial class MainWindow : Window
         return !token.IsCancellationRequested && Equals(display, _selectedDisplay) ? frame : null;
     }
 
-    private DecisionsClient EnsureDecisions()
+    private IFocusClassifier EnsureDecisions()
     {
-        _credentialStore ??= new CredentialStore(Path.Combine(_dataDirectory, "credential.bin"));
+        if (_decisions is not null)
+        {
+            return _decisions;
+        }
+
+        var providerSettings = _settings.Provider ?? new ProviderSettings();
+        var provider = providerSettings.TextProvider;
         _http ??= new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
-        return _decisions ??= new DecisionsClient(_http, () => _credentialStore.Load(), _settings.Provider ?? new ProviderSettings());
+        _decisions = AssistantProviders.CreateFocusClassifier(provider, _http, () => StoreFor(provider).Load(), providerSettings);
+        return _decisions;
     }
 
     private void StopFocusMonitoring()
@@ -1628,6 +1661,25 @@ public partial class MainWindow : Window
             }
 
             var (updateSettings, pendingUpdateToken, updateNote) = ReadUpdateSettingsFromUi();
+            var previousProvider = _settings.Provider ?? new ProviderSettings();
+            var nextProvider = previousProvider with
+            {
+                TextProvider = TextProviderBox.SelectedIndex >= 0 && TextProviderBox.SelectedIndex < AiProviders.All.Count
+                    ? AiProviders.All[TextProviderBox.SelectedIndex]
+                    : previousProvider.TextProvider,
+                AnthropicModel = ModelIdOrDefault(AnthropicModelBox.Text, AiProviders.DefaultAnthropicModel),
+                AnthropicFocusModel = ModelIdOrDefault(AnthropicFocusModelBox.Text, AiProviders.DefaultAnthropicFocusModel),
+                GeminiModel = ModelIdOrDefault(GeminiModelBox.Text, AiProviders.DefaultGeminiModel),
+                GeminiFocusModel = ModelIdOrDefault(GeminiFocusModelBox.Text, AiProviders.DefaultGeminiFocusModel)
+            };
+            if (!AiProviders.IsValidModelId(nextProvider.AnthropicModel) ||
+                !AiProviders.IsValidModelId(nextProvider.AnthropicFocusModel) ||
+                !AiProviders.IsValidModelId(nextProvider.GeminiModel) ||
+                !AiProviders.IsValidModelId(nextProvider.GeminiFocusModel))
+            {
+                StatusText.Text = "Settings were not saved: a model id may only use letters, digits, '-', '.', '_' and ':'. Leave a model box blank for the default.";
+                return;
+            }
 
             _settings = new AppSettings(
                 DisplayId: _selectedDisplay?.Id,
@@ -1637,7 +1689,7 @@ public partial class MainWindow : Window
                 VerticalOffset: OffsetSlider.Value,
                 MicrophoneDevice: Math.Max(-1, MicrophoneBox.SelectedIndex - 1),
                 FileRoot: string.IsNullOrWhiteSpace(FileRootBox.Text) ? null : Path.GetFullPath(FileRootBox.Text.Trim()),
-                Provider: _settings.Provider ?? new ProviderSettings(),
+                Provider: nextProvider,
                 StartWithWindows: StartWithWindowsBox.IsChecked == true,
                 Updates: updateSettings);
             string? startupNote = null;
@@ -1653,16 +1705,20 @@ public partial class MainWindow : Window
             }
             (_settingsStore ??= new SettingsStore(Path.Combine(_dataDirectory, "settings.json"))).Save(_settings);
             if (Environment.ProcessPath is { } exePath) StartupRegistration.Apply(_settings.StartWithWindows, exePath, new RegistryStartupStore());
-
-            if (CredentialBox.SecurePassword.Length > 0)
+            if (nextProvider != previousProvider)
             {
-                (_credentialStore ??= new CredentialStore(Path.Combine(_dataDirectory, "credential.bin"))).Save(new System.Net.NetworkCredential(string.Empty, CredentialBox.SecurePassword).Password);
-                CredentialBox.Clear();
+                // Record equality: a changed provider or any model id rebuilds the text clients on the next request.
+                _responses = null;
+                _decisions = null;
             }
             if (pendingUpdateToken is not null)
             {
                 SaveUpdateToken(pendingUpdateToken);
             }
+
+            SaveCredentialIfEntered(CredentialBox, AiProvider.OpenAI);
+            SaveCredentialIfEntered(AnthropicCredentialBox, AiProvider.Anthropic);
+            SaveCredentialIfEntered(GeminiCredentialBox, AiProvider.Gemini);
 
             RefreshUpdatesAfterSave();
             var notes = new List<string>(2);
@@ -1677,6 +1733,24 @@ public partial class MainWindow : Window
         {
             StatusText.Text = SanitizedError(ex, "Settings could not be saved; no credential was displayed.");
         }
+    }
+
+    private static string ModelIdOrDefault(string text, string fallback)
+    {
+        var trimmed = text.Trim();
+        return trimmed.Length == 0 ? fallback : trimmed;
+    }
+
+    /// <summary>Protects a typed key with DPAPI into that provider's own file and clears the box. The key is never echoed anywhere.</summary>
+    private void SaveCredentialIfEntered(PasswordBox box, AiProvider provider)
+    {
+        if (box.SecurePassword.Length == 0)
+        {
+            return;
+        }
+
+        StoreFor(provider).Save(new System.Net.NetworkCredential(string.Empty, box.SecurePassword).Password);
+        box.Clear();
     }
 
     private bool TrySaveAppearance(NotchAppearance nextAppearance)
@@ -1956,16 +2030,17 @@ public partial class MainWindow : Window
         return controls;
     }
 
-    private ResponsesClient EnsureResponses()
+    private IScreenAssistant EnsureResponses()
     {
         if (_responses is not null)
         {
             return _responses;
         }
 
-        _credentialStore ??= new CredentialStore(Path.Combine(_dataDirectory, "credential.bin"));
+        var providerSettings = _settings.Provider ?? new ProviderSettings();
+        var provider = providerSettings.TextProvider;
         _http ??= new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
-        _responses = new ResponsesClient(_http, () => _credentialStore.Load(), _settings.Provider ?? new ProviderSettings());
+        _responses = AssistantProviders.CreateScreenAssistant(provider, _http, () => StoreFor(provider).Load(), providerSettings);
         return _responses;
     }
 
@@ -1976,7 +2051,7 @@ public partial class MainWindow : Window
             return _realtime;
         }
 
-        _credentialStore ??= new CredentialStore(Path.Combine(_dataDirectory, "credential.bin"));
+        _credentialStore ??= StoreFor(AiProvider.OpenAI);
         var realtime = new RealtimeClient(() => _credentialStore.Load(), _settings.Provider ?? new ProviderSettings(), pushToTalk);
         _realtimePushToTalk = pushToTalk;
         _realtimeTranscript.Reset();
@@ -2450,16 +2525,15 @@ public partial class MainWindow : Window
         return handles;
     }
 
-    // Thrown by ResponsesClient/RealtimeClient when no key is saved; matched exactly, never shown raw.
-    private const string MissingCredentialMessage = "OpenAI credential is not configured.";
-
     private static string SanitizedError(Exception ex, string fallback)
     {
         return ex switch
         {
             ResponseTimeoutException timeout => timeout.Message,
             InvalidOperationException { Message: ResponseInterruptedMessage } => ResponseInterruptedMessage,
-            InvalidOperationException { Message: MissingCredentialMessage } => "No OpenAI key yet. Add it in Settings, then try again.",
+            // Thrown by the provider clients when no key is saved; matched exactly per vendor, never shown raw.
+            InvalidOperationException { Message: var m } when AiProviders.ProviderOfMissingCredentialMessage(m) is { } p =>
+                $"No {AiProviders.DisplayName(p)} key yet. Add it in Settings, then try again.",
             OperationCanceledException => "Stopped safely.",
             UnauthorizedAccessException => "Access was denied. Check the selected target or permission.",
             ProviderException provider => provider.Failure.UserMessage,

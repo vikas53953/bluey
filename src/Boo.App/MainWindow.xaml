@@ -340,6 +340,28 @@
                             <TextBlock x:Name="AppearanceValidationText" Visibility="Collapsed" Foreground="{DynamicResource BooDanger}"
                                        FontSize="11" TextWrapping="Wrap" Margin="0,0,0,7"
                                        AutomationProperties.LiveSetting="Polite" />
+                            <TextBlock Text="Text AI" Style="{StaticResource BooLabel}" Margin="0,6,0,5" />
+                            <TextBlock Text="Text AI provider" Foreground="{DynamicResource BooMuted}" FontSize="11" />
+                            <ComboBox x:Name="TextProviderBox" Height="30" Margin="0,3,0,5" AutomationProperties.Name="Text AI provider">
+                                <ComboBoxItem Content="OpenAI" />
+                                <ComboBoxItem Content="Anthropic Claude" />
+                                <ComboBoxItem Content="Google Gemini" />
+                            </ComboBox>
+                            <TextBlock Text="Claude model (explain, research)" Foreground="{DynamicResource BooMuted}" FontSize="11" />
+                            <TextBox x:Name="AnthropicModelBox" Height="30" Margin="0,3,0,5" Style="{StaticResource BooTextBox}"
+                                     AutomationProperties.Name="Claude model" />
+                            <TextBlock Text="Claude focus model" Foreground="{DynamicResource BooMuted}" FontSize="11" />
+                            <TextBox x:Name="AnthropicFocusModelBox" Height="30" Margin="0,3,0,5" Style="{StaticResource BooTextBox}"
+                                     AutomationProperties.Name="Claude focus model" />
+                            <TextBlock Text="Gemini model (explain, research)" Foreground="{DynamicResource BooMuted}" FontSize="11" />
+                            <TextBox x:Name="GeminiModelBox" Height="30" Margin="0,3,0,5" Style="{StaticResource BooTextBox}"
+                                     AutomationProperties.Name="Gemini model" />
+                            <TextBlock Text="Gemini focus model" Foreground="{DynamicResource BooMuted}" FontSize="11" />
+                            <TextBox x:Name="GeminiFocusModelBox" Height="30" Margin="0,3,0,5" Style="{StaticResource BooTextBox}"
+                                     AutomationProperties.Name="Gemini focus model" />
+                            <TextBlock Text="Voice always uses OpenAI Realtime and the OpenAI key."
+                                       Foreground="{DynamicResource BooMuted}" FontFamily="{StaticResource BooFont}" FontSize="10" TextWrapping="Wrap"
+                                       Margin="0,0,0,8" />
                             <WrapPanel Margin="0,0,0,8">
                                 <Button x:Name="SaveSettingsButton" Content="_Save settings" ToolTip="Save Boo settings (Alt+S)" AutomationProperties.Name="Save Boo settings"
                                         Click="SaveSettingsButton_OnClick" Style="{StaticResource BooButton}" />
@@ -370,8 +392,12 @@
                                        AutomationProperties.AutomationId="UpdateStatusLine"
                                        AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}"
                                        AutomationProperties.LiveSetting="Polite" />
-                            <TextBlock Text="Protected credential" Foreground="{DynamicResource BooMuted}" FontFamily="{StaticResource BooFont}" FontSize="11" />
+                            <TextBlock Text="OpenAI key (voice + OpenAI text)" Foreground="{DynamicResource BooMuted}" FontFamily="{StaticResource BooFont}" FontSize="11" />
                             <PasswordBox x:Name="CredentialBox" Height="28" Margin="0,3,0,8" AutomationProperties.Name="Provider credential masked input" />
+                            <TextBlock Text="Anthropic Claude key" Foreground="{DynamicResource BooMuted}" FontFamily="{StaticResource BooFont}" FontSize="11" />
+                            <PasswordBox x:Name="AnthropicCredentialBox" Height="28" Margin="0,3,0,8" AutomationProperties.Name="Anthropic Claude key masked input" />
+                            <TextBlock Text="Google Gemini key" Foreground="{DynamicResource BooMuted}" FontFamily="{StaticResource BooFont}" FontSize="11" />
+                            <PasswordBox x:Name="GeminiCredentialBox" Height="28" Margin="0,3,0,8" AutomationProperties.Name="Google Gemini key masked input" />
                             <TextBlock Text="Screenshots and microphone audio are memory-only by default. Provider processing is separate from local retention."
                                        Foreground="{DynamicResource BooMuted}" FontFamily="{StaticResource BooFont}" FontSize="10" TextWrapping="Wrap" />
                         </StackPanel>

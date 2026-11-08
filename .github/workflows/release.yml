@@ -73,6 +73,9 @@ jobs:
       - name: Integration tests
         run: dotnet test tests/Boo.Integration.Tests -c Release --no-build
 
+      - name: Provider tests
+        run: dotnet test tests/Boo.Providers.Tests -c Release --no-build
+
       - name: Publish self-contained win-x64
         run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/package/Boo
 
