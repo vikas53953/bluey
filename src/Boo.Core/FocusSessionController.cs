@@ -143,6 +143,21 @@ public sealed class FocusSessionController
         RaiseEnded(FocusEndReason.EndedByUser);
     }
 
+    /// <summary>
+    /// Ends a live session that a new one is replacing, without raising <see cref="SessionEnded"/>: the superseded
+    /// session is settled as Ended (so it is neither left Running in history nor recovered as "interrupted" at the
+    /// next start), while the end-of-session moments (happy face, chirp) stay with the session the user actually
+    /// finishes. No-op when already ended; a later <see cref="End"/> or <see cref="Tick"/> raises nothing either.
+    /// </summary>
+    public void EndQuietly()
+    {
+        if (Status == FocusStatus.Ended)
+            return;
+
+        _session.End();
+        _endRaised = true;
+    }
+
     private void RaiseEnded(FocusEndReason reason)
     {
         if (_endRaised)

@@ -1293,6 +1293,15 @@ public partial class MainWindow : Window
             _focusCancellation.Cancel();
             _focusCancellation.Dispose();
             _focusCancellation = new CancellationTokenSource();
+            if (_focus is { Status: not Boo.Core.FocusStatus.Ended } superseded)
+            {
+                // Start while a session is live replaces it explicitly: settle it as ended and save it, so it is not
+                // left Running in sessions.db and reported as "interrupted when Boo closed" at the next start.
+                // No happy face or chirp: those belong to the session the user finishes.
+                superseded.SessionEnded -= Focus_OnSessionEnded;
+                superseded.EndQuietly();
+                SaveFocusSnapshot(superseded);
+            }
             _focus = new FocusSessionController(FocusTaskBox.Text.Trim(), Math.Clamp(minutes * 60d, 60d, 14400d),
                 DeveloperModeBox.IsChecked == true);
             _focus.SessionEnded += Focus_OnSessionEnded;
@@ -1570,15 +1579,16 @@ public partial class MainWindow : Window
         UpdateCaptureIndicator();
     }
 
-    private void SaveFocusSnapshot()
+    private void SaveFocusSnapshot(FocusSessionController? controller = null)
     {
-        if (_focus is null || _sessionStore is null)
+        controller ??= _focus;
+        if (controller is null || _sessionStore is null)
         {
             return;
         }
         try
         {
-            var snapshot = _focus.Snapshot;
+            var snapshot = controller.Snapshot;
             _sessionStore.Save(snapshot);
             _lastFocusSaveRealElapsed = snapshot.RealElapsed;
             LoadHistory();
