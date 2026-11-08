@@ -318,6 +318,50 @@ public partial class NotchWindow : Window
         return NotchSpec.LoadOrDefault(embedded);
     }
 
+    // ---------------------------------------------------------------- gallery (CI screenshots)
+
+    /// <summary>Renders the notch in <paramref name="state"/> at time <paramref name="at"/> into a bitmap (no window shown).</summary>
+    internal System.Windows.Media.Imaging.BitmapSource RenderGalleryFrame(NotchFaceState state, TimeSpan at, double scale)
+    {
+        if (ReferenceEquals(Content, Root))
+        {
+            Content = null; // render the canvas standalone; the window is never shown in gallery mode
+        }
+        _reducedMotion = false;
+        _state = NotchFaceState.Hidden;
+        ApplyState(state, at);
+        _sizeFrom = _sizeTo = _sizeNow = _face.SizeFor(state);
+        _stateSince = at - TimeSpan.FromMilliseconds(2000);
+        LayoutBody(_sizeNow);
+        NotchHost.Visibility = Visibility.Visible;
+        RevealTranslate.Y = 0;
+        RevealScale.ScaleY = 1;
+        UpdateIndicators(at);
+        UpdateDisclosure();
+        HoverStrip.Visibility = Visibility.Collapsed;
+
+        var pad = 12d;
+        var left = BodyLeftDip(_sizeNow) - _face.Shape.Shoulder - pad;
+        var width = _sizeNow.Width + 2 * (_face.Shape.Shoulder + pad);
+        var height = _sizeNow.Height + pad + (ActiveDisclosure.Visibility == Visibility.Visible ? 44 : 0);
+        Root.Measure(new System.Windows.Size(_windowWidthDip, _windowHeightDip));
+        Root.Arrange(new Rect(0, 0, _windowWidthDip, _windowHeightDip));
+        Root.UpdateLayout();
+
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            dc.DrawRectangle(new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF3, 0xF3, 0xF1)), null, new Rect(0, 0, width, height));
+            dc.DrawRectangle(new VisualBrush(Root) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top,
+                Viewbox = new Rect(left, 0, width, height), ViewboxUnits = BrushMappingMode.Absolute }, null, new Rect(0, 0, width, height));
+        }
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(width * scale), (int)Math.Ceiling(height * scale),
+            96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        bitmap.Freeze();
+        return bitmap;
+    }
+
     // ---------------------------------------------------------------- state
 
     private void Recompute()

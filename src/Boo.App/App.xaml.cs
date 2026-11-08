@@ -39,6 +39,15 @@ public partial class App : System.Windows.Application
     {
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        var gallery = Array.IndexOf(e.Args, NotchGallery.Argument);
+        if (gallery >= 0)
+        {
+            // CI/QA only: render every notch face state to PNGs and exit (no window, no capture, no settings).
+            ApplyThemeResources();
+            var output = gallery + 1 < e.Args.Length ? e.Args[gallery + 1] : Path.Combine(Environment.CurrentDirectory, "notch-gallery");
+            Shutdown(NotchGallery.Run(output));
+            return;
+        }
         StartedInBackground = e.Args.Contains(Boo.Core.StartupRegistration.BackgroundArgument, StringComparer.OrdinalIgnoreCase);
 
         _singleInstance = new Mutex(true, "Local\\Boo.Companion.SingleInstance", out var created);

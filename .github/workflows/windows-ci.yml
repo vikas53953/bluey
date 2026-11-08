@@ -46,6 +46,17 @@ jobs:
           name: boo-win-x64
           path: artifacts/ci
 
+      # Every notch face state rendered offscreen to PNG (Boo.exe --notch-gallery), uploaded with the UI smoke screenshots.
+      - name: Notch face gallery
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE 'artifacts\ui-smoke\notch-gallery'
+          $p = Start-Process -FilePath artifacts\ci\Boo.exe -ArgumentList '--notch-gallery', "`"$out`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "notch gallery exited with $($p.ExitCode)" }
+          $png = Get-ChildItem $out -Filter *.png
+          $png | ForEach-Object { "{0} {1} bytes" -f $_.Name, $_.Length }
+          if ($png.Count -lt 10) { throw "expected 10 gallery PNGs, got $($png.Count)" }
+
       # Native UI smoke run (FlaUI) against the published Boo.exe on the runner's interactive desktop.
       # Not part of Boo.sln, so it is built here. Uses a temp BOO_DATA_DIR and restores HKCU Run.
       - name: Build UI smoke tests
