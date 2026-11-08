@@ -127,13 +127,19 @@ public partial class MainWindow
         var activity = _captureActivities.CreateOperation();
         try
         {
-            try
+            // Only cancel a response that is actually running: response.cancel with no active
+            // response comes back as a provider "error", which would tear down the voice session.
+            if (_responseActive)
             {
-                await realtime.InterruptAsync(lease.Token);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                // The local Undo plan does not depend on the model acknowledging the cancel.
+                _responseActive = false;
+                try
+                {
+                    await realtime.InterruptAsync(lease.Token);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // The local Undo plan does not depend on the model acknowledging the cancel.
+                }
             }
 
             var frame = await CaptureForRequestAsync(lease, activity);
@@ -157,6 +163,11 @@ public partial class MainWindow
         {
             _voiceUndoInProgress = false;
             EndCaptureActivity(activity);
+            if (IsCurrent(lease.Generation))
+            {
+                // The cancelled model turn may never send response.done; do not strand the notch on Thinking.
+                SetFace(_faceInputs with { Thinking = _realtimeToolsInFlight > 0 });
+            }
         }
     }
 
