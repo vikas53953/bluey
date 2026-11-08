@@ -165,7 +165,7 @@ public sealed class AnthropicClientTests
             controls);
 
         AssertBindingOutcome(reply);
-        Assert.Contains("\"observedControls\"", handler.LastBody!, StringComparison.Ordinal);
+        Assert.Contains("observedControls", handler.LastBody!, StringComparison.Ordinal); // JSON nested in a text part, so the quotes are escaped
         Assert.Contains("button-text", handler.LastBody!, StringComparison.Ordinal);
         Assert.DoesNotContain("runtimeId", handler.LastBody!, StringComparison.Ordinal);
     }
