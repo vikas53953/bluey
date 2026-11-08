@@ -276,7 +276,7 @@
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
-                                    <TextBlock Text="Light: on task · Red: off task · Grey: uncertain · Peach tick: pause · Dark: not observed"
+                                    <TextBlock Text="Light: on task · Red: off task · Light grey: uncertain · Peach tick: pause · Dark grey: not observed"
                                                Foreground="{DynamicResource BooMuted}" FontFamily="Segoe UI" FontSize="10"
                                                TextWrapping="Wrap" Margin="0,0,0,3" />
                                     <TextBlock x:Name="HistoryStatus" Text="Periodic observations are estimates, not an exact time audit."

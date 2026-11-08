@@ -42,7 +42,7 @@ public sealed class FocusSessionController
     {
         _session = new FocusSession(task, durationSeconds, developerMode);
         _developerMode = developerMode;
-        _policy = new NudgePolicy(developerMode: developerMode);
+        _policy = CreatePolicy(developerMode);
     }
 
     /// <summary>Raised once, synchronously, when the session completes or the user ends it.</summary>
@@ -121,7 +121,7 @@ public sealed class FocusSessionController
             return;
 
         _developerMode = enabled;
-        _policy = new NudgePolicy(developerMode: enabled);
+        _policy = CreatePolicy(enabled);
     }
 
     /// <summary>Pauses a running session and clears the nudge evidence run (time away is not evidence).</summary>
@@ -151,4 +151,11 @@ public sealed class FocusSessionController
         _endRaised = true;
         SessionEnded?.Invoke(this, new FocusSessionEndedEventArgs(_session.Snapshot, reason));
     }
+
+    /// <summary>
+    /// The nudge run tolerates gaps in focus seconds. Checks are spaced in real seconds plus capture and
+    /// classification latency, so at 4x the same latency costs four times as many focus seconds.
+    /// </summary>
+    private static NudgePolicy CreatePolicy(bool developerMode) =>
+        new(maximumGap: developerMode ? 45 * 4 : 45, developerMode: developerMode);
 }

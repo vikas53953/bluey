@@ -63,6 +63,7 @@ public partial class MainWindow : Window
     private FocusSessionController? _focus;
     private CancellationTokenSource _focusCancellation = new();
     private bool _focusCaptureInFlight;
+    private long _focusCaptureId;
     private ToolRequest? _pendingAction;
     private ActionPreviewModel? _pendingPreview;
     private bool _approvalInFlight;
@@ -1159,6 +1160,10 @@ public partial class MainWindow : Window
         }
         try
         {
+            if (_focus.Status != Boo.Core.FocusStatus.Paused)
+            {
+                return;
+            }
             _focus.Resume();
             _focusCancellation.Dispose();
             _focusCancellation = new CancellationTokenSource();
@@ -1181,12 +1186,7 @@ public partial class MainWindow : Window
         }
         try
         {
-            _focus.End();
-            _focusTimer.Stop();
-            StopFocusMonitoring();
-            SaveFocusSnapshot();
-            UpdateFocusView();
-            FocusStatus.Text = "Ended. Start a new session explicitly.";
+            _focus.End(); // Focus_OnSessionEnded stops, saves and updates the view.
         }
         catch (Exception ex)
         {
@@ -1233,6 +1233,7 @@ public partial class MainWindow : Window
         }
 
         _focusCaptureInFlight = true;
+        var captureId = ++_focusCaptureId;
         var token = _focusCancellation.Token;
         var activity = _captureActivities.CreateOperation();
         try
@@ -1287,7 +1288,11 @@ public partial class MainWindow : Window
         }
         finally
         {
-            _focusCaptureInFlight = false;
+            // A Pause/Resume or new Start may have begun a newer capture; only the current one clears the flag.
+            if (captureId == _focusCaptureId)
+            {
+                _focusCaptureInFlight = false;
+            }
             EndCaptureActivity(activity);
         }
     }

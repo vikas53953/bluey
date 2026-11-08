@@ -26,15 +26,22 @@ public partial class MainWindow
             return;
         }
 
-        _focusTimer.Stop();
-        StopFocusMonitoring();
-        SaveFocusSnapshot();
-        UpdateFocusView();
-        _chirps.PlaySessionEnd(_settings.ChirpsEnabled, _listening);
-        FocusStatus.Text = e.Reason == FocusEndReason.Completed
-            ? "Session complete. Nice work. It is saved in your history."
-            : "Ended. Start a new session explicitly.";
-        FocusSessionEnded?.Invoke(this, e);
+        try
+        {
+            _focusTimer.Stop();
+            StopFocusMonitoring();
+            SaveFocusSnapshot();
+            UpdateFocusView();
+            FocusStatus.Text = e.Reason == FocusEndReason.Completed
+                ? "Session complete. Nice work. It is saved in your history."
+                : "Ended. Start a new session explicitly.";
+            _chirps.PlaySessionEnd(_settings.ChirpsEnabled, _listening);
+        }
+        finally
+        {
+            // The end event is raised only once, so the notch must hear about it even if a chirp fails.
+            FocusSessionEnded?.Invoke(this, e);
+        }
     }
 
     private void DeveloperModeBox_OnChanged(object sender, RoutedEventArgs e)
