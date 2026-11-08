@@ -59,7 +59,7 @@ public sealed class GeminiRequestShapeTests
         Assert.Equal(Convert.ToBase64String(frame.Jpeg), inline.GetProperty("data").GetString());
         var generation = root.GetProperty("generationConfig");
         Assert.Equal("application/json", generation.GetProperty("responseMimeType").GetString());
-        Assert.Equal(4096, generation.GetProperty("maxOutputTokens").GetInt32());
+        Assert.Equal(16384, generation.GetProperty("maxOutputTokens").GetInt32());
         var schema = generation.GetProperty("responseSchema");
         Assert.Equal("object", schema.GetProperty("type").GetString());
         Assert.False(schema.TryGetProperty("additionalProperties", out _));
@@ -116,7 +116,7 @@ public sealed class GeminiRequestShapeTests
         Assert.Equal("The answer is 42.", reply.Text);
         Assert.Collection(reply.Sources,
             source => { Assert.Equal("Example A", source.Title); Assert.Equal("https://example.com/a", source.Url); },
-            source => { Assert.Equal("https://example.com/b", source.Title); Assert.Equal("https://example.com/b", source.Url); });
+            source => { Assert.Equal("example.com", source.Title); Assert.Equal("https://example.com/b", source.Url); }); // untitled chunk falls back to the host, like the OpenAI path
     }
 
     [Fact]

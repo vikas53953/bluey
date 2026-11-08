@@ -21,7 +21,7 @@ public sealed class GeminiClient : IScreenAssistant, IFocusClassifier
     private const string NoTextMessage = "Gemini generateContent returned no assistant text.";
     private const string InvalidResultMessage = "Gemini generateContent returned an invalid result.";
     private const string InvalidModelMessage = "Gemini model id is invalid. Check the models in Settings.";
-    private const int StructuredMaxOutputTokens = 4096;
+    private const int StructuredMaxOutputTokens = 16384; // thinking counts toward the cap on the default models
     private const int ResearchMaxOutputTokens = 8192;
     private const string ClassificationInstructions =
         "Return only the requested structured result. Judge the CURRENT visible activity against the specific declared task. " +
@@ -367,14 +367,14 @@ public sealed class GeminiClient : IScreenAssistant, IFocusClassifier
     }
 
     /// <summary>Grounding chunks become citations: de-duplicated by URL, order preserved, title falls back to the URL.</summary>
+    /// <summary>Grounding chunks become sources through the shared normaliser (same cap, URL and title rules as OpenAI and Anthropic).</summary>
     private static IReadOnlyList<SourceLink> ReadSources(JsonElement candidate)
     {
-        var sources = new List<SourceLink>();
         if (!candidate.TryGetProperty("groundingMetadata", out var metadata) || metadata.ValueKind != JsonValueKind.Object ||
             !metadata.TryGetProperty("groundingChunks", out var chunks) || chunks.ValueKind != JsonValueKind.Array)
-            return sources;
+            return [];
 
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var candidates = new List<SourceLink?>();
         foreach (var chunk in chunks.EnumerateArray())
         {
             if (chunk.ValueKind != JsonValueKind.Object ||
@@ -382,17 +382,14 @@ public sealed class GeminiClient : IScreenAssistant, IFocusClassifier
                 !web.TryGetProperty("uri", out var uriElement) || uriElement.ValueKind != JsonValueKind.String)
                 continue;
             var uri = uriElement.GetString()?.Trim();
-            if (string.IsNullOrEmpty(uri) ||
-                !Uri.TryCreate(uri, UriKind.Absolute, out var parsed) ||
-                (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps) ||
-                !seen.Add(uri))
+            if (string.IsNullOrEmpty(uri))
                 continue;
             var title = web.TryGetProperty("title", out var titleElement) && titleElement.ValueKind == JsonValueKind.String
-                ? titleElement.GetString()?.Trim()
-                : null;
-            sources.Add(new SourceLink(string.IsNullOrEmpty(title) ? uri : title, uri));
+                ? titleElement.GetString()?.Trim() ?? string.Empty
+                : string.Empty;
+            candidates.Add(new SourceLink(title, uri));
         }
-        return sources;
+        return ResearchSources.Normalize(candidates);
     }
 
     private static Dictionary<string, object?> ClassificationSchema()
@@ -464,7 +461,7 @@ public sealed class GeminiClient : IScreenAssistant, IFocusClassifier
         {
             if (callerToken.IsCancellationRequested)
                 throw new OperationCanceledException(callerToken);
-            throw new ResponseTimeoutException();
+            throw new ResponseTimeoutException(Provider);
         }
     }
 
@@ -476,12 +473,12 @@ public sealed class GeminiClient : IScreenAssistant, IFocusClassifier
         if (callerToken.IsCancellationRequested)
             return new OperationCanceledException(callerToken);
         if (ContainsTimeout(exception))
-            return new ResponseTimeoutException();
+            return new ResponseTimeoutException(Provider);
         if (exception is not OperationCanceledException)
             return exception;
         if (!requestToken.IsCancellationRequested)
             return new InvalidOperationException(InterruptedMessage);
-        return new ResponseTimeoutException();
+        return new ResponseTimeoutException(Provider);
     }
 
     private static bool ContainsTimeout(Exception exception)

@@ -20,7 +20,7 @@ public sealed class AnthropicClient : IScreenAssistant, IFocusClassifier
     private const string Vendor = "Anthropic messages";
     private const string ApiVersion = "2026-10-21";
     private const string WebSearchToolType = "web_search_20260209";
-    private const int StructuredMaxTokens = 4096;
+    private const int StructuredMaxTokens = 16384; // thinking is always on for the default models and counts toward the cap
     private const int ResearchMaxTokens = 8192;
     private const int WebSearchMaxUses = 5;
     private const string InvalidResultMessage = "Anthropic messages returned an invalid result.";
@@ -467,7 +467,7 @@ public sealed class AnthropicClient : IScreenAssistant, IFocusClassifier
         {
             if (callerToken.IsCancellationRequested)
                 throw new OperationCanceledException(callerToken);
-            throw new ResponseTimeoutException();
+            throw new ResponseTimeoutException(Provider);
         }
     }
 
@@ -479,12 +479,12 @@ public sealed class AnthropicClient : IScreenAssistant, IFocusClassifier
         if (callerToken.IsCancellationRequested)
             return new OperationCanceledException(callerToken);
         if (ContainsTimeout(exception))
-            return new ResponseTimeoutException();
+            return new ResponseTimeoutException(Provider);
         if (exception is not OperationCanceledException)
             return exception;
         if (!requestToken.IsCancellationRequested)
             return new InvalidOperationException(InterruptedMessage);
-        return new ResponseTimeoutException();
+        return new ResponseTimeoutException(Provider);
     }
 
     private static bool ContainsTimeout(Exception exception)

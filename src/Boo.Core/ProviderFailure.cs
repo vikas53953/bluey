@@ -210,7 +210,8 @@ public static class ProviderFailureClassifier
         {
             case "UNAUTHENTICATED": return ProviderFailureKind.InvalidCredential;
             case "PERMISSION_DENIED": return ProviderFailureKind.PermissionDenied;
-            case "RESOURCE_EXHAUSTED": return ProviderFailureKind.RateLimited;
+            // RESOURCE_EXHAUSTED covers both a burst rate limit and an exhausted quota; leaving it unclassified lets the
+            // 429 path use the combined "wait, then check billing" wording.
             case "NOT_FOUND": return ProviderFailureKind.ModelUnavailable;
             case "UNAVAILABLE" or "INTERNAL": return ProviderFailureKind.ServerError;
         }

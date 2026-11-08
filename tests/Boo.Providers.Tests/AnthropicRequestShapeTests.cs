@@ -48,7 +48,7 @@ public sealed class AnthropicRequestShapeTests
         using var body = JsonDocument.Parse(handler.LastBody!);
         var root = body.RootElement;
         Assert.Equal("claude-opus-5-5", root.GetProperty("model").GetString());
-        Assert.Equal(4096, root.GetProperty("max_tokens").GetInt32());
+        Assert.Equal(16384, root.GetProperty("max_tokens").GetInt32());
         Assert.StartsWith("Return only the requested structured result.", root.GetProperty("system").GetString(), StringComparison.Ordinal);
         Assert.Contains($"observation={context.ObservationId}", root.GetProperty("system").GetString(), StringComparison.Ordinal);
         var message = Assert.Single(root.GetProperty("messages").EnumerateArray());
