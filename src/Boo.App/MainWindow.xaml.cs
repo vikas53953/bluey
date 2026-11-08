@@ -989,6 +989,7 @@ public partial class MainWindow : Window
 
         _approvalInFlight = true;
         ApproveButton.IsEnabled = false;
+        var committedBeforeFailure = false;
         try
         {
             var decision = ActionPolicy.Evaluate(action, authority);
@@ -1027,7 +1028,8 @@ public partial class MainWindow : Window
             }
             var preActionControls = _pendingControls;
             var outcome = await EnsureDesktop().ExecuteAsync(action, authority, approval, target, lease.Token);
-            outcome = await ReadBackActionAsync(action, outcome, preActionControls, lease);
+            committedBeforeFailure = outcome.Committed;
+            outcome = await ReadBackActionAsync(action, outcome, preActionControls, target, lease);
             if (!IsCurrent(lease.Generation))
             {
                 StatusText.Text = outcome.Committed
@@ -1057,13 +1059,21 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
-            StatusText.Text = "Stopped before the action committed.";
-            await CompletePendingRealtimeToolAsync("Action stopped before commit; no later effect occurred.");
+            StatusText.Text = committedBeforeFailure
+                ? "Stopped after the action committed; its result was not verified."
+                : "Stopped before the action committed.";
+            await CompletePendingRealtimeToolAsync(committedBeforeFailure
+                ? "The action committed, then stopped before its result was verified."
+                : "Action stopped before commit; no later effect occurred.");
         }
         catch (Exception ex)
         {
-            StatusText.Text = SanitizedError(ex, "The action could not be verified.");
-            await CompletePendingRealtimeToolAsync("Action failed before a verified commit.");
+            StatusText.Text = committedBeforeFailure
+                ? "The action committed, but Boo could not verify its result."
+                : SanitizedError(ex, "The action could not be verified.");
+            await CompletePendingRealtimeToolAsync(committedBeforeFailure
+                ? "The action committed, but its result could not be verified."
+                : "Action failed before a verified commit.");
         }
         finally
         {
@@ -1893,7 +1903,12 @@ public partial class MainWindow : Window
                         if (realtimeEvent.Kind == "conversation.item.input_audio_transcription.completed"
                             && !string.IsNullOrWhiteSpace(realtimeEvent.Text))
                         {
-                            _voiceTaskAuthorized = RequestIntent.Classify(realtimeEvent.Text) == RequestKind.Task;
+                            var spokenIntent = RequestIntent.Classify(realtimeEvent.Text);
+                            _voiceTaskAuthorized = spokenIntent == RequestKind.Task;
+                            if (spokenIntent == RequestKind.Undo)
+                            {
+                                await HandleVoiceUndoAsync(source);
+                            }
                         }
                         break;
                     case "response.output_audio.delta":
