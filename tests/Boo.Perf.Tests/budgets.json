@@ -1,0 +1,10 @@
+{
+  "startupToNotchMs": 4000,
+  "idleCpuPercent": 2.5,
+  "idleWorkingSetMb": 160,
+  "idlePrivateBytesMb": 80,
+  "idleAllocKbPerSecond": 16,
+  "idleGen0PerMinute": 3,
+  "hiddenFramesPerSecond": 0.5,
+  "revealFramesPerSecondMin": 20
+}

@@ -115,6 +115,26 @@ jobs:
           path: artifacts/ui-smoke
           if-no-files-found: warn
 
+      # Perf budgets (FlaUI + BOO_PERF_DIAG counters) against the same published Boo.exe: fails on any budget breach
+      # and writes perf-results.json/.md + reveal.png to artifacts/ui-smoke/perf. Not part of Boo.sln, so built here.
+      - name: Build perf tests
+        run: dotnet build tests/Boo.Perf.Tests -c Release
+
+      - name: Perf budgets (published Boo.exe)
+        timeout-minutes: 10
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\ci\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\ui-smoke
+        run: dotnet test tests/Boo.Perf.Tests -c Release --no-build --logger trx --logger "console;verbosity=detailed" --results-directory artifacts/test-results/perf
+
+      - name: Upload perf results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-results
+          path: artifacts/ui-smoke/perf
+          if-no-files-found: warn
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

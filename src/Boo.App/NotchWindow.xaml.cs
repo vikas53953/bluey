@@ -81,6 +81,8 @@ public partial class NotchWindow : Window
     private TimeSpan _resizeStart;
     private bool _rendering;
     private TimeSpan _lastFrame;
+    private readonly FramePacer _pacer = new();
+    private long _renderedFrames;
     private bool _reducedMotion;
     private NotchFaceParts _parts = new(default, default, default);
     private bool _captureActive;
@@ -118,6 +120,15 @@ public partial class NotchWindow : Window
 
     /// <summary>Current resolved face state.</summary>
     public NotchFaceState FaceState => _state;
+
+    /// <summary>Frames the render loop has processed since launch (perf diagnostics; 0 while hidden all along).</summary>
+    internal long RenderedFrames => Interlocked.Read(ref _renderedFrames);
+
+    /// <summary>True while CompositionTarget.Rendering is subscribed, i.e. the notch is visible or animating.</summary>
+    internal bool IsRenderLoopActive => _rendering;
+
+    /// <summary>Frames the pacer dropped on high-refresh displays (perf diagnostics).</summary>
+    internal long PacerSkippedFrames => _pacer.Skipped;
 
     public NotchWindow(Action onOpenPanel, Action onStop, Func<DisplayInfo?> selectedDisplay,
         NotchAppearance appearance, Action onDisplayLayoutChanged, Func<double>? verticalOffset = null,
@@ -543,13 +554,16 @@ public partial class NotchWindow : Window
             return;
         }
         var now = _clock.Elapsed;
-        if (_timeline.PhaseAt(now) == RevealPhase.Hidden && _state == NotchFaceState.Hidden)
+        // Hidden face, hidden timeline: nothing can move, so no frames at all (idle CPU). A size tween that
+        // is still pending while hidden is finished on the next reveal (ApplyState snaps it), not animated unseen.
+        if (!NotchRenderPolicy.NeedsFrames(_timeline.PhaseAt(now), _state, sizeSettled: true))
         {
             NotchHost.Visibility = Visibility.Collapsed;
             return;
         }
         _rendering = true;
         _lastFrame = now;
+        _pacer.Reset();
         NotchHost.Visibility = Visibility.Visible;
         CompositionTarget.Rendering += OnRendering;
     }
@@ -569,6 +583,11 @@ public partial class NotchWindow : Window
     private void OnRendering(object? sender, EventArgs e)
     {
         var now = _clock.Elapsed;
+        if (!_pacer.Accept(now))
+        {
+            return; // 144/240 Hz panel: the face is authored for ~60 fps, skip the in-between vsyncs.
+        }
+        Interlocked.Increment(ref _renderedFrames);
         var dt = now - _lastFrame;
         if (dt > TimeSpan.FromMilliseconds(100))
         {
@@ -609,7 +628,7 @@ public partial class NotchWindow : Window
             UpdateCaption(now);
         }
 
-        if (phase == RevealPhase.Hidden && _state == NotchFaceState.Hidden && _sizeNow == _sizeTo)
+        if (NotchRenderPolicy.MayStop(phase, _state, sizeSettled: _sizeNow == _sizeTo))
         {
             NotchHost.Visibility = Visibility.Collapsed;
             StopRendering();
