@@ -346,6 +346,30 @@
                                 <Button x:Name="ResetAppearanceButton" Content="_Reset appearance" ToolTip="Reset notch appearance (Alt+R)" AutomationProperties.Name="Reset notch appearance"
                                         Click="ResetAppearanceButton_OnClick" Style="{StaticResource BooButton}" />
                             </WrapPanel>
+                            <TextBlock Text="Updates" Style="{StaticResource BooLabel}" Margin="0,6,0,5" />
+                            <WrapPanel Margin="0,0,0,5">
+                                <CheckBox x:Name="UpdatesEnabledBox" Content="Check GitHub Releases for updates once a day" Foreground="{DynamicResource BooMuted}"
+                                          FontFamily="{StaticResource BooFont}" VerticalAlignment="Center"
+                                          AutomationProperties.Name="Check for updates automatically" />
+                                <CheckBox x:Name="UpdatesPrereleaseBox" Content="Include pre-releases" Foreground="{DynamicResource BooMuted}"
+                                          FontFamily="{StaticResource BooFont}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                          AutomationProperties.Name="Include pre-release updates" />
+                            </WrapPanel>
+                            <TextBlock Text="GitHub token for the private Boo repository (read-only)" Foreground="{DynamicResource BooMuted}" FontFamily="{StaticResource BooFont}" FontSize="11" />
+                            <PasswordBox x:Name="UpdateTokenBox" Height="28" Margin="0,3,0,3" AutomationProperties.Name="GitHub update token masked input" />
+                            <TextBlock x:Name="UpdateTokenHint" Text="No GitHub token saved." Foreground="{DynamicResource BooMuted}"
+                                       FontFamily="{StaticResource BooFont}" FontSize="10" TextWrapping="Wrap" Margin="0,0,0,5" />
+                            <WrapPanel Margin="0,0,0,5">
+                                <Button x:Name="CheckUpdatesButton" Content="Check for updates" AutomationProperties.Name="Check for updates now"
+                                        Click="CheckUpdatesButton_OnClick" Style="{StaticResource BooButton}" FontSize="11" Padding="8,4" />
+                                <Button x:Name="InstallUpdateButton" Content="Install and restart" Visibility="Collapsed" AutomationProperties.Name="Install update and restart Boo"
+                                        Click="InstallUpdateButton_OnClick" Style="{StaticResource BooButton}" FontSize="11" Padding="8,4" />
+                            </WrapPanel>
+                            <TextBlock x:Name="UpdateStatusLine" Text="Updates have not been checked yet." Foreground="{DynamicResource BooMuted}"
+                                       FontFamily="{StaticResource BooFont}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"
+                                       AutomationProperties.AutomationId="UpdateStatusLine"
+                                       AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}"
+                                       AutomationProperties.LiveSetting="Polite" />
                             <TextBlock Text="Protected credential" Foreground="{DynamicResource BooMuted}" FontFamily="{StaticResource BooFont}" FontSize="11" />
                             <PasswordBox x:Name="CredentialBox" Height="28" Margin="0,3,0,8" AutomationProperties.Name="Provider credential masked input" />
                             <TextBlock Text="Screenshots and microphone audio are memory-only by default. Provider processing is separate from local retention."
