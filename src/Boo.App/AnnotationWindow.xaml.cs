@@ -39,7 +39,7 @@ public partial class AnnotationWindow : Window
     private static readonly MediaColor PointerColor = MediaColor.FromRgb(0x42, 0x54, 0xD6);
 
     private readonly ScreenContext _context;
-    private readonly DisplayInfo _display;
+    private DisplayInfo _display;
     private readonly IReadOnlyList<PhysicalMark> _marks;
     private readonly PointerAnnotationSequencer _sequencer;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -57,6 +57,9 @@ public partial class AnnotationWindow : Window
     private volatile bool _displayChanged;
 
     public bool CaptureExclusionAvailable { get; private set; }
+
+    /// <summary>False when the captured display is unplugged or was rearranged; the caller must not Show().</summary>
+    public bool DisplayAvailable { get; private set; }
 
     /// <summary>The AE1 path: validated marks in captured-frame pixels; the pointer flies to the first one.</summary>
     public AnnotationWindow(ScreenContext context, IReadOnlyList<AnnotationMark> marks)
@@ -105,19 +108,48 @@ public partial class AnnotationWindow : Window
 
     private void PositionOnDisplay()
     {
-        var screen = Forms.Screen.AllScreens.FirstOrDefault(item =>
-            string.Equals(item.DeviceName, _display.Id, StringComparison.OrdinalIgnoreCase));
-        if (screen is null)
+        // Marks were mapped against the captured display's pixel bounds: refuse the overlay if
+        // that display is gone or was rearranged, rather than drawing on the wrong pixels.
+        var surface = MonitorLayout.OverlaySurface(_display, LiveMonitors.Snapshot());
+        if (surface is null)
         {
-            Close();
+            DisplayAvailable = false;
             return;
         }
 
-        var scale = _handle == IntPtr.Zero ? 1d : Math.Max(1d, GetDpiForWindow(_handle) / 96d);
-        Left = screen.Bounds.Left / scale;
-        Top = screen.Bounds.Top / scale;
-        Width = screen.Bounds.Width / scale;
-        Height = screen.Bounds.Height / scale;
+        // Use the live per-monitor scale (pointer inset/duration, ring inflate) rather than a
+        // captured record that may carry a placeholder scale.
+        _display = _display with { Scale = surface.Display.Scale };
+        DisplayAvailable = true;
+        if (_handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        // Size the HWND in physical pixels. Converting via GetDpiForWindow here used the DPI
+        // of the monitor the new window was created on (usually the primary), so on a mixed-DPI
+        // setup the overlay came out 1.5x too large or too small on the target monitor.
+        var bounds = MonitorLayout.SnapToPixels(_display.PixelBounds);
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var dpiBefore = GetDpiForWindow(_handle);
+            SetWindowPos(_handle, IntPtr.Zero, (int)bounds.X, (int)bounds.Y, (int)bounds.Width, (int)bounds.Height,
+                SwpNoActivate | SwpNoZOrder);
+            if (GetDpiForWindow(_handle) == dpiBefore)
+            {
+                break;
+            }
+            // Crossing to a monitor with another DPI makes WPF apply the WM_DPICHANGED suggested
+            // rect; place again now that the window lives on the target monitor.
+        }
+
+        // Keep WPF's DIP properties in sync so Show() does not re-apply a stale size. The window
+        // is now on the target monitor, so its DPI is that monitor's DPI.
+        var windowScale = MonitorLayout.ScaleFromDpi(GetDpiForWindow(_handle));
+        Left = bounds.X / windowScale;
+        Top = bounds.Y / windowScale;
+        Width = bounds.Width / windowScale;
+        Height = bounds.Height / windowScale;
     }
 
     private void StartSequence()
@@ -474,6 +506,12 @@ public partial class AnnotationWindow : Window
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hWnd);
+
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint affinity);
