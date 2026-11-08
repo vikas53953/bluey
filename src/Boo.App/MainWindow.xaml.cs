@@ -389,6 +389,7 @@ public partial class MainWindow : Window
         StartWithWindowsBox.IsChecked = _settings.StartWithWindows;
         FileRootBox.Text = _settings.FileRoot ?? string.Empty;
         LoadMicrophones();
+        LoadUpdateSettings();
     }
 
     private void LoadAppearance()
@@ -1626,6 +1627,8 @@ public partial class MainWindow : Window
                 return;
             }
 
+            var (updateSettings, updateNote) = ReadUpdateSettingsFromUi();
+
             _settings = new AppSettings(
                 DisplayId: _selectedDisplay?.Id,
                 SpeechEnabled: SpeechMute.IsChecked != true,
@@ -1635,8 +1638,9 @@ public partial class MainWindow : Window
                 MicrophoneDevice: Math.Max(-1, MicrophoneBox.SelectedIndex - 1),
                 FileRoot: string.IsNullOrWhiteSpace(FileRootBox.Text) ? null : Path.GetFullPath(FileRootBox.Text.Trim()),
                 Provider: _settings.Provider ?? new ProviderSettings(),
-                StartWithWindows: StartWithWindowsBox.IsChecked == true);
-            string? startupNote = null;
+                StartWithWindows: StartWithWindowsBox.IsChecked == true,
+                Updates: updateSettings);
+            string? startupNote = updateNote;
             if (_settings.StartWithWindows && Environment.ProcessPath is { } runningPath)
             {
                 startupNote = StartupRegistration.UnstableLocationReason(runningPath, Path.GetTempPath());
@@ -1656,9 +1660,12 @@ public partial class MainWindow : Window
                 CredentialBox.Clear();
             }
 
+            RefreshUpdatesAfterSave();
             StatusText.Text = startupNote is null
                 ? "Settings saved. Credential input was protected and cleared from the UI."
-                : $"Settings saved, but Start with Windows was not turned on: {startupNote}";
+                : startupNote == updateNote
+                    ? $"Settings saved, but the {startupNote}"
+                    : $"Settings saved, but Start with Windows was not turned on: {startupNote}";
             _onDisplayChanged(_selectedDisplay);
         }
         catch (Exception ex)

@@ -8,12 +8,21 @@ A local Windows desktop assistant with a top-center companion, screen explanatio
 
 This is the quickest path from download to the three demos and a focus session. It takes about 35 minutes, 25 of them for the focus session.
 
-### 1. Get the portable build
+### 1. Install Boo (or use the portable build)
 
-1. On GitHub, open **Actions > release**, pick the latest green run on `main`, and download the **boo-portable-win-x64** artifact. Tagged versions (`v*`) are also attached to **Releases**.
-2. Unzip the artifact, then extract the inner `Boo-<version>-win-x64.zip` to a normal folder such as `Downloads\Boo`. Extract the whole archive; `Boo.exe` will not start from inside the ZIP.
-3. Optional: compare the ZIP against the `.sha256` file next to it (`Get-FileHash Boo-*.zip`).
-4. Open `Boo.exe`. No .NET install is needed. The build is not code-signed, so SmartScreen may ask: choose **More info > Run anyway**.
+**Installer (recommended).** On GitHub, open **Actions > release**, pick the latest green run on `main`, and download the **boo-installer-win-x64** artifact. Tagged versions (`v*`) are also attached to **Releases**.
+
+1. Unzip the artifact and run `Boo-win-Setup.exe`. It installs for the current user only (no admin prompt) into `%LocalAppData%\Boo`, adds **Boo** to the Start menu and to **Settings > Apps** for uninstall, and starts Boo.
+2. Optional: compare the installer against `Boo-win-Setup.exe.sha256` (`Get-FileHash Boo-win-Setup.exe`).
+3. The build is not code-signed, so SmartScreen may ask: choose **More info > Run anyway**.
+
+**Portable ZIP.** Download the **boo-portable-win-x64** artifact instead, extract the inner `Boo-<version>-win-x64.zip` whole to a normal folder such as `Downloads\Boo`, and open `Boo.exe`. No .NET install is needed. A portable copy cannot update itself.
+
+**Updates (opt-in, installed copies only).** Boo never contacts GitHub unless you turn this on. In **Settings > Updates**:
+
+1. Paste a GitHub fine-grained personal access token with **Contents: read** on this repository (it is private) and press **Save settings**. The token is protected with Windows DPAPI like the OpenAI key and is never shown again.
+2. Tick **Check GitHub Releases for updates once a day** and save. Boo checks at most once every 24 hours; **Check for updates** checks right away. **Include pre-releases** also offers `v*` pre-release tags and CI builds.
+3. When a newer release exists, the status line names it and **Install and restart** appears. Nothing is downloaded or installed until you press it. Velopack verifies the package hash against the release feed before applying it. Only strictly newer versions are offered; Boo never downgrades.
 
 ### 2. One-time setup
 
