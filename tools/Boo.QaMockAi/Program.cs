@@ -50,8 +50,14 @@ public static class QaConstants
     public const string OffTask = "off_task";
     public const string OnTask = "on_task";
     public const string Uncertain = "uncertain";
-    /// <summary>Classification requests numbered 1..N return off_task; after this many, on_task.</summary>
-    public const int OffTaskRequestCount = 2;
+    /// <summary>
+    /// Classification requests numbered 1..N return off_task; after this many, on_task. NudgePolicy in
+    /// Developer Mode needs two off-task checks at least 40 focus-seconds apart when the mean P(off) is
+    /// 0.95 or more, or about 44 s at 0.90; checks land every 10 real seconds (40 focus-seconds at 4x), so
+    /// three strong off-task answers make the nudge certain on the second or third check.
+    /// </summary>
+    public const int OffTaskRequestCount = 3;
+    public const double OffTaskProbability = 0.96;
 
     public const string NudgeText = "QA-NUDGE: Back to your task?";
     public const string NudgePointerTarget = "Scrollable geometry area";
@@ -219,7 +225,7 @@ public static class Program
         switch (choice)
         {
             case QaConstants.OnTask: on = 0.90; break;
-            case QaConstants.OffTask: off = 0.90; break;
+            case QaConstants.OffTask: off = QaConstants.OffTaskProbability; on = unc = (1 - off) / 2; break;
             default: unc = 0.90; break;
         }
         var answer = new JsonObject
@@ -227,7 +233,7 @@ public static class Program
             ["name"] = "activity",
             ["type"] = "choice",
             ["choice"] = choice,
-            ["confidence"] = 0.9,
+            ["confidence"] = choice == QaConstants.OffTask ? QaConstants.OffTaskProbability : 0.9,
             ["probabilities"] = new JsonArray(
                 new JsonObject { ["value"] = QaConstants.OnTask, ["probability"] = on },
                 new JsonObject { ["value"] = QaConstants.OffTask, ["probability"] = off },

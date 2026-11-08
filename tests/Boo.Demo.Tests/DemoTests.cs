@@ -199,8 +199,10 @@ public sealed class DemoTests : IClassFixture<BooAppFixture>
             var dev = Find(panel, "DeveloperModeBox").AsCheckBox();
             dev.IsChecked = true;
             SetText(panel, "FocusTaskBox", "Demo focus");
-            // 3 minutes at the 4x Developer Mode clock = ~45 real seconds: room for checks at 10 s and 20 s (two off-task
-            // answers -> nudge) before the session ends. 1 minute (15 real seconds) only ever fitted a single check.
+            // 3 minutes at the 4x Developer Mode clock = ~45 real seconds: room for checks at 10, 20 and 30 s (the mock
+            // answers off_task with P=0.96 three times; NudgePolicy nudges once two of them are 40 focus-seconds apart)
+            // before the session ends. 1 minute (15 real seconds) only ever fitted a single check; two P=0.90 answers
+            // exactly 40 focus-seconds apart fell short of the 44 s the policy asks for at that strength.
             SetText(panel, "FocusDurationBox", "3");
             Find(panel, "FocusStartButton").AsButton().Invoke();
             Assert.True(
