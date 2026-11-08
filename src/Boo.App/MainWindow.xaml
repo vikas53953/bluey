@@ -208,6 +208,13 @@
                             </WrapPanel>
                             <TextBlock x:Name="FocusStatus" Text="No focus session" Foreground="{DynamicResource BooMuted}"
                                        FontFamily="{StaticResource BooFont}" FontSize="11" Margin="0,7,0,0" TextWrapping="Wrap" />
+                            <CheckBox x:Name="DeveloperModeBox" Content="Developer Mode" Foreground="{DynamicResource BooMuted}"
+                                      Margin="0,8,0,0" AutomationProperties.Name="Developer Mode"
+                                      ToolTip="Runs the focus clock 4x and checks every 10 seconds, for testing"
+                                      Checked="DeveloperModeBox_OnChanged" Unchecked="DeveloperModeBox_OnChanged" />
+                            <TextBlock x:Name="DeveloperModeStatus" Text="Developer Mode off: real-time clock, checks every 30 seconds."
+                                       Foreground="{DynamicResource BooMuted}" FontFamily="{StaticResource BooFont}" FontSize="10" TextWrapping="Wrap"
+                                       Margin="0,2,0,0" AutomationProperties.Name="Developer Mode status" />
                             <Border Background="{DynamicResource BooPanelRaised}" CornerRadius="10" Padding="9" Margin="0,9,0,0">
                                 <StackPanel>
                                     <WrapPanel>
@@ -217,14 +224,62 @@
                                                 AutomationProperties.Name="Refresh focus history" Click="RefreshHistoryButton_OnClick"
                                                 Style="{StaticResource BooButton}" FontSize="11" Padding="8,4" Margin="10,0,0,0" />
                                     </WrapPanel>
-                                    <ItemsControl x:Name="HistoryList" Margin="0,6,0,0">
+                                    <ItemsControl x:Name="HistoryList" Margin="0,6,0,0" AutomationProperties.Name="Focus history timeline">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <TextBlock Text="{Binding}" Foreground="{DynamicResource BooMuted}"
-                                                           FontFamily="{StaticResource BooFont}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,4" />
+                                                <StackPanel Margin="0,0,0,9" AutomationProperties.Name="{Binding Title}"
+                                                            AutomationProperties.HelpText="{Binding Detail}">
+                                                    <TextBlock Text="{Binding Title}" Foreground="{DynamicResource BooText}"
+                                                               FontFamily="{StaticResource BooRounded}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Text="{Binding Detail}" Foreground="{DynamicResource BooMuted}"
+                                                               FontFamily="{StaticResource BooFont}" FontSize="10" Margin="0,1,0,3" />
+                                                    <Border Width="260" Height="8" CornerRadius="4" HorizontalAlignment="Left"
+                                                            Background="{DynamicResource BooInk}" ClipToBounds="True">
+                                                        <ItemsControl ItemsSource="{Binding Bars}" Focusable="False">
+                                                            <ItemsControl.ItemsPanel>
+                                                                <ItemsPanelTemplate>
+                                                                    <Canvas />
+                                                                </ItemsPanelTemplate>
+                                                            </ItemsControl.ItemsPanel>
+                                                            <ItemsControl.ItemContainerStyle>
+                                                                <Style TargetType="ContentPresenter">
+                                                                    <Setter Property="Canvas.Left" Value="{Binding Left}" />
+                                                                </Style>
+                                                            </ItemsControl.ItemContainerStyle>
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <Rectangle Width="{Binding Width}" Height="8">
+                                                                        <Rectangle.Style>
+                                                                            <Style TargetType="Rectangle">
+                                                                                <Setter Property="Fill" Value="{DynamicResource BooBorder}" />
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding Kind}" Value="OnTask">
+                                                                                        <Setter Property="Fill" Value="{DynamicResource BooText}" />
+                                                                                    </DataTrigger>
+                                                                                    <DataTrigger Binding="{Binding Kind}" Value="OffTask">
+                                                                                        <Setter Property="Fill" Value="{DynamicResource BooDanger}" />
+                                                                                    </DataTrigger>
+                                                                                    <DataTrigger Binding="{Binding Kind}" Value="Uncertain">
+                                                                                        <Setter Property="Fill" Value="{DynamicResource BooMuted}" />
+                                                                                    </DataTrigger>
+                                                                                    <DataTrigger Binding="{Binding Kind}" Value="Paused">
+                                                                                        <Setter Property="Fill" Value="{DynamicResource BooAccent}" />
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </Rectangle.Style>
+                                                                    </Rectangle>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </Border>
+                                                </StackPanel>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
+                                    <TextBlock Text="Light: on task · Red: off task · Light grey: uncertain · Peach tick: pause · Dark grey: not observed"
+                                               Foreground="{DynamicResource BooMuted}" FontFamily="Segoe UI" FontSize="10"
+                                               TextWrapping="Wrap" Margin="0,0,0,3" />
                                     <TextBlock x:Name="HistoryStatus" Text="Periodic observations are estimates, not an exact time audit."
                                                Foreground="{DynamicResource BooMuted}" FontFamily="{StaticResource BooFont}" FontSize="10" TextWrapping="Wrap" />
                                 </StackPanel>

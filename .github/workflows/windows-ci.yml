@@ -37,15 +37,35 @@ jobs:
       - name: Publish app
         run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
 
+      - name: Upload published app
+        uses: actions/upload-artifact@v4
+        with:
+          name: boo-win-x64
+          path: artifacts/ci
+
+      # Native UI smoke run (FlaUI) against the published Boo.exe on the runner's interactive desktop.
+      # Not part of Boo.sln, so it is built here. Uses a temp BOO_DATA_DIR and restores HKCU Run.
+      - name: Build UI smoke tests
+        run: dotnet build tests/Boo.Ui.Tests -c Release
+
+      - name: UI smoke tests (published Boo.exe)
+        timeout-minutes: 10
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\ci\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\ui-smoke
+        run: dotnet test tests/Boo.Ui.Tests -c Release --no-build --logger trx --logger "console;verbosity=detailed" --results-directory artifacts/test-results/ui
+
+      - name: Upload UI smoke screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-smoke-screenshots
+          path: artifacts/ui-smoke
+          if-no-files-found: warn
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
           path: artifacts/test-results
-
-      - name: Upload published app
-        uses: actions/upload-artifact@v4
-        with:
-          name: boo-win-x64
-          path: artifacts/ci

@@ -60,11 +60,10 @@ public partial class MainWindow : Window
     private SessionStore? _sessionStore;
     private CredentialStore? _credentialStore;
     private HttpClient? _http;
-    private FocusSession? _focus;
-    private NudgePolicy? _nudge;
+    private FocusSessionController? _focus;
     private CancellationTokenSource _focusCancellation = new();
     private bool _focusCaptureInFlight;
-    private double _lastFocusCaptureElapsed;
+    private long _focusCaptureId;
     private ToolRequest? _pendingAction;
     private ActionPreviewModel? _pendingPreview;
     private bool _approvalInFlight;
@@ -122,7 +121,7 @@ public partial class MainWindow : Window
         _focusTimer.Tick += FocusTimer_OnTick;
         _focusCaptureTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
-            Interval = TimeSpan.FromSeconds(30)
+            Interval = TimeSpan.FromSeconds(1)
         };
         _focusCaptureTimer.Tick += FocusCaptureTimer_OnTick;
         TranscriptList.ItemsSource = _transcript;
@@ -1234,9 +1233,9 @@ public partial class MainWindow : Window
             _focusCancellation.Cancel();
             _focusCancellation.Dispose();
             _focusCancellation = new CancellationTokenSource();
-            _focus = new FocusSession(FocusTaskBox.Text.Trim(), Math.Clamp(minutes * 60d, 60d, 14400d));
-            _nudge = new NudgePolicy();
-            _lastFocusCaptureElapsed = 0;
+            _focus = new FocusSessionController(FocusTaskBox.Text.Trim(), Math.Clamp(minutes * 60d, 60d, 14400d),
+                DeveloperModeBox.IsChecked == true);
+            _focus.SessionEnded += Focus_OnSessionEnded;
             _focusCaptureInFlight = false;
             _focusTimer.Start();
             _focusCaptureTimer.Start();
@@ -1280,6 +1279,10 @@ public partial class MainWindow : Window
         }
         try
         {
+            if (_focus.Status != Boo.Core.FocusStatus.Paused)
+            {
+                return;
+            }
             _focus.Resume();
             _focusCancellation.Dispose();
             _focusCancellation = new CancellationTokenSource();
@@ -1303,14 +1306,7 @@ public partial class MainWindow : Window
         }
         try
         {
-            _focus.End();
-            _chirps.PlaySessionEnd(_settings.ChirpsEnabled, _listening);
-            _focusTimer.Stop();
-            StopFocusMonitoring();
-            SaveFocusSnapshot();
-            UpdateFocusView();
-            FocusStatus.Text = "Ended. Start a new session explicitly.";
-            SetFace(_faceInputs with { FocusPaused = false, Happy = true }, TimeSpan.FromSeconds(2.5));
+            _focus.End(); // Focus_OnSessionEnded stops, saves and updates the view.
         }
         catch (Exception ex)
         {
@@ -1326,16 +1322,11 @@ public partial class MainWindow : Window
         }
         try
         {
-            _focus.Advance(1);
+            _focus.Tick(1);
             UpdateFocusView();
             if (_focus.Snapshot.Status != Boo.Core.FocusStatus.Running)
             {
-                if (_focus.Snapshot.Status == Boo.Core.FocusStatus.Ended) _chirps.PlaySessionEnd(_settings.ChirpsEnabled, _listening);
                 _focusTimer.Stop();
-                if (_focus.Snapshot.Status == Boo.Core.FocusStatus.Ended)
-                {
-                    SetFace(_faceInputs with { FocusPaused = false, Happy = true }, TimeSpan.FromSeconds(2.5));
-                }
             }
         }
         catch (Exception ex)
@@ -1347,8 +1338,7 @@ public partial class MainWindow : Window
 
     private void FocusCaptureTimer_OnTick(object? sender, EventArgs e)
     {
-        if (_focus is null || !_focus.ShouldMonitor || _focusCaptureInFlight
-            || _focus.Snapshot.Elapsed < _lastFocusCaptureElapsed + 30)
+        if (_focus is null || !_focus.IsCheckDue || _focusCaptureInFlight)
         {
             return;
         }
@@ -1363,6 +1353,7 @@ public partial class MainWindow : Window
         }
 
         _focusCaptureInFlight = true;
+        var captureId = ++_focusCaptureId;
         var token = _focusCancellation.Token;
         var activity = _captureActivities.CreateOperation();
         try
@@ -1372,6 +1363,7 @@ public partial class MainWindow : Window
             var frame = await CaptureFocusFrameAsync(leaseGeneration, token, activity);
             if (frame is null || token.IsCancellationRequested || _focus is null || !_focus.ShouldMonitor)
             {
+                _focus?.SkipCheck();
                 return;
             }
 
@@ -1387,10 +1379,8 @@ public partial class MainWindow : Window
                 decision.Probability,
                 decision.Confidence,
                 decision.Probabilities);
-            _focus.AddObservation(check);
-            _lastFocusCaptureElapsed = snapshot.Elapsed;
             var age = Math.Max(0, (DateTimeOffset.UtcNow - frame.Context.CapturedAt).TotalSeconds);
-            if (_nudge?.Observe(check, age) == true)
+            if (_focus.RecordCheck(check, age))
             {
                 FocusStatus.Text = "Nudge: return to the task when you are ready. Boo did not change your apps.";
                 SetFace(_faceInputs with { NudgeShowing = true }, TimeSpan.FromSeconds(6));
@@ -1413,14 +1403,18 @@ public partial class MainWindow : Window
             {
                 var snapshot = _focus.Snapshot;
                 var unknown = new FocusCheck(snapshot.Elapsed, FocusActivity.Uncertain, 0, 0);
-                _focus.AddObservation(unknown);
+                _focus.RecordCheck(unknown, 0);
                 SaveFocusSnapshot();
                 FocusStatus.Text = SanitizedError(ex, "Focus observation unavailable; this interval is unknown.");
             }
         }
         finally
         {
-            _focusCaptureInFlight = false;
+            // A Pause/Resume or new Start may have begun a newer capture; only the current one clears the flag.
+            if (captureId == _focusCaptureId)
+            {
+                _focusCaptureInFlight = false;
+            }
             EndCaptureActivity(activity);
         }
     }
@@ -1466,7 +1460,6 @@ public partial class MainWindow : Window
         _focusCaptureTimer.Stop();
         _focusCancellation.Cancel();
         _focusCaptureInFlight = false;
-        _nudge?.Reset();
         UpdateCaptureIndicator();
     }
 
@@ -1512,9 +1505,8 @@ public partial class MainWindow : Window
         try
         {
             var rows = _sessionStore.List()
-                .Take(5)
-                .Select(session =>
-                    $"{session.Task} · {session.Status} · {TimeSpan.FromSeconds(session.RealElapsed):hh\\:mm\\:ss} · {session.Checks.Count} periodic observations")
+                .Take(20)
+                .Select(session => FocusTimeline.ToHistoryRow(session, HistoryBarWidth))
                 .ToList();
             HistoryList.ItemsSource = rows;
             HistoryStatus.Text = rows.Count == 0
@@ -1530,7 +1522,7 @@ public partial class MainWindow : Window
 
     private void SetHistoryUnavailable()
     {
-        HistoryList.ItemsSource = Array.Empty<string>();
+        HistoryList.ItemsSource = Array.Empty<FocusHistoryRow>();
         HistoryStatus.Text = HistoryUnavailableMessage;
     }
 
