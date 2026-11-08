@@ -21,7 +21,7 @@ This is the quickest path from download to the three demos and a focus session. 
 **Updates (opt-in, installed copies only).** Boo never contacts GitHub unless you turn this on. In **Settings > Updates**:
 
 1. Paste a GitHub fine-grained personal access token with **Contents: read** on this repository (it is private) and press **Save settings**. The token is protected with Windows DPAPI like the OpenAI key and is never shown again.
-2. Tick **Check GitHub Releases for updates once a day** and save. Boo checks at most once every 24 hours; **Check for updates** checks right away. **Include pre-releases** also offers `v*` pre-release tags and CI builds.
+2. Tick **Check GitHub Releases for updates once a day** and save. Boo checks at most once every 24 hours; **Check for updates** checks right away. **Include pre-releases** also offers tags with a suffix such as `v0.2.0-beta1`; plain `vX.Y.Z` tags are full releases.
 3. When a newer release exists, the status line names it and **Install and restart** appears. Nothing is downloaded or installed until you press it. Velopack verifies the package hash against the release feed before applying it. Only strictly newer versions are offered; Boo never downgrades.
 
 ### 2. One-time setup

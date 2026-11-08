@@ -146,8 +146,10 @@ jobs:
           if (-not $entry) { throw "releases.win.json has no Full entry for $env:PACKAGE_LABEL." }
           $actual = (Get-FileHash "$dir/$($entry.FileName)" -Algorithm SHA256).Hash
           if ($actual -ne $entry.SHA256.ToUpperInvariant()) { throw "SHA-256 in releases.win.json does not match $($entry.FileName)." }
-          # The portable ZIP produced by vpk duplicates the one above; ship a single portable ZIP.
+          # The portable ZIP produced by vpk duplicates the one above; ship a single portable ZIP. The previous
+          # release's packages (downloaded only as the delta base) are already attached to that release.
           Remove-Item "$dir/Boo-win-Portable.zip" -ErrorAction SilentlyContinue
+          Get-ChildItem $dir -Filter *.nupkg | Where-Object { $_.Name -notlike "Boo-$env:PACKAGE_LABEL-*" } | Remove-Item
           $setupHash = (Get-FileHash "$dir/Boo-win-Setup.exe" -Algorithm SHA256).Hash
           "$setupHash  Boo-win-Setup.exe" | Set-Content -Path "$dir/Boo-win-Setup.exe.sha256" -Encoding ascii
           $size = [math]::Round((Get-Item "$dir/Boo-win-Setup.exe").Length / 1MB, 1)
@@ -211,8 +213,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Installed copies only see pre-releases when "Include pre-releases" is ticked, so a plain vX.Y.Z tag
+          # is a full release and only a tag with a suffix (v0.2.0-beta1) is marked pre-release.
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "Boo $GITHUB_REF_NAME" \
             --notes "Boo-win-Setup.exe installs Boo for the current user (Start menu entry, uninstall from Settings > Apps) and enables in-app updates. The ZIP is the portable build: extract it whole and open Boo.exe. The .nupkg and releases.win.json files are the update feed read by installed copies; leave them attached. See the README's How to try section." \
-            --prerelease
+            $prerelease

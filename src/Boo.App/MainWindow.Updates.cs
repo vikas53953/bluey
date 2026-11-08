@@ -97,10 +97,11 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// Builds the Updates part of AppSettings from the checkboxes, keeping the last-checked time, and stores a newly
-    /// pasted token. Returns a note for the status bar when the token was rejected (settings are still saved).
+    /// Builds the Updates part of AppSettings from the checkboxes, keeping the last-checked time. A pasted token
+    /// is returned (not yet stored) so it is only written once the settings file itself saved; <c>Note</c> explains
+    /// a rejected token (settings are still saved).
     /// </summary>
-    private (UpdateSettings Settings, string? Note) ReadUpdateSettingsFromUi()
+    private (UpdateSettings Settings, string? PendingToken, string? Note) ReadUpdateSettingsFromUi()
     {
         var previous = UpdatePolicy.Effective(_settings);
         var next = new UpdateSettings(
@@ -108,22 +109,30 @@ public partial class MainWindow
             IncludePrerelease: UpdatesPrereleaseBox.IsChecked == true,
             LastCheckedUtc: previous.LastCheckedUtc);
         string? note = null;
+        string? pending = null;
         if (UpdateTokenBox.SecurePassword.Length > 0)
         {
             var pasted = new System.Net.NetworkCredential(string.Empty, UpdateTokenBox.SecurePassword).Password;
             UpdateTokenBox.Clear();
             var reason = GitHubAccessToken.RejectReason(pasted);
             if (reason is null)
-                UpdateTokenStore.Save(GitHubAccessToken.Normalize(pasted));
+                pending = GitHubAccessToken.Normalize(pasted);
             else
-                note = $"GitHub token was not saved: {reason}";
+                note = $"the GitHub token was not saved: {reason}";
         }
-        return (next, note);
+        return (next, pending, note);
     }
+
+    private void SaveUpdateToken(string token) => UpdateTokenStore.Save(token);
 
     /// <summary>After settings are saved: rebuild the service with the current token and show the resulting state.</summary>
     private void RefreshUpdatesAfterSave()
     {
+        if (_updateBusy)
+        {
+            // A check or download is running against the current service; new choices apply after it finishes.
+            return;
+        }
         var updates = UpdatePolicy.Effective(_settings);
         var token = LoadUpdateToken();
         ShowUpdateTokenHint(token);
@@ -151,7 +160,7 @@ public partial class MainWindow
 
     private async Task RunUpdateCheckAsync()
     {
-        if (_updates is null || _updateBusy)
+        if (_updates is not { } service || _updateBusy)
             return;
         _updateBusy = true;
         _updateCancellation?.Cancel();
@@ -159,7 +168,7 @@ public partial class MainWindow
         SetUpdateStatus(UpdateCheckOutcome.Checking);
         try
         {
-            _availableVersion = await _updates.CheckAsync(_updateCancellation.Token);
+            _availableVersion = await service.CheckAsync(_updateCancellation.Token);
             RememberUpdateCheck(DateTimeOffset.UtcNow);
             _updateBusy = false;
             SetUpdateStatus(_availableVersion is null ? UpdateCheckOutcome.UpToDate : UpdateCheckOutcome.UpdateAvailable, _availableVersion);
@@ -186,24 +195,26 @@ public partial class MainWindow
 
     private async void InstallUpdateButton_OnClick(object sender, RoutedEventArgs e)
     {
-        if (_updates is null || _availableVersion is null || _updateBusy)
+        if (_updates is not { } service || _availableVersion is null || _updateBusy)
             return;
         _updateBusy = true;
         _updateCancellation?.Cancel();
         _updateCancellation = new CancellationTokenSource(TimeSpan.FromMinutes(15));
         try
         {
-            if (_updates.DownloadedVersion is null)
+            if (service.DownloadedVersion is null)
             {
                 var progress = new Progress<int>(p => SetUpdateStatus(UpdateCheckOutcome.Downloading, _availableVersion, p));
                 SetUpdateStatus(UpdateCheckOutcome.Downloading, _availableVersion, 0);
-                await _updates.DownloadAsync(progress, _updateCancellation.Token);
+                await service.DownloadAsync(progress, _updateCancellation.Token);
             }
             _updateBusy = false;
             SetUpdateStatus(UpdateCheckOutcome.ReadyToRestart, _availableVersion);
-            // Stops capture, audio and pending work, then Velopack replaces the files and starts the new Boo.
+            // Stop capture, audio and pending work, tell Velopack to apply once this process exits, then shut
+            // down normally so the tray icon and single-instance mutex are released before the new Boo starts.
             _onStop();
-            _updates.ApplyAndRestart();
+            service.ApplyAfterExit();
+            System.Windows.Application.Current.Shutdown();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

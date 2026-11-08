@@ -63,12 +63,15 @@ internal sealed class UpdateService
         return DownloadedVersion;
     }
 
-    /// <summary>Hands over to Velopack: Boo exits, the update is applied, Boo restarts.</summary>
-    public void ApplyAndRestart()
+    /// <summary>
+    /// Schedules the downloaded release: Velopack waits for this process to exit, applies the update and restarts
+    /// Boo. The caller shuts the app down normally afterwards.
+    /// </summary>
+    public void ApplyAfterExit()
     {
         var info = _pending ?? throw new InvalidOperationException("Check for updates first.");
         if (DownloadedVersion is null)
             throw new InvalidOperationException("Download the update first.");
-        _manager.ApplyUpdatesAndRestart(info);
+        _manager.WaitExitThenApplyUpdates(info, silent: false, restart: true);
     }
 }

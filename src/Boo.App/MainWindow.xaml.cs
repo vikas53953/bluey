@@ -1627,7 +1627,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var (updateSettings, updateNote) = ReadUpdateSettingsFromUi();
+            var (updateSettings, pendingUpdateToken, updateNote) = ReadUpdateSettingsFromUi();
 
             _settings = new AppSettings(
                 DisplayId: _selectedDisplay?.Id,
@@ -1640,7 +1640,7 @@ public partial class MainWindow : Window
                 Provider: _settings.Provider ?? new ProviderSettings(),
                 StartWithWindows: StartWithWindowsBox.IsChecked == true,
                 Updates: updateSettings);
-            string? startupNote = updateNote;
+            string? startupNote = null;
             if (_settings.StartWithWindows && Environment.ProcessPath is { } runningPath)
             {
                 startupNote = StartupRegistration.UnstableLocationReason(runningPath, Path.GetTempPath());
@@ -1659,13 +1659,18 @@ public partial class MainWindow : Window
                 (_credentialStore ??= new CredentialStore(Path.Combine(_dataDirectory, "credential.bin"))).Save(new System.Net.NetworkCredential(string.Empty, CredentialBox.SecurePassword).Password);
                 CredentialBox.Clear();
             }
+            if (pendingUpdateToken is not null)
+            {
+                SaveUpdateToken(pendingUpdateToken);
+            }
 
             RefreshUpdatesAfterSave();
-            StatusText.Text = startupNote is null
+            var notes = new List<string>(2);
+            if (startupNote is not null) notes.Add($"Start with Windows was not turned on: {startupNote}");
+            if (updateNote is not null) notes.Add(updateNote);
+            StatusText.Text = notes.Count == 0
                 ? "Settings saved. Credential input was protected and cleared from the UI."
-                : startupNote == updateNote
-                    ? $"Settings saved, but the {startupNote}"
-                    : $"Settings saved, but Start with Windows was not turned on: {startupNote}";
+                : $"Settings saved, but {string.Join("; ", notes)}";
             _onDisplayChanged(_selectedDisplay);
         }
         catch (Exception ex)

@@ -163,7 +163,12 @@ public static class UpdateVersionGate
                 var theirsNumeric = theirs[i].All(char.IsAsciiDigit);
                 int r;
                 if (mineNumeric && theirsNumeric)
-                    r = long.Parse(mine[i], CultureInfo.InvariantCulture).CompareTo(long.Parse(theirs[i], CultureInfo.InvariantCulture));
+                {
+                    // Numeric identifiers compare by value; without leading zeros that is length, then digits.
+                    var a = mine[i].TrimStart('0');
+                    var b = theirs[i].TrimStart('0');
+                    r = a.Length != b.Length ? a.Length.CompareTo(b.Length) : string.CompareOrdinal(a, b);
+                }
                 else if (mineNumeric != theirsNumeric)
                     r = mineNumeric ? -1 : 1;
                 else
