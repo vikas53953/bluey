@@ -140,7 +140,7 @@ public static class ResearchSources
     {
         normalized = string.Empty;
         host = string.Empty;
-        if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsControl) ||
+        if (string.IsNullOrWhiteSpace(value) || value.Trim().Any(ActionPolicy.IsUnsafeUrlCharacter) ||
             !Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri))
         {
             return false;
