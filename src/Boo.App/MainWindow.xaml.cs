@@ -218,7 +218,7 @@ public partial class MainWindow : Window
             screen.DeviceName,
             screen.Primary ? "Primary display" : screen.DeviceName,
             new RectD(screen.Bounds.Left, screen.Bounds.Top, screen.Bounds.Width, screen.Bounds.Height),
-            1d);
+            LiveMonitors.ScaleFor(screen));
         _targets.Snapshot(display);
     }
 
@@ -435,12 +435,14 @@ public partial class MainWindow : Window
                 screen.DeviceName,
                 screen.Primary ? "Primary display" : screen.DeviceName,
                 new RectD(bounds.Left, bounds.Top, bounds.Width, bounds.Height),
-                1d);
+                LiveMonitors.ScaleFor(screen));
             _displays[info.Id] = info;
             DisplayBox.Items.Add($"{info.Name} · {bounds.Width}×{bounds.Height}");
         }
 
-        _selectedDisplay = _settings.DisplayId is not null && _displays.TryGetValue(_settings.DisplayId, out var saved)
+        // Saved display unplugged -> the primary (not merely the first enumerated monitor).
+        var resolved = MonitorLayout.Resolve(LiveMonitors.Snapshot(), _settings.DisplayId);
+        _selectedDisplay = resolved is not null && _displays.TryGetValue(resolved.Display.Id, out var saved)
             ? saved
             : _displays.Values.FirstOrDefault();
         if (_selectedDisplay is not null)
@@ -481,7 +483,8 @@ public partial class MainWindow : Window
         }
 
         var work = screen.WorkingArea;
-        var scale = _selectedDisplay.Scale > 0 ? _selectedDisplay.Scale : 1d;
+        // The target monitor's own DPI (the panel may be leaving a monitor with another scale).
+        var scale = MonitorLayout.SanitizeScale(LiveMonitors.ScaleFor(screen));
         var maxWidthDip = work.Width / scale;
         var maxHeightDip = work.Height / scale;
         if (double.IsFinite(maxWidthDip) && maxWidthDip > 0)
@@ -501,30 +504,31 @@ public partial class MainWindow : Window
             Height = Math.Min(Height, maxHeightDip);
         }
 
-        var widthPixels = Width * scale;
-        var heightPixels = Height * scale;
-        var leftPixels = work.Left + Math.Max(0d, (work.Width - widthPixels) / 2d);
-        var topPixels = work.Top + Math.Max(0d, (work.Height - heightPixels) / 2d);
+        var placement = MonitorLayout.CenterInWorkArea(
+            new RectD(work.Left, work.Top, work.Width, work.Height), Width, Height, scale).PhysicalBounds;
         var handle = new WindowInteropHelper(this).Handle;
         if (handle == IntPtr.Zero || WindowState == WindowState.Maximized)
         {
-            Left = leftPixels / scale;
-            Top = topPixels / scale;
+            Left = placement.X / scale;
+            Top = placement.Y / scale;
             return;
         }
 
-        SetWindowPos(handle, IntPtr.Zero,
-            (int)Math.Round(leftPixels),
-            (int)Math.Round(topPixels),
-            (int)Math.Round(widthPixels),
-            (int)Math.Round(heightPixels),
-            SwpNoActivate | SwpNoZOrder);
-        var actualScale = GetDpiForWindow(handle) / 96d;
-        if (double.IsFinite(actualScale) && actualScale > 0 && Math.Abs(actualScale - scale) > 0.01)
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            _selectedDisplay = _selectedDisplay with { Scale = actualScale };
-            _displays[_selectedDisplay.Id] = _selectedDisplay;
-            PositionNearDisplay();
+            var dpiBefore = GetDpiForWindow(handle);
+            SetWindowPos(handle, IntPtr.Zero,
+                (int)placement.X,
+                (int)placement.Y,
+                (int)placement.Width,
+                (int)placement.Height,
+                SwpNoActivate | SwpNoZOrder);
+            // Crossing into a monitor with another DPI lets WPF apply the WM_DPICHANGED
+            // suggested rect, which can shift the panel; place it once more on arrival.
+            if (GetDpiForWindow(handle) == dpiBefore)
+            {
+                break;
+            }
         }
     }
 
@@ -562,21 +566,12 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var scale = _selectedDisplay.Scale;
-            var handle = new WindowInteropHelper(this).Handle;
-            if (handle != IntPtr.Zero)
-            {
-                var currentScreen = Forms.Screen.FromHandle(handle);
-                if (string.Equals(currentScreen.DeviceName, screen.DeviceName, StringComparison.OrdinalIgnoreCase))
-                {
-                    scale = GetDpiForWindow(handle) / 96d;
-                }
-            }
-
+            // The monitor's own DPI: the panel window may be on another monitor (or hidden),
+            // so its window DPI says nothing about the selected display's scale.
             var refreshed = _selectedDisplay with
             {
                 PixelBounds = new RectD(screen.Bounds.Left, screen.Bounds.Top, screen.Bounds.Width, screen.Bounds.Height),
-                Scale = double.IsFinite(scale) && scale > 0 ? scale : 1d
+                Scale = MonitorLayout.SanitizeScale(LiveMonitors.ScaleFor(screen))
             };
             if (refreshed == _selectedDisplay)
             {
@@ -605,7 +600,7 @@ public partial class MainWindow : Window
                 screen.DeviceName,
                 screen.Primary ? "Primary display" : screen.DeviceName,
                 new RectD(bounds.Left, bounds.Top, bounds.Width, bounds.Height),
-                1d);
+                LiveMonitors.ScaleFor(screen));
             _displays[info.Id] = info;
             DisplayBox.Items.Add($"{info.Name} · {bounds.Width}×{bounds.Height}");
         }
@@ -947,6 +942,12 @@ public partial class MainWindow : Window
 
             var window = new AnnotationWindow(frame.Context, proposal.Marks);
             new WindowInteropHelper(window).EnsureHandle();
+            if (!window.DisplayAvailable)
+            {
+                window.Close();
+                ReportAnnotationOutcome("Boo explained the screen without drawing: the display changed. Ask again to see marks.");
+                return;
+            }
             if (!window.CaptureExclusionAvailable)
             {
                 window.Close();
@@ -1005,7 +1006,7 @@ public partial class MainWindow : Window
             ClearAnnotations();
             var window = AnnotationWindow.ForPhysicalTarget(frame.Context, match.Bounds);
             new WindowInteropHelper(window).EnsureHandle();
-            if (!window.CaptureExclusionAvailable)
+            if (!window.DisplayAvailable || !window.CaptureExclusionAvailable)
             {
                 window.Close();
                 return;
