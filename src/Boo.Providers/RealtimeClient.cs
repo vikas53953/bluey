@@ -353,12 +353,15 @@ public sealed class RealtimeClient : IAsyncDisposable
             await SendJsonAsync(RealtimeProtocol.SessionUpdate(_settings, _pushToTalk), connectDeadline.Token).ConfigureAwait(false);
             try
             {
-                await readiness.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+                await readiness.Task.WaitAsync(ConnectTimeout, cancellationToken).ConfigureAwait(false);
             }
             catch (TimeoutException)
             {
+                // A session that never acknowledges its configuration is the same user situation as a hung
+                // handshake, so it gets the same classified, actionable connect-timeout failure.
                 socket.Abort();
-                throw new InvalidOperationException("Realtime session readiness timed out.");
+                readiness.TrySetCanceled();
+                throw new ProviderException("realtime", RealtimeFailures.ConnectTimeout());
             }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && connectDeadline.IsCancellationRequested)
