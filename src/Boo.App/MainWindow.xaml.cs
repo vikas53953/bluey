@@ -366,6 +366,13 @@ public partial class MainWindow : Window
             _settingsStore = new SettingsStore(settingsPath);
             _settings = _settingsStore.Load();
         }
+        catch (InvalidDataException)
+        {
+            // SettingsStore reports an unreadable/corrupt file this way. InvalidDataException is not an
+            // IOException, so without this catch a corrupt settings.json crashed Boo at startup.
+            _settings = new AppSettings();
+            StatusText.Text = "Saved settings could not be read; using safe defaults. Save settings to replace them.";
+        }
         catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
             _settings = new AppSettings();
