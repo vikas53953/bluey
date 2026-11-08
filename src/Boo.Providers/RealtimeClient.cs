@@ -106,7 +106,7 @@ public static class RealtimeProtocol
                 return null;
 
             if (kind == "error")
-                return new RealtimeEvent(kind, "Realtime provider error.", null, itemId, contentIndex);
+                return new RealtimeEvent(kind, ErrorText(root), null, itemId, contentIndex);
 
             byte[]? audio = null;
             if (kind == "response.output_audio.delta" && root.TryGetProperty("delta", out var deltaElement) && deltaElement.ValueKind == JsonValueKind.String)
@@ -122,7 +122,7 @@ public static class RealtimeProtocol
             {
                 text = statusElement.GetString() switch
                 {
-                    "failed" => "Realtime response failed.",
+                    "failed" => FailedResponseText(response),
                     "incomplete" => "Realtime response incomplete.",
                     "cancelled" => "Realtime response cancelled.",
                     _ => null
@@ -178,6 +178,33 @@ public static class RealtimeProtocol
         }
     }
 
+    /// <summary>The fixed text of an "error" event whose code is not one the user can act on.</summary>
+    public const string GenericErrorText = "Realtime provider error.";
+
+    /// <summary>
+    /// A classified, body-free message for an error event (for example an exhausted quota), or
+    /// <see cref="GenericErrorText"/>. Provider message text is never copied.
+    /// </summary>
+    private static string ErrorText(JsonElement root)
+    {
+        if (!root.TryGetProperty("error", out var error) || error.ValueKind != JsonValueKind.Object)
+            return GenericErrorText;
+        var failure = ProviderFailureClassifier.FromErrorCode(GetString(error, "code"), GetString(error, "type"));
+        return failure.Kind == ProviderFailureKind.Unknown ? GenericErrorText : failure.UserMessage;
+    }
+
+    private static string FailedResponseText(JsonElement response)
+    {
+        if (response.TryGetProperty("status_details", out var details) && details.ValueKind == JsonValueKind.Object &&
+            details.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object)
+        {
+            var failure = ProviderFailureClassifier.FromErrorCode(GetString(error, "code"), GetString(error, "type"));
+            if (failure.Kind != ProviderFailureKind.Unknown)
+                return failure.UserMessage;
+        }
+        return "Realtime response failed.";
+    }
+
     private static string? GetString(JsonElement objectElement, string name) =>
         objectElement.TryGetProperty(name, out var element) && element.ValueKind == JsonValueKind.String
             ? element.GetString()
@@ -197,6 +224,11 @@ public sealed class RealtimeClient : IAsyncDisposable
     private TaskCompletionSource<bool>? _readiness;
     private bool _disposed;
     private Action<RealtimeEvent>? _received;
+
+    /// <summary>Upper bound for the WebSocket handshake plus the session.update send.</summary>
+    public static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(15);
+    public static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(10);
+    public static readonly TimeSpan KeepAliveTimeout = TimeSpan.FromSeconds(10);
 
     public RealtimeClient(Func<string?> credential, ProviderSettings settings, bool pushToTalk = false)
     {
@@ -230,17 +262,26 @@ public sealed class RealtimeClient : IAsyncDisposable
                 throw new InvalidOperationException("OpenAI credential is not configured.");
             }
             socket.Options.SetRequestHeader("Authorization", $"Bearer {key}");
+            // Lets a rejected handshake (401 bad key, 429 quota/rate limit, 5xx) be classified from its status.
+            socket.Options.CollectHttpResponseDetails = true;
+            // A silently dropped network (no FIN) otherwise leaves ReceiveAsync waiting forever and the
+            // voice turn stuck on Listening/Thinking; an unanswered ping now aborts the socket, which
+            // the receive loop reports as a "disconnect" event.
+            socket.Options.KeepAliveInterval = KeepAliveInterval;
+            socket.Options.KeepAliveTimeout = KeepAliveTimeout;
             _socket = socket;
             _readiness = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
+        using var connectDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        connectDeadline.CancelAfter(ConnectTimeout);
         try
         {
             var uri = new Uri($"wss://api.openai.com/v1/realtime?model={Uri.EscapeDataString(_settings.RealtimeModel)}");
-            await socket.ConnectAsync(uri, cancellationToken).ConfigureAwait(false);
+            await socket.ConnectAsync(uri, connectDeadline.Token).ConfigureAwait(false);
             var readiness = _readiness!;
             _receiveTask = ReceiveLoopAsync(socket, _lifetime.Token, readiness);
-            await SendJsonAsync(RealtimeProtocol.SessionUpdate(_settings, _pushToTalk), cancellationToken).ConfigureAwait(false);
+            await SendJsonAsync(RealtimeProtocol.SessionUpdate(_settings, _pushToTalk), connectDeadline.Token).ConfigureAwait(false);
             try
             {
                 await readiness.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
@@ -250,6 +291,12 @@ public sealed class RealtimeClient : IAsyncDisposable
                 socket.Abort();
                 throw new InvalidOperationException("Realtime session readiness timed out.");
             }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && connectDeadline.IsCancellationRequested)
+        {
+            socket.Abort();
+            _readiness?.TrySetCanceled();
+            throw new ProviderException("realtime", RealtimeFailures.ConnectTimeout());
         }
         catch (OperationCanceledException)
         {
@@ -262,9 +309,12 @@ public sealed class RealtimeClient : IAsyncDisposable
             socket.Abort();
             throw;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
+            var status = (int)socket.HttpStatusCode;
             socket.Abort();
+            if (RealtimeFailures.Classify(status, exception) is { } failure)
+                throw new ProviderException("realtime", failure);
             throw new InvalidOperationException("Realtime connection failed.");
         }
     }
@@ -452,3 +502,22 @@ public sealed class RealtimeClient : IAsyncDisposable
     }
 }
 
+
+/// <summary>Pure classification of a failed Realtime WebSocket handshake.</summary>
+public static class RealtimeFailures
+{
+    public const string ConnectTimeoutMessage = "Couldn't connect to OpenAI voice in time. Check your internet connection and try again.";
+
+    public static ProviderFailure ConnectTimeout() =>
+        new(ProviderFailureKind.Timeout, null, true, ConnectTimeoutMessage);
+
+    /// <param name="httpStatus">ClientWebSocket.HttpStatusCode after a failed connect; 0 when no response arrived.</param>
+    /// <returns>A classified failure, or null when the cause is not recognizable.</returns>
+    public static ProviderFailure? Classify(int httpStatus, Exception? exception)
+    {
+        // 101 is the successful upgrade status; anything else from the server is the rejection reason.
+        if (httpStatus is >= 400 and <= 599)
+            return ProviderFailureClassifier.FromHttp(httpStatus, null);
+        return ProviderFailureClassifier.FromException(exception);
+    }
+}

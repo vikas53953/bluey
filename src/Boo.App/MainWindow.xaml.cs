@@ -816,8 +816,14 @@ public partial class MainWindow : Window
             uploads.Failed += message => PostAudioFailure(message, lease.Generation, uploads);
             _audio?.Dispose();
             _audio = CreateAudio(uploads, lease.Generation);
+            if (!_audio.TryStart(_settings.MicrophoneDevice, out var micFailure))
+            {
+                StopListening();
+                ListeningStatus.Text = "Microphone unavailable. You can still type a request.";
+                StatusText.Text = micFailure;
+                return;
+            }
             _listening = true;
-            _audio.Start(_settings.MicrophoneDevice);
             _onMicrophoneActivity(true);
             TalkButton.Content = "Stop talk";
             ListeningStatus.Text = "Listening… press Stop talk or the global Stop to interrupt.";
@@ -1974,9 +1980,7 @@ public partial class MainWindow : Window
                 {
                     return;
                 }
-                StopListening();
-                ListeningStatus.Text = "Audio paused. Typing remains available; activate Talk to retry.";
-                StatusText.Text = message;
+                FailVoiceSession(message, "Audio paused. Typing remains available; activate Talk to retry.");
             });
         }
         catch (InvalidOperationException) { /* Dispatcher shutdown has already stopped the session. */ }
@@ -2098,6 +2102,7 @@ public partial class MainWindow : Window
                         break;
                     case "disconnect":
                     case "error":
+                        AbortHoldToTalk();
                         StopListening();
                         if (_focus is { Snapshot.Status: Boo.Core.FocusStatus.Running })
                         {
@@ -2107,7 +2112,10 @@ public partial class MainWindow : Window
                             SaveFocusSnapshot();
                             SetFace(_faceInputs with { FocusPaused = true });
                         }
-                        StatusText.Text = "Realtime connection stopped; typing remains available. Activate Talk to retry.";
+                        StatusText.Text = realtimeEvent.Kind == "error" && realtimeEvent.Text is { Length: > 0 } errorText
+                                          && errorText != RealtimeProtocol.GenericErrorText
+                            ? errorText // classified and body-free, e.g. quota used up or key rejected
+                            : "Realtime connection stopped; typing remains available. Activate Talk to retry.";
                         break;
                     default:
                         ListeningStatus.Text = $"Realtime: {realtimeEvent.Kind}";
@@ -2400,7 +2408,9 @@ public partial class MainWindow : Window
             InvalidOperationException { Message: ResponseInterruptedMessage } => ResponseInterruptedMessage,
             OperationCanceledException => "Stopped safely.",
             UnauthorizedAccessException => "Access was denied. Check the selected target or permission.",
-            HttpRequestException => "Provider connection failed. Check network and protected setup.",
+            ProviderException provider => provider.Failure.UserMessage,
+            HttpRequestException http => ProviderFailureClassifier.FromException(http)?.UserMessage
+                                         ?? "Provider connection failed. Check network and protected setup.",
             _ => fallback
         };
     }

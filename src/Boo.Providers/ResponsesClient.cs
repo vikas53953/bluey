@@ -131,7 +131,7 @@ public sealed class ResponsesClient
         }
         catch (HttpRequestException exception)
         {
-            throw new InvalidOperationException("OpenAI responses request failed.", exception);
+            throw ProviderHttpFailures.Transport("responses", exception);
         }
 
         using (response)
@@ -140,7 +140,7 @@ public sealed class ResponsesClient
 
             if (!response.IsSuccessStatusCode)
             {
-                throw new InvalidOperationException($"OpenAI responses returned HTTP {(int)response.StatusCode}.");
+                throw await ProviderHttpFailures.StatusAsync("responses", response, requestCancellation.Token).ConfigureAwait(false);
             }
 
             string json;
@@ -231,14 +231,14 @@ public sealed class ResponsesClient
         }
         catch (HttpRequestException exception)
         {
-            throw new InvalidOperationException("OpenAI responses request failed.", exception);
+            throw ProviderHttpFailures.Transport("responses", exception);
         }
 
         using (response)
         {
             ThrowIfCancellationRequested(cancellationToken, requestCancellation.Token);
             if (!response.IsSuccessStatusCode)
-                throw new InvalidOperationException($"OpenAI responses returned HTTP {(int)response.StatusCode}.");
+                throw await ProviderHttpFailures.StatusAsync("responses", response, requestCancellation.Token).ConfigureAwait(false);
 
             string json;
             try
