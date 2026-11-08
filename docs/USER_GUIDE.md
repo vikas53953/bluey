@@ -196,6 +196,8 @@ Undo is deliberately cautious. It refuses when:
 
 Undo restores the fields Boo set. It is not a general undo for your app.
 
+**File edits.** When Boo's last action was a **Write file** or **Delete file** in your chosen folder, `undo` reverses that instead, without reading the screen: the card proposes writing the file's previous text back (or deleting a file Boo created), and only **Approve** changes anything. It refuses when the file changed after Boo's edit ("The file changed after Boo's edit, so Boo will not overwrite it.") or when the previous content was not text. The newest edit wins: a later field edit replaces the file edit in Boo's memory and vice versa.
+
 ## 10. Focus sessions and Developer Mode
 
 A focus session is a timer plus a gentle observer. Boo looks at the chosen display about every 30 seconds, asks the AI whether what it sees relates to your declared task, and nudges you only after sustained off-task activity. Boo never clicks, closes or blocks your apps.

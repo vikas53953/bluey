@@ -1221,9 +1221,14 @@ public partial class MainWindow : Window
                 return;
             }
             var preActionControls = _pendingControls;
+            var fileSnapshot = SnapshotFileForUndo(action, authority);
             var outcome = await EnsureDesktop().ExecuteAsync(action, authority, approval, target, lease.Token);
             committedBeforeFailure = outcome.Committed;
             outcome = await ReadBackActionAsync(action, outcome, preActionControls, target, lease);
+            if (outcome.Success && outcome.Committed)
+            {
+                RecordFileEdit(action, fileSnapshot);
+            }
             if (!IsCurrent(lease.Generation))
             {
                 StatusText.Text = outcome.Committed

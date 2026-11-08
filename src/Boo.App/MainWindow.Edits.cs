@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using Boo.Core;
 using System.Net.Http;
@@ -17,7 +18,11 @@ public partial class MainWindow
     private static readonly IReadOnlySet<string> UndoTools =
         new HashSet<string>(["click", "type_text"], StringComparer.Ordinal);
 
+    private static readonly IReadOnlySet<string> UndoFileTools =
+        new HashSet<string>(["write_file", "delete_file"], StringComparer.Ordinal);
+
     private readonly UndoJournal _undoJournal = new();
+    private readonly FileUndoJournal _fileUndo = new();
     private ActiveUndo? _activeUndo;
     private bool _journalAwaitingApply;
     private bool _voiceUndoInProgress;
@@ -66,6 +71,13 @@ public partial class MainWindow
     private async Task HandleUndoRequestAsync(CapturedFrame? frame, RequestLease lease)
     {
         _activeUndo = null;
+        if (_fileUndo.HasPendingUndo)
+        {
+            // The last edit Boo made was a file write or delete: no screen read is needed to reverse it.
+            HandleFileUndoRequest(lease);
+            return;
+        }
+
         if (!_undoJournal.HasPendingUndo)
         {
             ReportUndo("Nothing to undo: Boo has no recorded edit.");
@@ -229,6 +241,7 @@ public partial class MainWindow
                 var field = before.Controls.FirstOrDefault(
                     control => string.Equals(control.AutomationId, automationId, StringComparison.Ordinal));
                 _undoJournal.RecordEdit(before.Context.Target, automationId, field?.Value, typed);
+                _fileUndo.Clear(); // the newest edit is the one "undo" reverses
                 _journalAwaitingApply = true;
                 recorded = true;
             }
@@ -432,6 +445,105 @@ public partial class MainWindow
     {
         _undoJournal.Clear();
         _journalAwaitingApply = false;
+    }
+
+    /// <summary>
+    /// Plans the reverse of Boo's last file edit from <see cref="FileUndoJournal"/> and shows it
+    /// through the normal approval queue: a write_file of the previous text, or a delete_file of a
+    /// file Boo created. Nothing changes until the user approves the preview.
+    /// </summary>
+    private void HandleFileUndoRequest(RequestLease lease)
+    {
+        var root = _settings.FileRoot;
+        var relativePath = _fileUndo.RelativePath!;
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            ReportUndo("Boo needs the folder it edited (Settings, file root) before it can undo. Nothing was changed.");
+            return;
+        }
+
+        var plan = _fileUndo.Plan(lease.Generation, () => ReadScopedFile(root, relativePath));
+        if (!plan.CanUndo || plan.Step is null)
+        {
+            ReportUndo(plan.BlockedReason ?? "Boo could not plan an Undo for the recorded file edit.");
+            return;
+        }
+
+        var authority = new TaskAuthority(lease.Generation, ExplicitUserTask: true, UndoFileTools, root);
+        _pendingControls = null;
+        _pendingActions.Clear();
+        var verb = plan.Step.Name == "delete_file" ? "remove the file Boo created" : "restore the file to how it was before Boo's edit";
+        AppendTranscript("Boo", $"Undo is ready: {verb} ({relativePath}). Review it before anything changes.");
+        ShowActionPreview(plan.Step, authority, null, "Undo: ");
+    }
+
+    /// <summary>
+    /// Reads a file's bytes before an approved file action runs so the edit can be reversed later.
+    /// Returns ok=false when the file exists but could not be read; the edit is then not journaled,
+    /// so "undo" can never propose deleting content Boo did not see.
+    /// </summary>
+    private static (bool Ok, byte[]? Previous) SnapshotFileForUndo(ToolRequest action, TaskAuthority authority)
+    {
+        if (action.Name is not ("write_file" or "delete_file"))
+        {
+            return (false, null);
+        }
+
+        try
+        {
+            var plan = FileActionResolver.Resolve(action, authority);
+            return File.Exists(plan.CanonicalPath) ? (true, File.ReadAllBytes(plan.CanonicalPath)) : (true, null);
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return (false, null);
+        }
+    }
+
+    /// <summary>Journals a committed, verified file action so the next "undo" reverses it.</summary>
+    private void RecordFileEdit(ToolRequest action, (bool Ok, byte[]? Previous) snapshot)
+    {
+        if (!snapshot.Ok || action.Name is not ("write_file" or "delete_file"))
+        {
+            return;
+        }
+
+        var relativePath = action.Arguments.TryGetValue("path", out var path) && !string.IsNullOrWhiteSpace(path)
+            ? path
+            : action.Target;
+        string? written = null;
+        if (action.Name == "write_file")
+        {
+            if (!action.Arguments.TryGetValue("contents", out written))
+            {
+                action.Arguments.TryGetValue("content", out written);
+            }
+
+            if (written is null)
+            {
+                return;
+            }
+        }
+        else if (snapshot.Previous is null)
+        {
+            return;
+        }
+
+        _fileUndo.Record(relativePath, snapshot.Previous, written);
+        ClearUndoJournal();
+    }
+
+    private static byte[]? ReadScopedFile(string root, string relativePath)
+    {
+        try
+        {
+            var path = ScopedFiles.Resolve(root, relativePath);
+            return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     private void ReportUndo(string message)

@@ -141,23 +141,20 @@ public sealed class DemoTests : IClassFixture<BooAppFixture>
             _boo.CaptureScreen("02-edit-applied");
             _boo.WriteObservation("02-edit-applied", $"preview='{previewText}' status='{StatusText(panel)}' file={File.ReadAllText(xamlPath)}");
 
-            // Undo is handled locally by RequestIntent ("undo" -> RequestKind.Undo): Boo plans from the
-            // UndoJournal and shows the reverse step in the same ActionPreview for approval. The journal records
-            // control edits (type_text) only, not write_file, so for a file edit Boo is expected to answer that
-            // there is nothing it can undo. Record what it did; the hard assertion is Apply above.
+            // Undo is handled locally by RequestIntent ("undo" -> RequestKind.Undo): Boo plans the reverse
+            // step from FileUndoJournal (a write_file of the previous text) and shows it in the same
+            // ActionPreview for approval. Nothing changes until Approve.
             Ask(panel, "undo");
-            var undoPreview = VisibleOrNull(TryFind(panel, "ActionPreview")) is not null
-                || BooAppFixture.WaitUntil(() => VisibleOrNull(TryFind(panel, "ActionPreview")) is not null, TimeSpan.FromSeconds(20));
+            _boo.WaitFor(() => VisibleOrNull(TryFind(panel, "ActionPreview")), UiTimeout, "the Undo ActionPreview");
+            var undoPreviewText = NameOfId(panel, "ActionPreviewText");
             _boo.CaptureScreen("02-undo-preview");
-            var reverted = false;
-            if (undoPreview)
-            {
-                Find(panel, "ApproveButton").AsButton().Invoke();
-                reverted = BooAppFixture.WaitUntil(() => File.ReadAllBytes(xamlPath).AsSpan().SequenceEqual(s_originalXaml), UiTimeout);
-            }
+            Assert.Null(VisibleOrNull(TryFind(panel, "ActionBlockedReason")));
+            Find(panel, "ApproveButton").AsButton().Invoke();
+            Assert.True(
+                BooAppFixture.WaitUntil(() => File.ReadAllBytes(xamlPath).AsSpan().SequenceEqual(s_originalXaml), UiTimeout),
+                $"File did not return to its original bytes after Undo. Preview: '{undoPreviewText}' Status: '{StatusText(panel)}' Transcript: '{TranscriptText(panel)}'");
             _boo.CaptureScreen("02-undo-done");
-            _output.WriteLine($"Undo preview shown={undoPreview} fileReverted={reverted} status='{StatusText(panel)}'");
-            _boo.WriteObservation("02-undo-result", $"undoPreviewShown={undoPreview} fileReverted={reverted} (write_file edits are not journaled; see UndoJournal) status='{StatusText(panel)}'");
+            _boo.WriteObservation("02-undo-result", $"undoPreview='{undoPreviewText}' fileReverted=true status='{StatusText(panel)}'");
             _boo.WriteObservation("02-undo-done", $"status='{StatusText(panel)}' transcript='{TranscriptText(panel)}'");
         });
     }
