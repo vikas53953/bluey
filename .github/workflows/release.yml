@@ -29,6 +29,9 @@ jobs:
       zip_name: ${{ steps.meta.outputs.zip_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Do not leave the job token in .git/config for later build/test steps.
+          persist-credentials: false
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -43,6 +46,8 @@ jobs:
           if (-not $version) { throw 'Version is missing from src/Boo.App/Boo.App.csproj' }
           if ($env:GITHUB_REF_TYPE -eq 'tag') {
             $label = $env:GITHUB_REF_NAME.TrimStart('v')
+            # A tag name flows into file names and later scripts; allow only plain version characters.
+            if ($label -notmatch '^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$') { throw "Tag '$env:GITHUB_REF_NAME' is not a plain version tag." }
           } else {
             $label = "$version-$($env:GITHUB_SHA.Substring(0,7))"
           }
@@ -85,9 +90,11 @@ jobs:
 
       - name: Add quick-start note
         shell: pwsh
+        env:
+          PACKAGE_LABEL: ${{ steps.meta.outputs.label }}
         run: |
           $note = @"
-          Boo for Windows - portable build ${{ steps.meta.outputs.label }}
+          Boo for Windows - portable build $env:PACKAGE_LABEL
           Source commit: $env:GITHUB_SHA
 
           1. Extract this whole ZIP to a folder (for example Downloads\Boo). Do not run Boo.exe from inside the ZIP.
@@ -104,14 +111,16 @@ jobs:
 
       - name: Create ZIP and checksum
         shell: pwsh
+        env:
+          ZIP_NAME: ${{ steps.meta.outputs.zip_name }}
         run: |
-          $zip = "artifacts/${{ steps.meta.outputs.zip_name }}"
+          $zip = "artifacts/$env:ZIP_NAME"
           Compress-Archive -Path artifacts/package/Boo -DestinationPath $zip -CompressionLevel Optimal
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash
-          "$hash  ${{ steps.meta.outputs.zip_name }}" | Set-Content -Path "$zip.sha256" -Encoding ascii
+          "$hash  $env:ZIP_NAME" | Set-Content -Path "$zip.sha256" -Encoding ascii
           $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
           "### Boo portable package" >> $env:GITHUB_STEP_SUMMARY
-          "- File: ``${{ steps.meta.outputs.zip_name }}`` ($size MB)" >> $env:GITHUB_STEP_SUMMARY
+          "- File: ``$env:ZIP_NAME`` ($size MB)" >> $env:GITHUB_STEP_SUMMARY
           "- SHA-256: ``$hash``" >> $env:GITHUB_STEP_SUMMARY
           "- Commit: ``$env:GITHUB_SHA``" >> $env:GITHUB_STEP_SUMMARY
 

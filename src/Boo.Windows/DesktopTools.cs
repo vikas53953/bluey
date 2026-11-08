@@ -66,6 +66,13 @@ public sealed class DesktopTools
                 return Task.FromResult(Cancelled());
             }
 
+            // Second line behind the approval card: never drive a shell, an admin
+            // console or Boo itself, and never type hidden control characters.
+            if (WindowActionGuard.BlockedReason(request, target, Environment.ProcessId) is { } windowBlock)
+            {
+                return Task.FromResult(new ToolOutcome(false, false, windowBlock));
+            }
+
             var outcome = request.Name switch
             {
                 "search" => Search(),
@@ -127,9 +134,10 @@ public sealed class DesktopTools
                 return;
             }
 
+            // Hand the browser the parsed, normalized URL rather than the raw model string.
             Process.Start(new ProcessStartInfo
             {
-                FileName = request.Target,
+                FileName = new Uri(request.Target, UriKind.Absolute).AbsoluteUri,
                 UseShellExecute = true,
                 WorkingDirectory = Environment.CurrentDirectory
             });
@@ -930,9 +938,12 @@ public sealed class DesktopTools
             return false;
         }
 
+        // "https://bank.example@evil.test" shows a trusted name on the approval
+        // card but opens a different host, so user-info URLs are never offered.
         return (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
                 uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) &&
-            !string.IsNullOrWhiteSpace(uri.Host);
+            !string.IsNullOrWhiteSpace(uri.Host) &&
+            string.IsNullOrEmpty(uri.UserInfo);
     }
 
     private static void TryDelete(string path)

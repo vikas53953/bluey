@@ -16,6 +16,9 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Do not leave the job token in .git/config for later build/test steps.
+          persist-credentials: false
 
       - uses: actions/setup-dotnet@v4
         with:

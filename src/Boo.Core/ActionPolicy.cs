@@ -89,9 +89,12 @@ public static class ActionPolicy
             return false;
         }
 
+        // "https://bank.example@evil.test" shows a trusted name on the approval
+        // card but opens a different host, so user-info URLs are never offered.
         return (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
                 uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) &&
-            !string.IsNullOrWhiteSpace(uri.Host);
+            !string.IsNullOrWhiteSpace(uri.Host) &&
+            string.IsNullOrEmpty(uri.UserInfo);
     }
 
     internal static string ComputeDigest(ToolRequest request)

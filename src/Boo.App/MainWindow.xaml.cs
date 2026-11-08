@@ -1039,7 +1039,7 @@ public partial class MainWindow : Window
 
     private void ShowActionPreview(ToolRequest action, TaskAuthority authority, WindowIdentity? target, string prefix)
     {
-        var preview = ActionPreviewBuilder.Create(action, authority);
+        var preview = ActionPreviewBuilder.Create(action, authority, target, Environment.ProcessId);
         _pendingPreview = preview;
         _pendingAction = preview.Request;
         _pendingAuthority = authority;
@@ -1573,6 +1573,17 @@ public partial class MainWindow : Window
                 FileRoot: string.IsNullOrWhiteSpace(FileRootBox.Text) ? null : Path.GetFullPath(FileRootBox.Text.Trim()),
                 Provider: _settings.Provider ?? new ProviderSettings(),
                 StartWithWindows: StartWithWindowsBox.IsChecked == true);
+            string? startupNote = null;
+            if (_settings.StartWithWindows && Environment.ProcessPath is { } runningPath)
+            {
+                startupNote = StartupRegistration.UnstableLocationReason(runningPath, Path.GetTempPath());
+                if (startupNote is not null)
+                {
+                    // Never point the Run key at a temp copy; keep the saved setting truthful.
+                    _settings = _settings with { StartWithWindows = false };
+                    StartWithWindowsBox.IsChecked = false;
+                }
+            }
             (_settingsStore ??= new SettingsStore(Path.Combine(_dataDirectory, "settings.json"))).Save(_settings);
             if (Environment.ProcessPath is { } exePath) StartupRegistration.Apply(_settings.StartWithWindows, exePath, new RegistryStartupStore());
 
@@ -1582,7 +1593,9 @@ public partial class MainWindow : Window
                 CredentialBox.Clear();
             }
 
-            StatusText.Text = "Settings saved. Credential input was protected and cleared from the UI.";
+            StatusText.Text = startupNote is null
+                ? "Settings saved. Credential input was protected and cleared from the UI."
+                : $"Settings saved, but Start with Windows was not turned on: {startupNote}";
             _onDisplayChanged(_selectedDisplay);
         }
         catch (Exception ex)
