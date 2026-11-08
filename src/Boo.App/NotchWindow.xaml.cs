@@ -921,6 +921,34 @@ public partial class NotchWindow : Window
         e.Handled = true;
     }
 
+    /// <summary>
+    /// Retries any global hotkey another app held earlier (it may have exited). Called on session unlock and display
+    /// changes; cheap and idempotent. Returns true when something new was registered.
+    /// </summary>
+    public bool RetryHotkeys()
+    {
+        if (_handle == IntPtr.Zero || (EmergencyStopRegistered && OpenShortcutRegistered))
+        {
+            return false;
+        }
+
+        var before = (EmergencyStopRegistered, OpenShortcutRegistered);
+        RegisterMissingHotkeys();
+        return before != (EmergencyStopRegistered, OpenShortcutRegistered);
+    }
+
+    private void RegisterMissingHotkeys()
+    {
+        if (!EmergencyStopRegistered)
+        {
+            EmergencyStopRegistered = RegisterHotKey(_handle, EmergencyHotKeyId, ModControl | ModAlt, EmergencyKey);
+        }
+        if (!OpenShortcutRegistered)
+        {
+            OpenShortcutRegistered = RegisterHotKey(_handle, OpenHotKeyId, ModControl | ModAlt, 0x42);
+        }
+    }
+
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
         _handle = new WindowInteropHelper(this).Handle;
@@ -928,15 +956,11 @@ public partial class NotchWindow : Window
         SetWindowLongPtr(_handle, GwlExstyle, new IntPtr(style | WsExNoActivate | WsExToolWindow));
         var source = HwndSource.FromHwnd(_handle);
         source?.AddHook(EmergencyWindowProc);
-        EmergencyStopRegistered = RegisterHotKey(_handle, EmergencyHotKeyId, ModControl | ModAlt, EmergencyKey);
-        OpenShortcutRegistered = RegisterHotKey(_handle, OpenHotKeyId, ModControl | ModAlt, 0x42);
-        if (!EmergencyStopRegistered)
+        RegisterMissingHotkeys();
+        // One combined, truthful hint (two separate SetStatus calls used to overwrite each other); App refines it with the hold-to-talk result.
+        if (new ShortcutStatus(EmergencyStopRegistered, OpenShortcutRegistered, HoldToTalk: true).NotchMessage is { } shortcutHint)
         {
-            SetStatus("Tray Stop ready");
-        }
-        if (!OpenShortcutRegistered)
-        {
-            SetStatus("Open via tray");
+            SetStatus(shortcutHint);
         }
         CaptureExclusionAvailable = SetWindowDisplayAffinity(_handle, App.CaptureExclusion.DisplayAffinity); // WDA_EXCLUDEFROMCAPTURE unless BOO_QA_CAPTURABLE=1
         if (!CaptureExclusionAvailable)

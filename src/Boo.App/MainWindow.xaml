@@ -294,6 +294,10 @@
                         <StackPanel>
                             <TextBlock Text="Settings" Foreground="{DynamicResource BooText}" FontFamily="{StaticResource BooRounded}"
                                        FontSize="20" Margin="0,0,0,7" />
+                            <TextBlock x:Name="ShortcutStatusText" Visibility="Collapsed" Foreground="{DynamicResource BooDanger}"
+                                       FontFamily="{StaticResource BooFont}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,8"
+                                       AutomationProperties.AutomationId="ShortcutStatusText"
+                                       AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}" />
                             <TextBlock Text="Display" Foreground="{DynamicResource BooMuted}" FontFamily="{StaticResource BooFont}" FontSize="12" />
                             <ComboBox x:Name="DisplayBox" Height="34" Margin="0,3,0,8" AutomationProperties.Name="Selected display"
                                       SelectionChanged="DisplayBox_OnSelectionChanged" />
