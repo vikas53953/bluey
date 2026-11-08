@@ -15,6 +15,10 @@ Each lane: independent test author froze failing tests first, a separate builder
 | Pointer (U3, U6) | Blue pointer flies to the target, then ring/arrow draws; nudge pointer via Windows OCR | PR #1, Windows CI green; review fixed stale-generation bug | Landing accuracy at 100/150 % and second monitor |
 | Eyes and notch (U1, U2) | Face B "Button eyes" in HeyClicky pocket, data-driven from docs/design/boo-notch-spec.json; gaze follows cursor; blinks; listening/thinking/responding/capture/nudge/paused/happy faces; hover 240 ms reveal, 900+160 ms retract; Nunito font | PR #3 (includes #1), Windows CI green; review + integration review fixed 9 bugs | Look and feel, hover timing, idle CPU, DPI |
 
+### Accessibility pass (8 Nov night, branch claude/project-thread-syqxnu, off lane/face c2cdcc2)
+
+Screen-reader structure (UIA groups + heading levels), transcript as a navigable list, assertive approval announcement, F6 region cycling, visible focus rings, Windows Text size scaling, and "Animation effects off" now also stopping the pointer flight. Visual design unchanged. Proven in CI by UI smoke steps 11-14 and 23 Core tests; the human checks (Narrator, High contrast, 150/225 % text, animations off) are listed in [the accessibility checklist](verification/2026-11-08-accessibility-native-checklist.md).
+
 ### Hardening pass (8 Nov evening, branch claude/project-thread-2kwt3c)
 
 Edge cases found and fixed, each with new tests (Core 1028 pass / 1 skip; Integration 119+; UI smoke 9 on windows-latest):
