@@ -32,4 +32,6 @@ Visual design is unchanged (face B, Nunito, dark cards, HeyClicky-style notch).
 5. **Animation effects off**: notch reveal is instant, no nudge shake, and after "explain this screen" the pointer does not fly: ring/marks appear immediately and still clear on scroll/resize.
 6. **Keyboard only**: unplug the mouse; F6 cycles regions; every control shows the accent ring; Escape hides; Ctrl+Alt+B returns; hold Ctrl+Alt+Space talks.
 
+Known limit found in CI run 92: WPF does not serve the UIA HeadingLevel property (30159) to UIA3 clients on the windows-latest runner, so smoke step 11 records heading levels but asserts only the heading names and types; Narrator's heading navigation (check 1 above) is the real test of the levels.
+
 Known limits: the notch itself never takes keyboard focus (by design, it must not steal focus); its actions are reachable through the hotkeys and the companion window. Notch geometry does not follow text scaling (spec-driven), only the disclosure/caption text sizes are from the spec.

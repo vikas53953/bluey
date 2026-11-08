@@ -85,7 +85,8 @@
                     PreviewMouseLeftButtonDown="OpenButton_OnPreviewMouseLeftButtonDown"
                     PreviewMouseLeftButtonUp="OpenButton_OnPreviewMouseLeftButtonUp"
                     LostMouseCapture="OpenButton_OnLostMouseCapture"
-                    AutomationProperties.Name="Open Boo companion">
+                    AutomationProperties.Name="Open Boo companion"
+                    AutomationProperties.HelpText="Keyboard: Ctrl+Alt+B opens Boo's window, hold Ctrl+Alt+Space to talk, Ctrl+Alt+S or Ctrl+Alt+F12 pauses everything.">
                 <Button.Template>
                     <ControlTemplate TargetType="{x:Type Button}">
                         <Border Background="{TemplateBinding Background}" />
