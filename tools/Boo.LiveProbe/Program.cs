@@ -78,9 +78,13 @@ internal static class Program
             }
             Console.WriteLine(JsonSerializer.Serialize(new
             {
-                success, mode, elapsedMilliseconds = timer.ElapsedMilliseconds,
+                success,
+                mode,
+                elapsedMilliseconds = timer.ElapsedMilliseconds,
                 proof = "Live production provider adapter with synthetic fixture only; not native app or human speech acceptance",
-                settings, evidence, utc = DateTimeOffset.UtcNow
+                settings,
+                evidence,
+                utc = DateTimeOffset.UtcNow
             }));
             return success ? 0 : 1;
         }
@@ -88,9 +92,12 @@ internal static class Program
         {
             Console.WriteLine(JsonSerializer.Serialize(new
             {
-                success = false, mode, elapsedMilliseconds = timer.ElapsedMilliseconds,
+                success = false,
+                mode,
+                elapsedMilliseconds = timer.ElapsedMilliseconds,
                 errorType = error.GetType().Name,
-                message = "Probe failed; private provider and credential details omitted.", utc = DateTimeOffset.UtcNow
+                message = "Probe failed; private provider and credential details omitted.",
+                utc = DateTimeOffset.UtcNow
             }));
             return 1;
         }

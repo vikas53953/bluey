@@ -90,6 +90,9 @@
                         <CheckBox x:Name="ChirpMute" Content="Mute chirps" Foreground="{DynamicResource BooMuted}"
                                   FontFamily="Segoe UI" VerticalAlignment="Center" Margin="9,0,0,0"
                                   AutomationProperties.Name="Mute listening chirps" />
+                        <CheckBox x:Name="StartWithWindowsBox" Content="Start Boo with Windows" Foreground="{DynamicResource BooMuted}"
+                                  FontFamily="Segoe UI" VerticalAlignment="Center" Margin="9,0,0,0"
+                                  AutomationProperties.Name="Start Boo with Windows" />
                     </WrapPanel>
                     <TextBlock x:Name="ListeningStatus" Text="Typing is ready. Microphone starts only after Talk."
                                Foreground="{DynamicResource BooMuted}" FontFamily="Segoe UI" FontSize="12"
