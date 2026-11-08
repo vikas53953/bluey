@@ -3,7 +3,7 @@
   Collects Boo diagnostics into one ZIP on your Desktop. Read-only: it changes nothing in Boo or Windows.
 
 .DESCRIPTION
-  Copies ONLY settings.json and appearance.json from Boo's data folder (%LOCALAPPDATA%\Boo, or BOO_DATA_DIR).
+  Copies ONLY settings.json, appearance.json and redacted logs\crash-*.txt from Boo's data folder (%LOCALAPPDATA%\Boo, or BOO_DATA_DIR).
   It never copies credential.bin (the DPAPI-protected OpenAI key) or its temporary copies; it only lists
   file names and sizes. Focus history (sessions.db: task names and check results) is copied only with
   -IncludeFocusHistory. Also records Windows version, monitors and scaling, GPU, audio devices,
@@ -42,8 +42,18 @@ try {
             }
         }
     } else { $listing += "Data folder not found: $dataDir" }
+    # 1b. Redacted crash logs (Boo strips keys before writing them; we redact again below anyway).
+    $logsDir = Join-Path $dataDir 'logs'
+    if (Test-Path -LiteralPath $logsDir) {
+        $logStage = Join-Path $stage 'logs'
+        New-Item -ItemType Directory -Path $logStage -Force | Out-Null
+        foreach ($log in Get-ChildItem -LiteralPath $logsDir -File -Filter 'crash-*.txt' | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 10) {
+            $listing += '{0,-50} {1,12} bytes  {2:u}' -f ("logs\" + $log.Name), $log.Length, $log.LastWriteTimeUtc
+            Copy-Item -LiteralPath $log.FullName -Destination (Join-Path $logStage $log.Name)
+        }
+    }
     # Belt and braces: redact anything that looks like an OpenAI key in the copied text files.
-    foreach ($json in Get-ChildItem -LiteralPath $stage -Filter *.json) {
+    foreach ($json in Get-ChildItem -LiteralPath $stage -Recurse -File -Include *.json, *.txt) {
         $text = [IO.File]::ReadAllText($json.FullName)
         $clean = $text -replace 'sk-[A-Za-z0-9_\-]{8,}', 'sk-REDACTED'
         if ($clean -ne $text) { [IO.File]::WriteAllText($json.FullName, $clean) }

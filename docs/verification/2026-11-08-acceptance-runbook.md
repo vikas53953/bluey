@@ -166,6 +166,6 @@ Overall: ACCEPT / NOT YET
 
    It only reads; it writes one file, `Boo-diagnostics-<date-time>.zip`, to your Desktop. It contains Boo's `settings.json` and `appearance.json`, a list of file names and sizes in the data folder, Windows version, monitors with scaling, audio devices, mic privacy setting, the Boo Run key, the running Boo process and recent Boo crash entries from the Windows Application log. It **never** copies `credential.bin` (your encrypted key). Add `-IncludeFocusHistory` to also include `sessions.db` (your focus task names and check results) only if the failure is in the focus steps. Open the ZIP and look inside before sending it if you like.
 
-**About logs:** this build does **not write a log file** (check: the only diagnostic output in the code is two `Trace` warnings about the notch spec file, with no log file configured). Boo's data folder is `%LOCALAPPDATA%\Boo` (or the folder in the `BOO_DATA_DIR` environment variable, if you set one). So the photo, the status text and the diagnostics ZIP are the evidence.
+**About logs:** Boo writes a redacted crash log (`crash-*.txt`, API keys stripped) under `%LOCALAPPDATA%\Boo\logs` only when something crashes or recovers; there is no routine activity log. Boo's data folder is `%LOCALAPPDATA%\Boo` (or the folder in the `BOO_DATA_DIR` environment variable, if you set one). So the photo, the status text and the diagnostics ZIP (which includes those crash logs) are the evidence.
 
 Never send `credential.bin`, your API key, or a screenshot of the Protected credential box.
