@@ -1,0 +1,149 @@
+name: release
+
+# Builds the portable, self-contained Windows x64 ZIP of Boo.
+# - Every push to main, every pull request and manual runs: the ZIP is uploaded as a workflow artifact.
+# - Pushing a tag like v0.1.0: the same ZIP is also attached to a GitHub Release.
+# The package never contains an API key; credentials are entered inside the app and kept on the user's PC.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: windows-latest
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    outputs:
+      zip_name: ${{ steps.meta.outputs.zip_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Package metadata
+        id: meta
+        shell: pwsh
+        run: |
+          [xml]$proj = Get-Content src/Boo.App/Boo.App.csproj
+          $version = ($proj.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1)
+          if (-not $version) { throw 'Version is missing from src/Boo.App/Boo.App.csproj' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $label = $env:GITHUB_REF_NAME.TrimStart('v')
+          } else {
+            $label = "$version-$($env:GITHUB_SHA.Substring(0,7))"
+          }
+          $zip = "Boo-$label-win-x64.zip"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "label=$label" >> $env:GITHUB_OUTPUT
+          "zip_name=$zip" >> $env:GITHUB_OUTPUT
+          Write-Host "Packaging $zip"
+
+      - name: Restore
+        run: dotnet restore Boo.sln
+
+      - name: Build
+        run: dotnet build Boo.sln -c Release --no-restore
+
+      # Same suites as windows-ci; a package is only produced from a green build.
+      - name: Core tests
+        run: dotnet test tests/Boo.Core.Tests -c Release --no-build
+
+      - name: Integration tests
+        run: dotnet test tests/Boo.Integration.Tests -c Release --no-build
+
+      - name: Publish self-contained win-x64
+        run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/package/Boo
+
+      - name: Check package contents
+        shell: pwsh
+        run: |
+          $root = 'artifacts/package/Boo'
+          if (-not (Test-Path "$root/Boo.exe")) { throw 'Boo.exe is missing from the publish output.' }
+          # Never ship credentials, local profiles or env files.
+          $forbidden = Get-ChildItem $root -Recurse -File | Where-Object {
+            $_.Name -like '.env*' -or $_.Extension -in '.pfx','.pem','.key'
+          }
+          if ($forbidden) { $forbidden | ForEach-Object { Write-Host "Forbidden: $($_.FullName)" }; throw 'Package contains files that must not ship.' }
+          $hits = Get-ChildItem $root -Recurse -File -Include *.json,*.txt,*.config,*.xml | Select-String -Pattern 'sk-(proj-)?[A-Za-z0-9_\-]{20,}' -List
+          if ($hits) { $hits | ForEach-Object { Write-Host "Possible key in: $($_.Path)" }; throw 'Package appears to contain an API key.' }
+          $count = (Get-ChildItem $root -Recurse -File).Count
+          Write-Host "Package files: $count"
+
+      - name: Add quick-start note
+        shell: pwsh
+        run: |
+          $note = @"
+          Boo for Windows - portable build ${{ steps.meta.outputs.label }}
+          Source commit: $env:GITHUB_SHA
+
+          1. Extract this whole ZIP to a folder (for example Downloads\Boo). Do not run Boo.exe from inside the ZIP.
+          2. Open Boo.exe. No .NET install is needed. If SmartScreen warns about an unknown publisher,
+             choose More info > Run anyway (this build is not code-signed).
+          3. Press Ctrl+Alt+B to open the full window. Paste your OpenAI key in Settings > Protected credential
+             and press Save settings. The key is stored on this PC only, protected by Windows.
+          4. Hold Ctrl+Alt+Space (or press and hold Boo's eyes) to talk. Ctrl+Alt+F12 stops everything.
+
+          Full walkthrough, including the three demos and a 25-minute focus session:
+          https://github.com/$env:GITHUB_REPOSITORY#how-to-try
+          "@
+          Set-Content -Path artifacts/package/Boo/READ-ME-FIRST.txt -Value $note -Encoding utf8
+
+      - name: Create ZIP and checksum
+        shell: pwsh
+        run: |
+          $zip = "artifacts/${{ steps.meta.outputs.zip_name }}"
+          Compress-Archive -Path artifacts/package/Boo -DestinationPath $zip -CompressionLevel Optimal
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash
+          "$hash  ${{ steps.meta.outputs.zip_name }}" | Set-Content -Path "$zip.sha256" -Encoding ascii
+          $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
+          "### Boo portable package" >> $env:GITHUB_STEP_SUMMARY
+          "- File: ``${{ steps.meta.outputs.zip_name }}`` ($size MB)" >> $env:GITHUB_STEP_SUMMARY
+          "- SHA-256: ``$hash``" >> $env:GITHUB_STEP_SUMMARY
+          "- Commit: ``$env:GITHUB_SHA``" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: boo-portable-win-x64
+          path: |
+            artifacts/${{ steps.meta.outputs.zip_name }}
+            artifacts/${{ steps.meta.outputs.zip_name }}.sha256
+          if-no-files-found: error
+          # The ZIP is already compressed.
+          compression-level: 0
+
+  github-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: boo-portable-win-x64
+          path: dist
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Boo $GITHUB_REF_NAME" \
+            --notes "Portable Windows x64 build. Extract the whole ZIP and open Boo.exe. See the README's How to try section." \
+            --prerelease
