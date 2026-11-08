@@ -1971,6 +1971,7 @@ public partial class MainWindow : Window
         _realtimeTranscriptRows.Clear();
         var generation = _generation;
         realtime.Received += value => Realtime_OnReceived(realtime, generation, value);
+        AttachVoiceCommands(realtime);
         _realtime = realtime;
         return _realtime;
     }
@@ -2077,6 +2078,7 @@ public partial class MainWindow : Window
                     return;
                 }
                 ObserveTalkEvent(realtimeEvent);
+                ObserveSleepAfterReply(source, realtimeEvent);
                 switch (realtimeEvent.Kind)
                 {
                     case "input_audio_buffer.speech_started":

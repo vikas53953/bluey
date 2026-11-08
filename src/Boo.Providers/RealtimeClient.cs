@@ -509,7 +509,10 @@ public sealed class RealtimeClient : IAsyncDisposable
 
                 var json = Encoding.UTF8.GetString(message.GetBuffer(), 0, checked((int)message.Length));
                 var parsed = RealtimeProtocol.Parse(json);
-                if (parsed is not null)
+                // Voice focus tool calls are answered here (VoiceCommandHandler) and are not published, so the app's
+                // screen_help path never sees them as a second request for the same call id.
+                var isVoiceCall = RealtimeProtocol.TryGetVoiceCommand(json, out var voiceCallId, out var command, out var voiceError);
+                if (parsed is not null && !isVoiceCall)
                 {
                     if (parsed.Kind == "session.updated")
                         readiness.TrySetResult(true);
@@ -534,7 +537,7 @@ public sealed class RealtimeClient : IAsyncDisposable
                     }
                     await CompleteToolAsync(callId, resultText, cancellationToken).ConfigureAwait(false);
                 }
-                else if (RealtimeProtocol.TryGetVoiceCommand(json, out var voiceCallId, out var command, out var voiceError))
+                else if (isVoiceCall)
                 {
                     string resultText;
                     var handler = VoiceCommandHandler;
