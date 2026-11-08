@@ -45,6 +45,12 @@ Native checklists for each lane: docs/verification/2026-11-08-*-native-checklist
 
 ---
 
+### Night integration and reviews (8 Nov, 19:00 to 20:10 UTC, PR #3 = lane/face)
+
+Folded into lane/face in this order: security pass 1 (PR #7), parity motion, hardening, face polish, Riley gap-close (U8), user guide, installer (PR #8), Claude/Gemini providers, performance (PR #9), accessibility, docs cross-check, security pass 2, demo-in-CI, fuzz, end-to-end review. Three independent reviews of the hand-merged head and the fuzz run on windows-latest found and fixed: nudge pills never appearing (caption completion read a thresholded opacity), a pasted GitHub token discarded when a model id was rejected, Gemini/GitHub keys unredacted in crash logs, `...` resolving to the scoped file root on Windows, a capture-dispose race, the happy face lost when a session ended mid-reply, and sessions left Running in sessions.db after Start. Core 1673 + Providers 115 pass; windows-ci green except the evidence-only `demos` job (continue-on-error), whose mock-OpenAI wiring is still being fixed.
+
+**Known residuals (not fixed, from the end-to-end review):** `App.StopAll`'s "Stopped" bubble is dead code for the tray and right-click Stop paths; Realtime `screen_help` tool calls are answered before `response.done`, so a fast failure races and is treated as fatal; Anthropic `pause_turn` is treated as a final reply; `budgets.json` `idleGen0PerMinute` 3 over 15 s can flake on a single gen0 GC. Nothing in this section has been tried on a real Windows PC.
+
 ## Earlier status (7 Nov, Codex build 15)
 
 Updated 7 November 2026. Phase: **integration and native Windows QA**. Delivery is **not accepted**.
