@@ -109,6 +109,7 @@ Also blocked by the same guard: regedit, Task Manager, MMC consoles, installers,
 | 8.1 | Ask Boo a question that gets a long spoken answer. While it is speaking, press **Ctrl+Alt+F12**. | Speech stops at once. Under Talk: "Microphone stopped. Screen activity is shown in the sharing indicator." Any pointer, ring or Review action card disappears. The notch goes back to its idle face. | ☐ PASS ☐ FAIL |
 | 8.2 | Hold Ctrl+Alt+Space, and while still holding Ctrl+Alt, press **F12**. Then let go of everything. | Listening cancels immediately; nothing is sent when you let go; the taskbar mic icon goes away within a couple of seconds. | ☐ PASS ☐ FAIL |
 | 8.3 | Ask for another long answer. While Boo is speaking, press **Ctrl+Alt+S** (Riley's Control+Option+S). | Same effect as 8.1, and the notch flashes a small **"Stopped"** bubble for about 1.6 seconds before returning to the idle face. | ☐ PASS ☐ FAIL |
+| 8.4 | With the full window open, press **F6** three times, then **Shift+F6**, then **Esc**. | Keyboard focus jumps Ask -> Focus -> Settings -> Ask, then back to Settings, with a visible accent ring each time; Esc hides the window. (Full screen-reader, text-size and high-contrast checks are in [the accessibility checklist](2026-11-08-accessibility-native-checklist.md).) | ☐ PASS ☐ FAIL |
 
 If Ctrl+Alt+F12 or Ctrl+Alt+S is taken by another app, the notch shows **"Shortcut busy: use tray"** (or "Shortcuts busy" when more than one is taken) and Settings explains which key; use the tray menu **Stop** instead and note it.
 
