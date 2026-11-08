@@ -1,0 +1,16 @@
+{
+  "OS": "Microsoft Windows 11 Pro",
+  "Version": "10.0.26200",
+  "Architecture": "64-bit",
+  "CPU": "Intel(R) Core(TM) Ultra 9 185H",
+  "LogicalProcessors": 22,
+  "Sdk": "10.0.403",
+  "SQLitePackages": [
+    "Microsoft.Data.Sqlite/10.0.14",
+    "Microsoft.Data.Sqlite.Core/10.0.14",
+    "SQLitePCLRaw.bundle_e_sqlite3/2.1.13",
+    "SQLitePCLRaw.core/2.1.13",
+    "SQLitePCLRaw.lib.e_sqlite3/2.1.13",
+    "SQLitePCLRaw.provider.e_sqlite3/2.1.13"
+  ]
+}

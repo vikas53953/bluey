@@ -1,0 +1,96 @@
+What a coding pipeline looks like now
+A coding pipeline is the chain of steps an idea goes through before it reaches users. Today most steps are done by agents, and humans sit at the start (deciding what to build) and the end (approving risky changes).
+S/
+Spec / goal
+Human writes what 'done' means
+Plan
+Agent writes a plan file
+Tests first
+Failing test that defines success
+Agent writes code
+In its own worktree
+Run checks
+Build, lint, typecheck, tests
+Independent reviewer
+Fresh agent, never saw the reasoning
+Drive the real app
+E2E, screenshots, logs
+CI gate + human sign-off?
+Ship, then watch production
+fail
+issues
+pass
+Notice that four of the nine boxes are about checking. That ratio is the story of 2026.
+The software factory idea
+A software factory means treating software production like a factory line: work items go in, agents do each step, and automatic quality checks sit between steps. The human role moves from worker to factory designer.
+OpenAI's "Harness engineering" post is the clearest real example. Three engineers (later seven) drove Codex to build about a million lines in five months, around 1,500 merged PRs, with no hand-written code. Their summary: "Humans steer. Agents execute."
+The harness is everything around the model: tools, docs, linters, tests, review loops.
+When an agent fails, the fix is never 'try harder'. Ask what capability is missing and add it.
+Taste is encoded as rules and linters, so it applies to every line automatically.
+Background agents do 'garbage collection': they scan for bad patterns and open small cleanup PRs.
+Factory lesson from Goldratt (quoted in your video)
+Every system has one bottleneck. Speeding up anything else does nothing. Fix the bottleneck and it moves somewhere new.
+Factory stations, door by door
+Idea from Instinct: think of a car factory. Every source describes the same seven stations from a different angle. Raw intent goes in, each station does one job, quality control sits before the exit, and anything that fails loops back.
+1S
+1. Spec
+Human writes what to build and what 'good'
+means
+2. Plan + isolate
+Plan file; own git worktree per feature
+3. Build
+Agent codes, following structure and anti-slop
+rules
+4. Verify / prove
+Tests, before/after screenshots or video,
+measured numbers
+5. Review
+Deterministic checks + independent AI reviewer +
+supply chain
+6. Release
+7. Monitor
+no proof
+issues
+meta loop: new rule or skill
+
+| Station        | What a good station has                                                                           | Who said it                             |
+| -------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Spec           | Written intent plus success criteria, like OpenAI's Model Spec where each clause has test prompts | Sean Grove (via Instinct)               |
+| Plan + isolate | 20–30 minutes of planning; a fresh worktree per feature, never build on main                      | Dex Horthy; Ross Mike (via Instinct)    |
+| Build          | Structure rules, because 'if a model can do it sloppily, it will'                                 | Ross Mike (via Instinct)                |
+| Verify / prove | 'Agents cannot pinky promise': before and after evidence                                          | Ross Mike (via Instinct); Thorsten Ball |
+| Review         | Three layers: deterministic, agentic, supply chain. Loop until the reviewer is fully confident    | Sonar; Ross Mike (via Instinct)         |
+| Release        | Merge queue, feature flags, label agent-written PRs, a named human accountable                    | Addy Osmani (via Instinct); Yegge       |
+| Monitor        | The 3am page should arrive with the agent's proposed fix PR attached                              | Dex Horthy (via Instinct)               |
+
+Three loops and the review/verify/QA loop
+Idea from Instinct (Dru Knox, Tessl): a factory runs on three loops. The inner loop is cheap and fast checks while the agent builds. The outer loop is heavy checks once, when the PR opens (agentic QA, mutation testing). The meta loop watches what slipped through and improves the other two.
+Inner loop
+Typecheck, lint, unit tests on every
+edit. Raises autonomy.
+Outer loop
+E2E, agentic QA, mutation tests,
+security scan per PR. Raises
+automation.
+Meta loop
+Logs, PR comments, incidents
+become new rules and skills. Raises
+quality.
+PR opens
+after ship
+feed fixes back
+Zoom into one PR. This is the review, verify and QA loop that the best setups share (OpenAI's review loop, Anthropic's /code-review, Ross Mike's confidence-score loop, Sonar's layers).
+Builder agent finishes a change
+Deterministic gate
+Typecheck, lint, unit tests, secret and
+dependency scan
+Proof run
+Drive the real app: E2E, screenshots, numbers
+Independent reviewers
+Fresh context, read-only, checks against spec; 2 if
+possible
+All green and fully confident?
+High blast radius?
+HR
+Human reviews evidence + risky code
+Merge behind a flag, then monitor

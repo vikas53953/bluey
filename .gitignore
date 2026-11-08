@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+.dotnet/
+.tools/
+.nuget/
+**/bin/
+**/obj/
+TestResults/
+artifacts/
+.context/
+.worktrees/
+docs/preview/boo/state/
+*.user
+*.suo

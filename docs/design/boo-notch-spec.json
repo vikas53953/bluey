@@ -1,0 +1,259 @@
+{
+  "directions": {
+    "A": {
+      "name": "Pebble",
+      "sub": "HeyClicky pocket",
+      "shape": {
+        "bottomRadius": 16,
+        "shoulder": 10,
+        "grow": "sideways",
+        "centered": false
+      },
+      "eye": {
+        "kind": "pebble",
+        "w": 12,
+        "h": 18,
+        "radius": 6,
+        "gap": 12,
+        "gazeX": 3,
+        "gazeY": 2
+      },
+      "sizes": {
+        "hidden": [
+          96,
+          32
+        ],
+        "hover": [
+          96,
+          32
+        ],
+        "idle": [
+          96,
+          32
+        ],
+        "listening": [
+          176,
+          32
+        ],
+        "thinking": [
+          136,
+          32
+        ],
+        "responding": [
+          360,
+          90
+        ],
+        "capture": [
+          150,
+          32
+        ],
+        "nudge": [
+          352,
+          104
+        ],
+        "paused": [
+          128,
+          32
+        ],
+        "happy": [
+          104,
+          32
+        ]
+      }
+    },
+    "B": {
+      "name": "Button eyes",
+      "sub": "HeyClicky pocket",
+      "shape": {
+        "bottomRadius": 18,
+        "shoulder": 10,
+        "grow": "sideways",
+        "centered": false
+      },
+      "eye": {
+        "kind": "button",
+        "w": 16,
+        "h": 16,
+        "pupil": 7,
+        "glint": 2.5,
+        "gap": 7,
+        "gazeX": 3.5,
+        "gazeY": 3.5
+      },
+      "sizes": {
+        "hidden": [
+          84,
+          36
+        ],
+        "hover": [
+          84,
+          36
+        ],
+        "idle": [
+          84,
+          36
+        ],
+        "listening": [
+          172,
+          36
+        ],
+        "thinking": [
+          128,
+          36
+        ],
+        "responding": [
+          348,
+          94
+        ],
+        "capture": [
+          148,
+          36
+        ],
+        "nudge": [
+          348,
+          108
+        ],
+        "paused": [
+          120,
+          36
+        ],
+        "happy": [
+          96,
+          36
+        ]
+      }
+    },
+    "C": {
+      "name": "Peek",
+      "sub": "pocket, grows down",
+      "shape": {
+        "bottomRadius": 12,
+        "shoulder": 10,
+        "grow": "down",
+        "centered": true
+      },
+      "eye": {
+        "kind": "peek",
+        "w": 14,
+        "h": 9,
+        "radius": 5,
+        "gap": 14,
+        "gazeX": 4,
+        "gazeY": 1.5,
+        "peekFrom": 14
+      },
+      "sizes": {
+        "hidden": [
+          104,
+          26
+        ],
+        "hover": [
+          104,
+          26
+        ],
+        "idle": [
+          104,
+          26
+        ],
+        "listening": [
+          104,
+          48
+        ],
+        "thinking": [
+          104,
+          44
+        ],
+        "responding": [
+          300,
+          104
+        ],
+        "capture": [
+          104,
+          48
+        ],
+        "nudge": [
+          300,
+          112
+        ],
+        "paused": [
+          104,
+          26
+        ],
+        "happy": [
+          104,
+          26
+        ]
+      }
+    }
+  },
+  "hoverStrip": [
+    220,
+    8
+  ],
+  "timings": {
+    "revealMs": 240,
+    "revealEase": "cubic-bezier(.25,.9,.3,1.18) (about 4% overshoot)",
+    "retractDelayMs": 900,
+    "retractMs": 160,
+    "retractEase": "cubic-bezier(.5,0,.75,0)",
+    "resizeMs": 280,
+    "captionFadeMs": 160,
+    "captionDelayMs": 120,
+    "captionCharMs": 28,
+    "blinkCloseMs": 70,
+    "blinkOpenMs": 90,
+    "blinkEveryMs": [
+      2800,
+      6000
+    ],
+    "doubleBlinkChance": 0.15,
+    "entryBlinkDelayMs": 120,
+    "peekRiseMs": 240,
+    "peekRiseDelayMs": 90,
+    "gazeSpring": {
+      "stiffness": 260,
+      "damping": 0.82
+    },
+    "idleWanderAfterMs": 2000,
+    "saccadeEveryMs": [
+      600,
+      2200
+    ],
+    "thinkingDotCycleMs": 1200,
+    "recordPulseMs": 2000,
+    "nudgeShake": "2 \u00d7 \u00b13 px, 320 ms each",
+    "chirp": "880 Hz \u2192 1320 Hz, 90 ms each, 40 ms gap",
+    "drawStrokeMs": 620,
+    "appOpenMs": 280
+  },
+  "chosen": {
+    "face": "B",
+    "shape": "HeyClicky pocket (10 px shoulders)",
+    "typeface": {
+      "family": "Nunito",
+      "weights": [
+        500,
+        600,
+        700,
+        800
+      ],
+      "fallback": [
+        "Segoe UI",
+        "system-ui"
+      ],
+      "source": "Google Fonts (OFL), bundle the TTFs with the app",
+      "captionSize": "13 px / 18 px line",
+      "appHeadingSize": "26 px / 700"
+    },
+    "chirp": {
+      "enabled": true,
+      "on": [
+        "nudge",
+        "happy"
+      ],
+      "userToggle": "Settings > Sound, default on",
+      "spec": "880 Hz then 1320 Hz sine, 90 ms each, 40 ms gap, gain 0.12"
+    },
+    "decidedBy": "Face picked by Vikas 2026-11-08 16:08; typeface and chirp defaulted by design thread while Vikas away (he asked for no blocking questions)"
+  }
+}

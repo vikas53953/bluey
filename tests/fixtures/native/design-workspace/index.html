@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Boo native acceptance design workspace fixture</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", sans-serif;
+      --canvas: #f5f7fb;
+      --ink: #172033;
+      --muted: #5b6680;
+      --panel: #ffffff;
+      --line: #d8deeb;
+      --button-fill: #2D6CDF;
+      --button-ink: #FFFFFF;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 360px;
+      color: var(--ink);
+      background: var(--canvas);
+      line-height: 1.45;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      padding: 18px 24px;
+      background: rgba(245, 247, 251, 0.96);
+      border-bottom: 1px solid var(--line);
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(260px, 360px);
+      gap: 24px;
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    section {
+      padding: 20px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 3px 14px rgba(23, 32, 51, 0.06);
+    }
+
+    .preview {
+      min-height: 520px;
+      display: grid;
+      align-content: start;
+      gap: 20px;
+    }
+
+    .spacer {
+      min-height: 220px;
+      padding: 18px;
+      color: var(--muted);
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+    }
+
+    .target-card {
+      padding: 24px;
+      border: 2px solid #b9c6e0;
+      border-radius: 12px;
+      background: #fbfcff;
+    }
+
+    #design-button {
+      min-width: 180px;
+      min-height: 48px;
+      padding: 10px 18px;
+      color: var(--button-ink);
+      background: var(--button-fill);
+      border: 0;
+      border-radius: 10px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    #design-button:focus-visible,
+    input:focus-visible,
+    button:focus-visible {
+      outline: 3px solid #ff9f43;
+      outline-offset: 3px;
+    }
+
+    .status {
+      min-height: 28px;
+      color: #17633c;
+      font-weight: 600;
+    }
+
+    form {
+      display: grid;
+      gap: 14px;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    input[type="text"],
+    input[type="color"] {
+      min-height: 38px;
+      width: 100%;
+      padding: 7px 9px;
+      border: 1px solid #aeb9ce;
+      border-radius: 7px;
+      color: var(--ink);
+      background: #fff;
+      font: inherit;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .actions button {
+      min-height: 40px;
+      padding: 8px 14px;
+      color: var(--ink);
+      background: #edf1f8;
+      border: 1px solid #b9c6e0;
+      border-radius: 8px;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .actions button[type="submit"] {
+      color: #fff;
+      background: #243b6b;
+      border-color: #243b6b;
+    }
+
+    .fixture-note {
+      color: var(--muted);
+      font-size: 0.86rem;
+    }
+
+    @media (max-width: 720px) {
+      main { grid-template-columns: 1fr; padding: 14px; }
+    }
+  </style>
+</head>
+<body data-fixture="boo-native-design-workspace" data-fixture-revision="1">
+  <header>
+    <h1>Boo native acceptance design workspace</h1>
+    <p class="fixture-note">Disposable local fixture. No network, account, or production behavior.</p>
+  </header>
+
+  <main>
+    <section class="preview" aria-labelledby="preview-heading">
+      <h2 id="preview-heading">Design preview</h2>
+      <p>Use this workspace to test target observation, click-through drawings, and an actual edit with Undo.</p>
+      <div class="spacer" aria-label="Scrollable content above target">
+        Scroll this content to move the target and invalidate an old observation.
+      </div>
+      <div class="target-card" data-fixture-target="primary-action">
+        <h3>Primary action</h3>
+        <p>The deterministic target begins as “Create account”.</p>
+        <button id="design-button" type="button" aria-describedby="action-status">Create account</button>
+        <p id="action-status" class="status" role="status" aria-live="polite"></p>
+      </div>
+      <div class="spacer" aria-label="Scrollable content below target">
+        Resize the fixture window or continue scrolling to exercise geometry invalidation.
+      </div>
+    </section>
+
+    <section aria-labelledby="edit-heading">
+      <h2 id="edit-heading">Edit target</h2>
+      <form id="edit-form">
+        <label for="button-text">Button text
+          <input id="button-text" name="buttonText" type="text" value="Create account">
+        </label>
+        <label for="button-fill">Button background colour
+          <input id="button-fill" name="buttonFill" type="color" value="#2d6cdf">
+        </label>
+        <label for="button-ink">Button text colour
+          <input id="button-ink" name="buttonInk" type="color" value="#ffffff">
+        </label>
+        <div class="actions">
+          <button type="submit" id="apply-edit">Apply edit</button>
+          <button type="button" id="undo-edit">Undo</button>
+        </div>
+      </form>
+      <p id="edit-status" class="status" role="status" aria-live="polite">Initial fixture state.</p>
+      <p class="fixture-note">Initial oracle: text “Create account”, fill #2D6CDF, ink #FFFFFF.</p>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const button = document.getElementById('design-button');
+      const form = document.getElementById('edit-form');
+      const text = document.getElementById('button-text');
+      const fill = document.getElementById('button-fill');
+      const ink = document.getElementById('button-ink');
+      const undo = document.getElementById('undo-edit');
+      const actionStatus = document.getElementById('action-status');
+      const editStatus = document.getElementById('edit-status');
+      let previous = null;
+
+      const state = () => ({
+        text: button.textContent,
+        fill: getComputedStyle(document.documentElement).getPropertyValue('--button-fill').trim().toUpperCase(),
+        ink: getComputedStyle(document.documentElement).getPropertyValue('--button-ink').trim().toUpperCase()
+      });
+
+      const applyState = (next) => {
+        button.textContent = next.text;
+        document.documentElement.style.setProperty('--button-fill', next.fill);
+        document.documentElement.style.setProperty('--button-ink', next.ink);
+        text.value = next.text;
+        fill.value = next.fill.toLowerCase();
+        ink.value = next.ink.toLowerCase();
+      };
+
+      button.addEventListener('click', () => {
+        actionStatus.textContent = 'Action observed';
+      });
+
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        previous = state();
+        applyState({ text: text.value, fill: fill.value.toUpperCase(), ink: ink.value.toUpperCase() });
+        editStatus.textContent = 'Edit applied';
+      });
+
+      undo.addEventListener('click', () => {
+        if (!previous) {
+          editStatus.textContent = 'Nothing to undo';
+          return;
+        }
+        const restore = previous;
+        previous = null;
+        applyState(restore);
+        editStatus.textContent = 'Edit undone';
+      });
+    })();
+  </script>
+</body>
+</html>

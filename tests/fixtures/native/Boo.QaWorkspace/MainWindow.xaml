@@ -1,0 +1,161 @@
+<Window x:Class="Boo.QaWorkspace.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Boo QA Workspace"
+        Width="900"
+        Height="680"
+        MinWidth="480"
+        MinHeight="420"
+        Background="#F5F7FB"
+        AutomationProperties.Name="Boo QA Workspace"
+        AutomationProperties.AutomationId="boo-qa-workspace">
+  <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                VerticalScrollBarVisibility="Auto"
+                AutomationProperties.Name="Workspace scroll area">
+    <StackPanel Margin="28" MaxWidth="820">
+      <TextBlock Text="Boo QA Workspace"
+                 FontSize="28"
+                 FontWeight="Bold"
+                 Foreground="#172033"
+                 AutomationProperties.Name="Workspace title" />
+      <TextBlock Margin="0,8,0,22"
+                 Text="Disposable native target for geometry, click-through annotations, editing, Undo, keyboard, and accessibility checks."
+                 TextWrapping="Wrap"
+                 Foreground="#5B6680"
+                 AutomationProperties.Name="Workspace description" />
+
+      <Border Padding="22"
+              Background="White"
+              BorderBrush="#D8DEEB"
+              BorderThickness="1"
+              CornerRadius="12"
+              AutomationProperties.Name="Design target panel">
+        <StackPanel>
+          <TextBlock Text="Design preview"
+                     FontSize="20"
+                     FontWeight="SemiBold"
+                     Foreground="#172033"
+                     AutomationProperties.Name="Design preview heading" />
+          <TextBlock Margin="0,8,0,20"
+                     Text="The target begins as Create account. Click it through a Boo drawing to prove the annotation window is click-through."
+                     TextWrapping="Wrap"
+                     Foreground="#5B6680"
+                     AutomationProperties.Name="Target instructions" />
+          <Button x:Name="TargetButton"
+                  Width="220"
+                  Height="54"
+                  HorizontalAlignment="Left"
+                  Content="Create account"
+                  Background="#2D6CDF"
+                  Foreground="#FFFFFF"
+                  FontSize="16"
+                  FontWeight="SemiBold"
+                  AutomationProperties.Name="Create account"
+                  AutomationProperties.AutomationId="design-button"
+                  Click="TargetButton_OnClick" />
+          <TextBlock x:Name="ActionStatus"
+                     Margin="0,14,0,0"
+                     MinHeight="26"
+                     Foreground="#17633C"
+                     FontWeight="SemiBold"
+                     AutomationProperties.Name="Action status"
+                     AutomationProperties.AutomationId="action-status" />
+        </StackPanel>
+      </Border>
+
+      <Border Margin="0,24,0,0"
+              Padding="22"
+              Background="White"
+              BorderBrush="#D8DEEB"
+              BorderThickness="1"
+              CornerRadius="12"
+              AutomationProperties.Name="Edit target panel">
+        <StackPanel>
+          <TextBlock Text="Edit target"
+                     FontSize="20"
+                     FontWeight="SemiBold"
+                     Foreground="#172033"
+                     AutomationProperties.Name="Edit target heading" />
+          <Label Margin="0,14,0,4"
+                 Padding="0"
+                 Content="Button text"
+                 Target="{Binding ElementName=ButtonText}"
+                 AutomationProperties.Name="Button text label" />
+          <TextBox x:Name="ButtonText"
+                   Height="38"
+                   Text="Create account"
+                   AutomationProperties.Name="Button text"
+                   AutomationProperties.AutomationId="button-text" />
+          <Label Margin="0,12,0,4"
+                 Padding="0"
+                 Content="Button background colour (hex)"
+                 Target="{Binding ElementName=ButtonBackground}"
+                 AutomationProperties.Name="Button background colour label" />
+          <TextBox x:Name="ButtonBackground"
+                   Height="38"
+                   Text="#2D6CDF"
+                   AutomationProperties.Name="Button background colour"
+                   AutomationProperties.AutomationId="button-fill" />
+          <Label Margin="0,12,0,4"
+                 Padding="0"
+                 Content="Button text colour (hex)"
+                 Target="{Binding ElementName=ButtonForeground}"
+                 AutomationProperties.Name="Button text colour label" />
+          <TextBox x:Name="ButtonForeground"
+                   Height="38"
+                   Text="#FFFFFF"
+                   AutomationProperties.Name="Button text colour"
+                   AutomationProperties.AutomationId="button-ink" />
+          <StackPanel Margin="0,18,0,0"
+                      Orientation="Horizontal">
+            <Button x:Name="ApplyEdit"
+                    Width="120"
+                    Height="40"
+                    Margin="0,0,10,0"
+                    Content="Apply edit"
+                    AutomationProperties.Name="Apply edit"
+                    AutomationProperties.AutomationId="apply-edit"
+                    Click="ApplyEdit_OnClick" />
+            <Button x:Name="UndoEdit"
+                    Width="100"
+                    Height="40"
+                    Content="Undo"
+                    AutomationProperties.Name="Undo"
+                    AutomationProperties.AutomationId="undo-edit"
+                    Click="UndoEdit_OnClick" />
+          </StackPanel>
+          <TextBlock x:Name="EditStatus"
+                     Margin="0,14,0,0"
+                     MinHeight="26"
+                     Foreground="#17633C"
+                     FontWeight="SemiBold"
+                     Text="Initial fixture state."
+                     AutomationProperties.Name="Edit status"
+                     AutomationProperties.AutomationId="edit-status" />
+        </StackPanel>
+      </Border>
+
+      <Border Margin="0,24,0,0"
+              Padding="22"
+              MinHeight="260"
+              Background="#EEF2F9"
+              BorderBrush="#D8DEEB"
+              BorderThickness="1"
+              CornerRadius="12"
+              AutomationProperties.Name="Scrollable geometry area">
+        <StackPanel>
+          <TextBlock Text="Scrollable geometry area"
+                     FontSize="18"
+                     FontWeight="SemiBold"
+                     Foreground="#172033"
+                     AutomationProperties.Name="Scrollable area heading" />
+          <TextBlock Margin="0,10,0,0"
+                     Text="Scroll this window, resize it, or move it between displays to invalidate an old target observation."
+                     TextWrapping="Wrap"
+                     Foreground="#5B6680"
+                     AutomationProperties.Name="Scrollable area instructions" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</Window>

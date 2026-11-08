@@ -1,0 +1,8 @@
+<Window x:Class="Boo.App.AnnotationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ShowInTaskbar="False" ShowActivated="False" Topmost="True" ResizeMode="NoResize"
+        IsHitTestVisible="False" Title="Boo screen explanation">
+    <Canvas x:Name="MarksCanvas" IsHitTestVisible="False" />
+</Window>

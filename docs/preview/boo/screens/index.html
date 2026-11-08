@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Boo — a companion for your screen</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<svg class="symbol-bank" aria-hidden="true"><defs>
+<symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3m-3 0h6"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+<symbol id="i-volume" viewBox="0 0 24 24"><path d="m11 4-6 5H2v6h3l6 5ZM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H5v18h14V8Zm0 0v5h5M8 12h8m-8 4h6"/></symbol>
+<symbol id="i-clear" viewBox="0 0 24 24"><path d="m4 14 9-10 7 7-9 10H8Zm5 7h12M9 9l7 7"/></symbol>
+<symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="3"/></symbol>
+</defs></svg>
+<header class="review-header"><a href="#" class="brand" aria-label="Boo home"><img src="assets/boo-ghost.png" alt=""><strong>Boo</strong><span>Windows companion</span></a><div class="prototype-label"><span></span> Interactive visual concept <b>01</b></div></header>
+<main class="workbench">
+<aside class="review-sidebar">
+<div class="intro"><span class="eyebrow">YOUR FIRST LOOK</span><h1>A little presence.<br>A lot of help.</h1><p>Meet Boo at the top of your screen. Try the moments you asked for.</p></div>
+<nav class="demos" aria-label="Choose a demonstration">
+<button class="demo active" data-demo="explain" aria-pressed="true"><span class="demo-number">01</span><span><strong>Show me, on screen</strong><small>Draw. Point. Explain.</small></span><svg><use href="#i-arrow"/></svg></button>
+<button class="demo" data-demo="voice" aria-pressed="false"><span class="demo-number">02</span><span><strong>Let’s talk</strong><small>A conversation, with captions.</small></span><svg><use href="#i-arrow"/></svg></button>
+<button class="demo" data-demo="research" aria-pressed="false"><span class="demo-number">03</span><span><strong>Take care of it</strong><small>Research → review → action.</small></span><svg><use href="#i-arrow"/></svg></button>
+<button class="demo" data-demo="focus" aria-pressed="false"><span class="demo-number"><svg><use href="#i-clock"/></svg></span><span><strong>A gentle focus buddy</strong><small>Riley’s focus idea, on Windows.</small></span><svg><use href="#i-arrow"/></svg></button>
+</nav>
+<div class="preview-disclosure"><span class="disclosure-dot"></span><p><strong>A visual rehearsal.</strong> AI replies, screen access and PC actions are simulated. Your microphone and desktop are not accessed.</p></div>
+<button class="text-button" id="compare-button">Compare Boo’s appearance <svg><use href="#i-arrow"/></svg></button>
+</aside>
+<section class="preview-area" aria-label="Interactive Boo prototype">
+<div class="stage-heading"><div><span class="eyebrow" id="scene-number">MOMENT 01 / EXPLAIN</span><h2 id="scene-title">“Boo, show me what to change.”</h2></div><button class="quiet-button" id="reset">Reset demo</button></div>
+<div class="desktop" id="desktop" data-ce-variant="pocket-notch" data-form="pocket" data-type="rounded">
+<div class="desktop-menubar"><span class="desktop-title">Your Windows screen <span>·</span> sample workspace</span><span class="desktop-time">09:41</span></div>
+<div class="sample-app" id="sample-app">
+<div class="app-toolbar"><span class="app-monogram">m</span><span>morrow <span class="slash">/</span> Welcome flow</span><span class="toolbar-right">Design draft <span class="draft-dot"></span></span></div>
+<div class="app-left"><span class="app-section">PAGES</span><span class="page-item">↳ Welcome</span><span>↳ Your first day</span><div class="layers"><span class="app-section">LAYERS</span><span>▧ Background</span><span>⊙ Illustration</span><span>Τ Heading</span><span>▭ Start button</span></div><div class="app-left-bottom">Sample design canvas<br>No app is connected</div></div>
+<div class="canvas"><div class="canvas-label">Welcome / Desktop</div><article class="welcome-card"><div class="plant-art" aria-hidden="true"><div class="stem"></div><i></i><i></i><i></i><i></i><div class="pot"></div><div class="sun"></div></div><span class="card-overline">MAKE ROOM FOR A GOOD DAY</span><h3>A calmer start.<br>A clearer mind.</h3><p>A little space for what matters.<br>Let’s plan your day, together.</p><button id="target-button">Start my day <span>→</span></button><span class="card-footnote">A small step is still a step.</span></article><div class="canvas-zoom">− <span>100%</span> +</div></div>
+<div class="app-right"><span class="app-section">DESIGN</span><strong>Welcome</strong><span class="property-label">Frame</span><div class="dimensions"><span>W <b>440</b></span><span>H <b>560</b></span></div><span class="property-label">Fill</span><div class="swatch"><i></i> #FAF8F2</div><span class="property-label">Typography</span><span class="property-text">A warm welcome.<br>One clear next step.</span></div>
+</div>
+<div class="research-workspace" id="research-workspace" hidden><div class="research-page"><span class="eyebrow">RESEARCH NOTE / SAMPLE</span><h3>Better first impressions.</h3><p>Find references for an onboarding experience that feels clear, friendly, and easy to start.</p><div class="research-placeholder"><svg><use href="#i-search"/></svg><span>Your reference shortlist will appear here.</span></div><div id="research-results" hidden></div></div></div>
+<div class="focus-workspace" id="focus-workspace" hidden><div class="focus-paper"><span class="eyebrow">ONE THING AT A TIME</span><h3>Make a little progress.</h3><p>Today’s intention</p><div class="focus-task"><span class="unchecked"></span> Finish the welcome screen</div><div class="focus-lines"><i></i><i></i><i></i></div><span class="focus-paper-footer">Boo keeps you company. You set the pace.</span></div></div>
+<div class="annotation-layer" id="annotations" hidden aria-label="Boo's explanation on the sample screen"><svg id="annotation-svg" class="annotation-svg" aria-hidden="true"><defs><marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M1 1 9 5 1 9" fill="none" stroke="#6156db" stroke-width="1.6"/></marker></defs><path id="annotation-arrow" fill="none" stroke="#6156db" stroke-width="2.5" marker-end="url(#arrowhead)"/></svg><div class="target-ring" id="target-ring"></div><div class="annotation-note" id="annotation-note"><span class="note-number">1</span><strong>Give the next step a little more presence.</strong><p>The button blends into the page. A stronger fill makes it easier to find.</p></div></div>
+<div class="boo-anchor" id="boo-anchor"><button class="notch" id="notch" aria-expanded="false" aria-controls="companion-panel" aria-label="Open Boo"><span class="avatar-slot" id="notch-avatar"></span><span class="notch-copy"><strong>Boo</strong><span id="notch-status">Here when you need me</span></span><span class="notch-signal" id="notch-signal"></span><svg class="notch-mic"><use href="#i-mic"/></svg></button><section class="companion-panel" id="companion-panel" hidden aria-label="Boo conversation"><div class="panel-top"><div class="panel-brand"><span class="avatar-slot small" id="panel-avatar"></span><div><strong>Boo</strong><span id="panel-status">Ready to help</span></div></div><button class="icon-button" id="close-panel" aria-label="Close conversation"><svg><use href="#i-close"/></svg></button></div><div class="panel-body" id="panel-body" aria-live="polite"></div><div class="panel-footer"><span id="privacy-label"><i></i> Screen off · Mic off</span><button id="stop-all" class="stop-button"><svg><use href="#i-stop"/></svg> Stop</button></div></section></div>
+<div class="annotation-controls" id="annotation-controls" hidden><span><i></i> Boo’s marks</span><button id="clear-marks"><svg><use href="#i-clear"/></svg> Clear marks <kbd>Esc</kbd></button></div>
+<div class="desktop-taskbar" aria-hidden="true"><span class="windows-mark">⊞</span><span class="taskbar-search">⌕ <span>Search</span></span><span class="taskbar-folder"></span><span class="taskbar-browser"></span><span class="taskbar-editor">m</span></div>
+<div class="desktop-status" id="desktop-status">Illustrative desktop · no live capture</div>
+</div>
+<div class="demo-runner"><div><span class="runner-icon" id="runner-icon"><svg><use href="#i-spark"/></svg></span><div><strong id="runner-title">Explain the button on this screen</strong><p id="runner-description">Boo points to the exact spot and keeps the explanation beside it.</p></div></div><button class="primary-button" id="run-demo">Show me <svg><use href="#i-arrow"/></svg></button></div>
+<div class="review-caption"><span>Top-center, always within reach. No taskbar home.</span><button id="open-idle">Try opening the notch <span>↑</span></button></div>
+</section>
+</main>
+<section class="directions" id="directions" aria-labelledby="direction-heading"><div class="directions-heading"><div><span class="eyebrow">YOUR CHOICE, BEFORE THE BUILD</span><h2 id="direction-heading">What kind of presence should Boo have?</h2></div><p>These are proposals, not settled defaults.<br>Choose a form, then try it in the screen above.</p></div>
+<div class="direction-grid">
+<button class="direction-card chosen" data-form-choice="pocket" aria-pressed="true"><div class="direction-scene"><div class="mini-screen-line"></div><span class="mini-notch"><img src="assets/boo-ghost.png" alt=""><span>Boo <small>Here for you</small></span></span></div><div class="direction-text"><span class="letter">A</span><div><h3>The pocket notch</h3><p>A quiet home attached to the screen edge. Click for a conversation underneath.</p></div><span class="choice-indicator">✓</span></div></button>
+<button class="direction-card" data-form-choice="float" aria-pressed="false"><div class="direction-scene"><div class="mini-screen-line"></div><img class="mini-float" src="assets/boo-ghost.png" alt=""><span class="mini-bubble">A little help?</span></div><div class="direction-text"><span class="letter">B</span><div><h3>The floating friend</h3><p>Boo is the home button. A side bubble opens, leaving the center of your work free.</p></div><span class="choice-indicator"></span></div></button>
+<button class="direction-card" data-form-choice="strip" aria-pressed="false"><div class="direction-scene"><div class="mini-screen-line"></div><div class="mini-strip"><img src="assets/boo-ghost.png" alt=""><span>Ask Boo anything</span><svg><use href="#i-mic"/></svg></div></div><div class="direction-text"><span class="letter">C</span><div><h3>The assistant strip</h3><p>A visible invitation to talk or type. More room for status, with more screen presence.</p></div><span class="choice-indicator"></span></div></button>
+</div>
+<div class="appearance-row"><fieldset class="identity"><legend>A face for Boo</legend><label><input type="radio" name="avatar" value="ghost" checked><span class="avatar-swatch" data-avatar-swatch="ghost"></span><span>Little ghost<small>Original concept</small></span></label><label><input type="radio" name="avatar" value="berry"><span class="avatar-swatch" data-avatar-swatch="berry"></span><span>Blueberry<small>Riley-inspired</small></span></label><label><input type="radio" name="avatar" value="eyes"><span class="avatar-swatch eyes-swatch" data-avatar-swatch="eyes"></span><span>Just eyes<small>Quiet & minimal</small></span></label></fieldset><fieldset class="type-options"><legend>A voice in type</legend><label class="rounded-choice"><input type="radio" name="type" value="rounded" checked><span>Warm & rounded<small>Fredoka + Segoe UI</small></span></label><label><input type="radio" name="type" value="native"><span>Familiar Windows<small>Segoe UI throughout</small></span></label></fieldset></div>
+<div class="selection-summary"><div><span class="selection-label">NOW PREVIEWING</span><strong id="selection-summary">Pocket notch · Little ghost · Warm & rounded</strong><span>This selection stays in this preview. It does not approve the build.</span></div><button class="primary-button" id="try-selection">Try this combination <svg><use href="#i-arrow"/></svg></button></div>
+</section>
+<footer class="page-footer"><span>Boo / visual MVP <span>·</span> Built for your review, before the Windows app.</span><span>References: <a href="https://github.com/rbrown101010/bluey-by-riley" target="_blank" rel="noreferrer">Riley’s Bluey</a> <span>·</span> <a href="https://www.heyclicky.com/for-windows" target="_blank" rel="noreferrer">HeyClicky</a></span></footer>
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="app.js"></script>
+</body></html>
