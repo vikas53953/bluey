@@ -24,6 +24,16 @@ public static class CrashReport
         @"\bsk-[A-Za-z0-9_\-]{16,}",
         RegexOptions.CultureInvariant, RegexTimeout);
 
+    // Google/Gemini API keys ("AIza" + 35 chars) and GitHub tokens (ghp_/gho_/github_pat_) appear bare in
+    // request URLs and exception messages, where no "key=" prefix precedes them.
+    private static readonly Regex GoogleKey = new(
+        @"\bAIza[A-Za-z0-9_\-]{20,}",
+        RegexOptions.CultureInvariant, RegexTimeout);
+
+    private static readonly Regex GitHubToken = new(
+        @"\b(?:ghp_|gho_|github_pat_)[A-Za-z0-9_]{8,}",
+        RegexOptions.CultureInvariant, RegexTimeout);
+
     private static readonly Regex BearerToken = new(
         @"(?<prefix>\bbearer\s+)[A-Za-z0-9\-._~+/=]{6,}",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, RegexTimeout);
@@ -32,7 +42,7 @@ public static class CrashReport
         @"(?<prefix>\b(?:api[_\-]?key|access[_\-]?token|client[_\-]?secret|password|secret|token)""?\s*[:=]\s*""?)[^\s""&,;]{4,}",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, RegexTimeout);
 
-    /// <summary>Removes API keys, bearer tokens, key=value secrets and (optionally) the user's profile path.</summary>
+    /// <summary>Removes OpenAI/Anthropic, Google and GitHub keys, bearer tokens, key=value secrets and (optionally) the user's profile path.</summary>
     public static string Redact(string? text, string? userProfilePath = null)
     {
         if (string.IsNullOrEmpty(text))
@@ -44,6 +54,8 @@ public static class CrashReport
         try
         {
             result = OpenAiKey.Replace(text, "[redacted-key]");
+            result = GoogleKey.Replace(result, "[redacted-key]");
+            result = GitHubToken.Replace(result, "[redacted-key]");
             result = BearerToken.Replace(result, m => m.Groups["prefix"].Value + "[redacted]");
             result = KeyValueSecret.Replace(result, m => m.Groups["prefix"].Value + "[redacted]");
         }

@@ -69,6 +69,7 @@ jobs:
         with:
           ref: 130a43af667e89c5c516c6e958fd0e52521d1265
           path: before-src
+          persist-credentials: false
 
       - name: Notch gallery before/after (log dump)
         shell: pwsh

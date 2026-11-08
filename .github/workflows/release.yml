@@ -51,6 +51,9 @@ jobs:
             $label = $env:GITHUB_REF_NAME.TrimStart('v')
             # A tag name flows into file names and later scripts; allow only plain version characters.
             if ($label -notmatch '^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$') { throw "Tag '$env:GITHUB_REF_NAME' is not a plain version tag." }
+            # The tag names the Velopack package version; the assembly version comes from the csproj. Keep them equal
+            # (ignoring a -beta1 style suffix) so a Release never ships a Boo whose own version disagrees with its feed.
+            if (($label -split '-')[0] -ne $version) { throw "Tag '$env:GITHUB_REF_NAME' does not match <Version>$version</Version> in src/Boo.App/Boo.App.csproj; bump the csproj first." }
           } else {
             $label = "$version-$($env:GITHUB_SHA.Substring(0,7))"
           }
@@ -89,7 +92,7 @@ jobs:
             $_.Name -like '.env*' -or $_.Extension -in '.pfx','.pem','.key'
           }
           if ($forbidden) { $forbidden | ForEach-Object { Write-Host "Forbidden: $($_.FullName)" }; throw 'Package contains files that must not ship.' }
-          $hits = Get-ChildItem $root -Recurse -File -Include *.json,*.txt,*.config,*.xml | Select-String -Pattern 'sk-(proj-)?[A-Za-z0-9_\-]{20,}' -List
+          $hits = Get-ChildItem $root -Recurse -File -Include *.json,*.txt,*.config,*.xml | Select-String -Pattern 'sk-(proj-|ant-)?[A-Za-z0-9_\-]{20,}|AIza[A-Za-z0-9_\-]{20,}|(ghp_|gho_|github_pat_)[A-Za-z0-9_]{8,}' -List
           if ($hits) { $hits | ForEach-Object { Write-Host "Possible key in: $($_.Path)" }; throw 'Package appears to contain an API key.' }
           $count = (Get-ChildItem $root -Recurse -File).Count
           Write-Host "Package files: $count"
