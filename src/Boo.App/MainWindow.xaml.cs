@@ -1662,7 +1662,6 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var (updateSettings, pendingUpdateToken, updateNote) = ReadUpdateSettingsFromUi();
             var previousProvider = _settings.Provider ?? new ProviderSettings();
             var nextProvider = previousProvider with
             {
@@ -1682,6 +1681,10 @@ public partial class MainWindow : Window
                 StatusText.Text = "Settings were not saved: a model id may only use letters, digits, '-', '.', '_' and ':'. Leave a model box blank for the default.";
                 return;
             }
+
+            // Read (and clear) the pasted GitHub token only once nothing below can return early, so a
+            // rejected model id does not silently swallow a valid token.
+            var (updateSettings, pendingUpdateToken, updateNote) = ReadUpdateSettingsFromUi();
 
             _settings = new AppSettings(
                 DisplayId: _selectedDisplay?.Id,
