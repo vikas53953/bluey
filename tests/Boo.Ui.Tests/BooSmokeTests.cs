@@ -122,7 +122,7 @@ public sealed class BooSmokeTests : IClassFixture<BooAppFixture>
             Assert.True(
                 BooAppFixture.WaitUntil(() => string.Equals(_boo.ReadRunValue(), expected, StringComparison.OrdinalIgnoreCase), UiTimeout),
                 $"Run value was '{_boo.ReadRunValue() ?? "<absent>"}', expected '{expected}'.");
-            Assert.True(SettingsStartWithWindows() == true, $"settings.json did not record StartWithWindows=true: {ReadOrMissing(_boo.SettingsPath)}");
+            Assert.True(SettingsStartWithWindows() is true, $"settings.json did not record StartWithWindows=true: {ReadOrMissing(_boo.SettingsPath)}");
             _output.WriteLine($"Run value after ON: {_boo.ReadRunValue()}");
 
             // Saving again with it ON is idempotent.
@@ -135,7 +135,7 @@ public sealed class BooSmokeTests : IClassFixture<BooAppFixture>
             Assert.True(
                 BooAppFixture.WaitUntil(() => _boo.ReadRunValue() is null, UiTimeout),
                 $"Run value still present after turning it off: '{_boo.ReadRunValue()}'.");
-            Assert.True(SettingsStartWithWindows() == false, $"settings.json did not record StartWithWindows=false: {ReadOrMissing(_boo.SettingsPath)}");
+            Assert.True(SettingsStartWithWindows() is false, $"settings.json did not record StartWithWindows=false: {ReadOrMissing(_boo.SettingsPath)}");
         });
     }
 
@@ -223,7 +223,7 @@ public sealed class BooSmokeTests : IClassFixture<BooAppFixture>
         {
             return false;
         }
-        using var json = JsonDocument.Parse(File.ReadAllText(_boo.AppearancePath));
+        using var json = JsonDocument.Parse(BooAppFixture.ReadShared(_boo.AppearancePath));
         return string.Equals(Property(json.RootElement, "BodyColor"), body, StringComparison.OrdinalIgnoreCase)
             && string.Equals(Property(json.RootElement, "EyeColor"), eyes, StringComparison.OrdinalIgnoreCase);
     }
@@ -234,7 +234,7 @@ public sealed class BooSmokeTests : IClassFixture<BooAppFixture>
         {
             return null;
         }
-        using var json = JsonDocument.Parse(File.ReadAllText(_boo.SettingsPath));
+        using var json = JsonDocument.Parse(BooAppFixture.ReadShared(_boo.SettingsPath));
         foreach (var property in json.RootElement.EnumerateObject())
         {
             if (string.Equals(property.Name, "StartWithWindows", StringComparison.OrdinalIgnoreCase)
@@ -258,5 +258,5 @@ public sealed class BooSmokeTests : IClassFixture<BooAppFixture>
         return null;
     }
 
-    private static string ReadOrMissing(string path) => File.Exists(path) ? File.ReadAllText(path) : "<missing>";
+    private static string ReadOrMissing(string path) => File.Exists(path) ? BooAppFixture.ReadShared(path) : "<missing>";
 }

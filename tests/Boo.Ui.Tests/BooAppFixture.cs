@@ -60,7 +60,6 @@ public sealed class BooAppFixture : IDisposable
 
         Automation = new UIA3Automation();
         App = Application.Launch(start);
-        App.WaitWhileMainHandleIsMissing(TimeSpan.FromSeconds(30));
     }
 
     public string ExePath { get; }
@@ -140,7 +139,7 @@ public sealed class BooAppFixture : IDisposable
                     return true;
                 }
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
             {
                 // File may be mid-replace; poll again.
             }
@@ -168,6 +167,14 @@ public sealed class BooAppFixture : IDisposable
         var path = Path.Combine(ArtifactsDirectory, Sanitize(name) + ".png");
         Capture.Rectangle(rectangle).ToFile(path);
         return path;
+    }
+
+    /// <summary>Reads a file Boo may be replacing (temp + File.Move) without blocking Boo's own move.</summary>
+    public static string ReadShared(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 
     public string? ReadRunValue()
