@@ -46,6 +46,9 @@ public sealed class FocusSessionController
 
     public FocusStatus Status => throw new NotImplementedException();
 
+    /// <summary>True while the session is running (not paused, not ended).</summary>
+    public bool ShouldMonitor => throw new NotImplementedException();
+
     public bool DeveloperMode => throw new NotImplementedException();
 
     /// <summary>Focus seconds per real second: 4 in Developer Mode, otherwise 1.</summary>
@@ -85,6 +88,7 @@ public sealed class FocusSessionController
     /// </summary>
     public void SetDeveloperMode(bool enabled) => throw new NotImplementedException();
 
+    /// <summary>Pauses a running session and clears the nudge evidence run (time away is not evidence).</summary>
     public void Pause(string reason) => throw new NotImplementedException();
 
     public void Resume() => throw new NotImplementedException();
