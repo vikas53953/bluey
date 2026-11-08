@@ -67,6 +67,13 @@ public partial class AnnotationWindow : Window
     {
     }
 
+    /// <summary>
+    /// Windows "Animation effects" off or Boo's Reduced motion: the pointer does not fly and the ring is not
+    /// stroked over time; the validated marks simply appear at the target (same path as "no on-display anchor").
+    /// Set before the window is shown.
+    /// </summary>
+    public bool ReducedMotion { get; set; }
+
     private AnnotationWindow(ScreenContext context, IReadOnlyList<PhysicalMark> marks, PointerSequenceTimings timings)
     {
         _context = context;
@@ -157,6 +164,12 @@ public partial class AnnotationWindow : Window
         RenderMarks();
         if (_marks.Count == 0)
         {
+            return;
+        }
+
+        if (ReducedMotion)
+        {
+            ApplyMarkProgress(1);
             return;
         }
 
