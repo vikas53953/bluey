@@ -133,6 +133,42 @@ public partial class MainWindow : Window
     public double VerticalOffset => OffsetSlider.Value;
     public NotchAppearance CurrentAppearance => _appearance;
 
+    // Face lane (U1/U2): app-level signals for the notch face; App forwards them to NotchWindow.UpdateFace.
+    // Capture and microphone keep flowing through onCaptureActivity/onMicrophoneActivity.
+    public event Action<FaceInputs>? FaceInputsChanged;
+    public bool ReducedMotionEnabled => _settings.ReducedMotion;
+    private FaceInputs _faceInputs = new();
+    private DispatcherTimer? _faceMomentTimer;
+
+    private void SetFace(FaceInputs next, TimeSpan? momentFor = null)
+    {
+        if (momentFor is { } duration)
+        {
+            // Responding / nudge / happy are moments: clear them after a while.
+            _faceMomentTimer ??= CreateFaceMomentTimer();
+            _faceMomentTimer.Stop();
+            _faceMomentTimer.Interval = duration;
+            _faceMomentTimer.Start();
+        }
+        if (next == _faceInputs)
+        {
+            return;
+        }
+        _faceInputs = next;
+        FaceInputsChanged?.Invoke(next);
+    }
+
+    private DispatcherTimer CreateFaceMomentTimer()
+    {
+        var timer = new DispatcherTimer(DispatcherPriority.Background);
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            SetFace(_faceInputs with { Responding = false, NudgeShowing = false, Happy = false });
+        };
+        return timer;
+    }
+
     public void PrepareInitialPlacement()
     {
         InitializeBeforeNotch();
@@ -237,6 +273,7 @@ public partial class MainWindow : Window
             FocusStatus.Text = "Paused by Stop; Resume is explicit.";
         }
         UpdateCaptureIndicator();
+        SetFace(new FaceInputs(FocusPaused: _focus is { Snapshot.Status: Boo.Core.FocusStatus.Paused }));
     }
 
     public void DisposeShell()
@@ -635,6 +672,7 @@ public partial class MainWindow : Window
             StopListening();
         }
         var lease = BeginRequest();
+        SetFace(_faceInputs with { Thinking = true, Responding = false });
         AppendTranscript("You", text);
         InputBox.Clear();
         StatusText.Text = "Thinking about the selected context…";
@@ -728,6 +766,7 @@ public partial class MainWindow : Window
         finally
         {
             EndCaptureActivity(activity);
+            SetFace(_faceInputs with { Thinking = false });
         }
     }
 
@@ -821,6 +860,7 @@ public partial class MainWindow : Window
     private void RenderReply(AssistantReply reply, long generation, CapturedFrame? frame, bool explicitTask, ControlObservation? controls)
     {
         ClearAnnotations();
+        SetFace(_faceInputs with { Thinking = false, Responding = true }, TimeSpan.FromSeconds(4));
         AppendTranscript("Boo", reply.Text);
         SourceLinksList.Children.Clear();
         foreach (var source in reply.Sources)
@@ -1118,6 +1158,7 @@ public partial class MainWindow : Window
             _focusCaptureTimer.Start();
             UpdateFocusView();
             FocusStatus.Text = "Running; monitoring pauses on Stop, lock, sleep, or Pause.";
+            SetFace(_faceInputs with { FocusPaused = false, Happy = false });
         }
         catch (Exception ex)
         {
@@ -1139,6 +1180,7 @@ public partial class MainWindow : Window
             SaveFocusSnapshot();
             UpdateFocusView();
             FocusStatus.Text = "Paused. Resume is explicit; unlock/reconnect will not resume it.";
+            SetFace(_faceInputs with { FocusPaused = true });
         }
         catch (Exception ex)
         {
@@ -1161,6 +1203,7 @@ public partial class MainWindow : Window
             _focusTimer.Start();
             UpdateFocusView();
             FocusStatus.Text = "Running after explicit Resume.";
+            SetFace(_faceInputs with { FocusPaused = false });
         }
         catch (Exception ex)
         {
@@ -1182,6 +1225,7 @@ public partial class MainWindow : Window
             SaveFocusSnapshot();
             UpdateFocusView();
             FocusStatus.Text = "Ended. Start a new session explicitly.";
+            SetFace(_faceInputs with { FocusPaused = false, Happy = true }, TimeSpan.FromSeconds(2.5));
         }
         catch (Exception ex)
         {
@@ -1202,6 +1246,10 @@ public partial class MainWindow : Window
             if (_focus.Snapshot.Status != Boo.Core.FocusStatus.Running)
             {
                 _focusTimer.Stop();
+                if (_focus.Snapshot.Status == Boo.Core.FocusStatus.Ended)
+                {
+                    SetFace(_faceInputs with { FocusPaused = false, Happy = true }, TimeSpan.FromSeconds(2.5));
+                }
             }
         }
         catch (Exception ex)
@@ -1259,6 +1307,7 @@ public partial class MainWindow : Window
             if (_nudge?.Observe(check, age) == true)
             {
                 FocusStatus.Text = "Nudge: return to the task when you are ready. Boo did not change your apps.";
+                SetFace(_faceInputs with { NudgeShowing = true }, TimeSpan.FromSeconds(6));
             }
             else
             {
@@ -1862,6 +1911,7 @@ public partial class MainWindow : Window
                         ListeningStatus.Text = realtimeEvent.Kind.EndsWith("started", StringComparison.Ordinal)
                             ? "Listening…"
                             : "Thinking…";
+                        SetFace(_faceInputs with { Thinking = !realtimeEvent.Kind.EndsWith("started", StringComparison.Ordinal) });
                         break;
                     case "conversation.item.input_audio_transcription.delta":
                     case "conversation.item.input_audio_transcription.completed":
@@ -1877,6 +1927,10 @@ public partial class MainWindow : Window
                         }
                         break;
                     case "response.output_audio.delta":
+                        if (!_faceInputs.Responding)
+                        {
+                            SetFace(_faceInputs with { Thinking = false, Responding = true });
+                        }
                         if (realtimeEvent.Audio is not null && SpeechMute.IsChecked != true)
                         {
                             try
@@ -1894,6 +1948,7 @@ public partial class MainWindow : Window
                         break;
                     case "response.done":
                         StatusText.Text = realtimeEvent.Text ?? "Reply complete. Text and spoken output share the same turn.";
+                        SetFace(_faceInputs with { Thinking = false }, TimeSpan.FromSeconds(1.5));
                         break;
                     case "disconnect":
                     case "error":

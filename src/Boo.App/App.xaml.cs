@@ -47,7 +47,10 @@ public partial class App : System.Windows.Application
             selectedDisplay: () => _panel?.SelectedDisplay,
             appearance: _panel.CurrentAppearance,
             onDisplayLayoutChanged: () => _panel?.RefreshSelectedDisplay(),
-            verticalOffset: () => _panel?.VerticalOffset ?? 0);
+            verticalOffset: () => _panel?.VerticalOffset ?? 0,
+            appReducedMotion: () => _panel?.ReducedMotionEnabled == true);
+        _panel.FaceInputsChanged += OnFaceInputsChanged;
+        // TODO(talk lane): subscribe _notch.EyesHeldChanged here to drive hold-to-talk (press-and-hold on the eyes).
         _notch.ShowNotch();
 
         CreateTrayIcon();
@@ -106,6 +109,10 @@ public partial class App : System.Windows.Application
             onMicrophoneActivity: active => _notch?.SetMicrophoneActivity(active),
             onAppearanceChanged: appearance => _notch?.SetAppearance(appearance));
         panel.Closed += (_, _) => _panel = null;
+        if (_notch is not null)
+        {
+            panel.FaceInputsChanged += OnFaceInputsChanged;
+        }
         panel.StateChanged += (_, _) =>
         {
             if (panel.WindowState != WindowState.Minimized)
@@ -115,6 +122,8 @@ public partial class App : System.Windows.Application
         };
         return panel;
     }
+
+    private void OnFaceInputsChanged(Boo.Core.FaceInputs inputs) => _notch?.UpdateFace(inputs);
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
     {
