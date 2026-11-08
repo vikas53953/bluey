@@ -2010,10 +2010,9 @@ public partial class MainWindow : Window
                         }
                         break;
                     case "response.output_audio.delta":
-                        if (!_faceInputs.Responding)
-                        {
-                            SetFace(_faceInputs with { Thinking = false, Responding = true });
-                        }
+                        // Moment refreshed by every audio delta so an error/disconnect before response.done
+                        // cannot leave the notch stuck on Responding.
+                        SetFace(_faceInputs with { Thinking = false, Responding = true }, TimeSpan.FromSeconds(4));
                         if (realtimeEvent.Audio is not null && SpeechMute.IsChecked != true)
                         {
                             try

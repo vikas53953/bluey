@@ -12,13 +12,15 @@
         so the window can stay at its maximum size: only the hover strip (alpha 1/255), the pocket
         and the disclosure catch the pointer. No text is drawn on the collapsed notch.
     -->
-    <Canvas x:Name="Root" ClipToBounds="True"
-            MouseRightButtonUp="NotchSurface_OnMouseRightButtonUp">
+    <Canvas x:Name="Root" ClipToBounds="True">
         <!-- Invisible hover strip (spec hoverStrip, DIP) at the top centre. -->
         <Rectangle x:Name="HoverStrip" Fill="#01000000" Canvas.Top="0" />
 
         <!-- Notch: pocket body + face. Translate = reveal slide / nudge shake; scale = reveal overshoot. -->
-        <Canvas x:Name="NotchHost" Visibility="Collapsed">
+        <!-- Right-click Stop lives on the visible pocket only: a right-click on the invisible hover strip
+             (e.g. on a browser tab under it) must not stop Boo. -->
+        <Canvas x:Name="NotchHost" Visibility="Collapsed"
+                MouseRightButtonUp="NotchSurface_OnMouseRightButtonUp">
             <Canvas.RenderTransform>
                 <TransformGroup>
                     <ScaleTransform x:Name="RevealScale" ScaleX="1" ScaleY="1" />

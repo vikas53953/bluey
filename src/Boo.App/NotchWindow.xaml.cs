@@ -173,6 +173,11 @@ public partial class NotchWindow : Window
         {
             StopRendering();
             _holdTimer.Stop();
+            if (_press.Cancel())
+            {
+                // Keep EyesHeldChanged(true)/(false) paired even if the window closes mid-hold.
+                EyesHeldChanged?.Invoke(false);
+            }
             if (EmergencyStopRegistered)
             {
                 UnregisterHotKey(_handle, EmergencyHotKeyId);
@@ -1068,6 +1073,12 @@ public partial class NotchWindow : Window
         {
             _onDisplayLayoutChanged();
             PositionOnDisplay(_selectedDisplay());
+            if (msg == WmDpiChanged)
+            {
+                // WPF applies the WM_DPICHANGED suggested rect after this hook returns (handled = false),
+                // which would undo the placement above; place again once WPF is done.
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => PositionOnDisplay(_selectedDisplay()));
+            }
             handled = false;
             return IntPtr.Zero;
         }
