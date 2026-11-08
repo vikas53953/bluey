@@ -2401,12 +2401,16 @@ public partial class MainWindow : Window
         return handles;
     }
 
+    // Thrown by ResponsesClient/RealtimeClient when no key is saved; matched exactly, never shown raw.
+    private const string MissingCredentialMessage = "OpenAI credential is not configured.";
+
     private static string SanitizedError(Exception ex, string fallback)
     {
         return ex switch
         {
             ResponseTimeoutException timeout => timeout.Message,
             InvalidOperationException { Message: ResponseInterruptedMessage } => ResponseInterruptedMessage,
+            InvalidOperationException { Message: MissingCredentialMessage } => "No OpenAI key yet. Add it in Settings, then try again.",
             OperationCanceledException => "Stopped safely.",
             UnauthorizedAccessException => "Access was denied. Check the selected target or permission.",
             ProviderException provider => provider.Failure.UserMessage,
