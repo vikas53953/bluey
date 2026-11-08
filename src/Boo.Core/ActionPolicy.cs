@@ -184,6 +184,15 @@ public static class ScopedFiles
             throw new UnauthorizedAccessException("The file path escapes the selected root.");
         }
 
+        // Windows path normalisation drops trailing dots and spaces from a
+        // segment, so "..." or "sub\..." collapse to the root (or to a parent
+        // of the requested name) even though no segment was "." or "..".
+        // A scoped path must name something inside the root, never the root.
+        if (candidate.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Length < rootPrefix.Length)
+        {
+            throw new ArgumentException("The file path resolves to the selected root itself.", nameof(relativePath));
+        }
+
         // Walk every existing component.  This catches directory junctions,
         // symlinks, and a reparse-point final file before a caller uses it.
         var current = rootFull;
