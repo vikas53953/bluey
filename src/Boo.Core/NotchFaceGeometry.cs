@@ -97,3 +97,36 @@ public sealed class PressHoldTracker
         return held;
     }
 }
+
+/// <summary>
+/// Studio row layout of the notch (docs/design/boo-notch-studio.html, ".boo .r"): a top row as tall as the collapsed
+/// notch (spec hover height) holding [lead slot][eyes][trail slot] with 12 DIP side padding, 10 DIP gaps and
+/// CSS justify-content: space-between; anything taller than the row is the caption area. DIP, origin = body top-left.
+/// Lead = record dot while capturing; Trail = bars / dots / pause bars / stop square.
+/// Caption = (16, row + 2, width - 32, height - row - 2), clamped to non-negative size.
+/// </summary>
+public sealed record NotchRowParts(PointD LeftEye, PointD RightEye, RectD Lead, RectD Trail, RectD Caption, double RowHeight);
+
+public static class NotchRowLayout
+{
+    public const double Padding = 12;
+    public const double Gap = 10;
+    public const double CaptionInsetX = 16;
+    public const double CaptionTop = 2;
+
+    /// <summary>Lead/trail content widths for face B style sideways faces (studio slot contents):
+    /// capture (7 record dot, 18 stop square); listening and responding (0, 25 = five 3-DIP bars, 2.5 gaps);
+    /// thinking (0, 20 = three 4-DIP dots, 4 gaps); paused (0, 9 = two 3-DIP bars, 3 gap); everything else (0, 0).</summary>
+    public static (double Lead, double Trail) SlotWidths(NotchFaceState state) => FaceMotionImpl.SlotWidths(state);
+
+    /// <summary>
+    /// Sideways faces: lead at x = 12; trail right-aligned at width - 12 - trail; eyes block (2·eye.w + eye.gap) placed by
+    /// space-between: eyesX = 12 + lead + 10 + free/2 where free = width - 24 - lead - eyes - trail - 20; when free &lt; 0,
+    /// items pack from the left (eyesX = 12 + lead + 10, trail right after the eyes + 10). Eye centres at y = row/2.
+    /// Down-growing / centred faces (C): eyes centred on width, y = row/2; lead is empty at (12, 0, 0, row);
+    /// trail is centred below the row: (width/2 - trail/2, row, trail, max(0, height - row - 6)).
+    /// Lead/Trail rects span the full row height for sideways faces.
+    /// </summary>
+    public static NotchRowParts Place(NotchFaceSpec face, SizeD body, double leadWidth, double trailWidth)
+        => FaceMotionImpl.PlaceRow(face, body, leadWidth, trailWidth);
+}
