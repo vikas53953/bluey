@@ -14,8 +14,9 @@ namespace Boo.Ui.Tests;
 /// Launches one published Boo.exe for the whole smoke run, isolated from the user's real data:
 /// BOO_DATA_DIR points at a fresh temp folder and BOO_QA_CAPTURABLE=1 makes Boo's windows
 /// visible to screenshots. The HKCU Run value "Boo" is snapshotted before and restored after.
+/// Subclasses may pre-seed the data folder (for example with corrupt files) before Boo starts.
 /// </summary>
-public sealed class BooAppFixture : IDisposable
+public class BooAppFixture : IDisposable
 {
     public const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     public const string RunValueName = "Boo";
@@ -28,11 +29,19 @@ public sealed class BooAppFixture : IDisposable
     private readonly bool _hadRunValue;
 
     public BooAppFixture()
+        : this(seedDataDirectory: null)
+    {
+    }
+
+    /// <param name="seedDataDirectory">Writes files into the fresh BOO_DATA_DIR before Boo is launched.</param>
+    protected BooAppFixture(Action<string>? seedDataDirectory)
     {
         ExePath = ResolveExePath();
         ArtifactsDirectory = ResolveArtifactsDirectory();
         Directory.CreateDirectory(ArtifactsDirectory);
 
+        // A previous fixture in this run may have just killed its Boo; give it a moment to exit fully.
+        WaitUntil(() => Process.GetProcessesByName("Boo").Length == 0, TimeSpan.FromSeconds(15));
         var existing = Process.GetProcessesByName("Boo");
         if (existing.Length > 0)
         {
@@ -49,6 +58,7 @@ public sealed class BooAppFixture : IDisposable
 
         DataDirectory = Path.Combine(Path.GetTempPath(), "boo-ui-smoke-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(DataDirectory);
+        seedDataDirectory?.Invoke(DataDirectory);
 
         var start = new ProcessStartInfo(ExePath)
         {
