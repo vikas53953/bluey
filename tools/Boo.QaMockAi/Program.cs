@@ -247,7 +247,10 @@ public static class Program
     {
         var schemaName = json?["text"]?["format"]?["name"]?.GetValue<string>();
         var structured = schemaName is not null;
-        var lower = inputText.ToLowerInvariant();
+        // Route on the USER's words only (Boo's instructions mention edits, sources and screens themselves), and on
+        // whichever keyword appears first, so "Explain ... MainWindow" is an explain and "Edit the title" is an edit.
+        var lower = CollectInputText(json, includeInstructions: false).ToLowerInvariant();
+        var route = Route(lower);
 
         if (schemaName == "boo_focus_nudge")
         {
@@ -260,7 +263,7 @@ public static class Program
 
         var (frameW, frameH) = ParseFrame(inputText);
 
-        if (lower.Contains("research") || lower.Contains("sources"))
+        if (route == "research")
         {
             var annotations = new JsonArray();
             foreach (var (title, url) in QaConstants.Sources)
@@ -280,7 +283,7 @@ public static class Program
             return Envelope(text, annotations, includeWebSearchCall: true);
         }
 
-        if (lower.Contains("edit") || lower.Contains("rename") || lower.Contains("apply"))
+        if (route == "edit")
         {
             var contents = (_workspaceXaml ?? $"<Window><Button Content=\"{QaConstants.EditOriginalString}\" /></Window>")
                 .Replace(QaConstants.EditOriginalString, QaConstants.EditMarker, StringComparison.Ordinal);
@@ -306,7 +309,7 @@ public static class Program
             return Envelope(structured ? result.ToJsonString() : QaConstants.EditText, null);
         }
 
-        if (lower.Contains("explain") || lower.Contains("what is on my screen") || lower.Contains("what's on my screen"))
+        if (route == "explain")
         {
             var size = Math.Max(8, Math.Round(frameW * QaConstants.RingSizeFraction));
             var x = Math.Round(frameW * QaConstants.RingCenterXFraction - size / 2);
@@ -373,6 +376,29 @@ public static class Program
         }.ToJsonString();
     }
 
+    private static readonly (string Route, string[] Keywords)[] Routes =
+    [
+        ("explain", ["explain", "what is on my screen", "what's on my screen"]),
+        ("research", ["research", "sources"]),
+        ("edit", ["edit", "rename", "apply"]),
+    ];
+
+    /// <summary>The route whose keyword occurs earliest in the user's text; null when none matches.</summary>
+    private static string? Route(string lowerUserText)
+    {
+        string? best = null;
+        var bestIndex = int.MaxValue;
+        foreach (var (route, keywords) in Routes)
+        {
+            foreach (var keyword in keywords)
+            {
+                var index = lowerUserText.IndexOf(keyword, StringComparison.Ordinal);
+                if (index >= 0 && index < bestIndex) { bestIndex = index; best = route; }
+            }
+        }
+        return best;
+    }
+
     private static readonly Regex FramePixels = new(@"framePixels=(\d+)x(\d+)", RegexOptions.Compiled);
 
     private static (int W, int H) ParseFrame(string text)
@@ -387,11 +413,11 @@ public static class Program
     }
 
     /// <summary>All input_text parts (plus instructions) joined; input_image data is skipped.</summary>
-    private static string CollectInputText(JsonNode? json)
+    private static string CollectInputText(JsonNode? json, bool includeInstructions = true)
     {
         if (json is null) return string.Empty;
         var sb = new StringBuilder();
-        if (json["instructions"] is JsonValue instr) sb.Append(instr.ToString()).Append('\n');
+        if (includeInstructions && json["instructions"] is JsonValue instr) sb.Append(instr.ToString()).Append('\n');
         if (json["input"] is JsonArray input)
         {
             foreach (var item in input)

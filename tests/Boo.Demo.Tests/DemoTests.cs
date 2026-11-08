@@ -198,7 +198,7 @@ public sealed class DemoTests : IClassFixture<BooAppFixture>
                 var state = ItemStatus(notch);
                 if (seen.Count == 0 || seen[^1] != state) seen.Add(state);
                 return notch.FindFirstDescendant(cf => cf.ByAutomationId("NudgeBackButton")) ?? (state == "Nudge" ? notch : null);
-            }, UiTimeout, "the focus nudge on the notch");
+            }, TimeSpan.FromSeconds(150), "the focus nudge on the notch"); // two off-task checks 10 s apart plus the nudge round trip; run 2 saw one check in 60 s
             _boo.CaptureScreen("04-nudge-fullscreen");
             var notchWindow = _boo.WaitForNotch(UiTimeout);
             _boo.CaptureRectangle("04-nudge-notch", Inflate(notchWindow.BoundingRectangle, 60));
