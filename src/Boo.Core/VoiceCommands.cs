@@ -173,12 +173,24 @@ public sealed record VoiceFocusDecision(bool Apply, string Reply);
 /// <summary>Decides whether a voice command applies to the current focus session, and phrases the reply.</summary>
 public static class VoiceFocusPolicy
 {
-    public static VoiceFocusDecision Decide(VoiceCommand command, FocusSnapshot? current, double remainingSeconds = 0)
+    /// <summary>Reply when a hands-free turn (server VAD) tries to pause or end a session the user is in.</summary>
+    public const string HandsFreeRefusal = "Hold Boo's eyes or the talk shortcut while you say that to change a running focus session.";
+
+    /// <param name="handsFree">
+    /// True when the microphone is open continuously (Talk mode, server VAD) rather than only while the user holds
+    /// to talk. In that mode the model also hears speakers, videos and other people, so a tool call cannot be
+    /// attributed to the user. Commands that disturb a session the user is in (pause, end) are refused; starting,
+    /// status and going quiet are harmless and stay available.
+    /// </param>
+    public static VoiceFocusDecision Decide(VoiceCommand command, FocusSnapshot? current, double remainingSeconds = 0, bool handsFree = false)
     {
         ArgumentNullException.ThrowIfNull(command);
 
         var status = current?.Status;
         var active = status is FocusStatus.Running or FocusStatus.Paused;
+
+        if (handsFree && active && command.Kind is VoiceCommandKind.FocusPause or VoiceCommandKind.FocusEnd)
+            return new VoiceFocusDecision(false, HandsFreeRefusal);
 
         return command.Kind switch
         {

@@ -75,7 +75,8 @@ public partial class MainWindow
     {
         UpdateTokenHint.Text = token is null
             ? "No GitHub token saved. The Boo repository is private, so a fine-grained token with read access to its contents is needed."
-            : $"GitHub token saved ({GitHubAccessToken.Mask(token)}). Paste a new one to replace it.";
+            : $"GitHub token saved ({GitHubAccessToken.Mask(token)}). Paste a new one to replace it."
+              + (GitHubAccessToken.ScopeNote(token) is { } scope ? " " + scope : string.Empty);
     }
 
     private static UpdateCheckOutcome OutcomeFor(UpdateCheckDecision decision) => decision switch
