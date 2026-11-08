@@ -2,7 +2,7 @@
 
 Updated 8 November 2026 (video-parity build). Phase: **built and Windows-CI-tested; native hands-on QA pending**. Delivery is **not accepted** until Vikas runs the three demos + a 25-minute focus session on his PC.
 
-Source of truth is now GitHub `vikas53953/bluey`. Every push runs `windows-ci` on windows-latest (build, Core + Integration tests, publish win-x64).
+Source of truth is now GitHub `vikas53953/bluey`. Docs (README, user guide, demo script, acceptance runbook, this page) were cross-checked against `lane/face` head `22ef666` on 8 Nov 2026 20:00 UTC: every quoted UI string, hotkey and settings label below exists in the code. Morning test order: [docs/MORNING_CHECKLIST.md](MORNING_CHECKLIST.md). Every push runs `windows-ci` on windows-latest (build, Core + Integration tests, publish win-x64).
 
 ## 8 Nov additions (plan: docs/plans/2026-11-08-feat-boo-video-parity-plan.md)
 
@@ -29,7 +29,7 @@ Edge cases found and fixed, each with new tests (Core 1028 pass / 1 skip; Integr
 | --- | --- | --- |
 | Focus sleep/resume, drift | FocusClock measures real time; a >30 s gap (sleep without a Suspend event) pauses with "Paused after sleep"; Running sessions saved every 30 s and recovered as Paused after a crash | Real sleep / modern standby |
 | Crash handling | Redacted crash logs in <data>/logs (keys, Bearer tokens, profile path removed), StopAll on crash, recoverable UI errors keep Boo alive (max 5/min), startup errors stay fatal, one-time "Boo recovered" notice | A real crash |
-| Hotkey conflicts | One truthful message when Ctrl+Alt+B, Ctrl+Alt+F12 or the Ctrl+Alt+Space hook fail; shown in Settings, status and tray; tray labels drop dead shortcuts; retried on unlock/display change | Another app owning the combo |
+| Hotkey conflicts | One truthful message when Ctrl+Alt+B, Ctrl+Alt+F12, Ctrl+Alt+S or the Ctrl+Alt+Space hook fail; shown in Settings, status and tray; tray labels drop dead shortcuts; retried on unlock/display change | Another app owning the combo |
 | OpenAI / network | 401, quota, rate limit, 5xx, offline and timeout get distinct plain messages; missing key says so; Realtime connect has a 15 s timeout and keep-alive detects dead sockets so voice never sticks on Listening/Thinking | Live OpenAI errors |
 | Microphone | No mic, privacy switch off, in use, unplugged each get their own message; Listening never shows when the mic did not start | Real privacy switch, unplug |
 | Multi-monitor / DPI | Each monitor's own DPI used for pointer, ring, overlay and panel; overlay placed in physical pixels; notch re-centres when its monitor is unplugged and sits below a top taskbar | 100% + 150% two-monitor setup |

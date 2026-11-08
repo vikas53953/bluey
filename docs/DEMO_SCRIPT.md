@@ -12,7 +12,7 @@ Riley's app lives on a phone propped under the Mac. Boo lives in a notch at the 
 - Set **Developer Mode** on in Focus for the focus beat (4x clock, 10 s checks, nudge after about 20 to 40 real seconds of off-task activity). Untick it on camera before the closing shot if you want to show the real-time setting.
 - Open and arrange: Notepad with the text `Draft v1`, a busy web page (a signup page or a dashboard), a YouTube video tab (the distraction), PowerShell (for the security beat), and the Boo full window.
 - Check **Mute chirps** is off and system volume is up so the nudge and session-end chirps are heard.
-- Hide the key: the Protected credential box is masked and clears after save, but do not show the paste.
+- Hide the key: the **OpenAI key (voice + OpenAI text)** box is masked and clears after save, but do not show the paste.
 - Display scaling: 100% gives the cleanest pointer landing. 125% and 150% are built but not yet proven by hand.
 
 Timings assume you speak at a normal pace. Total: about 7 minutes.
