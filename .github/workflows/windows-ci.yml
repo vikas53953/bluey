@@ -57,6 +57,32 @@ jobs:
           $png | ForEach-Object { "{0} {1} bytes" -f $_.Name, $_.Length }
           if ($png.Count -lt 10) { throw "expected 10 gallery PNGs, got $($png.Count)" }
 
+      # Before/after evidence for the face polish: also render the gallery of the pre-polish commit, then print
+      # both contact sheets as base64 between markers so reviewers without artifact access can read them from the log.
+      - name: Notch gallery before/after (log dump)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $before = '130a43af667e89c5c516c6e958fd0e52521d1265'
+          git fetch --depth 1 origin $before
+          git worktree add --detach "$env:RUNNER_TEMP\before" $before
+          dotnet build "$env:RUNNER_TEMP\before\src\Boo.App\Boo.App.csproj" -c Release -o "$env:RUNNER_TEMP\before-bin" | Out-Null
+          $bout = Join-Path $env:GITHUB_WORKSPACE 'artifacts\ui-smoke\notch-gallery-before'
+          $p = Start-Process -FilePath "$env:RUNNER_TEMP\before-bin\Boo.exe" -ArgumentList '--notch-gallery', "`"$bout`"" -Wait -PassThru
+          "before gallery exit $($p.ExitCode)"
+          foreach ($pair in @(@('BEFORE', $bout), @('AFTER', (Join-Path $env:GITHUB_WORKSPACE 'artifacts\ui-smoke\notch-gallery')))) {
+            Add-Type -AssemblyName System.Drawing
+            $src = [System.Drawing.Image]::FromFile((Join-Path $pair[1] '00-contact-sheet.png'))
+            $w = [int]($src.Width / 2); $h = [int]($src.Height / 2)
+            $bmp = New-Object System.Drawing.Bitmap $w, $h
+            $g = [System.Drawing.Graphics]::FromImage($bmp); $g.InterpolationMode = 'HighQualityBicubic'; $g.DrawImage($src, 0, 0, $w, $h); $g.Dispose()
+            $ms = New-Object System.IO.MemoryStream; $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+            $b64 = [Convert]::ToBase64String($ms.ToArray())
+            "=====GALLERY-$($pair[0])-BEGIN====="
+            for ($i = 0; $i -lt $b64.Length; $i += 3000) { $b64.Substring($i, [Math]::Min(3000, $b64.Length - $i)) }
+            "=====GALLERY-$($pair[0])-END====="
+          }
+
       # Native UI smoke run (FlaUI) against the published Boo.exe on the runner's interactive desktop.
       # Not part of Boo.sln, so it is built here. Uses a temp BOO_DATA_DIR and restores HKCU Run.
       - name: Build UI smoke tests
