@@ -411,13 +411,30 @@ public sealed class RealtimeClient : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(callId))
             throw new ArgumentException("A function call id is required.", nameof(callId));
         ArgumentNullException.ThrowIfNull(result);
-        var output = JsonSerializer.Serialize(new
-        {
-            type = "conversation.item.create",
-            item = new { type = "function_call_output", call_id = callId, output = result }
-        });
-        await SendJsonAsync(output, cancellationToken).ConfigureAwait(false);
+        await SendJsonAsync(FunctionCallOutput(callId, result), cancellationToken).ConfigureAwait(false);
         await SendJsonAsync("{\"type\":\"response.create\"}", cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string FunctionCallOutput(string callId, string result) => JsonSerializer.Serialize(new
+    {
+        type = "conversation.item.create",
+        item = new { type = "function_call_output", call_id = callId, output = result }
+    });
+
+    /// <summary>
+    /// Sends the voice tool outputs collected during one response once that response is done, then asks for a single
+    /// follow-up response. Sending response.create per call (or before response.done) can hit "conversation already
+    /// has an active response", which the app treats as a fatal error. A cancelled response (the user interrupted)
+    /// gets its outputs but no follow-up, so Boo does not talk over the new turn.
+    /// </summary>
+    private async Task FlushVoiceOutputsAsync(List<(string CallId, string Output)> pending, bool followUp, CancellationToken cancellationToken)
+    {
+        var outputs = pending.ToArray();
+        pending.Clear();
+        foreach (var (callId, output) in outputs)
+            await SendJsonAsync(FunctionCallOutput(callId, output), cancellationToken).ConfigureAwait(false);
+        if (followUp)
+            await SendJsonAsync("{\"type\":\"response.create\"}", cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>True when this session was configured for push-to-talk (server VAD off).</summary>
@@ -487,6 +504,7 @@ public sealed class RealtimeClient : IAsyncDisposable
     private async Task ReceiveLoopAsync(ClientWebSocket socket, CancellationToken cancellationToken, TaskCompletionSource<bool> readiness)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(16 * 1024);
+        var pendingVoiceOutputs = new List<(string CallId, string Output)>();
         try
         {
             while (!cancellationToken.IsCancellationRequested && socket.State == WebSocketState.Open)
@@ -519,6 +537,11 @@ public sealed class RealtimeClient : IAsyncDisposable
                     else if (parsed.Kind == "error")
                         readiness.TrySetException(new InvalidOperationException("Realtime session configuration was rejected."));
                     Publish(parsed);
+                    if (parsed.Kind == "response.done" && pendingVoiceOutputs.Count > 0)
+                    {
+                        await FlushVoiceOutputsAsync(pendingVoiceOutputs,
+                            followUp: parsed.Text != "Realtime response cancelled.", cancellationToken).ConfigureAwait(false);
+                    }
                 }
                 if (ScreenHelpHandler is not null && RealtimeProtocol.TryGetScreenHelp(json, out var callId, out var question, out var mode))
                 {
@@ -564,7 +587,8 @@ public sealed class RealtimeClient : IAsyncDisposable
                             resultText = VoiceCommandFailedText;
                         }
                     }
-                    await CompleteToolAsync(voiceCallId, resultText, cancellationToken).ConfigureAwait(false);
+                    // Answered once, after this response's response.done (see FlushVoiceOutputsAsync).
+                    pendingVoiceOutputs.Add((voiceCallId, resultText));
                 }
             }
         }

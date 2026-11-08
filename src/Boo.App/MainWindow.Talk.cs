@@ -224,6 +224,7 @@ public partial class MainWindow
 
     private async void StartPushToTalk()
     {
+        CancelPendingSleep();
         PushToTalkUplink? uplink = null;
         var lease = _requestLease;
         try

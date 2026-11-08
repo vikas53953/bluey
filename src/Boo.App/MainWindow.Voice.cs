@@ -113,6 +113,14 @@ public partial class MainWindow
         _sleepTimer.Start();
     }
 
+    /// <summary>A new hold-to-talk turn after "bye" means the user wants Boo again: do not end the session under them.</summary>
+    private void CancelPendingSleep()
+    {
+        _sleepTimer?.Stop();
+        _sleepSource = null;
+        _sleepSawAudio = false;
+    }
+
     private void GoToSleepNow()
     {
         _sleepTimer?.Stop();
