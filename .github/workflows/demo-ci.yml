@@ -57,7 +57,7 @@ jobs:
           $cert = Join-Path $evidence 'mock-api-openai.cer'
           $log = Join-Path $evidence 'mock-requests.log'
           $dll = Get-ChildItem tools\Boo.QaMockAi\bin\Release -Recurse -Filter Boo.QaMockAi.dll | Select-Object -First 1
-          $p = Start-Process -FilePath dotnet -ArgumentList "`"$($dll.FullName)`" --port 443 --cert-out `"$cert`" --log `"$log`"" -PassThru -RedirectStandardOutput "$evidence\mock-stdout.txt" -RedirectStandardError "$evidence\mock-stderr.txt"
+          $p = Start-Process -FilePath dotnet -ArgumentList "`"$($dll.FullName)`" --port 443 --cert-out `"$cert`" --log `"$log`" --workspace `"$env:GITHUB_WORKSPACE\tests\fixtures\native\Boo.QaWorkspace`"" -PassThru -RedirectStandardOutput "$evidence\mock-stdout.txt" -RedirectStandardError "$evidence\mock-stderr.txt"
           "mock pid $($p.Id)"
           $deadline = (Get-Date).AddSeconds(60)
           while (-not (Test-Path $cert) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
