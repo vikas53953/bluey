@@ -32,67 +32,123 @@ public sealed class FocusSessionEndedEventArgs : EventArgs
 /// </summary>
 public sealed class FocusSessionController
 {
+    private readonly FocusSession _session;
+    private NudgePolicy _policy;
+    private bool _developerMode;
+    private bool _endRaised;
+    private double _sinceCheck;
+
     public FocusSessionController(string task, double durationSeconds, bool developerMode = false)
     {
-        throw new NotImplementedException();
+        _session = new FocusSession(task, durationSeconds, developerMode);
+        _developerMode = developerMode;
+        _policy = new NudgePolicy(developerMode: developerMode);
     }
 
     /// <summary>Raised once, synchronously, when the session completes or the user ends it.</summary>
-#pragma warning disable CS0067 // stub until the builder implements it
     public event EventHandler<FocusSessionEndedEventArgs>? SessionEnded;
-#pragma warning restore CS0067
 
-    public FocusSnapshot Snapshot => throw new NotImplementedException();
+    public FocusSnapshot Snapshot => _session.Snapshot;
 
-    public FocusStatus Status => throw new NotImplementedException();
+    public FocusStatus Status => _session.Snapshot.Status;
 
     /// <summary>True while the session is running (not paused, not ended).</summary>
-    public bool ShouldMonitor => throw new NotImplementedException();
+    public bool ShouldMonitor => _session.ShouldMonitor;
 
-    public bool DeveloperMode => throw new NotImplementedException();
+    public bool DeveloperMode => _developerMode;
 
     /// <summary>Focus seconds per real second: 4 in Developer Mode, otherwise 1.</summary>
-    public double ClockRate => throw new NotImplementedException();
+    public double ClockRate => _developerMode ? 4 : 1;
 
     /// <summary>Real seconds between periodic checks: 10 in Developer Mode, otherwise 30.</summary>
-    public double CheckInterval => throw new NotImplementedException();
+    public double CheckInterval => _session.CheckInterval;
 
     /// <summary>Planned focus seconds still to go.</summary>
-    public double Remaining => throw new NotImplementedException();
+    public double Remaining => _session.Remaining;
 
     /// <summary>
     /// True while running once at least <see cref="CheckInterval"/> real running seconds have passed
     /// since the session started or since the last <see cref="RecordCheck"/> / <see cref="SkipCheck"/>.
     /// Paused time does not count.
     /// </summary>
-    public bool IsCheckDue => throw new NotImplementedException();
+    public bool IsCheckDue => ShouldMonitor && _sinceCheck >= CheckInterval;
 
     /// <summary>
     /// Advances by real seconds while running. Non-finite, zero or negative values are ignored.
     /// Raises <see cref="SessionEnded"/> with <see cref="FocusEndReason.Completed"/> when the focus clock reaches the duration.
     /// </summary>
-    public void Tick(double realSeconds) => throw new NotImplementedException();
+    public void Tick(double realSeconds)
+    {
+        if (!ShouldMonitor || !double.IsFinite(realSeconds) || realSeconds <= 0)
+            return;
+
+        // Mirror FocusSession.Advance: the last tick only counts the real time needed to finish.
+        var realStep = Math.Min(realSeconds, _session.Remaining / ClockRate);
+        _session.Advance(realSeconds);
+        _sinceCheck += realStep;
+
+        if (Status == FocusStatus.Ended)
+            RaiseEnded(FocusEndReason.Completed);
+    }
 
     /// <summary>
     /// Records a periodic observation (ignored unless running), restarts the check interval,
     /// and returns true when the nudge policy says to nudge. <paramref name="age"/> is the frame age in seconds.
     /// </summary>
-    public bool RecordCheck(FocusCheck check, double age) => throw new NotImplementedException();
+    public bool RecordCheck(FocusCheck check, double age)
+    {
+        ArgumentNullException.ThrowIfNull(check);
+        if (!ShouldMonitor)
+            return false;
+
+        _sinceCheck = 0;
+        var nudge = _policy.Observe(check, age);
+        _session.AddObservation(nudge && !check.Nudged ? check with { Nudged = true } : check);
+        return nudge;
+    }
 
     /// <summary>Restarts the check interval without recording (for example when capture was unavailable).</summary>
-    public void SkipCheck() => throw new NotImplementedException();
+    public void SkipCheck() => _sinceCheck = 0;
 
     /// <summary>
     /// Switches Developer Mode for the live session. Changes the clock rate and check interval from now on,
     /// and makes the nudge policy use developer thresholds. Marks the snapshot as having used Developer Mode.
     /// </summary>
-    public void SetDeveloperMode(bool enabled) => throw new NotImplementedException();
+    public void SetDeveloperMode(bool enabled)
+    {
+        _session.SetDeveloperMode(enabled);
+        if (_developerMode == enabled)
+            return;
+
+        _developerMode = enabled;
+        _policy = new NudgePolicy(developerMode: enabled);
+    }
 
     /// <summary>Pauses a running session and clears the nudge evidence run (time away is not evidence).</summary>
-    public void Pause(string reason) => throw new NotImplementedException();
+    public void Pause(string reason)
+    {
+        _session.Pause(reason);
+        _policy.Reset();
+    }
 
-    public void Resume() => throw new NotImplementedException();
+    public void Resume() => _session.Resume();
 
     /// <summary>Ends early. Raises <see cref="SessionEnded"/> with <see cref="FocusEndReason.EndedByUser"/> unless already ended.</summary>
-    public void End() => throw new NotImplementedException();
+    public void End()
+    {
+        if (Status == FocusStatus.Ended)
+            return;
+
+        _session.End();
+        RaiseEnded(FocusEndReason.EndedByUser);
+    }
+
+    private void RaiseEnded(FocusEndReason reason)
+    {
+        if (_endRaised)
+            return;
+
+        _endRaised = true;
+        SessionEnded?.Invoke(this, new FocusSessionEndedEventArgs(_session.Snapshot, reason));
+    }
 }
