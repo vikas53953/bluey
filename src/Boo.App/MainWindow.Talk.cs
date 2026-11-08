@@ -224,9 +224,10 @@ public partial class MainWindow
 
     private async void StartPushToTalk()
     {
+        PushToTalkUplink? uplink = null;
+        var lease = _requestLease;
         try
         {
-            var lease = _requestLease;
             var realtime = _realtime;
             var reuse = _realtimeConnected && _realtimePushToTalk && realtime is not null
                 && lease is not null && IsCurrent(lease.Generation) && !lease.Token.IsCancellationRequested;
@@ -236,8 +237,8 @@ public partial class MainWindow
                 realtime = EnsureRealtime(pushToTalk: true);
             }
 
-            var uplink = new PushToTalkUplink();
-            Interlocked.Exchange(ref _uplink, uplink)?.Discard();
+            uplink = new PushToTalkUplink();
+            _ = Interlocked.Exchange(ref _uplink, uplink)?.Discard();
 
             // Open the microphone first so nothing said while connecting is lost; frames buffer in the uplink.
             if (_audio is null || !ReferenceEquals(_audio, _talkAudio))
@@ -267,14 +268,23 @@ public partial class MainWindow
             }
             uplink.Attach(realtime!.SendAudioAsync);
         }
+        catch (Exception) when (uplink is not null && ((lease is not null && !IsCurrent(lease.Generation))
+            || (Volatile.Read(ref _uplink) is { } current && !ReferenceEquals(current, uplink))))
+        {
+            // A newer hold superseded this one while it was connecting (its BeginRequest cancelled our lease).
+            // Only drop this turn's audio; the newer turn owns the microphone and the current uplink.
+            _ = uplink.Discard();
+        }
         catch (OperationCanceledException)
         {
+            _ = uplink?.Discard(); // a release may already own it and be waiting for Attach
             DiscardPushToTalkUplink();
             StopPushToTalkMic();
             ListeningStatus.Text = "Listening stopped.";
         }
         catch (Exception ex)
         {
+            _ = uplink?.Discard();
             StopListening();
             ListeningStatus.Text = "Microphone unavailable. You can still type a request.";
             StatusText.Text = SanitizedError(ex, "Microphone or realtime setup failed.");
