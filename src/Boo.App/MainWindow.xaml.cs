@@ -64,6 +64,8 @@ public partial class MainWindow : Window
     private CancellationTokenSource _focusCancellation = new();
     private bool _focusCaptureInFlight;
     private long _focusCaptureId;
+    private readonly FocusClock _focusClock = new();
+    private double _lastFocusSaveRealElapsed;
     private ToolRequest? _pendingAction;
     private ActionPreviewModel? _pendingPreview;
     private bool _approvalInFlight;
@@ -1251,8 +1253,11 @@ public partial class MainWindow : Window
                 DeveloperModeBox.IsChecked == true);
             _focus.SessionEnded += Focus_OnSessionEnded;
             _focusCaptureInFlight = false;
+            _lastFocusSaveRealElapsed = 0;
+            _focusClock.Start();
             _focusTimer.Start();
             _focusCaptureTimer.Start();
+            SaveFocusSnapshot();
             UpdateFocusView();
             FocusStatus.Text = "Running; monitoring pauses on Stop, lock, sleep, or Pause.";
             SetFace(_faceInputs with { FocusPaused = false, Happy = false });
@@ -1301,6 +1306,7 @@ public partial class MainWindow : Window
             _focusCancellation.Dispose();
             _focusCancellation = new CancellationTokenSource();
             _focusCaptureTimer.Start();
+            _focusClock.Start();
             _focusTimer.Start();
             UpdateFocusView();
             FocusStatus.Text = "Running after explicit Resume.";
@@ -1336,11 +1342,30 @@ public partial class MainWindow : Window
         }
         try
         {
-            _focus.Tick(1);
+            // Count real monotonic time, not one second per tick: DispatcherTimer drifts and can be starved.
+            var tick = _focusClock.Tick();
+            if (tick.GapDetected && _focus.ShouldMonitor)
+            {
+                // Sleep or a long hang that no suspend event reported: do not count it, and pause.
+                _focus.Pause(FocusClock.GapPauseReason);
+                _focusTimer.Stop();
+                StopFocusMonitoring();
+                SaveFocusSnapshot();
+                UpdateFocusView();
+                FocusStatus.Text = "Paused after sleep. Press Resume to continue.";
+                SetFace(_faceInputs with { FocusPaused = true });
+                return;
+            }
+            _focus.Tick(tick.Seconds); // Focus_OnSessionEnded stops, saves and updates on completion.
             UpdateFocusView();
             if (_focus.Snapshot.Status != Boo.Core.FocusStatus.Running)
             {
+                _focusClock.Stop();
                 _focusTimer.Stop();
+            }
+            else if (FocusRecovery.CheckpointDue(_lastFocusSaveRealElapsed, _focus.Snapshot.RealElapsed))
+            {
+                SaveFocusSnapshot(); // Bounds progress lost if Boo is killed mid-session.
             }
         }
         catch (Exception ex)
@@ -1485,7 +1510,9 @@ public partial class MainWindow : Window
         }
         try
         {
-            _sessionStore.Save(_focus.Snapshot);
+            var snapshot = _focus.Snapshot;
+            _sessionStore.Save(snapshot);
+            _lastFocusSaveRealElapsed = snapshot.RealElapsed;
             LoadHistory();
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
@@ -1500,6 +1527,10 @@ public partial class MainWindow : Window
         try
         {
             _sessionStore = new SessionStore(Path.Combine(_dataDirectory, "sessions.db"));
+            if (_sessionStore.RecoverInterrupted() > 0)
+            {
+                FocusStatus.Text = "Your last focus session was interrupted when Boo closed. It is saved as paused in history.";
+            }
             LoadHistory();
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)

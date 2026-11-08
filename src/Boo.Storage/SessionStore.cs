@@ -85,6 +85,23 @@ public sealed class SessionStore : ISessionStore
             .ToArray();
     }
 
+    /// <summary>
+    /// Settles sessions left Running by a crash or kill as Paused (progress kept). Call once at startup,
+    /// before any new session starts. Returns how many sessions were recovered.
+    /// </summary>
+    public int RecoverInterrupted()
+    {
+        var recovered = 0;
+        foreach (var session in List())
+        {
+            if (session.Status != FocusStatus.Running)
+                continue;
+            Save(FocusRecovery.RecoverInterrupted(session));
+            recovered++;
+        }
+        return recovered;
+    }
+
     public void Delete(Guid id)
     {
         using var connection = OpenConnection();
