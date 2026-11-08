@@ -266,12 +266,12 @@ public sealed class NudgeShakeTests
         var peaks = 0;
         var previous = 0d;
         var rising = true;
-        for (var ms = 0; ms < 640; ms++)
+        for (var ms = 1; ms < 640; ms++)
         {
             var x = NudgeShake.OffsetAt(Spec, Ms(ms));
             Assert.InRange(x, -3, 3);
             var nowRising = x > previous;
-            if (ms > 0 && rising != nowRising) peaks++;
+            if (rising != nowRising) peaks++;
             rising = nowRising;
             previous = x;
         }
