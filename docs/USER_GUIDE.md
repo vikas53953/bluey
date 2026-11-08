@@ -25,12 +25,18 @@ Contents
 
 ## 1. Install
 
-Boo ships as a portable ZIP. There is no installer and nothing to register.
+Boo ships two ways from the same build: a per-user **installer** (recommended) and a **portable ZIP**. Both come from the `release` workflow. Until the integration PR is merged, pick the newest green run for the branch you are testing (`lane/face`, PR #3); after the merge, the newest green run on `main`.
 
-1. On GitHub open **Actions > release** in `vikas53953/bluey`, pick the newest green run, and download the **boo-portable-win-x64** artifact. A tagged version (`v*`) is also attached under **Releases**. The windows-ci workflow uploads a plain **boo-win-x64** artifact too.
+**Installer.** On GitHub open **Actions > release** in `vikas53953/bluey`, pick the run, and download the **boo-installer-win-x64** artifact. Unzip it and run `Boo-win-Setup.exe`. It installs for the current user only (no admin prompt) into `%LocalAppData%\Boo`, adds **Boo** to the Start menu and to **Settings > Apps** for uninstall, and starts Boo. `Boo-win-Setup.exe.sha256` holds the hash (`Get-FileHash Boo-win-Setup.exe`). Only installed copies can update themselves (see section 11, **Updates**).
+
+**Portable ZIP.**
+
+1. Download the **boo-portable-win-x64** artifact instead. A tagged version (`v*`) is also attached under **Releases**. The windows-ci workflow uploads a plain **boo-win-x64** artifact too.
 2. Extract the download. Inside the portable artifact is `Boo-<version>-<commit>-win-x64.zip`, a matching `.sha256` file and a `READ-ME-FIRST.txt`. Extract that inner ZIP to a normal folder, for example `Downloads\Boo`.
 3. Optional: check the hash in PowerShell with `Get-FileHash Boo-*.zip` and compare it with the `.sha256` file.
-4. Double-click `Boo.exe`. The build is self-contained (no .NET install needed) and not code-signed, so SmartScreen may warn: choose **More info > Run anyway**.
+4. Double-click `Boo.exe`. The build is self-contained (no .NET install needed).
+
+Neither build is code-signed, so SmartScreen may warn: choose **More info > Run anyway**.
 
 What to expect: no window opens. Boo starts in the background with a tray icon (tooltip "Boo companion") and the notch at the top centre of the display.
 
@@ -44,7 +50,7 @@ Two rules worth knowing:
 Boo uses your own OpenAI account for voice, screen explanations, research and focus checks. Without a key, typing and the notch still work, but every AI request answers "No OpenAI key yet. Add it in Settings, then try again."
 
 1. Press **Ctrl+Alt+B** to open the full window.
-2. In **Settings**, click the **Protected credential** box and paste your key there. Press **Save settings**.
+2. In **Settings**, click the **OpenAI key (voice + OpenAI text)** box and paste your key there. Press **Save settings**.
 3. Expect the status line "Settings saved. Credential input was protected and cleared from the UI." The box empties itself.
 4. In **Settings** also pick the **Display** Boo may look at and your **Microphone**. The top status line changes from "Screen sharing off · display not selected" to the display name.
 
@@ -84,7 +90,7 @@ The **full window** has four areas: **Ask Boo** (type a question or request, pre
 | **Ctrl+Alt+S** | Pause everything: cancels capture, audio and pending work and pauses a running focus session (Riley's Ctrl+Option+S) | Ctrl+Alt+F12 still stops Boo |
 | **Ctrl+Alt+F12** | Emergency stop, identical effect to Ctrl+Alt+S. Also cancels a hold in progress so nothing is sent | Use the tray **Stop** or right-click the eyes |
 
-Inside the full window: **Alt+A** approves and **Alt+C** cancels an action card, **Alt+S** saves settings, **Alt+R** resets appearance.
+Inside the full window: **Alt+A** approves and **Alt+C** cancels an action card, **Alt+S** saves settings, **Alt+R** resets appearance, **Ctrl+Enter** in **Ask Boo** sends, and **Esc** cancels a pending action card or, with none showing, hides the window. **Tab** moves between controls in the usual Windows order; every control has a screen-reader name. There is no F6 pane-cycling key.
 
 Boo registers the hotkeys at start and tells the truth about them. If one fails, a single sentence appears in Settings, in the status line and on the notch ("Shortcut busy: use tray" or "Shortcut busy: use Talk"), and tray labels drop the dead shortcut. Registration is retried after you unlock the PC or change displays.
 
@@ -218,7 +224,11 @@ The **Developer Mode** checkbox in Focus is for testing. On: "the focus clock ru
 
 | Setting | Default | Notes |
 | --- | --- | --- |
-| Protected credential | empty | Your OpenAI key, DPAPI-encrypted, cleared from the box after save |
+| OpenAI key (voice + OpenAI text) | empty | Your OpenAI key, DPAPI-encrypted in `credential.bin`, cleared from the box after save |
+| Text AI provider | OpenAI | **Anthropic Claude** or **Google Gemini** can answer explain, research, nudges and focus checks instead. Voice always uses OpenAI Realtime and the OpenAI key |
+| Anthropic Claude key, Google Gemini key | empty | One masked box each; stored in `credential.anthropic.bin` and `credential.gemini.bin` |
+| Claude / Gemini model, focus model | blank = default | Blank uses the built-in default ids; type a model id to override |
+| Updates: Check GitHub Releases for updates once a day | off | Installed copies only. Needs a GitHub fine-grained token (**Contents: read** on the private repo), stored DPAPI-protected in `update-token.bin`. **Check for updates** checks now; **Install and restart** is the only step that changes files. **Include pre-releases** also offers suffixed tags |
 | Display | none | The one display Boo may capture. Required for explain and focus |
 | Microphone | default device | Selected device for voice |
 | Task folder | none | The only folder file actions may touch |
@@ -234,9 +244,9 @@ Settings are stored in `%LOCALAPPDATA%\Boo\settings.json` and `appearance.json`;
 
 This summarises the 8 November security review in `docs/security/2026-11-08-security-review.md`.
 
-**What leaves your PC.** Only requests to `https://api.openai.com` (the origin is pinned): your spoken audio while you hold to talk, one screenshot of the chosen display per explain request or focus check, OCR text for nudge pointing, and your typed requests. Responses calls are sent with `store: false`.
+**What leaves your PC.** Only requests to `https://api.openai.com` (the origin is pinned), plus `https://api.anthropic.com` or `https://generativelanguage.googleapis.com` when you select that text provider, and `https://github.com` only if you opt in to update checks: your spoken audio while you hold to talk, one screenshot of the chosen display per explain request or focus check, OCR text for nudge pointing, and your typed requests. Responses calls are sent with `store: false`.
 
-**What stays local.** Screenshots and microphone audio are held in memory only and never written to disk. Your key is DPAPI-encrypted in `credential.bin`. Focus task names and check results live in `sessions.db`. Crash reports go to `%LOCALAPPDATA%\Boo\logs` with keys, Bearer tokens and your profile path redacted.
+**What stays local.** Screenshots and microphone audio are held in memory only and never written to disk. Your keys are DPAPI-encrypted in `credential.bin`, `credential.anthropic.bin`, `credential.gemini.bin` and (for updates) `update-token.bin`. Focus task names and check results live in `sessions.db`. Crash reports go to `%LOCALAPPDATA%\Boo\logs` with keys, Bearer tokens and your profile path redacted.
 
 **Visible disclosure.** The notch shows the capture face while Boo looks at the screen, Windows shows its mic indicator while Boo listens, and the full window's top line says "Screen sharing on · <display>". Boo's own windows are excluded from capture; if Windows cannot guarantee that, capture pauses ("Capture paused: Boo could not confirm UI exclusion.").
 
@@ -254,7 +264,7 @@ Every message below is the exact text Boo shows. They are grouped by where they 
 
 | Message | Meaning and fix |
 | --- | --- |
-| No OpenAI key yet. Add it in Settings, then try again. | Paste the key into **Protected credential** and **Save settings**. |
+| No OpenAI key yet. Add it in Settings, then try again. | Paste the key into **OpenAI key (voice + OpenAI text)** and **Save settings**. |
 | OpenAI rejected the API key. Paste a valid key in Settings. | HTTP 401. The key is wrong, revoked or from another account. |
 | OpenAI denied access for this key or model. Check your OpenAI project permissions. | HTTP 403. The project does not allow the model or endpoint. |
 | The configured OpenAI model is not available for this key. Check the models in Settings. | The model name in `settings.json` is not enabled for your account. |

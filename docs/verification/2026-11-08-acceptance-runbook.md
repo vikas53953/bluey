@@ -17,7 +17,7 @@ Everything here comes from the code on branch `lane/face` (PR #3). Where the cod
 
 - Have ready: your OpenAI key (you will type it into Boo only, never into a chat), a microphone and speakers, Notepad, a browser, and your phone to take photos.
 - **Boo hides itself from screenshots** on purpose (Windows capture exclusion), so Snipping Tool shows a black or empty area where Boo is. Use your phone camera for photos of Boo.
-- **Do not lock the PC (Win+L) or press Ctrl+Alt+F12 during the 25-minute session.** Both pause the session (by design) and you would have to press Resume.
+- **Do not lock the PC (Win+L) or press Ctrl+Alt+F12 or Ctrl+Alt+S during the 25-minute session.** Both pause the session (by design) and you would have to press Resume.
 
 Write down: Windows version (Settings > System > About), display scaling (Settings > System > Display > Scale), and the build's commit (step 0.3).
 
@@ -26,18 +26,18 @@ Write down: Windows version (Settings > System > About), display scaling (Settin
 | # | Do | You should see | Result |
 |---|----|----------------|--------|
 | 0.1 | If an older Boo (for example candidate15) is running, right-click its tray icon (the generic app icon; tooltip "Boo companion") and choose **Quit**. | No Boo tray icon left. Boo allows only one copy at a time: a new copy started while an old one runs just exits silently. | ☐ PASS ☐ FAIL |
-| 0.2 | On GitHub (signed in), open repository `vikas53953/bluey` > **Pull requests** > **#3** ("Integration: eyes/notch + pointer + focus + research/Undo + packaging") > **Checks**, or go to **Actions** > **windows-ci** and pick the newest green run for branch `lane/face`. At the bottom of the run page, under **Artifacts**, download **boo-win-x64**. *Alternative:* **Actions** > **release** > newest green run for `lane/face` > artifact **boo-portable-win-x64** (contains `Boo-0.1.0-<commit>-win-x64.zip`, a `.sha256` file and a `READ-ME-FIRST.txt` inside). | A ZIP downloads (about 70 to 100 MB (check)). | ☐ PASS ☐ FAIL |
-| 0.3 | Note the 7-character commit shown on the run page (at the time of writing the latest green run was `8b00e9a`). | Commit written down: ________ | ☐ done |
+| 0.2 | **Installer (preferred):** On GitHub (signed in), **Actions** > **release** > newest green run for branch `lane/face` > artifact **boo-installer-win-x64**. Unzip it and run `Boo-win-Setup.exe` (per-user, no admin prompt, installs to `%LocalAppData%\Boo`, adds a Start menu entry, starts Boo). Then skip to 0.5. **Portable (fallback):** open repository `vikas53953/bluey` > **Pull requests** > **#3** ("Integration: eyes/notch + pointer + focus + research/Undo + packaging") > **Checks**, or go to **Actions** > **windows-ci** and pick the newest green run for branch `lane/face`. At the bottom of the run page, under **Artifacts**, download **boo-win-x64**. *Alternative:* **Actions** > **release** > newest green run for `lane/face` > artifact **boo-portable-win-x64** (contains `Boo-0.1.0-<commit>-win-x64.zip`, a `.sha256` file and a `READ-ME-FIRST.txt` inside). | A ZIP downloads (about 70 to 100 MB (check)). | ☐ PASS ☐ FAIL |
+| 0.3 | Note the 7-character commit shown on the run page (at the time of writing the head of `lane/face` was `22ef666`). | Commit written down: ________ | ☐ done |
 | 0.4 | Right-click the ZIP > **Extract All** into a normal folder, for example `Downloads\Boo`. For the portable artifact, extract the inner `Boo-...-win-x64.zip` too. **Do not run Boo.exe from inside the ZIP.** | A folder containing `Boo.exe` (many DLLs next to it is normal: it is self-contained, no .NET install needed). | ☐ PASS ☐ FAIL |
-| 0.5 | Double-click `Boo.exe`. If SmartScreen says "Windows protected your PC", choose **More info** > **Run anyway** (the build is not code-signed). | No main window opens (Boo starts in the background). A tray icon with tooltip "Boo companion" appears. | ☐ PASS ☐ FAIL |
+| 0.5 | Double-click `Boo.exe` (the installer starts Boo for you). If SmartScreen says "Windows protected your PC", choose **More info** > **Run anyway** (the build is not code-signed). | No main window opens (Boo starts in the background). A tray icon with tooltip "Boo companion" appears. | ☐ PASS ☐ FAIL |
 
 ## 1. First run: key and settings (about 2 minutes)
 
 | # | Do | You should see | Result |
 |---|----|----------------|--------|
-| 1.1 | Press **Ctrl+Alt+B**. | The full Boo window opens (maximised the first time) with **Ask Boo**, **Conversation**, **Focus** and **Settings** sections. | ☐ PASS ☐ FAIL |
+| 1.1 | Press **Ctrl+Alt+B**. | The full Boo window opens with **Ask Boo**, **Conversation**, **Focus** and **Settings** sections. | ☐ PASS ☐ FAIL |
 | 1.2 | In **Settings**, pick your screen in **Display** and your mic in **Microphone**. | The top line changes from "Screen sharing off · display not selected" to show the chosen display name. | ☐ PASS ☐ FAIL |
-| 1.3 | Click in **Protected credential** (masked box) and type or paste your OpenAI key **there only**. Press **Save settings**. | Status line: "Settings saved. Credential input was protected and cleared from the UI." The box is empty again. The key is stored in `%LOCALAPPDATA%\Boo\credential.bin`, encrypted with Windows DPAPI for your Windows account. Never paste the key into chat, email or a file. | ☐ PASS ☐ FAIL |
+| 1.3 | Click in **OpenAI key (voice + OpenAI text)** (masked box) and type or paste your OpenAI key **there only**. Press **Save settings**. | Status line: "Settings saved. Credential input was protected and cleared from the UI." The box is empty again. The key is stored in `%LOCALAPPDATA%\Boo\credential.bin`, encrypted with Windows DPAPI for your Windows account. Never paste the key into chat, email or a file. | ☐ PASS ☐ FAIL |
 | 1.4 | Optional: press Win+R, type `%LOCALAPPDATA%\Boo`, Enter. | Files `settings.json`, `appearance.json`, `credential.bin` (and `sessions.db` after a focus session). Do not send `credential.bin` to anyone. | ☐ PASS ☐ FAIL |
 
 ## 2. Notch and eyes (about 1.5 minutes)
@@ -51,7 +51,7 @@ Close the full window with **×** first (it hides; Boo keeps running). The notch
 | 2.3 | Keep the mouse near the notch and watch for 20 seconds. | The eyes blink (a quick vertical squash) every 3 to 6 seconds; now and then a double blink. | ☐ PASS ☐ FAIL |
 | 2.4 | Move the mouse away from the notch. | It stays for just under a second, then retracts quickly. Coming back before it retracts keeps it out. | ☐ PASS ☐ FAIL |
 | 2.5 | Reveal the notch and **click** the eyes once (short click). | The full Boo window opens. | ☐ PASS ☐ FAIL |
-| 2.6 | Reveal the notch and **right-click** it. | Acts as Stop: no menu (code: right-click on the pocket calls Stop). The tray icon's right-click menu has **Show Boo (Ctrl+Alt+B)**, **Stop**, **Settings**, **Quit**. | ☐ PASS ☐ FAIL |
+| 2.6 | Reveal the notch and **right-click** it. | Acts as Stop: no menu (code: right-click on the pocket calls Stop). The tray icon's right-click menu has **Show Boo (Ctrl+Alt+B)**, **Stop (Ctrl+Alt+F12)**, **Settings**, **Quit** (the shortcut disappears from a label if another app owns that key). | ☐ PASS ☐ FAIL |
 
 ## 3. Hold-to-talk, both ways, and latency (about 3 minutes)
 
@@ -102,14 +102,15 @@ The full latency target (20 warm turns, median ≤ 1500 ms, p95 ≤ 3000 ms, sho
 
 Also blocked by the same guard: regedit, Task Manager, MMC consoles, installers, UAC and credential prompts, WSL/bash, PuTTY, and Boo's own windows.
 
-## 8. Emergency stop: Ctrl+Alt+F12 (30 seconds; do it before the focus session)
+## 8. Emergency stop: Ctrl+Alt+F12 and Ctrl+Alt+S (1 minute; do it before the focus session)
 
 | # | Do | You should see | Result |
 |---|----|----------------|--------|
 | 8.1 | Ask Boo a question that gets a long spoken answer. While it is speaking, press **Ctrl+Alt+F12**. | Speech stops at once. Under Talk: "Microphone stopped. Screen activity is shown in the sharing indicator." Any pointer, ring or Review action card disappears. The notch goes back to its idle face. | ☐ PASS ☐ FAIL |
 | 8.2 | Hold Ctrl+Alt+Space, and while still holding Ctrl+Alt, press **F12**. Then let go of everything. | Listening cancels immediately; nothing is sent when you let go; the taskbar mic icon goes away within a couple of seconds. | ☐ PASS ☐ FAIL |
+| 8.3 | Ask for another long answer. While Boo is speaking, press **Ctrl+Alt+S** (Riley's Control+Option+S). | Same effect as 8.1, and the notch flashes a small **"Stopped"** bubble for about 1.6 seconds before returning to the idle face. | ☐ PASS ☐ FAIL |
 
-If Ctrl+Alt+F12 is taken by another app, the notch shows "Tray Stop ready": use the tray menu **Stop** instead and note it.
+If Ctrl+Alt+F12 or Ctrl+Alt+S is taken by another app, the notch shows **"Shortcut busy: use tray"** (or "Shortcuts busy" when more than one is taken) and Settings explains which key; use the tray menu **Stop** instead and note it.
 
 ## 9. Start with Windows (about 1 minute)
 
@@ -168,4 +169,4 @@ Overall: ACCEPT / NOT YET
 
 **About logs:** Boo writes a redacted crash log (`crash-*.txt`, API keys stripped) under `%LOCALAPPDATA%\Boo\logs` only when something crashes or recovers; there is no routine activity log. Boo's data folder is `%LOCALAPPDATA%\Boo` (or the folder in the `BOO_DATA_DIR` environment variable, if you set one). So the photo, the status text and the diagnostics ZIP (which includes those crash logs) are the evidence.
 
-Never send `credential.bin`, your API key, or a screenshot of the Protected credential box.
+Never send `credential.bin`, your API key, or a screenshot of the key boxes in Settings.
