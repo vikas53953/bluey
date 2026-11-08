@@ -29,9 +29,9 @@ breach fails the job. Budgets are deliberately set from measured runner numbers 
 1. **Render loop policy made explicit and testable.** `NotchRenderPolicy` (Core) decides when the notch needs
    `CompositionTarget.Rendering`; the window routes its start/stop through it. The loop is off whenever the face
    is hidden and the reveal timeline is in its hidden phase, which the perf test now proves on the runner.
-2. **Frame pacer.** `FramePacer` skips vsyncs that arrive sooner than ~1/72 s after the last processed frame, so a
-   144 Hz or 240 Hz panel no longer doubles or quadruples the per-frame managed work for a face authored at 60 fps.
-   A 60 Hz stream is never throttled.
+2. **Frame pacer.** `FramePacer` skips vsyncs that arrive sooner than 10 ms after the last processed frame, so a
+   120/144/240 Hz panel runs the face at 60/72/80 fps instead of doubling or quadrupling the per-frame managed work.
+   60, 75 and 90 Hz streams are never throttled.
 3. **Screen capture: one Direct3D device, zero-copy readback.** `WindowsFrameCaptureBackend` keeps its
    `NativeCaptureDevice` for the life of the app (dropped and recreated after any capture error) instead of
    creating and destroying a D3D11 device, DXGI bridge and WinRT device on every focus check. `NativeCaptureDevice`

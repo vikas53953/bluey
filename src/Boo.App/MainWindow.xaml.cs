@@ -298,6 +298,8 @@ public partial class MainWindow : Window
         _audio?.Dispose();
         _targets?.Dispose();
         _http?.Dispose();
+        _capture?.Dispose(); // releases the cached Direct3D capture device
+        _capture = null;
         var realtimeToDispose = _realtime;
         _realtime = null;
         if (realtimeToDispose is not null)

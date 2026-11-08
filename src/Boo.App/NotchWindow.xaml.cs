@@ -583,7 +583,10 @@ public partial class NotchWindow : Window
     private void OnRendering(object? sender, EventArgs e)
     {
         var now = _clock.Elapsed;
-        _pacer.Accept(now); // baseline commit: counted, not yet enforced
+        if (!_pacer.Accept(now))
+        {
+            return; // 144/240 Hz panel: the face is authored for ~60 fps, skip the in-between vsyncs.
+        }
         Interlocked.Increment(ref _renderedFrames);
         var dt = now - _lastFrame;
         if (dt > TimeSpan.FromMilliseconds(100))

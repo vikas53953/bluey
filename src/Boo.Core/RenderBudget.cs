@@ -23,14 +23,15 @@ public static class NotchRenderPolicy
 /// <summary>
 /// Caps how often per-frame work runs. WPF raises CompositionTarget.Rendering at the monitor's refresh
 /// rate (144 Hz and 240 Hz panels are common), while the face animation is authored for ~60 Hz. Frames that
-/// arrive sooner than <see cref="MinInterval"/> after the last accepted frame are skipped, which halves the
-/// managed work on a 144 Hz display with no visible change. The first frame is always accepted, and a clock
-/// that goes backwards (new Stopwatch, gallery render) resets the pacer instead of stalling it.
+/// arrive sooner than <see cref="MinInterval"/> after the last accepted frame are skipped. Skipping can only
+/// yield refresh/N, so the cap sits at 10 ms: 60, 75 and 90 Hz panels are never touched, 120 Hz runs at 60,
+/// 144 Hz at 72 and 240 Hz at 80 fps. The first frame is always accepted, and a clock that goes backwards
+/// (new Stopwatch, gallery render) resets the pacer instead of stalling it.
 /// </summary>
 public sealed class FramePacer
 {
-    /// <summary>Default cap: just above 60 fps so a real 60 Hz vsync (16.67 ms) is never skipped by jitter.</summary>
-    public static readonly TimeSpan DefaultMinInterval = TimeSpan.FromMilliseconds(1000d / 72d);
+    /// <summary>Default cap (10 ms): leaves 60/75/90 Hz vsync alone, halves 120 Hz, drops 144 Hz to 72 fps.</summary>
+    public static readonly TimeSpan DefaultMinInterval = TimeSpan.FromMilliseconds(10);
 
     private TimeSpan? _lastAccepted;
 

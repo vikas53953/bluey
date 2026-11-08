@@ -2,7 +2,7 @@ using Boo.Core;
 
 namespace Boo.Windows;
 
-public sealed class ScreenCapture
+public sealed class ScreenCapture : IDisposable
 {
     private const double MaximumTimeoutMilliseconds = 4_294_967_294d;
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(5);
@@ -10,6 +10,8 @@ public sealed class ScreenCapture
     private readonly IFrameCaptureBackend _backend;
     private readonly TimeSpan _timeout;
     private readonly SemaphoreSlim _lifetimeGate = new(1, 1);
+    private static readonly TimeSpan DisposeWait = TimeSpan.FromSeconds(2);
+    private bool _disposed;
 
     public ScreenCapture()
         : this(new WindowsFrameCaptureBackend(), DefaultTimeout)
@@ -41,6 +43,7 @@ public sealed class ScreenCapture
         ArgumentNullException.ThrowIfNull(target);
         ValidateCaptureArguments(display, target, ownedWindowSnapshot);
 
+        ObjectDisposedException.ThrowIf(_disposed, this);
         await _lifetimeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -81,6 +84,34 @@ public sealed class ScreenCapture
             // The backend task is awaited above, so this gate is not released
             // while a canceled backend is still cleaning up native resources.
             _lifetimeGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Releases backend resources held between captures (the cached Direct3D device). Waits briefly for an
+    /// in-flight capture to finish so the device is never released under a native readback; callers cancel
+    /// their tokens first, so the wait is normally immediate.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
+        var held = _lifetimeGate.Wait(DisposeWait);
+        try
+        {
+            (_backend as IDisposable)?.Dispose();
+        }
+        finally
+        {
+            if (held)
+            {
+                _lifetimeGate.Release();
+                _lifetimeGate.Dispose();
+            }
+            // Not held: a capture is still finishing; it releases the gate itself and the semaphore is collected.
         }
     }
 
