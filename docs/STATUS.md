@@ -15,6 +15,20 @@ Each lane: independent test author froze failing tests first, a separate builder
 | Pointer (U3, U6) | Blue pointer flies to the target, then ring/arrow draws; nudge pointer via Windows OCR | PR #1, Windows CI green; review fixed stale-generation bug | Landing accuracy at 100/150 % and second monitor |
 | Eyes and notch (U1, U2) | Face B "Button eyes" in HeyClicky pocket, data-driven from docs/design/boo-notch-spec.json; gaze follows cursor; blinks; listening/thinking/responding/capture/nudge/paused/happy faces; hover 240 ms reveal, 900+160 ms retract; Nunito font | PR #3 (includes #1), Windows CI green; review + integration review fixed 9 bugs | Look and feel, hover timing, idle CPU, DPI |
 
+### Hardening pass (8 Nov evening, branch claude/project-thread-2kwt3c)
+
+Edge cases found and fixed, each with new tests (Core 1028 pass / 1 skip; Integration 119+; UI smoke 9 on windows-latest):
+
+| Area | Fix | Still needs a hands-on check |
+| --- | --- | --- |
+| Focus sleep/resume, drift | FocusClock measures real time; a >30 s gap (sleep without a Suspend event) pauses with "Paused after sleep"; Running sessions saved every 30 s and recovered as Paused after a crash | Real sleep / modern standby |
+| Crash handling | Redacted crash logs in <data>/logs (keys, Bearer tokens, profile path removed), StopAll on crash, recoverable UI errors keep Boo alive (max 5/min), startup errors stay fatal, one-time "Boo recovered" notice | A real crash |
+| Hotkey conflicts | One truthful message when Ctrl+Alt+B, Ctrl+Alt+F12 or the Ctrl+Alt+Space hook fail; shown in Settings, status and tray; tray labels drop dead shortcuts; retried on unlock/display change | Another app owning the combo |
+| OpenAI / network | 401, quota, rate limit, 5xx, offline and timeout get distinct plain messages; missing key says so; Realtime connect has a 15 s timeout and keep-alive detects dead sockets so voice never sticks on Listening/Thinking | Live OpenAI errors |
+| Microphone | No mic, privacy switch off, in use, unplugged each get their own message; Listening never shows when the mic did not start | Real privacy switch, unplug |
+| Multi-monitor / DPI | Each monitor's own DPI used for pointer, ring, overlay and panel; overlay placed in physical pixels; notch re-centres when its monitor is unplugged and sits below a top taskbar | 100% + 150% two-monitor setup |
+| Corrupt settings | Corrupt settings.json no longer crashes startup (defaults + message) | - |
+
 Native checklists for each lane: docs/verification/2026-11-08-*-native-checklist.md.
 
 ---

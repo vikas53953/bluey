@@ -26,6 +26,14 @@ public partial class App : System.Windows.Application
     private bool _ownsMutex;
     private bool _hasShownPanel;
     private WindowState _restorePanelState = WindowState.Normal;
+    private readonly Boo.Core.CrashLoopGuard _crashGuard = new(maxRecoveries: 5, window: TimeSpan.FromMinutes(1));
+    private Boo.Storage.CrashLogStore? _crashLog;
+    private volatile bool _fatalCrashLogged;
+    // Until OnStartup finishes, an unhandled error is fatal: recovering would leave an invisible Boo holding the mutex.
+    private bool _startupComplete;
+    private Boo.Core.ShortcutStatus _shortcuts = Boo.Core.ShortcutStatus.Pending;
+    private Forms.ToolStripItem? _trayShowItem;
+    private Forms.ToolStripItem? _trayStopItem;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -43,6 +51,11 @@ public partial class App : System.Windows.Application
 
         _dataDirectory = ResolveDataDirectory();
         Directory.CreateDirectory(_dataDirectory);
+        _crashLog = new Boo.Storage.CrashLogStore(_dataDirectory);
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+        var crashedLastTime = _crashLog.ConsumeRecoveredNotice(DateTimeOffset.UtcNow, TimeSpan.FromDays(7));
         ApplyThemeResources();
         SystemParameters.StaticPropertyChanged += SystemParameters_OnStaticPropertyChanged;
 
@@ -61,9 +74,18 @@ public partial class App : System.Windows.Application
         _notch.ShowNotch();
 
         CreateTrayIcon();
+        RefreshShortcutStatus(announce: true);
+        if (crashedLastTime)
+        {
+            var shortcutMessage = _shortcuts.PanelMessage;
+            _panel?.ShowCrashNotice(shortcutMessage is null
+                ? Boo.Core.CrashReport.RecoveredNotice
+                : Boo.Core.CrashReport.RecoveredNotice + " " + shortcutMessage);
+        }
         SystemEvents.SessionSwitch += OnSessionSwitch;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
         SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+        _startupComplete = true;
     }
 
     internal void OpenPanel(bool settings)
@@ -72,6 +94,7 @@ public partial class App : System.Windows.Application
         {
             _panel = CreatePanel();
             _panel.InitializeBeforeNotch();
+            RefreshShortcutStatus(announce: false);
         }
 
         if (_panel.WindowState == WindowState.Minimized)
@@ -134,7 +157,11 @@ public partial class App : System.Windows.Application
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
     {
-        Dispatcher.BeginInvoke(() => _panel?.RefreshSelectedDisplay());
+        Dispatcher.BeginInvoke(() =>
+        {
+            _panel?.RefreshSelectedDisplay();
+            RetryShortcuts();
+        });
     }
 
     private void ClosePanel()
@@ -160,13 +187,14 @@ public partial class App : System.Windows.Application
 
     private void CreateTrayIcon()
     {
+        // The tray never depends on global hotkeys: it is the fallback when another app owns Ctrl+Alt+B / Ctrl+Alt+F12.
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("Show Boo (Ctrl+Alt+B)", null, (_, _) => Dispatcher.BeginInvoke(() =>
+        _trayShowItem = menu.Items.Add(_shortcuts.TrayShowLabel, null, (_, _) => Dispatcher.BeginInvoke(() =>
         {
             _notch?.ShowNotch();
             OpenPanel(false);
         }));
-        menu.Items.Add("Stop", null, (_, _) => Dispatcher.BeginInvoke(StopAll));
+        _trayStopItem = menu.Items.Add(_shortcuts.TrayStopLabel, null, (_, _) => Dispatcher.BeginInvoke(StopAll));
         menu.Items.Add("Settings", null, (_, _) => Dispatcher.BeginInvoke(() => OpenPanel(true)));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Quit", null, (_, _) => Dispatcher.BeginInvoke(Shutdown));
@@ -187,6 +215,10 @@ public partial class App : System.Windows.Application
         {
             Dispatcher.BeginInvoke(StopAll);
         }
+        else if (e.Reason is SessionSwitchReason.SessionUnlock or SessionSwitchReason.SessionLogon)
+        {
+            Dispatcher.BeginInvoke(RetryShortcuts);
+        }
     }
 
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
@@ -194,6 +226,161 @@ public partial class App : System.Windows.Application
         if (e.Mode == PowerModes.Suspend)
         {
             Dispatcher.BeginInvoke(StopAll);
+        }
+    }
+
+    /// <summary>Another app may have released Ctrl+Alt+B / Ctrl+Alt+F12 since startup; claim them if so.</summary>
+    private void RetryShortcuts()
+    {
+        if (_notch?.RetryHotkeys() == true)
+        {
+            RefreshShortcutStatus(announce: true);
+        }
+    }
+
+    /// <summary>
+    /// Folds the notch's hotkey registrations and the panel's hold-to-talk hook into one truthful status and shows it
+    /// on the panel (persistent settings line), the notch (short hint), the tray labels and, once, a tray balloon.
+    /// </summary>
+    private void RefreshShortcutStatus(bool announce)
+    {
+        if (_notch is null)
+        {
+            return;
+        }
+
+        var previous = _shortcuts;
+        var holdToTalk = _panel?.HoldToTalkAvailable ?? (previous.IsPending || previous.HoldToTalk);
+        _shortcuts = new Boo.Core.ShortcutStatus(_notch.EmergencyStopRegistered, _notch.OpenShortcutRegistered, holdToTalk);
+        var changed = previous.IsPending || previous != _shortcuts;
+
+        _panel?.ShowShortcutStatus(_shortcuts, announce && changed);
+        if (_trayShowItem is not null) _trayShowItem.Text = _shortcuts.TrayShowLabel;
+        if (_trayStopItem is not null) _trayStopItem.Text = _shortcuts.TrayStopLabel;
+
+        if (changed && _notch.CaptureExclusionAvailable)
+        {
+            // "Capture paused" outranks a shortcut hint, so only touch the notch when capture exclusion is fine.
+            if (_shortcuts.NotchMessage is { } hint)
+            {
+                _notch.SetStatus(hint);
+            }
+            else if (!previous.IsPending && previous.NotchMessage is not null)
+            {
+                _notch.SetStatus(string.Empty);
+            }
+        }
+
+        if (announce && changed && (!_shortcuts.OpenPanel || !_shortcuts.EmergencyStop) && _shortcuts.PanelMessage is { } message)
+        {
+            try
+            {
+                _tray?.ShowBalloonTip(6000, "Boo shortcuts", message, Forms.ToolTipIcon.Info);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- crash handling
+
+    private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        var recover = _startupComplete && Boo.Core.CrashReport.IsRecoverable(e.Exception) && _crashGuard.TryRecover(DateTimeOffset.UtcNow);
+        WriteCrashLog(e.Exception, "Dispatcher", recover);
+        if (!recover)
+        {
+            // Let it terminate; the AppDomain handler sees it next and must not log it twice.
+            _fatalCrashLogged = true;
+            TryStopAll();
+            return;
+        }
+
+        e.Handled = true;
+        TryStopAll();
+        try
+        {
+            _panel?.ShowCrashNotice(Boo.Core.CrashReport.KeptRunningNotice);
+            if (_notch?.CaptureExclusionAvailable != false)
+            {
+                _notch?.SetStatus("Recovered");
+            }
+        }
+        catch (Exception)
+        {
+            // The notice is best-effort; the log is already written and Boo stays up.
+        }
+    }
+
+    private void OnDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        if (!_fatalCrashLogged)
+        {
+            WriteCrashLog(e.ExceptionObject, "AppDomain", recovered: false);
+            _fatalCrashLogged = true;
+        }
+
+        if (!e.IsTerminating)
+        {
+            return;
+        }
+
+        try
+        {
+            // Release the microphone/capture and the tray icon before the process dies.
+            if (Dispatcher.CheckAccess())
+            {
+                TryStopAll();
+                _tray?.Dispose();
+            }
+            else if (!Dispatcher.HasShutdownStarted)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    TryStopAll();
+                    _tray?.Dispose();
+                }, DispatcherPriority.Send, CancellationToken.None, TimeSpan.FromSeconds(1));
+            }
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        e.SetObserved();
+        if (e.Exception.InnerExceptions.All(inner => inner is OperationCanceledException))
+        {
+            return; // cancelled work after Stop is expected, not a problem worth a log
+        }
+
+        WriteCrashLog(e.Exception, "UnobservedTask", recovered: true);
+    }
+
+    private void TryStopAll()
+    {
+        try
+        {
+            StopAll();
+        }
+        catch (Exception)
+        {
+            // Stopping is best-effort while handling a crash; never throw from a crash handler.
+        }
+    }
+
+    private void WriteCrashLog(object? error, string source, bool recovered)
+    {
+        try
+        {
+            var store = _crashLog ??= new Boo.Storage.CrashLogStore(
+                string.IsNullOrEmpty(_dataDirectory) ? ResolveDataDirectory() : _dataDirectory);
+            store.Write(error, source, DateTimeOffset.UtcNow, recovered, typeof(App).Assembly.GetName().Version?.ToString());
+        }
+        catch (Exception)
+        {
         }
     }
 
@@ -216,6 +403,8 @@ public partial class App : System.Windows.Application
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         SystemParameters.StaticPropertyChanged -= SystemParameters_OnStaticPropertyChanged;
+        DispatcherUnhandledException -= OnDispatcherUnhandledException;
+        TaskScheduler.UnobservedTaskException -= OnUnobservedTaskException;
         _tray?.Dispose();
         _panel?.DisposeShell();
         _panel?.Close();

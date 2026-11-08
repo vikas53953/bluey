@@ -210,20 +210,16 @@ public partial class NotchWindow : Window
         _positioning = true;
         try
         {
-            var requestedScreen = display is null ? null : FindScreen(display.Id);
-            var screen = requestedScreen ?? Forms.Screen.PrimaryScreen;
-            if (screen is null)
+            // Always lay out against the LIVE monitor (bounds, work area, its own DPI): the cached
+            // selection can be stale after a rearrange, and the window's DPI is the monitor it is
+            // on now, not the one it is about to move to. Unplugged selection -> primary.
+            var monitor = MonitorLayout.Resolve(LiveMonitors.Snapshot(), display?.Id);
+            if (monitor is null)
             {
                 return;
             }
 
-            var info = requestedScreen is not null && display is not null
-                ? display
-                : new DisplayInfo(
-                    screen.DeviceName,
-                    screen.Primary ? "Primary display" : screen.DeviceName,
-                    new RectD(screen.Bounds.Left, screen.Bounds.Top, screen.Bounds.Width, screen.Bounds.Height),
-                    _handle == IntPtr.Zero ? 1d : Math.Max(1d, GetDpiForWindow(_handle) / 96d));
+            var info = monitor.Display with { PixelBounds = MonitorLayout.NotchAnchor(monitor) };
             var bounds = WindowBounds(info);
             if (_handle == IntPtr.Zero)
             {
@@ -799,14 +795,17 @@ public partial class NotchWindow : Window
             return;
         }
 
-        _scale = scale > 0 && double.IsFinite(scale) ? scale : 1;
-        _windowLeftPx = Math.Round(bounds.X);
-        _windowTopPx = Math.Round(bounds.Y);
+        _scale = MonitorLayout.SanitizeScale(scale);
+        // Snap edges (round-half-up) so a fractional-scale notch is not shifted a pixel
+        // differently on negative-origin monitors than on the primary.
+        var snapped = MonitorLayout.SnapToPixels(bounds);
+        _windowLeftPx = snapped.X;
+        _windowTopPx = snapped.Y;
         SetWindowPos(_handle, IntPtr.Zero,
-            (int)Math.Round(bounds.X),
-            (int)Math.Round(bounds.Y),
-            (int)Math.Round(bounds.Width),
-            (int)Math.Round(bounds.Height),
+            (int)snapped.X,
+            (int)snapped.Y,
+            (int)snapped.Width,
+            (int)snapped.Height,
             SwpNoActivate | SwpNoZOrder);
     }
 
@@ -921,6 +920,34 @@ public partial class NotchWindow : Window
         e.Handled = true;
     }
 
+    /// <summary>
+    /// Retries any global hotkey another app held earlier (it may have exited). Called on session unlock and display
+    /// changes; cheap and idempotent. Returns true when something new was registered.
+    /// </summary>
+    public bool RetryHotkeys()
+    {
+        if (_handle == IntPtr.Zero || (EmergencyStopRegistered && OpenShortcutRegistered))
+        {
+            return false;
+        }
+
+        var before = (EmergencyStopRegistered, OpenShortcutRegistered);
+        RegisterMissingHotkeys();
+        return before != (EmergencyStopRegistered, OpenShortcutRegistered);
+    }
+
+    private void RegisterMissingHotkeys()
+    {
+        if (!EmergencyStopRegistered)
+        {
+            EmergencyStopRegistered = RegisterHotKey(_handle, EmergencyHotKeyId, ModControl | ModAlt, EmergencyKey);
+        }
+        if (!OpenShortcutRegistered)
+        {
+            OpenShortcutRegistered = RegisterHotKey(_handle, OpenHotKeyId, ModControl | ModAlt, 0x42);
+        }
+    }
+
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
         _handle = new WindowInteropHelper(this).Handle;
@@ -928,15 +955,11 @@ public partial class NotchWindow : Window
         SetWindowLongPtr(_handle, GwlExstyle, new IntPtr(style | WsExNoActivate | WsExToolWindow));
         var source = HwndSource.FromHwnd(_handle);
         source?.AddHook(EmergencyWindowProc);
-        EmergencyStopRegistered = RegisterHotKey(_handle, EmergencyHotKeyId, ModControl | ModAlt, EmergencyKey);
-        OpenShortcutRegistered = RegisterHotKey(_handle, OpenHotKeyId, ModControl | ModAlt, 0x42);
-        if (!EmergencyStopRegistered)
+        RegisterMissingHotkeys();
+        // One combined, truthful hint (two separate SetStatus calls used to overwrite each other); App refines it with the hold-to-talk result.
+        if (new ShortcutStatus(EmergencyStopRegistered, OpenShortcutRegistered, HoldToTalk: true).NotchMessage is { } shortcutHint)
         {
-            SetStatus("Tray Stop ready");
-        }
-        if (!OpenShortcutRegistered)
-        {
-            SetStatus("Open via tray");
+            SetStatus(shortcutHint);
         }
         CaptureExclusionAvailable = SetWindowDisplayAffinity(_handle, App.CaptureExclusion.DisplayAffinity); // WDA_EXCLUDEFROMCAPTURE unless BOO_QA_CAPTURABLE=1
         if (!CaptureExclusionAvailable)
@@ -1049,12 +1072,6 @@ public partial class NotchWindow : Window
     private bool IsOwnedWindow(IntPtr candidate)
     {
         return candidate == _handle || (GetWindow(candidate, 4) == _handle);
-    }
-
-    private static Forms.Screen? FindScreen(string id)
-    {
-        return Forms.Screen.AllScreens.FirstOrDefault(screen =>
-            string.Equals(screen.DeviceName, id, StringComparison.OrdinalIgnoreCase));
     }
 
     private static IntPtr WindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
