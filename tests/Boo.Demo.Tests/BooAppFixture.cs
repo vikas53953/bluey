@@ -1,3 +1,4 @@
+using System.IO;
 using System.Diagnostics;
 using System.Drawing;
 using Application = FlaUI.Core.Application;

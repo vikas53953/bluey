@@ -1,3 +1,4 @@
+using System.IO;
 using Xunit.Abstractions;
 using Xunit.Sdk;
 
