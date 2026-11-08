@@ -1,0 +1,114 @@
+name: demo-ci
+
+# End-to-end demo evidence on windows-latest with NO real AI key:
+#   tools/Boo.QaMockAi impersonates api.openai.com (hosts-file entry + a self-signed certificate trusted only on the
+#   runner), so the published Boo.exe runs unmodified against scripted answers. tests/Boo.Demo.Tests (FlaUI) then
+#   drives the four demos and saves screenshots + observations as the `demo-evidence` artifact:
+#   1. screen explain with the pointer ring at the scripted coordinate
+#   2. edit -> Apply -> Undo on a copy of tests/fixtures/native/Boo.QaWorkspace
+#   3. research with three source links
+#   4. Developer Mode focus session -> nudge -> Back to it -> happy face
+# This job is evidence-gathering and is marked continue-on-error until it has been seen green, so it never blocks
+# the windows-ci gate. Nothing here touches the app's official-origin guard; the redirect lives only on the runner.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  demos:
+    runs-on: windows-latest
+    continue-on-error: true
+    timeout-minutes: 40
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore and publish Boo
+        run: |
+          dotnet restore Boo.sln
+          dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
+
+      - name: Build mock AI server and demo tests
+        run: |
+          dotnet build tools/Boo.QaMockAi -c Release
+          dotnet build tests/Boo.Demo.Tests -c Release
+
+      # Runner-only redirect: api.openai.com -> loopback, and trust the mock's self-signed certificate.
+      - name: Start mock api.openai.com
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts\demo-evidence'
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+          Add-Content -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Value "`n127.0.0.1 api.openai.com"
+          ipconfig /flushdns | Out-Null
+          $cert = Join-Path $evidence 'mock-api-openai.cer'
+          $log = Join-Path $evidence 'mock-requests.log'
+          $dll = Get-ChildItem tools\Boo.QaMockAi\bin\Release -Recurse -Filter Boo.QaMockAi.dll | Select-Object -First 1
+          $p = Start-Process -FilePath dotnet -ArgumentList "`"$($dll.FullName)`" --port 443 --cert-out `"$cert`" --log `"$log`"" -PassThru -RedirectStandardOutput "$evidence\mock-stdout.txt" -RedirectStandardError "$evidence\mock-stderr.txt"
+          "mock pid $($p.Id)"
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not (Test-Path $cert) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          if (-not (Test-Path $cert)) { Get-Content "$evidence\mock-stderr.txt"; throw 'mock server did not write its certificate' }
+          Import-Certificate -FilePath $cert -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+          Start-Sleep -Seconds 2
+          try {
+            $r = Invoke-WebRequest -Uri https://api.openai.com/v1/models -UseBasicParsing -TimeoutSec 15
+            "mock reachable through the real hostname: HTTP $($r.StatusCode)"
+          } catch { "probe: $($_.Exception.Message)"; Get-Content "$evidence\mock-stderr.txt" -ErrorAction SilentlyContinue }
+
+      - name: Run the four demos (FlaUI against published Boo.exe)
+        timeout-minutes: 20
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\ci\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\demo-evidence
+          BOO_DEMO_WORKSPACE: ${{ github.workspace }}\tests\fixtures\native\Boo.QaWorkspace
+        run: dotnet test tests/Boo.Demo.Tests -c Release --no-build --logger trx --logger "console;verbosity=detailed" --results-directory artifacts/demo-evidence/trx
+
+      - name: Contact sheet in the job log (for reviewers without artifact access)
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $dir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\demo-evidence'
+          $shots = Get-ChildItem $dir -Filter *.png | Where-Object { $_.Name -notlike 'zz-*' } | Sort-Object Name
+          if (-not $shots) { 'no screenshots'; exit 0 }
+          $shots | ForEach-Object { "{0} {1} bytes" -f $_.Name, $_.Length }
+          $cell = 480; $cols = 2; $rows = [math]::Ceiling($shots.Count / $cols)
+          $sheet = New-Object System.Drawing.Bitmap ($cell * $cols), ([int]($cell * 0.5625 + 18) * $rows)
+          $g = [System.Drawing.Graphics]::FromImage($sheet); $g.Clear([System.Drawing.Color]::Black)
+          $font = New-Object System.Drawing.Font 'Segoe UI', 9
+          $i = 0
+          foreach ($s in $shots) {
+            $img = [System.Drawing.Image]::FromFile($s.FullName)
+            $x = ($i % $cols) * $cell; $y = [math]::Floor($i / $cols) * [int]($cell * 0.5625 + 18)
+            $g.DrawImage($img, $x, $y + 18, $cell, [int]($cell * 0.5625)); $img.Dispose()
+            $g.DrawString($s.Name, $font, [System.Drawing.Brushes]::White, $x + 2, $y)
+            $i++
+          }
+          $g.Dispose()
+          $ms = New-Object System.IO.MemoryStream; $sheet.Save($ms, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+          $b64 = [Convert]::ToBase64String($ms.ToArray())
+          '=====DEMO-SHEET-BEGIN====='
+          for ($j = 0; $j -lt $b64.Length; $j += 3000) { $b64.Substring($j, [Math]::Min(3000, $b64.Length - $j)) }
+          '=====DEMO-SHEET-END====='
+
+      - name: Upload demo evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-evidence
+          path: artifacts/demo-evidence
+          if-no-files-found: warn
