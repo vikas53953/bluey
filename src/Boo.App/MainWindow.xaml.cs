@@ -178,6 +178,8 @@ public partial class MainWindow : Window
         InitializeBeforeNotch();
         if (!_initialPlacementApplied)
         {
+            // Text scaling first, so PositionNearDisplay clamps the scaled minimum to the selected display.
+            ApplyTextScale();
             PositionNearDisplay();
             _initialPlacementApplied = true;
         }
@@ -2404,6 +2406,9 @@ public partial class MainWindow : Window
     {
         if (_transcript.Count > 0)
         {
+            // The non-virtualizing list generates the new container synchronously but has not measured it
+            // yet; without UpdateLayout, ScrollIntoView would scroll to a stale zero-sized rect.
+            TranscriptList.UpdateLayout();
             TranscriptList.ScrollIntoView(_transcript[^1]);
         }
     }

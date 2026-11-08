@@ -261,7 +261,7 @@ public sealed partial class BooSmokeTests
                     var name = BooAppFixture.SafeName(element);
                     var id = SafeAutomationIdOf(element);
                     observation.AppendLine($"  [{controlType}] id='{id}' name='{name}'");
-                    if (string.IsNullOrWhiteSpace(name))
+                    if (string.IsNullOrWhiteSpace(name) && !IsTemplateInternalControl(element, id))
                     {
                         offenders.Add($"AutomationId='{id}' ControlType={controlType}");
                     }
@@ -424,5 +424,26 @@ public sealed partial class BooSmokeTests
             }
         }
         return false;
+    }
+
+    /// <summary>
+    /// WPF exposes the Slider track and ScrollBar line/page RepeatButtons as nameless Buttons (Focusable=False,
+    /// no x:Name). They are not user-reachable controls, so the naming sweep skips exactly that shape: no
+    /// AutomationId AND not keyboard focusable. Every control Boo authors has an x:Name.
+    /// </summary>
+    private static bool IsTemplateInternalControl(AutomationElement element, string automationId)
+    {
+        if (!string.IsNullOrEmpty(automationId))
+        {
+            return false;
+        }
+        try
+        {
+            return element.Properties.IsKeyboardFocusable.ValueOrDefault == false;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 }

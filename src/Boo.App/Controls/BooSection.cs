@@ -38,9 +38,9 @@ public sealed class BooSection : ContentControl
 
         protected override string GetClassNameCore() => nameof(BooSection);
 
-        protected override bool IsControlElementCore() => true;
-
-        protected override bool IsContentElementCore() => true;
+        // IsControlElement/IsContentElement stay at the UIElement defaults so a collapsed section
+        // (the "Review action" card while nothing is pending) leaves the UIA control view like any
+        // other hidden element, instead of being announced as an empty group.
 
         // Groups are never keyboard focusable; without this WPF would report the (false) default anyway,
         // but being explicit keeps Narrator from offering the section itself as a stop.
