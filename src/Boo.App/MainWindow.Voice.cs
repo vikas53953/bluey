@@ -34,7 +34,7 @@ public partial class MainWindow
             return RealtimeClient.VoiceCommandsUnavailableText;
         }
 
-        var decision = VoiceFocusPolicy.Decide(command, _focus?.Snapshot, _focus?.Remaining ?? 0);
+        var decision = VoiceFocusPolicy.Decide(command, _focus?.Snapshot, _focus?.Remaining ?? 0, handsFree: !source.PushToTalk);
         if (!decision.Apply)
         {
             return decision.Reply;

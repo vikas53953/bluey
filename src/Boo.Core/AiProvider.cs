@@ -69,6 +69,28 @@ public static class AiProviders
         _ => throw new ArgumentOutOfRangeException(nameof(provider), provider, "Unknown AI provider.")
     };
 
+    /// <summary>Shortest key any supported vendor issues; anything shorter is a paste mistake, not a key.</summary>
+    public const int MinimumCredentialLength = 20;
+
+    /// <summary>
+    /// Null when the pasted text can be stored as this provider's API key; otherwise a short reason for the status
+    /// line. Keys travel in HTTP headers (<c>Authorization</c>, <c>x-api-key</c>, <c>x-goog-api-key</c>), so
+    /// whitespace, line breaks and control characters are refused before anything is written to disk. The text is
+    /// never echoed in the reason.
+    /// </summary>
+    public static string? CredentialRejectReason(AiProvider provider, string? key)
+    {
+        var vendor = VendorName(provider);
+        if (string.IsNullOrWhiteSpace(key))
+            return $"A {vendor} API key is required.";
+        var k = key.Trim();
+        if (k.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c > '\u007e'))
+            return $"The {vendor} API key must not contain spaces, line breaks or special characters.";
+        if (k.Length < MinimumCredentialLength)
+            return $"The {vendor} API key is too short.";
+        return null;
+    }
+
     /// <summary>Exact message a client throws (as <see cref="InvalidOperationException"/>) when no key is saved. The app matches it, never shows it raw.</summary>
     public static string MissingCredentialMessage(AiProvider provider) => $"{VendorName(provider)} credential is not configured.";
 

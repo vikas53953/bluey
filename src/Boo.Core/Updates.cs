@@ -210,6 +210,21 @@ public static partial class GitHubAccessToken
         return null;
     }
 
+    /// <summary>
+    /// Why a fine-grained token is the safe choice. Classic (<c>ghp_</c>) and OAuth (<c>gho_</c>) tokens cannot be
+    /// limited to read-only access to one repository: a leaked <c>repo</c>-scoped token lets its holder publish a
+    /// release that the updater would install (the build is not code-signed). Null for a fine-grained token.
+    /// </summary>
+    public static string? ScopeNote(string? token)
+    {
+        if (token is null || RejectReason(token) is not null)
+            return null;
+        var t = token.Trim();
+        if (t.StartsWith("github_pat_", StringComparison.Ordinal))
+            return null;
+        return "This is a classic token. Prefer a fine-grained token limited to this repository with Contents: read only; a leaked classic token with repo scope could publish a release Boo would install.";
+    }
+
     /// <summary>Prefix plus the last four characters, e.g. <c>ghp_…WXYZ</c>. Never more of the secret than that.</summary>
     public static string Mask(string token)
     {

@@ -1728,12 +1728,12 @@ public partial class MainWindow : Window
                 SaveUpdateToken(pendingUpdateToken);
             }
 
-            SaveCredentialIfEntered(CredentialBox, AiProvider.OpenAI);
-            SaveCredentialIfEntered(AnthropicCredentialBox, AiProvider.Anthropic);
-            SaveCredentialIfEntered(GeminiCredentialBox, AiProvider.Gemini);
+            var notes = new List<string>(5);
+            if (SaveCredentialIfEntered(CredentialBox, AiProvider.OpenAI) is { } openAiNote) notes.Add(openAiNote);
+            if (SaveCredentialIfEntered(AnthropicCredentialBox, AiProvider.Anthropic) is { } anthropicNote) notes.Add(anthropicNote);
+            if (SaveCredentialIfEntered(GeminiCredentialBox, AiProvider.Gemini) is { } geminiNote) notes.Add(geminiNote);
 
             RefreshUpdatesAfterSave();
-            var notes = new List<string>(2);
             if (startupNote is not null) notes.Add($"Start with Windows was not turned on: {startupNote}");
             if (updateNote is not null) notes.Add(updateNote);
             StatusText.Text = notes.Count == 0
@@ -1753,16 +1753,27 @@ public partial class MainWindow : Window
         return trimmed.Length == 0 ? fallback : trimmed;
     }
 
-    /// <summary>Protects a typed key with DPAPI into that provider's own file and clears the box. The key is never echoed anywhere.</summary>
-    private void SaveCredentialIfEntered(PasswordBox box, AiProvider provider)
+    /// <summary>
+    /// Protects a typed key with DPAPI into that provider's own file and clears the box. The key is never echoed
+    /// anywhere. Text that cannot be an API key (whitespace, control characters, too short) is not stored; the
+    /// returned note says so without repeating it.
+    /// </summary>
+    private string? SaveCredentialIfEntered(PasswordBox box, AiProvider provider)
     {
         if (box.SecurePassword.Length == 0)
         {
-            return;
+            return null;
         }
 
-        StoreFor(provider).Save(new System.Net.NetworkCredential(string.Empty, box.SecurePassword).Password);
+        var pasted = new System.Net.NetworkCredential(string.Empty, box.SecurePassword).Password;
         box.Clear();
+        if (AiProviders.CredentialRejectReason(provider, pasted) is { } reason)
+        {
+            return $"the {AiProviders.VendorName(provider)} key was not saved: {reason}";
+        }
+
+        StoreFor(provider).Save(pasted.Trim());
+        return null;
     }
 
     private bool TrySaveAppearance(NotchAppearance nextAppearance)
