@@ -1,5 +1,26 @@
 # Boo project status
 
+Updated 8 November 2026 (video-parity build). Phase: **built and Windows-CI-tested; native hands-on QA pending**. Delivery is **not accepted** until Vikas runs the three demos + a 25-minute focus session on his PC.
+
+Source of truth is now GitHub `vikas53953/bluey`. Every push runs `windows-ci` on windows-latest (build, Core + Integration tests, publish win-x64).
+
+## 8 Nov additions (plan: docs/plans/2026-11-08-feat-boo-video-parity-plan.md)
+
+Each lane: independent test author froze failing tests first, a separate builder implemented, a third agent reviewed. Core tests: 555 pass, 1 pre-existing skip.
+
+| Lane | What it adds | Evidence | Not yet proven by hand on Windows |
+| --- | --- | --- | --- |
+| Hold-to-talk (U4) | Hold Ctrl+Alt+Space or hold the eyes; release sends; tap <200 ms shows "Hold to talk"; push-to-talk Realtime turns; latency recorder (median / p95) | main, Windows CI green; review fixed 5 bugs (Alt menu-bar leak, AltGr, lock-screen stuck keys, re-hold race) | Real mic round trip, 20-turn latency target, elevated windows |
+| Chirp, start-with-Windows, QA capture switch | 880->1320 Hz chirp on nudge and session end (toggle, on by default); HKCU Run entry (off by default); BOO_QA_CAPTURABLE=1 makes Boo screenshot-able | main, Windows CI green | Audible chirp, registry write |
+| Pointer (U3, U6) | Blue pointer flies to the target, then ring/arrow draws; nudge pointer via Windows OCR | PR #1, Windows CI green; review fixed stale-generation bug | Landing accuracy at 100/150 % and second monitor |
+| Eyes and notch (U1, U2) | Face B "Button eyes" in HeyClicky pocket, data-driven from docs/design/boo-notch-spec.json; gaze follows cursor; blinks; listening/thinking/responding/capture/nudge/paused/happy faces; hover 240 ms reveal, 900+160 ms retract; Nunito font | PR #3 (includes #1), Windows CI green; review + integration review fixed 9 bugs | Look and feel, hover timing, idle CPU, DPI |
+
+Native checklists for each lane: docs/verification/2026-11-08-*-native-checklist.md.
+
+---
+
+## Earlier status (7 Nov, Codex build 15)
+
 Updated 7 November 2026. Phase: **integration and native Windows QA**. Delivery is **not accepted**.
 
 The app exists and has been packaged locally. It is not yet a reliably demonstrated finished assistant. No routine owner approval is pending; autonomous implementation remains authorized.
