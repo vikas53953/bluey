@@ -17,6 +17,10 @@ Each lane: independent test author froze failing tests first, a separate builder
 
 | Installer and updates (8 Nov night, branch claude/project-thread-e9urgv) | Velopack per-user installer `Boo-win-Setup.exe` (Start menu, Settings > Apps uninstall, `%LocalAppData%\Boo`); Settings > Updates opt-in check of GitHub Releases on the private repo with a DPAPI-protected read token, 24 h interval, manual check, explicit **Install and restart**; `releases.win.json` hash verified in CI and by Velopack on the PC; decisions in `Boo.Core/Updates.cs` (105 test cases) | release workflow uploads `boo-installer-win-x64`; `vpk pack` verified end to end on the build container (91 MB Setup.exe); whole app compiles | Install, Start menu shortcut, uninstall, and a real update round trip on Windows; SmartScreen prompt (unsigned) |
 
+### Accessibility pass (8 Nov night, branch claude/project-thread-syqxnu, off lane/face c2cdcc2)
+
+Screen-reader structure (UIA groups + heading levels), transcript as a navigable list, assertive approval announcement, F6 region cycling, visible focus rings, Windows Text size scaling, and "Animation effects off" now also stopping the pointer flight. Visual design unchanged. Proven in CI by UI smoke steps 11-14 and 23 Core tests; the human checks (Narrator, High contrast, 150/225 % text, animations off) are listed in [the accessibility checklist](verification/2026-11-08-accessibility-native-checklist.md).
+
 ### Hardening pass (8 Nov evening, branch claude/project-thread-2kwt3c)
 
 Edge cases found and fixed, each with new tests (Core 1028 pass / 1 skip; Integration 119+; UI smoke 9 on windows-latest):

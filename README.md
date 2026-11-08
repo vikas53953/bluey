@@ -32,6 +32,8 @@ This is the quickest path from download to the three demos and a focus session. 
 2. In **Settings**, paste your OpenAI key into **OpenAI key (voice + OpenAI text)** and press **Save settings**. The key stays on this PC, protected by Windows; it is never part of the package or the repository. To answer text requests with Claude or Gemini instead, see [AI providers](#ai-providers).
 3. Pick the **Display** Boo may look at and your **Microphone**. Screen sharing and the microphone show a visible indicator whenever they are active.
 
+Keyboard only: **F6** moves between Ask, Focus and Settings, **Ctrl+Enter** sends, **Escape** hides the window, and every control shows an accent focus ring. Boo follows Windows High contrast, Text size and "Animation effects" settings, and its window, cards and conversation are exposed to screen readers.
+
 Controls you will use: hold **Ctrl+Alt+Space** (or press and hold Boo's eyes) to talk, release to send. **Ctrl+Alt+F12**, **Ctrl+Alt+S** or **Stop** cancels capture, audio and pending work at any time and pauses a running focus session. While talking you can also say what you are working on ("I'm writing the intro for 30 minutes") to start a focus session, ask Boo to pause, resume or end it, or say bye to let Boo go quiet.
 
 ### 3. Demo 1: explain what is on screen

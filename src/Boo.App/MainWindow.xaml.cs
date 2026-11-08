@@ -181,6 +181,8 @@ public partial class MainWindow : Window
         InitializeBeforeNotch();
         if (!_initialPlacementApplied)
         {
+            // Text scaling first, so PositionNearDisplay clamps the scaled minimum to the selected display.
+            ApplyTextScale();
             PositionNearDisplay();
             _initialPlacementApplied = true;
         }
@@ -314,6 +316,7 @@ public partial class MainWindow : Window
 
     private void Window_OnLoaded(object sender, RoutedEventArgs e)
     {
+        ApplyTextScale();
         PrepareInitialPlacement();
         InputBox.Focus();
     }
@@ -983,7 +986,10 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var window = new AnnotationWindow(frame.Context, proposal.Marks);
+            var window = new AnnotationWindow(frame.Context, proposal.Marks)
+            {
+                ReducedMotion = AccessibilitySettings.ReducedMotion(ReducedMotionEnabled)
+            };
             new WindowInteropHelper(window).EnsureHandle();
             if (!window.DisplayAvailable)
             {
@@ -1048,6 +1054,7 @@ public partial class MainWindow : Window
 
             ClearAnnotations();
             var window = AnnotationWindow.ForPhysicalTarget(frame.Context, match.Bounds);
+            window.ReducedMotion = AccessibilitySettings.ReducedMotion(ReducedMotionEnabled);
             new WindowInteropHelper(window).EnsureHandle();
             if (!window.DisplayAvailable || !window.CaptureExclusionAvailable)
             {
@@ -2403,7 +2410,7 @@ public partial class MainWindow : Window
             return;
         }
         _transcript.Add(new TranscriptLine(speaker, text));
-        TranscriptScroll.ScrollToEnd();
+        ScrollTranscriptToEnd();
     }
 
     private void AppendSourceLink(SourceLink source)
@@ -2481,7 +2488,18 @@ public partial class MainWindow : Window
             AppendTranscript(update.Speaker, update.Text);
             return;
         }
-        TranscriptScroll.ScrollToEnd();
+        ScrollTranscriptToEnd();
+    }
+
+    private void ScrollTranscriptToEnd()
+    {
+        if (_transcript.Count > 0)
+        {
+            // The non-virtualizing list generates the new container synchronously but has not measured it
+            // yet; without UpdateLayout, ScrollIntoView would scroll to a stale zero-sized rect.
+            TranscriptList.UpdateLayout();
+            TranscriptList.ScrollIntoView(_transcript[^1]);
+        }
     }
 
     private void RemoveRealtimeTranscriptRow((string ItemId, int ContentIndex, string Speaker) key, int index)
