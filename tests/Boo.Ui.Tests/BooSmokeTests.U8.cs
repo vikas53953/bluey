@@ -16,6 +16,8 @@ public sealed partial class BooSmokeTests
 {
     private static readonly TimeSpan RevealTimeout = TimeSpan.FromSeconds(1.5);
     private static readonly TimeSpan RetractTimeout = TimeSpan.FromSeconds(3);
+    // Precondition only: step 9 ends focus, which holds the Happy face 2.5 s, then the 900 + 160 ms retract runs.
+    private static readonly TimeSpan RestTimeout = TimeSpan.FromSeconds(6);
 
     [Fact, Step(9)]
     public void PauseAllHotkey_CtrlAltS_PausesRunningFocusSession()
@@ -63,7 +65,7 @@ public sealed partial class BooSmokeTests
             // Start from a resting notch: mouse well away from the strip.
             Mouse.MoveTo(awayPoint);
             Assert.True(
-                BooAppFixture.WaitUntil(() => NotchItemStatus() == "Hidden", RetractTimeout),
+                BooAppFixture.WaitUntil(() => NotchItemStatus() == "Hidden", RestTimeout),
                 $"The notch did not rest in 'Hidden' before the hover check. ItemStatus: '{NotchItemStatus()}' (expected the NotchFaceState name).");
             _boo.CaptureScreen("10-before-hover");
 
