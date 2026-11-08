@@ -84,6 +84,20 @@ public sealed class CaptionReveal
         return Math.Clamp(since / FadeMs, 0, 1);
     }
 
+    /// <summary>
+    /// True once the caption has finished revealing: every text element is visible and the fade has reached 1.
+    /// Views must use this (not the opacity they last wrote, which may have been skipped by a change threshold)
+    /// to decide when per-frame caption work can stop and anything gated on "typed" (nudge pills) may appear.
+    /// </summary>
+    public bool IsComplete(string text, TimeSpan elapsed, bool reducedMotion = false)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (reducedMotion) return true;
+        var ms = elapsed.TotalMilliseconds;
+        if (double.IsNaN(ms)) return false;
+        return ms >= Duration(text).TotalMilliseconds && ms >= DelayMs + FadeMs;
+    }
+
     /// <summary>Time until the whole text is visible.</summary>
     public TimeSpan Duration(string text, bool reducedMotion = false)
     {

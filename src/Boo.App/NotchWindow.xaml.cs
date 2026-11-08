@@ -803,6 +803,7 @@ public partial class NotchWindow : Window
         _captionDone = false;
         Caption.Text = string.Empty;
         Caption.Opacity = _reducedMotion ? 1 : 0;
+        NudgeActions.Visibility = Visibility.Collapsed; // pills reappear once the new text has typed
     }
 
     private void UpdateCaption(TimeSpan now)
@@ -817,14 +818,23 @@ public partial class NotchWindow : Window
             return; // fully typed: no per-frame work
         }
         var elapsed = now - _captionStart;
-        SetIfChanged(Caption, OpacityProperty, _captionReveal.OpacityAt(elapsed, _reducedMotion));
         var shown = _captionReveal.VisibleText(text, elapsed, _reducedMotion);
         if (!string.Equals(shown, _captionShown, StringComparison.Ordinal))
         {
             _captionShown = shown;
             Caption.Text = shown;
         }
-        _captionDone = shown.Length == text.Length && Caption.Opacity >= 1;
+        // Completion comes from the timeline, not from Caption.Opacity: SetIfChanged skips sub-0.01 steps, so a
+        // frame landing at 0.99x would otherwise leave the opacity (and the nudge pills) stuck short of done.
+        _captionDone = _captionReveal.IsComplete(text, elapsed, _reducedMotion);
+        if (_captionDone)
+        {
+            Caption.Opacity = 1;
+        }
+        else
+        {
+            SetIfChanged(Caption, OpacityProperty, _captionReveal.OpacityAt(elapsed, _reducedMotion));
+        }
         if (_captionDone && _state == NotchFaceState.Nudge)
         {
             NudgeActions.Visibility = Visibility.Visible;
