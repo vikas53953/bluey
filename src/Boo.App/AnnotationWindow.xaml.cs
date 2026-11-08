@@ -99,7 +99,7 @@ public partial class AnnotationWindow : Window
         var style = GetWindowLongPtr(_handle, GwlExstyle).ToInt64();
         SetWindowLongPtr(_handle, GwlExstyle, new IntPtr(style | WsExTransparent | WsExNoActivate | WsExToolWindow));
         HwndSource.FromHwnd(_handle)?.AddHook(WindowProc);
-        CaptureExclusionAvailable = SetWindowDisplayAffinity(_handle, 0x11);
+        CaptureExclusionAvailable = SetWindowDisplayAffinity(_handle, App.CaptureExclusion.DisplayAffinity);
         PositionOnDisplay();
     }
 

@@ -78,6 +78,7 @@ public partial class MainWindow : Window
     private long _realtimeGeneration;
     private bool _realtimeConnected;
     private bool _listening;
+    private readonly ChirpPlayer _chirps = new();
     private bool _voiceTaskAuthorized;
     private bool _closingForExit;
     private bool _displayAffinitySupported = true;
@@ -154,6 +155,7 @@ public partial class MainWindow : Window
         LoadAppearance();
         LoadDisplays();
         InitializeHistory();
+        InitializeHoldToTalk();
         _shellInitialized = true;
     }
 
@@ -193,6 +195,7 @@ public partial class MainWindow : Window
 
     public void StopAll()
     {
+        StopHoldToTalk();
         _generation++;
         _coordinator.Stop();
 
@@ -243,6 +246,7 @@ public partial class MainWindow : Window
     {
         _closingForExit = true;
         StopAll();
+        DisposeHoldToTalk();
         _focusTimer.Stop();
         _focusCaptureTimer.Stop();
         _focusCancellation.Cancel();
@@ -272,11 +276,12 @@ public partial class MainWindow : Window
     private void Window_OnSourceInitialized(object? sender, EventArgs e)
     {
         var handle = new WindowInteropHelper(this).Handle;
-        _displayAffinitySupported = SetWindowDisplayAffinity(handle, 0x11) && _captureExclusion(); // WDA_EXCLUDEFROMCAPTURE
+        _displayAffinitySupported = SetWindowDisplayAffinity(handle, App.CaptureExclusion.DisplayAffinity) && _captureExclusion(); // WDA_EXCLUDEFROMCAPTURE unless BOO_QA_CAPTURABLE=1
         if (!_displayAffinitySupported)
         {
             StatusText.Text = "Capture paused: Boo could not confirm UI exclusion.";
         }
+        if (App.CaptureExclusion.Warning is { } qaWarning) { StatusText.Text = qaWarning; Title += " [QA: capturable]"; }
     }
 
     private void SystemParameters_OnStaticPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -334,6 +339,7 @@ public partial class MainWindow : Window
         ReducedMotionBox.IsChecked = _settings.ReducedMotion;
         SpeechMute.IsChecked = !_settings.SpeechEnabled;
         ChirpMute.IsChecked = !_settings.ChirpsEnabled;
+        StartWithWindowsBox.IsChecked = _settings.StartWithWindows;
         FileRootBox.Text = _settings.FileRoot ?? string.Empty;
         LoadMicrophones();
     }
@@ -785,6 +791,7 @@ public partial class MainWindow : Window
     private void StopListening()
     {
         var hadVoiceSession = _listening || _realtimeConnected || _audioUploads is not null || _realtime is not null;
+        DiscardPushToTalkUplink();
         StopAudioUploads();
         try
         {
@@ -1237,6 +1244,7 @@ public partial class MainWindow : Window
         try
         {
             _focus.End();
+            _chirps.PlaySessionEnd(_settings.ChirpsEnabled, _listening);
             _focusTimer.Stop();
             StopFocusMonitoring();
             SaveFocusSnapshot();
@@ -1261,6 +1269,7 @@ public partial class MainWindow : Window
             UpdateFocusView();
             if (_focus.Snapshot.Status != Boo.Core.FocusStatus.Running)
             {
+                if (_focus.Snapshot.Status == Boo.Core.FocusStatus.Ended) _chirps.PlaySessionEnd(_settings.ChirpsEnabled, _listening);
                 _focusTimer.Stop();
             }
         }
@@ -1320,6 +1329,7 @@ public partial class MainWindow : Window
             {
                 FocusStatus.Text = "Nudge: return to the task when you are ready. Boo did not change your apps.";
                 _ = ShowNudgePointerAsync(frame, snapshot.Task, token);
+                _chirps.PlayNudge(_settings.ChirpsEnabled, _listening);
             }
             else
             {
@@ -1489,8 +1499,10 @@ public partial class MainWindow : Window
                 VerticalOffset: OffsetSlider.Value,
                 MicrophoneDevice: Math.Max(-1, MicrophoneBox.SelectedIndex - 1),
                 FileRoot: string.IsNullOrWhiteSpace(FileRootBox.Text) ? null : Path.GetFullPath(FileRootBox.Text.Trim()),
-                Provider: _settings.Provider ?? new ProviderSettings());
+                Provider: _settings.Provider ?? new ProviderSettings(),
+                StartWithWindows: StartWithWindowsBox.IsChecked == true);
             (_settingsStore ??= new SettingsStore(Path.Combine(_dataDirectory, "settings.json"))).Save(_settings);
+            if (Environment.ProcessPath is { } exePath) StartupRegistration.Apply(_settings.StartWithWindows, exePath, new RegistryStartupStore());
 
             if (CredentialBox.SecurePassword.Length > 0)
             {
@@ -1796,7 +1808,7 @@ public partial class MainWindow : Window
         return _responses;
     }
 
-    private RealtimeClient EnsureRealtime()
+    private RealtimeClient EnsureRealtime(bool pushToTalk = false)
     {
         if (_realtime is not null)
         {
@@ -1804,7 +1816,8 @@ public partial class MainWindow : Window
         }
 
         _credentialStore ??= new CredentialStore(Path.Combine(_dataDirectory, "credential.bin"));
-        var realtime = new RealtimeClient(() => _credentialStore.Load(), _settings.Provider ?? new ProviderSettings());
+        var realtime = new RealtimeClient(() => _credentialStore.Load(), _settings.Provider ?? new ProviderSettings(), pushToTalk);
+        _realtimePushToTalk = pushToTalk;
         _realtimeTranscript.Reset();
         _realtimeTranscriptRows.Clear();
         var generation = _generation;
@@ -1916,10 +1929,12 @@ public partial class MainWindow : Window
                 {
                     return;
                 }
+                ObserveTalkEvent(realtimeEvent);
                 switch (realtimeEvent.Kind)
                 {
                     case "input_audio_buffer.speech_started":
                     case "input_audio_buffer.speech_stopped":
+                    case "input_audio_buffer.committed":
                         ListeningStatus.Text = realtimeEvent.Kind.EndsWith("started", StringComparison.Ordinal)
                             ? "Listening…"
                             : "Thinking…";

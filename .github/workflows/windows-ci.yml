@@ -1,0 +1,51 @@
+name: windows-ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-publish:
+    runs-on: windows-latest
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Boo.sln
+
+      - name: Build
+        run: dotnet build Boo.sln -c Release --no-restore
+
+      # Provider tests use in-memory HTTP handlers; no OpenAI key or other secret is needed.
+      - name: Core tests
+        run: dotnet test tests/Boo.Core.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/core
+
+      - name: Integration tests
+        run: dotnet test tests/Boo.Integration.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/integration
+
+      - name: Publish app
+        run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: artifacts/test-results
+
+      - name: Upload published app
+        uses: actions/upload-artifact@v4
+        with:
+          name: boo-win-x64
+          path: artifacts/ci

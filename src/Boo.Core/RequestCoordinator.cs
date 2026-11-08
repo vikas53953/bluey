@@ -1,4 +1,5 @@
 namespace Boo.Core;
+
 public sealed class RequestCoordinator : IDisposable
 {
     private readonly object _gate = new();
