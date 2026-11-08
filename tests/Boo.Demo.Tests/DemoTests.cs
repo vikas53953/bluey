@@ -186,7 +186,9 @@ public sealed class DemoTests : IClassFixture<BooAppFixture>
             var dev = Find(panel, "DeveloperModeBox").AsCheckBox();
             dev.IsChecked = true;
             SetText(panel, "FocusTaskBox", "Demo focus");
-            SetText(panel, "FocusDurationBox", "1");
+            // 3 minutes at the 4x Developer Mode clock = ~45 real seconds: room for checks at 10 s and 20 s (two off-task
+            // answers -> nudge) before the session ends. 1 minute (15 real seconds) only ever fitted a single check.
+            SetText(panel, "FocusDurationBox", "3");
             Find(panel, "FocusStartButton").AsButton().Invoke();
             Assert.True(
                 BooAppFixture.WaitUntil(() => NameOfId(panel, "FocusStatus").StartsWith("Running", StringComparison.Ordinal), UiTimeout),
@@ -215,7 +217,7 @@ public sealed class DemoTests : IClassFixture<BooAppFixture>
             Assert.NotNull(back);
             back!.AsButton().Invoke();
 
-            // 1 minute at 4x = ~15 real seconds; the happy face is a 2.5 s moment, so poll for it.
+            // The session ends ~45 real seconds after Start; the happy face is a 2.5 s moment, so poll for it.
             var sawHappy = BooAppFixture.WaitUntil(() =>
             {
                 var notch = _boo.FindNotch();
