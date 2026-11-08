@@ -252,6 +252,9 @@
                                            VerticalAlignment="Center" Margin="16,0,5,0" />
                                 <ComboBox x:Name="MicrophoneBox" Width="108" Height="28" AutomationProperties.Name="Selected microphone" />
                             </WrapPanel>
+                            <TextBlock x:Name="VoiceLatencyText" Text="Voice latency: no warm hold-to-talk turns yet."
+                                       Foreground="{DynamicResource BooMuted}" FontFamily="Segoe UI" FontSize="10" TextWrapping="Wrap"
+                                       Margin="0,0,0,8" AutomationProperties.Name="Voice latency diagnostics" />
 
                             <TextBlock Text="Appearance" Style="{StaticResource BooLabel}" Margin="0,6,0,5" />
                             <TextBlock Text="Body color (#RRGGBB)" Foreground="{DynamicResource BooMuted}" FontSize="11" />
