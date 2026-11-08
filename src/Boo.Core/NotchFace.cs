@@ -144,6 +144,8 @@ public sealed record BlinkEvent(TimeSpan Start, bool IsDouble);
 /// Deterministic blink timeline from t = 0 (injected Random). Group start-to-start intervals (and the first
 /// start) are uniform in [BlinkEveryMinMs, BlinkEveryMaxMs]. Each blink closes linearly 1->0 over BlinkCloseMs
 /// and opens 0->1 over BlinkOpenMs. Reduced motion: no events, openness always 1.
+/// Optional entryBlinkDelayMs (spec timings.entryBlinkDelayMs): one single blink at that time after appearing,
+/// then the normal schedule continues from it.
 /// </summary>
 public sealed class BlinkScheduler
 {
@@ -151,19 +153,30 @@ public sealed class BlinkScheduler
     private readonly Random _random;
     private readonly List<BlinkEvent> _events = new();
     private TimeSpan _next;
+    private bool _entryPending;
 
-    public BlinkScheduler(NotchTimings timings, Random random, bool reducedMotion = false, int doubleBlinkGapMs = 80)
+    public BlinkScheduler(NotchTimings timings, Random random, bool reducedMotion = false, int doubleBlinkGapMs = 80, int? entryBlinkDelayMs = null)
     {
         ArgumentNullException.ThrowIfNull(timings);
         ArgumentNullException.ThrowIfNull(random);
         ArgumentOutOfRangeException.ThrowIfNegative(doubleBlinkGapMs);
+        if (entryBlinkDelayMs is < 0)
+            throw new ArgumentOutOfRangeException(nameof(entryBlinkDelayMs), entryBlinkDelayMs, "Entry blink delay must not be negative.");
         if (timings.BlinkEveryMinMs <= 0 || timings.BlinkEveryMaxMs < timings.BlinkEveryMinMs)
             throw new ArgumentOutOfRangeException(nameof(timings), "Blink interval must be positive with min <= max.");
         _timings = timings;
         _random = random;
         ReducedMotion = reducedMotion;
         DoubleBlinkGapMs = doubleBlinkGapMs;
-        _next = NextInterval();
+        if (entryBlinkDelayMs is { } entry)
+        {
+            _entryPending = true;
+            _next = TimeSpan.FromMilliseconds(entry);
+        }
+        else
+        {
+            _next = NextInterval();
+        }
     }
 
     public bool ReducedMotion { get; }
@@ -218,7 +231,8 @@ public sealed class BlinkScheduler
     {
         while (_next <= until)
         {
-            var isDouble = _random.NextDouble() < _timings.DoubleBlinkChance;
+            var isDouble = !_entryPending && _random.NextDouble() < _timings.DoubleBlinkChance;
+            _entryPending = false;
             _events.Add(new BlinkEvent(_next, isDouble));
             _next += NextInterval();
         }

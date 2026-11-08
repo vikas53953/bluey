@@ -57,12 +57,13 @@ public sealed class NotchSpec
 {
     private readonly IReadOnlyDictionary<string, NotchFaceSpec> _faces;
 
-    private NotchSpec(IReadOnlyDictionary<string, NotchFaceSpec> faces, string chosen, SizeD hoverStrip, NotchTimings timings)
+    private NotchSpec(IReadOnlyDictionary<string, NotchFaceSpec> faces, string chosen, SizeD hoverStrip, NotchTimings timings, NotchMotionTimings motion)
     {
         _faces = faces;
         ChosenFaceKey = chosen;
         HoverStrip = hoverStrip;
         Timings = timings;
+        Motion = motion;
     }
 
     private static readonly Lazy<NotchSpec> DefaultSpec = new(BuildDefault);
@@ -139,13 +140,16 @@ public sealed class NotchSpec
     public NotchSpec WithChosenFace(string key)
     {
         var face = GetFace(key);
-        return new NotchSpec(_faces, face.Key, HoverStrip, Timings);
+        return new NotchSpec(_faces, face.Key, HoverStrip, Timings, Motion);
     }
 
     /// <summary>Invisible hover strip (DIP), spec "hoverStrip".</summary>
     public SizeD HoverStrip { get; }
 
     public NotchTimings Timings { get; }
+
+    /// <summary>Remaining spec timings (caption, wander, saccades, shake, indicators, draw stroke, app open).</summary>
+    public NotchMotionTimings Motion { get; }
 
     private static readonly (string Json, NotchFaceState State)[] StateKeys =
     {
@@ -166,14 +170,16 @@ public sealed class NotchSpec
             faces[prop.Name] = ParseFace(prop.Name, prop.Value);
 
         var hoverStrip = Size(Req(root, "hoverStrip", "spec"), "hoverStrip");
-        var timings = ParseTimings(Obj(root, "timings", "spec"));
+        var timingsEl = Obj(root, "timings", "spec");
+        var timings = ParseTimings(timingsEl);
+        var motion = ParseMotion(timingsEl);
 
         var chosen = Obj(root, "chosen", "spec");
         var chosenKey = Str(chosen, "face", "chosen");
         if (!faces.ContainsKey(chosenKey))
             throw new NotchSpecException($"chosen.face '{chosenKey}' is not defined under directions.");
 
-        return new NotchSpec(faces, chosenKey, hoverStrip, timings);
+        return new NotchSpec(faces, chosenKey, hoverStrip, timings, motion);
     }
 
     private static NotchFaceSpec ParseFace(string key, JsonElement el)
@@ -255,6 +261,67 @@ public sealed class NotchSpec
             Positive(spring, "stiffness", "timings.gazeSpring"),
             Positive(spring, "damping", "timings.gazeSpring"),
             PositiveInt(t, "captionCharMs"));
+    }
+
+    private static NotchMotionTimings ParseMotion(JsonElement t)
+    {
+        var d = NotchMotionTimings.Shipped;
+        int Opt(string name, int fallback, bool allowZero)
+        {
+            if (!t.TryGetProperty(name, out var v) || v.ValueKind == JsonValueKind.Null) return fallback;
+            return allowZero ? NonNegativeInt(t, name) : PositiveInt(t, name);
+        }
+
+        var saccadeMin = d.SaccadeEveryMinMs;
+        var saccadeMax = d.SaccadeEveryMaxMs;
+        if (t.TryGetProperty("saccadeEveryMs", out var saccade) && saccade.ValueKind != JsonValueKind.Null)
+        {
+            if (saccade.ValueKind != JsonValueKind.Array || saccade.GetArrayLength() != 2)
+                throw new NotchSpecException("timings.saccadeEveryMs must be [min, max].");
+            saccadeMin = Int(saccade[0], "timings.saccadeEveryMs[0]");
+            saccadeMax = Int(saccade[1], "timings.saccadeEveryMs[1]");
+            if (saccadeMin <= 0 || saccadeMax < saccadeMin)
+                throw new NotchSpecException("timings.saccadeEveryMs must be positive with min <= max.");
+        }
+
+        var shake = d.NudgeShake;
+        if (t.TryGetProperty("nudgeShake", out var shakeEl) && shakeEl.ValueKind != JsonValueKind.Null)
+        {
+            if (shakeEl.ValueKind != JsonValueKind.String)
+                throw new NotchSpecException("timings.nudgeShake must be a string like \"2 × ±3 px, 320 ms each\".");
+            shake = ParseShake(shakeEl.GetString()!);
+        }
+
+        return new NotchMotionTimings(
+            Opt("captionFadeMs", d.CaptionFadeMs, allowZero: true),
+            Opt("captionDelayMs", d.CaptionDelayMs, allowZero: true),
+            Opt("entryBlinkDelayMs", d.EntryBlinkDelayMs, allowZero: true),
+            Opt("peekRiseMs", d.PeekRiseMs, allowZero: false),
+            Opt("peekRiseDelayMs", d.PeekRiseDelayMs, allowZero: true),
+            Opt("idleWanderAfterMs", d.IdleWanderAfterMs, allowZero: true),
+            saccadeMin,
+            saccadeMax,
+            Opt("thinkingDotCycleMs", d.ThinkingDotCycleMs, allowZero: false),
+            Opt("recordPulseMs", d.RecordPulseMs, allowZero: false),
+            Opt("drawStrokeMs", d.DrawStrokeMs, allowZero: true),
+            Opt("appOpenMs", d.AppOpenMs, allowZero: true),
+            shake);
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex ShakePattern = new(
+        @"^\s*(?<count>\d+)\s*(?:\u00d7|x|X)\s*(?:\u00b1|\+-|\+/-)\s*(?<amp>\d+(?:\.\d+)?)\s*px\s*,\s*(?<ms>\d+)\s*ms(?:\s+each)?\s*$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static NudgeShakeSpec ParseShake(string text)
+    {
+        var m = ShakePattern.Match(text);
+        if (!m.Success
+            || !int.TryParse(m.Groups["count"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var count)
+            || !double.TryParse(m.Groups["amp"].Value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var amp)
+            || !int.TryParse(m.Groups["ms"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var ms)
+            || count <= 0 || ms <= 0 || !double.IsFinite(amp))
+            throw new NotchSpecException($"timings.nudgeShake '{text}' must read like \"2 × ±3 px, 320 ms each\" with a positive count and duration.");
+        return new NudgeShakeSpec(count, amp, ms);
     }
 
     private static JsonElement Req(JsonElement parent, string name, string where)
@@ -362,6 +429,6 @@ public sealed class NotchSpec
             RevealMs: 240, RetractDelayMs: 900, RetractMs: 160, ResizeMs: 280,
             BlinkCloseMs: 70, BlinkOpenMs: 90, BlinkEveryMinMs: 2800, BlinkEveryMaxMs: 6000,
             DoubleBlinkChance: 0.15, GazeStiffness: 260, GazeDamping: 0.82, CaptionCharMs: 28);
-        return new NotchSpec(new Dictionary<string, NotchFaceSpec>(StringComparer.Ordinal) { ["B"] = faceB }, "B", new SizeD(220, 8), timings);
+        return new NotchSpec(new Dictionary<string, NotchFaceSpec>(StringComparer.Ordinal) { ["B"] = faceB }, "B", new SizeD(220, 8), timings, NotchMotionTimings.Shipped);
     }
 }
