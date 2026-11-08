@@ -248,7 +248,12 @@ public sealed class DemoTests : IClassFixture<BooAppFixture>
             }
             BooAppFixture.PressOpenShortcut();
             panel = _boo.WaitForPanel(UiTimeout);
-            var ended = BooAppFixture.WaitUntil(() => NameOfId(panel, "FocusStatus").StartsWith("Ended", StringComparison.Ordinal), UiTimeout);
+            // A session that runs out says "Session complete. Nice work. It is saved in your history."; a manual End says "Ended ...".
+            var ended = BooAppFixture.WaitUntil(() =>
+            {
+                var status = NameOfId(panel, "FocusStatus");
+                return status.StartsWith("Ended", StringComparison.Ordinal) || status.StartsWith("Session complete", StringComparison.Ordinal);
+            }, UiTimeout);
             _boo.WriteObservation("04-happy", $"sawHappy={sawHappy} states={string.Join(">", seen)} focusStatus='{NameOfId(panel, "FocusStatus")}' ended={ended}");
             _boo.CaptureScreen("04-focus-ended");
             Assert.True(sawHappy, $"Notch never reported ItemStatus 'Happy'. States seen: {string.Join(">", seen)}");
