@@ -276,10 +276,22 @@ public sealed partial class BooSmokeTests
             // Notch: keyboard users must be told how to open the window and how to talk without the mouse.
             // UIA merges a top-level HWND's own (empty) HelpText over the WPF window's, so the same text also sits on
             // the notch's "Open Boo companion" button; either location satisfies a screen reader.
+            // The resting notch collapses its host (no render loop, OpenButton out of the UIA tree), so reveal it the
+            // way a pointer user does: hover the top-centre strip, then read the help while it is out.
             var notch = _boo.WaitForNotch(UiTimeout);
+            var rect = notch.BoundingRectangle;
+            var hoverPoint = new System.Drawing.Point(rect.Left + rect.Width / 2, rect.Top + 2);
+            Mouse.MoveTo(hoverPoint);
             var helpText = string.Empty;
-            BooAppFixture.WaitUntil(() => (helpText = NotchKeyboardHelp(notch)).Length > 0, FocusMoveTimeout);
-            observation.AppendLine($"notch name='{BooAppFixture.SafeName(notch)}' helpText='{helpText}'");
+            var revealedState = string.Empty;
+            BooAppFixture.WaitUntil(() =>
+            {
+                revealedState = NotchItemStatus();
+                var current = _boo.FindNotch() ?? notch;
+                return (helpText = NotchKeyboardHelp(current)).Length > 0;
+            }, UiTimeout);
+            observation.AppendLine($"notch name='{BooAppFixture.SafeName(notch)}' hover={hoverPoint} state='{revealedState}' helpText='{helpText}'");
+            Mouse.MoveTo(new System.Drawing.Point(hoverPoint.X, hoverPoint.Y + 300));
 
             _boo.WriteObservation("14-a11y-names", observation.ToString());
             _output.WriteLine(observation.ToString());
