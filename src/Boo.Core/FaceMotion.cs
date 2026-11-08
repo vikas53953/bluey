@@ -58,7 +58,7 @@ public readonly record struct FaceFrame(
     bool Happy,
     double TalkLevel);
 
-/// <summary>Motion constants from the spec "timings" block that NotchTimings does not carry.</summary>
+/// <summary>Shipped values of the spec motion timings (FaceMotion reads the live ones from NotchSpec.Motion).</summary>
 public static class FaceMotionTimings
 {
     /// <summary>One blink this long after the face leaves Hidden (spec entryBlinkDelayMs).</summary>

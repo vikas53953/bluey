@@ -80,6 +80,7 @@ public partial class App : System.Windows.Application
             appReducedMotion: () => _panel?.ReducedMotionEnabled == true);
         _panel.FaceInputsChanged += OnFaceInputsChanged;
         _notch.EyesHeldChanged += held => _panel?.SetEyesHeld(held);
+        _notch.NudgeActionChosen += takeBreak => _panel?.HandleNudgeAction(takeBreak);
         _notch.ShowNotch();
 
         CreateTrayIcon();

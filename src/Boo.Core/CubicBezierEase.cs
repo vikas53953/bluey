@@ -23,6 +23,9 @@ public sealed class CubicBezierEase
     /// <summary>Spec "retractEase": cubic-bezier(.5,0,.75,0).</summary>
     public static CubicBezierEase Retract { get; } = new(0.5, 0, 0.75, 0);
 
+    /// <summary>Studio ".boo" width/height transition: cubic-bezier(.3,.9,.3,1.05), a slight settle past the target.</summary>
+    public static CubicBezierEase Resize { get; } = new(0.3, 0.9, 0.3, 1.05);
+
     /// <summary>Ease-out used for size changes (CSS "ease-out").</summary>
     public static CubicBezierEase EaseOut { get; } = new(0, 0, 0.58, 1);
 

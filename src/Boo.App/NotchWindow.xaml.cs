@@ -42,12 +42,6 @@ public partial class NotchWindow : Window
     private const string SpecResourceName = "Boo.App.boo-notch-spec.json";
     private const double ShakePadDip = 6;
     private const double DisclosureReserveDip = 76;
-    private const double GazeReachDip = 220;
-    private const int ThinkingDotCycleMs = 1200;
-    private const int RecordPulseMs = 2000;
-    private const int NudgeShakeMs = 320;
-    private const double NudgeShakeDip = 3;
-    private const int HappyBounceMs = 420;
     private static readonly MediaBrush PupilBrush = Frozen(new SolidColorBrush(Colors.Black));
 
     private readonly Action _onOpenPanel;
@@ -60,17 +54,19 @@ public partial class NotchWindow : Window
     private readonly NotchFaceSpec _face;
     private readonly NotchRevealTimeline _timeline;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
-    private readonly GazeSpring _leftGaze;
-    private readonly GazeSpring _rightGaze;
+    private readonly FaceMotion _motion;
+    private readonly CaptionReveal _captionReveal;
     private readonly PressHoldTracker _press = new();
     private readonly DispatcherTimer _holdTimer;
-    private readonly Rectangle[] _listeningBars = new Rectangle[3];
-    private readonly Ellipse[] _thinkingDots = new Ellipse[3];
+    private readonly Rectangle[] _listeningBars = new Rectangle[FaceIndicators.BarCount];
+    private readonly Ellipse[] _thinkingDots = new Ellipse[FaceIndicators.DotCount];
     private readonly double _windowWidthDip;
     private readonly double _windowHeightDip;
     private NotchAppearance _appearance = new();
-    private BlinkScheduler _blink;
-    private TimeSpan _blinkEpoch;
+    private NotchRowParts _row = new(default, default, default, default, default, 0);
+    private string _caption = string.Empty;
+    private string _captionShown = string.Empty;
+    private TimeSpan _captionStart;
     private FaceInputs _appInputs = new();
     private bool _hovered;
     private NotchFaceState _state = NotchFaceState.Hidden;
@@ -108,6 +104,9 @@ public partial class NotchWindow : Window
     /// </summary>
     public event Action<bool>? EyesHeldChanged;
 
+    /// <summary>Nudge caption actions: false = "Back to it" (dismiss), true = "5 min break".</summary>
+    public event Action<bool>? NudgeActionChosen;
+
     /// <summary>The spec in use (chosen face), for diagnostics.</summary>
     public NotchSpec Spec => _spec;
 
@@ -128,10 +127,10 @@ public partial class NotchWindow : Window
         _spec = LoadSpec();
         _face = _spec.Face;
         _timeline = new NotchRevealTimeline(_spec.Timings);
-        _leftGaze = new GazeSpring(_spec.Timings.GazeStiffness, _spec.Timings.GazeDamping);
-        _rightGaze = new GazeSpring(_spec.Timings.GazeStiffness, _spec.Timings.GazeDamping);
+        _motion = new FaceMotion(_spec, new Random());
+        _captionReveal = CaptionReveal.FromSpec(_spec);
         _reducedMotion = ComputeReducedMotion();
-        _blink = new BlinkScheduler(_spec.Timings, new Random(), _reducedMotion);
+        _motion.ReducedMotion = _reducedMotion;
         _holdTimer = new DispatcherTimer(DispatcherPriority.Input) { Interval = PressHoldTracker.HoldThreshold };
         _holdTimer.Tick += HoldTimer_OnTick;
 
@@ -252,6 +251,7 @@ public partial class NotchWindow : Window
     {
         ArgumentNullException.ThrowIfNull(inputs);
         _appInputs = inputs;
+        SetCaption(inputs.Caption);
         Recompute();
     }
 
@@ -329,14 +329,30 @@ public partial class NotchWindow : Window
         }
         _reducedMotion = false;
         _state = NotchFaceState.Hidden;
-        ApplyState(state, at);
+        if (state is NotchFaceState.Responding or NotchFaceState.Nudge)
+        {
+            _caption = state == NotchFaceState.Responding
+                ? "Rule 1043 allows any source to DMZ-Web on all ports. I've circled Save so you can lock in the removal."
+                : "Still on the Q4 rule review? 18 minutes left in this focus block.";
+        }
+        var start = at - TimeSpan.FromMilliseconds(4000);
+        ApplyState(state, start);
         _sizeFrom = _sizeTo = _sizeNow = _face.SizeFor(state);
-        _stateSince = at - TimeSpan.FromMilliseconds(2000);
         LayoutBody(_sizeNow);
         NotchHost.Visibility = Visibility.Visible;
         RevealTranslate.Y = 0;
         RevealScale.ScaleY = 1;
+        // Settle the eyes: pointer below-right of the notch, as if the user just moved it there.
+        for (var t = start; t <= at; t += TimeSpan.FromMilliseconds(16))
+        {
+            var frame = _motion.Tick(t, new PointD(150, 110));
+            if (t + TimeSpan.FromMilliseconds(16) > at)
+            {
+                ApplyFrame(frame);
+            }
+        }
         UpdateIndicators(at);
+        UpdateCaption(at);
         UpdateDisclosure();
         HoverStrip.Visibility = Visibility.Collapsed;
 
@@ -395,6 +411,8 @@ public partial class NotchWindow : Window
         _state = state;
         _stateSince = now;
         _reducedMotion = ComputeReducedMotion();
+        _motion.ReducedMotion = _reducedMotion;
+        _motion.SetState(state, now);
 
         _sizeFrom = _sizeNow;
         _sizeTo = _face.SizeFor(state);
@@ -403,13 +421,6 @@ public partial class NotchWindow : Window
         {
             _sizeFrom = _sizeTo;
             _sizeNow = _sizeTo;
-        }
-
-        if (wasHidden && state != NotchFaceState.Hidden)
-        {
-            // Fresh blink timeline per appearance keeps the schedule short-lived and honours reduced motion.
-            _blink = new BlinkScheduler(_spec.Timings, new Random(), _reducedMotion);
-            _blinkEpoch = now;
         }
 
         var happy = state == NotchFaceState.Happy;
@@ -424,11 +435,18 @@ public partial class NotchWindow : Window
         }
         LeftHappy.Visibility = RightHappy.Visibility = happy ? Visibility.Visible : Visibility.Collapsed;
 
-        ListeningBars.Visibility = state == NotchFaceState.Listening ? Visibility.Visible : Visibility.Collapsed;
-        ThinkingDots.Visibility = state == NotchFaceState.Thinking ? Visibility.Visible : Visibility.Collapsed;
-        RecordDot.Visibility = state == NotchFaceState.Capture ? Visibility.Visible : Visibility.Collapsed;
-        PauseBars.Visibility = state == NotchFaceState.Paused ? Visibility.Visible : Visibility.Collapsed;
-        RecordDot.Opacity = 1;
+        static Visibility Show(bool on) => on ? Visibility.Visible : Visibility.Collapsed;
+        ListeningBars.Visibility = Show(state is NotchFaceState.Listening or NotchFaceState.Responding);
+        ThinkingDots.Visibility = Show(state == NotchFaceState.Thinking);
+        RecordDot.Visibility = RecordRing.Visibility = StopSquare.Visibility = Show(state == NotchFaceState.Capture);
+        PauseBars.Visibility = Show(state == NotchFaceState.Paused);
+        var captioned = state is NotchFaceState.Responding or NotchFaceState.Nudge;
+        Caption.Visibility = Show(captioned);
+        NudgeActions.Visibility = Show(state == NotchFaceState.Nudge);
+        if (captioned)
+        {
+            RestartCaption(now);
+        }
         LayoutBody(_sizeNow);
     }
 
@@ -505,7 +523,7 @@ public partial class NotchWindow : Window
             }
             else
             {
-                var k = CubicBezierEase.EaseOut.Evaluate(t);
+                var k = CubicBezierEase.Resize.Evaluate(t);
                 _sizeNow = new SizeD(
                     _sizeFrom.Width + (_sizeTo.Width - _sizeFrom.Width) * k,
                     _sizeFrom.Height + (_sizeTo.Height - _sizeFrom.Height) * k);
@@ -516,9 +534,9 @@ public partial class NotchWindow : Window
         ApplyReveal(phase, now);
         if (_state != NotchFaceState.Hidden)
         {
-            UpdateGaze(dt);
-            UpdateBlink(now);
+            ApplyFrame(_motion.Tick(now, PointerFromBodyCentre()));
             UpdateIndicators(now);
+            UpdateCaption(now);
         }
 
         if (phase == RevealPhase.Hidden && _state == NotchFaceState.Hidden && _sizeNow == _sizeTo)
@@ -548,120 +566,157 @@ public partial class NotchWindow : Window
         SetIfChanged(RevealTranslate, TranslateTransform.YProperty, (Math.Min(visible, 1) - 1) * height);
         SetIfChanged(RevealScale, ScaleTransform.ScaleYProperty, Math.Max(visible, 1));
 
-        var shake = 0d;
-        var since = (now - _stateSince).TotalMilliseconds;
-        if (_state == NotchFaceState.Nudge && !_reducedMotion && since < 2 * NudgeShakeMs)
-        {
-            shake = NudgeShakeDip * Math.Sin(2 * Math.PI * since / NudgeShakeMs);
-        }
+        var shake = _state == NotchFaceState.Nudge && !_reducedMotion
+            ? FaceIndicators.NudgeShakeX((now - _stateSince).TotalMilliseconds)
+            : 0;
         SetIfChanged(RevealTranslate, TranslateTransform.XProperty, shake);
     }
 
-    private void UpdateGaze(TimeSpan dt)
+    /// <summary>Pointer relative to the notch body centre in DIP (studio: pointer minus the notch's bounding-box centre).</summary>
+    private PointD? PointerFromBodyCentre()
     {
-        if (_face.Eye.GazeX <= 0 && _face.Eye.GazeY <= 0)
+        if (!GetCursorPos(out var cursor) || _scale <= 0)
+        {
+            return null;
+        }
+        var centreX = BodyLeftDip(_sizeNow) + _sizeNow.Width / 2;
+        var centreY = _sizeNow.Height / 2;
+        return new PointD((cursor.X - _windowLeftPx) / _scale - centreX, (cursor.Y - _windowTopPx) / _scale - centreY);
+    }
+
+    private void ApplyFrame(FaceFrame frame)
+    {
+        ApplyEye(frame, _row.LeftEye, LeftEye, LeftBlink, LeftShift, LeftPupil, LeftGlint);
+        ApplyEye(frame, _row.RightEye, RightEye, RightBlink, RightShift, RightPupil, RightGlint);
+        _talkLevel = frame.TalkLevel;
+    }
+
+    private double _talkLevel;
+
+    private void ApplyEye(FaceFrame frame, PointD centre, Canvas eyeCanvas, ScaleTransform blink, TranslateTransform shift, Ellipse pupil, Ellipse glint)
+    {
+        SetIfChanged(blink, ScaleTransform.ScaleYProperty, frame.Happy ? 1 : frame.Openness);
+        SetIfChanged(shift, TranslateTransform.XProperty, frame.EyeShift.X);
+        SetIfChanged(shift, TranslateTransform.YProperty, frame.EyeShift.Y);
+        SetIfChanged(eyeCanvas, OpacityProperty, frame.EyeOpacity);
+
+        var eye = _face.Eye;
+        if (eye.Pupil <= 0 || frame.Happy)
         {
             return;
         }
-
-        var hasCursor = GetCursorPos(out var cursor);
-        var pointer = hasCursor ? new PointD(cursor.X, cursor.Y) : new PointD(double.NaN, double.NaN);
-        var bodyLeft = BodyLeftDip(_sizeNow);
-        var reach = GazeReachDip * _scale;
-
-        _leftGaze.Target = GazeFor(pointer, bodyLeft, _parts.LeftEye, reach);
-        _rightGaze.Target = GazeFor(pointer, bodyLeft, _parts.RightEye, reach);
-        if (_reducedMotion)
-        {
-            _leftGaze.SnapTo(_leftGaze.Target);
-            _rightGaze.SnapTo(_rightGaze.Target);
-        }
-        else
-        {
-            _leftGaze.Step(dt);
-            _rightGaze.Step(dt);
-        }
-
-        PlaceGaze(_leftGaze.Position, LeftWhite, LeftPupil, LeftGlint, _parts.LeftEye);
-        PlaceGaze(_rightGaze.Position, RightWhite, RightPupil, RightGlint, _parts.RightEye);
-    }
-
-    private PointD GazeFor(PointD pointer, double bodyLeftDip, PointD eyeDip, double reachPx)
-    {
-        var eyePx = new PointD(_windowLeftPx + (bodyLeftDip + eyeDip.X) * _scale, _windowTopPx + eyeDip.Y * _scale);
-        // Spec gaze radii are DIP; the solver works in px, so scale in and out.
-        var offset = GazeSolver.Target(pointer, eyePx, _face.Eye.GazeX * _scale, _face.Eye.GazeY * _scale, reachPx);
-        return new PointD(offset.X / _scale, offset.Y / _scale);
-    }
-
-    private void PlaceGaze(PointD offset, Rectangle white, Ellipse pupil, Ellipse glint, PointD centre)
-    {
-        var eye = _face.Eye;
-        if (eye.Pupil > 0)
-        {
-            var px = centre.X + offset.X - eye.Pupil / 2;
-            var py = centre.Y + offset.Y - eye.Pupil / 2;
-            SetIfChanged(pupil, Canvas.LeftProperty, px);
-            SetIfChanged(pupil, Canvas.TopProperty, py);
-            // Glint sits in the upper right of the pupil.
-            SetIfChanged(glint, Canvas.LeftProperty, px + eye.Pupil * 0.55 - eye.Glint / 2);
-            SetIfChanged(glint, Canvas.TopProperty, py + eye.Pupil * 0.3 - eye.Glint / 2);
-        }
-        else
-        {
-            // Faces without pupils (pebble, peek) move the whole eye.
-            SetIfChanged(white, Canvas.LeftProperty, centre.X + offset.X - eye.Width / 2);
-            SetIfChanged(white, Canvas.TopProperty, centre.Y + offset.Y - eye.Height / 2);
-        }
-    }
-
-    private void UpdateBlink(TimeSpan now)
-    {
-        var openness = _state == NotchFaceState.Happy ? 1 : _blink.OpennessAt(now - _blinkEpoch);
-        // Never fully flat so the eye stays a visible sliver.
-        var scaleY = Math.Max(0.08, openness);
-        SetIfChanged(LeftBlink, ScaleTransform.ScaleYProperty, scaleY);
-        SetIfChanged(RightBlink, ScaleTransform.ScaleYProperty, scaleY);
-
-        var bounce = 0d;
-        var since = (now - _stateSince).TotalMilliseconds;
-        if (_state == NotchFaceState.Happy && !_reducedMotion && since < HappyBounceMs)
-        {
-            bounce = -2 * Math.Sin(Math.PI * since / HappyBounceMs);
-        }
-        SetIfChanged(LeftEye, Canvas.TopProperty, bounce);
-        SetIfChanged(RightEye, Canvas.TopProperty, bounce);
+        // Pupil (scaled per mood) with the glint in its upper right (studio: right 1px, top 1px).
+        var size = eye.Pupil * frame.PupilScale;
+        var px = centre.X + frame.PupilOffset.X;
+        var py = centre.Y + frame.PupilOffset.Y;
+        SetIfChanged(pupil, WidthProperty, size);
+        SetIfChanged(pupil, HeightProperty, size);
+        SetIfChanged(pupil, Canvas.LeftProperty, px - size / 2);
+        SetIfChanged(pupil, Canvas.TopProperty, py - size / 2);
+        var g = eye.Glint * frame.PupilScale;
+        var inset = (eye.Pupil / 2 - 1 - eye.Glint / 2) * frame.PupilScale;
+        SetIfChanged(glint, WidthProperty, g);
+        SetIfChanged(glint, HeightProperty, g);
+        SetIfChanged(glint, Canvas.LeftProperty, px + inset - g / 2);
+        SetIfChanged(glint, Canvas.TopProperty, py - inset - g / 2);
     }
 
     private void UpdateIndicators(TimeSpan now)
     {
         var ms = now.TotalMilliseconds;
+        var since = (now - _stateSince).TotalMilliseconds;
+        var cy = _row.RowHeight / 2;
         switch (_state)
         {
             case NotchFaceState.Thinking:
                 for (var i = 0; i < _thinkingDots.Length; i++)
                 {
-                    var phase = (ms / ThinkingDotCycleMs - i / 3.0) * 2 * Math.PI;
-                    var opacity = _reducedMotion ? 0.8 : 0.3 + 0.7 * Math.Max(0, Math.Sin(phase));
+                    var (opacity, offset) = _reducedMotion ? (0.25, 0d) : FaceIndicators.ThinkingDot(i, since);
                     SetIfChanged(_thinkingDots[i], OpacityProperty, opacity);
+                    SetIfChanged(_thinkingDots[i], Canvas.TopProperty, cy - FaceIndicators.DotSize / 2 + offset);
                 }
                 break;
             case NotchFaceState.Capture:
-                // Pulses but never hides while capture is on (minimum opacity 0.55).
-                var pulse = _reducedMotion ? 1 : 0.55 + 0.45 * (0.5 + 0.5 * Math.Cos(2 * Math.PI * ms / RecordPulseMs));
-                SetIfChanged(RecordDot, OpacityProperty, pulse);
-                RecordDot.Visibility = Visibility.Visible;
+                // The red dot never fades; only its halo pulses (studio box-shadow ring).
+                var (spread, alpha) = _reducedMotion ? (3d, 0.28) : FaceIndicators.RecordRing(since);
+                var d = 7 + 2 * spread;
+                SetIfChanged(RecordRing, WidthProperty, d);
+                SetIfChanged(RecordRing, HeightProperty, d);
+                SetIfChanged(RecordRing, Canvas.LeftProperty, _row.Lead.X + 3.5 - d / 2);
+                SetIfChanged(RecordRing, Canvas.TopProperty, cy - d / 2);
+                SetIfChanged(RecordRing, OpacityProperty, alpha);
                 break;
             case NotchFaceState.Listening:
+            case NotchFaceState.Responding:
                 for (var i = 0; i < _listeningBars.Length; i++)
                 {
-                    var h = _reducedMotion ? 10 : 7 + 6 * (0.5 + 0.5 * Math.Sin(2 * Math.PI * ms / 900 + i * 1.7));
+                    var h = _state == NotchFaceState.Listening
+                        ? FaceIndicators.ListeningBarHeight(i, ms)
+                        : FaceIndicators.TalkingBarHeight(i, ms, _talkLevel);
                     var bar = _listeningBars[i];
                     SetIfChanged(bar, HeightProperty, h);
-                    SetIfChanged(bar, Canvas.TopProperty, (14 - h) / 2);
+                    SetIfChanged(bar, Canvas.TopProperty, cy - h / 2);
                 }
                 break;
         }
+    }
+
+    // ---------------------------------------------------------------- caption
+
+    private void SetCaption(string? caption)
+    {
+        var text = string.IsNullOrWhiteSpace(caption) ? string.Empty : caption.Trim();
+        if (string.Equals(text, _caption, StringComparison.Ordinal))
+        {
+            return;
+        }
+        // Streaming speech grows the same caption: keep typing from where it is instead of restarting.
+        var continues = _caption.Length > 0 && text.StartsWith(_caption, StringComparison.Ordinal);
+        _caption = text;
+        if (!continues)
+        {
+            RestartCaption(_clock.Elapsed);
+        }
+    }
+
+    private void RestartCaption(TimeSpan now)
+    {
+        _captionStart = now;
+        _captionShown = string.Empty;
+        Caption.Text = string.Empty;
+        Caption.Opacity = _reducedMotion ? 1 : 0;
+    }
+
+    private void UpdateCaption(TimeSpan now)
+    {
+        if (Caption.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+        var text = _caption.Length > 0 ? _caption : DefaultCaption(_state);
+        var elapsed = now - _captionStart;
+        SetIfChanged(Caption, OpacityProperty, _captionReveal.OpacityAt(elapsed, _reducedMotion));
+        var shown = _captionReveal.VisibleText(text, elapsed, _reducedMotion);
+        if (!string.Equals(shown, _captionShown, StringComparison.Ordinal))
+        {
+            _captionShown = shown;
+            Caption.Text = shown;
+        }
+    }
+
+    private static string DefaultCaption(NotchFaceState state)
+        => state == NotchFaceState.Nudge ? "Still on it? Your focus block is running." : string.Empty;
+
+    private void NudgeBack_OnClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        NudgeActionChosen?.Invoke(false);
+    }
+
+    private void NudgeBreak_OnClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        NudgeActionChosen?.Invoke(true);
     }
 
     // ---------------------------------------------------------------- geometry
@@ -686,10 +741,13 @@ public partial class NotchWindow : Window
         OpenButton.Width = size.Width;
         OpenButton.Height = size.Height;
 
-        _parts = NotchFaceGeometry.Place(_face, size);
-        PositionEye(_parts.LeftEye, LeftEye, LeftBlink, LeftWhite, LeftPupil, LeftGlint, LeftHappy);
-        PositionEye(_parts.RightEye, RightEye, RightBlink, RightWhite, RightPupil, RightGlint, RightHappy);
-        PositionIndicators(_parts.IndicatorSlot);
+        var (lead, trail) = NotchRowLayout.SlotWidths(_state);
+        _row = NotchRowLayout.Place(_face, size, lead, trail);
+        _parts = new NotchFaceParts(_row.LeftEye, _row.RightEye, _row.Trail);
+        PositionEye(_row.LeftEye, LeftEye, LeftBlink, LeftWhite, LeftPupil, LeftGlint, LeftHappy);
+        PositionEye(_row.RightEye, RightEye, RightBlink, RightWhite, RightPupil, RightGlint, RightHappy);
+        PositionIndicators();
+        PositionCaption(left);
         PositionDisclosure(size);
     }
 
@@ -737,12 +795,17 @@ public partial class NotchWindow : Window
         {
             glint.Width = glint.Height = eye.Glint;
         }
-        // Happy: 3 px "^" arc the width of the eye.
+        // Happy: studio ".eye.happy" = the top border (3 px) of an eye-sized circle dropped 6 px, i.e. a smiling arc.
+        // Drawn in eye-box coordinates: circle centre (w/2, h/2 + 3), stroke-centre radius w/2 - 1.5, 210..330 degrees.
         var arc = new StreamGeometry();
+        var r = eye.Width / 2 - 1.5;
+        var acx = eye.Width / 2;
+        var acy = eye.Height / 2 + 3;
+        System.Windows.Point At(double degrees) => new(acx + r * Math.Cos(degrees * Math.PI / 180), acy + r * Math.Sin(degrees * Math.PI / 180));
         using (var ctx = arc.Open())
         {
-            ctx.BeginFigure(new System.Windows.Point(1.5, eye.Height / 2 + 2), false, false);
-            ctx.QuadraticBezierTo(new System.Windows.Point(eye.Width / 2, eye.Height / 2 - 7), new System.Windows.Point(eye.Width - 1.5, eye.Height / 2 + 2), true, true);
+            ctx.BeginFigure(At(210), false, false);
+            ctx.ArcTo(At(330), new System.Windows.Size(r, r), 0, false, SweepDirection.Clockwise, true, true);
         }
         arc.Freeze();
         LeftHappy.Data = arc;
@@ -755,6 +818,10 @@ public partial class NotchWindow : Window
         Canvas.SetLeft(eyeCanvas, 0);
         blink.CenterX = centre.X;
         blink.CenterY = centre.Y;
+        // Studio ".eye{overflow:hidden}": the pupil never leaves the white.
+        var clip = new EllipseGeometry(new System.Windows.Point(centre.X, centre.Y), eye.Width / 2, eye.Height / 2);
+        clip.Freeze();
+        eyeCanvas.Clip = clip;
         Canvas.SetLeft(white, centre.X - eye.Width / 2);
         Canvas.SetTop(white, centre.Y - eye.Height / 2);
         Canvas.SetLeft(happy, centre.X - eye.Width / 2);
@@ -772,44 +839,63 @@ public partial class NotchWindow : Window
     {
         for (var i = 0; i < _listeningBars.Length; i++)
         {
-            var bar = new Rectangle { Width = 3, Height = 10, RadiusX = 1.5, RadiusY = 1.5 };
-            Canvas.SetLeft(bar, i * 6);
-            Canvas.SetTop(bar, 2);
+            var bar = new Rectangle { Width = FaceIndicators.BarWidth, Height = 4, RadiusX = 1.5, RadiusY = 1.5 };
+            Canvas.SetLeft(bar, i * (FaceIndicators.BarWidth + FaceIndicators.BarGap));
             _listeningBars[i] = bar;
             ListeningBars.Children.Add(bar);
         }
         for (var i = 0; i < _thinkingDots.Length; i++)
         {
-            var dot = new Ellipse { Width = 5, Height = 5, Opacity = 0.6 };
-            Canvas.SetLeft(dot, i * 9);
-            Canvas.SetTop(dot, 0);
+            var dot = new Ellipse { Width = FaceIndicators.DotSize, Height = FaceIndicators.DotSize, Opacity = 0.25 };
+            Canvas.SetLeft(dot, i * (FaceIndicators.DotSize + FaceIndicators.DotGap));
             _thinkingDots[i] = dot;
             ThinkingDots.Children.Add(dot);
         }
-        RecordDot.Width = RecordDot.Height = 9;
+        RecordDot.Width = RecordDot.Height = 7;
         for (var i = 0; i < 2; i++)
         {
-            var bar = new Rectangle { Width = 3, Height = 11, RadiusX = 1, RadiusY = 1 };
-            Canvas.SetLeft(bar, i * 7);
+            var bar = new Rectangle { Width = 3, Height = 10, RadiusX = 1, RadiusY = 1, Opacity = 0.7 };
+            Canvas.SetLeft(bar, i * 6);
             PauseBars.Children.Add(bar);
         }
     }
 
-    private void PositionIndicators(RectD slot)
+    private void PositionIndicators()
     {
-        // Listening bars: 15 x 14; thinking dots: 23 x 5; record dot: 9 x 9; pause bars: 10 x 11. Centred, nudged toward the eyes.
-        PlaceInSlot(ListeningBars, slot, 15, 14);
-        PlaceInSlot(ThinkingDots, slot, 23, 5);
-        PlaceInSlot(RecordDot, slot, 9, 9);
-        PlaceInSlot(PauseBars, slot, 10, 11);
+        // Studio row: lead slot (record dot) left of the eyes, trail slot (bars, dots, pause, stop) right-aligned.
+        // Bars and dots are positioned vertically per frame; containers sit at the slot's left edge, top 0.
+        var cy = _row.RowHeight / 2;
+        Canvas.SetLeft(ListeningBars, _row.Trail.X);
+        Canvas.SetTop(ListeningBars, 0);
+        Canvas.SetLeft(ThinkingDots, _row.Trail.X);
+        Canvas.SetTop(ThinkingDots, 0);
+        foreach (var dot in _thinkingDots)
+        {
+            Canvas.SetTop(dot, cy - FaceIndicators.DotSize / 2);
+        }
+        foreach (var bar in _listeningBars)
+        {
+            Canvas.SetTop(bar, cy - bar.Height / 2);
+        }
+        Canvas.SetLeft(PauseBars, _row.Trail.X);
+        Canvas.SetTop(PauseBars, cy - 5);
+        Canvas.SetLeft(RecordDot, _row.Lead.X);
+        Canvas.SetTop(RecordDot, cy - 3.5);
+        Canvas.SetLeft(StopSquare, _row.Trail.X);
+        Canvas.SetTop(StopSquare, cy - 9);
     }
 
-    private static void PlaceInSlot(UIElement element, RectD slot, double width, double height)
+    private void PositionCaption(double bodyLeft)
     {
-        var x = slot.Width <= 0 ? slot.X : slot.X + Math.Max(0, (slot.Width - width) / 2 - Math.Min(6, slot.Width / 6));
-        var y = slot.Y + (slot.Height - height) / 2;
-        Canvas.SetLeft(element, x);
-        Canvas.SetTop(element, y);
+        var area = _row.Caption;
+        Canvas.SetLeft(Caption, area.X);
+        Canvas.SetTop(Caption, area.Y);
+        Caption.Width = Math.Max(0, area.Width);
+        var actions = _state == NotchFaceState.Nudge ? 30 : 0;
+        Caption.MaxHeight = Math.Max(18, Math.Floor((area.Height - actions) / 18) * 18);
+        // Nudge pills sit 8 DIP under two caption lines (studio .acts margin-top 8).
+        Canvas.SetLeft(NudgeActions, bodyLeft + area.X);
+        Canvas.SetTop(NudgeActions, area.Y + 36 + 8);
     }
 
     private void PositionDisclosure(SizeD size)
@@ -866,11 +952,9 @@ public partial class NotchWindow : Window
         {
             activity.Add("Microphone active");
         }
+        // Only the privacy disclosures (screen shared / microphone) are drawn under the notch; status text is for screen
+        // readers (HelpText) and the full window. Captions live inside the notch (responding / nudge).
         var collapsed = _state is NotchFaceState.Hidden or NotchFaceState.Hover or NotchFaceState.Idle;
-        if (activity.Count == 0 && !collapsed && !string.IsNullOrWhiteSpace(_status))
-        {
-            activity.Add(_status);
-        }
 
         ActiveDisclosureText.Text = string.Join(Environment.NewLine, activity);
         ActiveDisclosure.Visibility = activity.Count == 0 || collapsed ? Visibility.Collapsed : Visibility.Visible;
@@ -1048,6 +1132,14 @@ public partial class NotchWindow : Window
         {
             child.Fill = eyes;
         }
+        Caption.Foreground = eyes;
+        StopSquareInner.Background = eyes;
+        StopSquare.Background = WithAlpha(eyes, 0.16);
+        // Studio pills: primary = eye colour with body-coloured text; secondary = eye colour at 14%.
+        NudgeBackButton.Background = eyes;
+        NudgeBackButton.Foreground = body;
+        NudgeBreakButton.Background = WithAlpha(eyes, 0.14);
+        NudgeBreakButton.Foreground = eyes;
         ActiveDisclosure.Background = SystemParameters.HighContrast ? MediaSystemColors.WindowBrush : MediaBrushes.White;
         ActiveDisclosure.BorderBrush = SystemParameters.HighContrast ? MediaSystemColors.ActiveBorderBrush : MediaBrushes.Black;
         ActiveDisclosureText.Foreground = SystemParameters.HighContrast ? MediaSystemColors.WindowTextBrush : MediaBrushes.Black;
@@ -1062,9 +1154,20 @@ public partial class NotchWindow : Window
         else if (string.Equals(e.PropertyName, nameof(SystemParameters.ClientAreaAnimation), StringComparison.Ordinal))
         {
             _reducedMotion = ComputeReducedMotion();
-            _blink = new BlinkScheduler(_spec.Timings, new Random(), _reducedMotion);
-            _blinkEpoch = _clock.Elapsed;
+            _motion.ReducedMotion = _reducedMotion;
         }
+    }
+
+    private static MediaBrush WithAlpha(MediaBrush brush, double alpha)
+    {
+        if (brush is not SolidColorBrush solid)
+        {
+            return brush;
+        }
+        var c = solid.Color;
+        var result = new SolidColorBrush(System.Windows.Media.Color.FromArgb((byte)Math.Round(255 * alpha), c.R, c.G, c.B));
+        result.Freeze();
+        return result;
     }
 
     private static MediaBrush ToBrush(string value, MediaBrush fallback)

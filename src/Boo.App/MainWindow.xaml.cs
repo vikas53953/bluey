@@ -683,7 +683,7 @@ public partial class MainWindow : Window
             StopListening();
         }
         var lease = BeginRequest();
-        SetFace(_faceInputs with { Thinking = true, Responding = false });
+        SetFace(_faceInputs with { Thinking = true, Responding = false, Caption = null });
         AppendTranscript("You", text);
         InputBox.Clear();
         StatusText.Text = "Thinking about the selected context…";
@@ -893,7 +893,7 @@ public partial class MainWindow : Window
     private void RenderReply(AssistantReply reply, long generation, CapturedFrame? frame, bool explicitTask, ControlObservation? controls, bool research = false)
     {
         ClearAnnotations();
-        SetFace(_faceInputs with { Thinking = false, Responding = true }, TimeSpan.FromSeconds(4));
+        SetFace(_faceInputs with { Thinking = false, Responding = true, Caption = reply.Text }, TimeSpan.FromSeconds(4));
         AppendTranscript("Boo", reply.Text);
         RenderSources(reply, research);
 
@@ -1305,6 +1305,17 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Nudge pills on the notch: "Back to it" dismisses the nudge; "5 min break" pauses focus (resume stays explicit).</summary>
+    public void HandleNudgeAction(bool takeBreak)
+    {
+        SetFace(_faceInputs with { NudgeShowing = false });
+        if (takeBreak && _focus is { Status: Boo.Core.FocusStatus.Running })
+        {
+            FocusPauseButton_OnClick(this, new RoutedEventArgs());
+            FocusStatus.Text = "On a 5 minute break. Press Resume when you are back.";
+        }
+    }
+
     private void FocusResumeButton_OnClick(object sender, RoutedEventArgs e)
     {
         if (_focus is null)
@@ -1437,7 +1448,13 @@ public partial class MainWindow : Window
             if (_focus.RecordCheck(check, age))
             {
                 FocusStatus.Text = "Nudge: return to the task when you are ready. Boo did not change your apps.";
-                SetFace(_faceInputs with { NudgeShowing = true }, TimeSpan.FromSeconds(6));
+                var minutesLeft = Math.Max(1, (int)Math.Ceiling((snapshot.Duration - snapshot.Elapsed) / 60));
+                var nudgeTask = string.IsNullOrWhiteSpace(snapshot.Task) ? "your task" : snapshot.Task.Trim();
+                SetFace(_faceInputs with
+                {
+                    NudgeShowing = true,
+                    Caption = $"Still on {nudgeTask}? {minutesLeft} minute{(minutesLeft == 1 ? "" : "s")} left in this focus block.",
+                }, TimeSpan.FromSeconds(6));
                 _ = ShowNudgePointerAsync(frame, snapshot.Task, token);
                 _chirps.PlayNudge(_settings.ChirpsEnabled, _listening);
             }
@@ -2068,7 +2085,7 @@ public partial class MainWindow : Window
                         ListeningStatus.Text = realtimeEvent.Kind.EndsWith("started", StringComparison.Ordinal)
                             ? "Listening…"
                             : "Thinking…";
-                        SetFace(_faceInputs with { Thinking = !realtimeEvent.Kind.EndsWith("started", StringComparison.Ordinal) });
+                        SetFace(_faceInputs with { Thinking = !realtimeEvent.Kind.EndsWith("started", StringComparison.Ordinal), Caption = null });
                         break;
                     case "conversation.item.input_audio_transcription.delta":
                     case "conversation.item.input_audio_transcription.completed":
@@ -2342,6 +2359,11 @@ public partial class MainWindow : Window
         if (update is null)
         {
             return;
+        }
+        if (update.Speaker == "Boo" && update.Text.Length > 0)
+        {
+            // Boo's spoken words are typed into the notch while it is responding.
+            SetFace(_faceInputs with { Caption = update.Text });
         }
         if (update.Text.Length == 0 && value.Kind is not
             ("conversation.item.input_audio_transcription.completed" or
