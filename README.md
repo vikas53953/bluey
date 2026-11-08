@@ -31,14 +31,14 @@ Controls you will use: hold **Ctrl+Alt+Space** (or press and hold Boo's eyes) to
 
 ### 4. Demo 2: edit with approval, then Undo
 
-1. Open Notepad (or any app with a text field) on the selected display.
-2. Type in **Ask Boo**: `type Hello from Boo into the text box`. Requests that start with `type`, `click`, `open`, `create` or `task` are treated as actions.
-3. Expected: Boo shows **Review action** with the requested target and the resolved destination. Nothing changes until you press **Approve**; **Cancel** discards it.
-4. Press **Approve**, check the text appeared, then undo it. Use Boo's **Undo** if your build shows it; otherwise press Ctrl+Z in the target app. Undo inside Boo is still being finished (see [status](docs/STATUS.md)).
+1. Open an app with a text field on the selected display and type something in it first, for example `Draft v1`. Undo needs the original text; Boo cannot restore a field that was empty before its edit.
+2. Type in **Ask Boo**: `change the text box to Final v2`. Requests that start with `type`, `edit`, `change`, `set`, `click`, `open`, `create` or `task` are treated as actions.
+3. Expected: Boo shows **Review action** with the requested target and the resolved destination. Nothing changes until you press **Approve**; **Cancel** discards it. After applying, Boo reads the field back and reports what it actually contains.
+4. Now type or say `undo` (also `revert` or `put it back`). Boo handles this locally without asking the AI: it re-reads the window, shows the Undo as another **Review action**, and restores the original text only after you press **Approve**. If the field changed since Boo's edit, it refuses rather than overwrite your typing. Saying "undo" with nothing recorded gets "Nothing to undo".
 
 ### 5. Demo 3: research with sources
 
-1. Type or say: `research the best free tools for team retrospectives and make a shortlist`. Requests starting with `research`, `find` or `search` use web research.
+1. Type or say: `research the best free tools for team retrospectives and make a shortlist`. Requests starting with `research`, `find`, `search`, `look up` or `compare`, or containing "with sources", use web research.
 2. Expected: progress while it works, then a shortlist with clickable links under **Sources**.
 3. Optional file task: choose a **Task folder**, then ask `create a file shortlist.md with that list`. Boo shows the action for approval and reports done only after it has checked the file exists.
 
