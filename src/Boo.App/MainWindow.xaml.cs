@@ -905,6 +905,66 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// U6: word the nudge and, when the model names a visible phrase, OCR the last focus
+    /// frame (memory only), match it outside Boo's own windows, and fly the pointer + ring
+    /// there. Any miss or failure leaves the text-only nudge.
+    /// </summary>
+    private async Task ShowNudgePointerAsync(CapturedFrame frame, string task, CancellationToken token)
+    {
+        try
+        {
+            var nudge = await EnsureResponses().NudgeAsync(frame, task, token);
+            if (token.IsCancellationRequested || _focus is not { ShouldMonitor: true })
+            {
+                return;
+            }
+            if (!string.IsNullOrWhiteSpace(nudge.Text))
+            {
+                FocusStatus.Text = $"Nudge: {nudge.Text}";
+            }
+            if (string.IsNullOrWhiteSpace(nudge.PointerTarget) || !_displayAffinitySupported)
+            {
+                return;
+            }
+
+            var words = await OcrReader.ReadAsync(frame, token);
+            var match = OcrNudgeTargetMatcher.Match(words, nudge.PointerTarget, OwnedWindowRects());
+            if (match is null || token.IsCancellationRequested || _focus is not { ShouldMonitor: true })
+            {
+                return;
+            }
+
+            ClearAnnotations();
+            var window = AnnotationWindow.ForPhysicalTarget(frame.Context, match.Bounds);
+            new WindowInteropHelper(window).EnsureHandle();
+            if (!window.CaptureExclusionAvailable)
+            {
+                window.Close();
+                return;
+            }
+            window.Show();
+            _annotationWindows.Add(window);
+        }
+        catch (Exception)
+        {
+            // Pointer guidance is optional: the text nudge already showed.
+        }
+    }
+
+    private List<RectD> OwnedWindowRects()
+    {
+        var rects = new List<RectD>();
+        foreach (var handle in OwnedWindowHandles())
+        {
+            if (GetWindowRect(new IntPtr(handle), out var rect) && rect.Right > rect.Left && rect.Bottom > rect.Top)
+            {
+                rects.Add(new RectD(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top));
+            }
+        }
+        return rects;
+    }
+
     private void ReportAnnotationOutcome(string message)
     {
         AnnotationDetail.Text = message;
@@ -1259,6 +1319,7 @@ public partial class MainWindow : Window
             if (_nudge?.Observe(check, age) == true)
             {
                 FocusStatus.Text = "Nudge: return to the task when you are ready. Boo did not change your apps.";
+                _ = ShowNudgePointerAsync(frame, snapshot.Task, token);
             }
             else
             {
@@ -2218,6 +2279,19 @@ public partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeWindowRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out NativeWindowRect rect);
 
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;

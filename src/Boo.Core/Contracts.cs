@@ -27,3 +27,4 @@ public sealed record AppSettings(string? DisplayId = null, bool SpeechEnabled = 
 public interface ICredentialStore { string? Load(); void Save(string key); void Delete(); }
 public interface ISessionStore { void Save(FocusSnapshot session); IReadOnlyList<FocusSnapshot> List(); void Delete(Guid id); }
 
+public sealed record FocusNudge(string Text, string? PointerTarget = null);
