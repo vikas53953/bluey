@@ -36,9 +36,12 @@ public partial class NotchWindow : Window
     private const int WmDpiChanged = 0x02E0;
     private const int EmergencyHotKeyId = 0xB00;
     private const int OpenHotKeyId = 0xB01;
+    private const int PauseAllHotKeyId = 0xB02;
     private const uint ModControl = 0x0002;
     private const uint ModAlt = 0x0001;
     private const uint EmergencyKey = 0x7B;
+    private const uint PauseAllKey = 0x53; // 'S': Ctrl+Alt+S, Riley's "pause everything" gesture
+    private static readonly TimeSpan StoppedFlash = TimeSpan.FromMilliseconds(1600);
     private const string SpecResourceName = "Boo.App.boo-notch-spec.json";
     private const double ShakePadDip = 6;
     private const double DisclosureReserveDip = 76;
@@ -84,6 +87,8 @@ public partial class NotchWindow : Window
     private string? _captureDisplayName;
     private bool _microphoneActive;
     private string? _status;
+    private string? _flashStatus;
+    private DispatcherTimer? _flashTimer;
     private IntPtr _handle;
     private IntPtr _lastExternalHandle;
     private int _lastExternalProcess;
@@ -95,6 +100,7 @@ public partial class NotchWindow : Window
     public bool CaptureExclusionAvailable { get; private set; } = true;
     public bool EmergencyStopRegistered { get; private set; }
     public bool OpenShortcutRegistered { get; private set; }
+    public bool PauseAllRegistered { get; private set; }
 
     /// <summary>
     /// Press-and-hold on the eyes: true once a left press has lasted 200 ms, false on release or lost capture.
@@ -133,6 +139,8 @@ public partial class NotchWindow : Window
         _motion.ReducedMotion = _reducedMotion;
         _holdTimer = new DispatcherTimer(DispatcherPriority.Input) { Interval = PressHoldTracker.HoldThreshold };
         _holdTimer.Tick += HoldTimer_OnTick;
+        // UI automation sees the resting face state from the start (NotchFaceState name, e.g. "Hidden").
+        System.Windows.Automation.AutomationProperties.SetItemStatus(this, _state.ToString());
 
         _windowWidthDip = Enum.GetValues<NotchFaceState>().Max(s => _face.SizeFor(s).Width) + 2 * _face.Shape.Shoulder + 2 * ShakePadDip;
         _windowWidthDip = Math.Max(_windowWidthDip, _spec.HoverStrip.Width);
@@ -172,6 +180,7 @@ public partial class NotchWindow : Window
         {
             StopRendering();
             _holdTimer.Stop();
+            _flashTimer?.Stop();
             if (_press.Cancel())
             {
                 // Keep EyesHeldChanged(true)/(false) paired even if the window closes mid-hold.
@@ -184,6 +193,10 @@ public partial class NotchWindow : Window
             if (OpenShortcutRegistered)
             {
                 UnregisterHotKey(_handle, OpenHotKeyId);
+            }
+            if (PauseAllRegistered)
+            {
+                UnregisterHotKey(_handle, PauseAllHotKeyId);
             }
             SystemParameters.StaticPropertyChanged -= SystemParameters_OnStaticPropertyChanged;
         };
@@ -258,9 +271,36 @@ public partial class NotchWindow : Window
     public void SetStatus(string status)
     {
         _status = string.IsNullOrWhiteSpace(status) ? null : status.Trim();
-        // Status is never drawn on the collapsed notch; screen readers still get it.
-        System.Windows.Automation.AutomationProperties.SetHelpText(this, _status ?? string.Empty);
+        PublishStatus();
         UpdateDisclosure();
+    }
+
+    /// <summary>
+    /// Riley's "Stopped" bubble: shows "Stopped" for ~1.6 s after a stop, then returns to the standing status
+    /// (for example a shortcut-busy hint), which is never overwritten.
+    /// </summary>
+    public void ShowStoppedBriefly()
+    {
+        _flashStatus = "Stopped";
+        if (_flashTimer is null)
+        {
+            _flashTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = StoppedFlash };
+            _flashTimer.Tick += (_, _) =>
+            {
+                _flashTimer!.Stop();
+                _flashStatus = null;
+                PublishStatus();
+            };
+        }
+        _flashTimer.Stop();
+        _flashTimer.Start();
+        PublishStatus();
+    }
+
+    private void PublishStatus()
+    {
+        // Status is never drawn on the collapsed notch; screen readers still get it.
+        System.Windows.Automation.AutomationProperties.SetHelpText(this, _flashStatus ?? _status ?? string.Empty);
     }
 
     public void SetAppearance(NotchAppearance appearance)
@@ -436,7 +476,9 @@ public partial class NotchWindow : Window
     private void ApplyState(NotchFaceState state, TimeSpan now)
     {
         var wasHidden = _state == NotchFaceState.Hidden;
+        var previous = _state;
         _state = state;
+        PublishFaceState(previous);
         _stateSince = now;
         _reducedMotion = ComputeReducedMotion();
         _motion.ReducedMotion = _reducedMotion;
@@ -1014,6 +1056,18 @@ public partial class NotchWindow : Window
 
     // ---------------------------------------------------------------- disclosure
 
+    /// <summary>UI automation: ItemStatus = the current NotchFaceState name ("Hidden", "Hover", "Idle", ...).</summary>
+    private void PublishFaceState(NotchFaceState previous)
+    {
+        var name = _state.ToString();
+        System.Windows.Automation.AutomationProperties.SetItemStatus(this, name);
+        if (previous != _state && System.Windows.Automation.Peers.AutomationPeer.ListenerExists(System.Windows.Automation.Peers.AutomationEvents.PropertyChanged))
+        {
+            System.Windows.Automation.Peers.UIElementAutomationPeer.FromElement(this)?.RaisePropertyChangedEvent(
+                System.Windows.Automation.AutomationElementIdentifiers.ItemStatusProperty, previous.ToString(), name);
+        }
+    }
+
     private void UpdateDisclosure()
     {
         var activity = new List<string>();
@@ -1127,14 +1181,14 @@ public partial class NotchWindow : Window
     /// </summary>
     public bool RetryHotkeys()
     {
-        if (_handle == IntPtr.Zero || (EmergencyStopRegistered && OpenShortcutRegistered))
+        if (_handle == IntPtr.Zero || (EmergencyStopRegistered && OpenShortcutRegistered && PauseAllRegistered))
         {
             return false;
         }
 
-        var before = (EmergencyStopRegistered, OpenShortcutRegistered);
+        var before = (EmergencyStopRegistered, OpenShortcutRegistered, PauseAllRegistered);
         RegisterMissingHotkeys();
-        return before != (EmergencyStopRegistered, OpenShortcutRegistered);
+        return before != (EmergencyStopRegistered, OpenShortcutRegistered, PauseAllRegistered);
     }
 
     private void RegisterMissingHotkeys()
@@ -1147,6 +1201,10 @@ public partial class NotchWindow : Window
         {
             OpenShortcutRegistered = RegisterHotKey(_handle, OpenHotKeyId, ModControl | ModAlt, 0x42);
         }
+        if (!PauseAllRegistered)
+        {
+            PauseAllRegistered = RegisterHotKey(_handle, PauseAllHotKeyId, ModControl | ModAlt, PauseAllKey);
+        }
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
@@ -1158,7 +1216,7 @@ public partial class NotchWindow : Window
         source?.AddHook(EmergencyWindowProc);
         RegisterMissingHotkeys();
         // One combined, truthful hint (two separate SetStatus calls used to overwrite each other); App refines it with the hold-to-talk result.
-        if (new ShortcutStatus(EmergencyStopRegistered, OpenShortcutRegistered, HoldToTalk: true).NotchMessage is { } shortcutHint)
+        if (new ShortcutStatus(EmergencyStopRegistered, OpenShortcutRegistered, HoldToTalk: true, PauseAllRegistered).NotchMessage is { } shortcutHint)
         {
             SetStatus(shortcutHint);
         }
@@ -1327,9 +1385,11 @@ public partial class NotchWindow : Window
             handled = true;
             return IntPtr.Zero;
         }
-        if (msg == WmHotKey && wParam.ToInt32() == EmergencyHotKeyId)
+        if (msg == WmHotKey && wParam.ToInt32() is EmergencyHotKeyId or PauseAllHotKeyId)
         {
+            // Ctrl+Alt+F12 and Ctrl+Alt+S run the same StopAll.
             _onStop();
+            ShowStoppedBriefly();
             handled = true;
             return IntPtr.Zero;
         }

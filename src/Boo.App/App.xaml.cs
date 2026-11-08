@@ -191,7 +191,8 @@ public partial class App : System.Windows.Application
         }
         else
         {
-            _notch?.SetStatus("Stopped");
+            // Brief "Stopped" bubble; a standing shortcut-busy hint is restored afterwards.
+            _notch?.ShowStoppedBriefly();
         }
     }
 
@@ -261,7 +262,8 @@ public partial class App : System.Windows.Application
 
         var previous = _shortcuts;
         var holdToTalk = _panel?.HoldToTalkAvailable ?? (previous.IsPending || previous.HoldToTalk);
-        _shortcuts = new Boo.Core.ShortcutStatus(_notch.EmergencyStopRegistered, _notch.OpenShortcutRegistered, holdToTalk);
+        _shortcuts = new Boo.Core.ShortcutStatus(_notch.EmergencyStopRegistered, _notch.OpenShortcutRegistered, holdToTalk)
+            .WithPauseAll(_notch.PauseAllRegistered);
         var changed = previous.IsPending || previous != _shortcuts;
 
         _panel?.ShowShortcutStatus(_shortcuts, announce && changed);
