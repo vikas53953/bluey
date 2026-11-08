@@ -59,20 +59,28 @@ jobs:
 
       # Before/after evidence for the face polish: also render the gallery of the pre-polish commit, then print
       # both contact sheets as base64 between markers so reviewers without artifact access can read them from the log.
+      - name: Check out the pre-polish commit (gallery before)
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: 130a43af667e89c5c516c6e958fd0e52521d1265
+          path: before-src
+
       - name: Notch gallery before/after (log dump)
         shell: pwsh
         continue-on-error: true
         run: |
-          $before = '130a43af667e89c5c516c6e958fd0e52521d1265'
-          git fetch --depth 1 origin $before
-          git worktree add --detach "$env:RUNNER_TEMP\before" $before
-          dotnet build "$env:RUNNER_TEMP\before\src\Boo.App\Boo.App.csproj" -c Release -o "$env:RUNNER_TEMP\before-bin" | Out-Null
           $bout = Join-Path $env:GITHUB_WORKSPACE 'artifacts\ui-smoke\notch-gallery-before'
-          $p = Start-Process -FilePath "$env:RUNNER_TEMP\before-bin\Boo.exe" -ArgumentList '--notch-gallery', "`"$bout`"" -Wait -PassThru
-          "before gallery exit $($p.ExitCode)"
+          if (Test-Path before-src\src\Boo.App\Boo.App.csproj) {
+            dotnet build before-src\src\Boo.App\Boo.App.csproj -c Release -o "$env:RUNNER_TEMP\before-bin" | Select-Object -Last 3
+            $p = Start-Process -FilePath "$env:RUNNER_TEMP\before-bin\Boo.exe" -ArgumentList '--notch-gallery', "`"$bout`"" -Wait -PassThru
+            "before gallery exit $($p.ExitCode)"
+          }
+          Add-Type -AssemblyName System.Drawing
           foreach ($pair in @(@('BEFORE', $bout), @('AFTER', (Join-Path $env:GITHUB_WORKSPACE 'artifacts\ui-smoke\notch-gallery')))) {
-            Add-Type -AssemblyName System.Drawing
-            $src = [System.Drawing.Image]::FromFile((Join-Path $pair[1] '00-contact-sheet.png'))
+            $file = Join-Path $pair[1] '00-contact-sheet.png'
+            if (-not (Test-Path $file)) { "no $($pair[0]) contact sheet"; continue }
+            $src = [System.Drawing.Image]::FromFile($file)
             $w = [int]($src.Width / 2); $h = [int]($src.Height / 2)
             $bmp = New-Object System.Drawing.Bitmap $w, $h
             $g = [System.Drawing.Graphics]::FromImage($bmp); $g.InterpolationMode = 'HighQualityBicubic'; $g.DrawImage($src, 0, 0, $w, $h); $g.Dispose()
