@@ -68,6 +68,7 @@ public partial class NotchWindow : Window
     private NotchAppearance _appearance = new();
     private NotchRowParts _row = new(default, default, default, default, default, 0);
     private string _caption = string.Empty;
+    private string _rawCaption = string.Empty; // full normalised caption as given; _caption is the drawn window of it
     private string _captionShown = string.Empty;
     private TimeSpan _captionStart;
     private FaceInputs _appInputs = new();
@@ -755,13 +756,18 @@ public partial class NotchWindow : Window
     private void SetCaption(string? caption)
     {
         var text = CaptionText(caption);
+        var raw = CaptionStream.Normalize(caption);
         if (string.Equals(text, _caption, StringComparison.Ordinal))
         {
+            _rawCaption = raw;
             return;
         }
-        // Streaming speech grows the same caption: keep typing from where it is instead of restarting.
-        var continues = _caption.Length > 0 && text.StartsWith(_caption, StringComparison.Ordinal);
+        // Streaming speech grows the same caption: keep typing from where it is instead of restarting. Judged on the
+        // full text (CaptionStream), not on the drawn window: past 160 characters the "…tail" window slides with every
+        // delta and consecutive windows share no prefix, which used to blank and retype the caption on each one.
+        var continues = CaptionStream.Continues(_rawCaption, raw);
         _caption = text;
+        _rawCaption = raw;
         if (!continues)
         {
             RestartCaption(_clock.Elapsed);
