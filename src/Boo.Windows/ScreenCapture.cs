@@ -12,6 +12,8 @@ public sealed class ScreenCapture : IDisposable
     private readonly SemaphoreSlim _lifetimeGate = new(1, 1);
     private static readonly TimeSpan DisposeWait = TimeSpan.FromSeconds(2);
     private bool _disposed;
+    private volatile bool _disposeDeferred;
+    private int _backendDisposed;
 
     public ScreenCapture()
         : this(new WindowsFrameCaptureBackend(), DefaultTimeout)
@@ -84,6 +86,11 @@ public sealed class ScreenCapture : IDisposable
             // The backend task is awaited above, so this gate is not released
             // while a canceled backend is still cleaning up native resources.
             _lifetimeGate.Release();
+            if (_disposeDeferred)
+            {
+                // Dispose() gave up waiting for this capture; it is now safe to release the device.
+                DisposeBackend();
+            }
         }
     }
 
@@ -100,18 +107,43 @@ public sealed class ScreenCapture : IDisposable
         }
         _disposed = true;
         var held = _lifetimeGate.Wait(DisposeWait);
+        if (!held)
+        {
+            // A capture is still inside the backend (possibly in a native readback). Releasing the Direct3D
+            // device under it would be a use-after-free, so hand the disposal to that capture: it disposes the
+            // backend right after it leaves the gate. Re-check once so a release that raced the timeout is not
+            // missed; the semaphore itself is left to the collector.
+            _disposeDeferred = true;
+            if (_lifetimeGate.Wait(0))
+            {
+                try
+                {
+                    DisposeBackend();
+                }
+                finally
+                {
+                    _lifetimeGate.Release();
+                }
+            }
+            return;
+        }
+
         try
         {
-            (_backend as IDisposable)?.Dispose();
+            DisposeBackend();
         }
         finally
         {
-            if (held)
-            {
-                _lifetimeGate.Release();
-                _lifetimeGate.Dispose();
-            }
-            // Not held: a capture is still finishing; it releases the gate itself and the semaphore is collected.
+            _lifetimeGate.Release();
+            _lifetimeGate.Dispose();
+        }
+    }
+
+    private void DisposeBackend()
+    {
+        if (Interlocked.Exchange(ref _backendDisposed, 1) == 0)
+        {
+            (_backend as IDisposable)?.Dispose();
         }
     }
 
