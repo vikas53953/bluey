@@ -85,17 +85,23 @@ public sealed class ResponsesClient
         if (request.Research)
         {
             body["tools"] = new[] { new { type = "web_search" } };
+            body["include"] = new[] { "web_search_call.action.sources" };
         }
-        body["text"] = new
+        // A plain research question gets a prose answer so URL citations attach
+        // to the text itself; every other request keeps the strict schema.
+        if (UsesStructuredOutput(request))
         {
-            format = new
+            body["text"] = new
             {
-                type = "json_schema",
-                name = "boo_screen_help_result",
-                strict = true,
-                schema = CreateStructuredSchema()
-            }
-        };
+                format = new
+                {
+                    type = "json_schema",
+                    name = "boo_screen_help_result",
+                    strict = true,
+                    schema = CreateStructuredSchema()
+                }
+            };
+        }
 
         using var message = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
@@ -222,7 +228,7 @@ public sealed class ResponsesClient
             using var document = JsonDocument.Parse(json);
             var output = document.RootElement.GetProperty("output");
             var texts = new List<string>();
-            var sources = new List<SourceLink>();
+            var sources = ResearchSources.Extract(document.RootElement);
             foreach (var item in output.EnumerateArray())
             {
                 if (!item.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
@@ -235,25 +241,6 @@ public sealed class ResponsesClient
                     {
                         texts.Add(textElement.GetString() ?? string.Empty);
                     }
-                    if (part.TryGetProperty("annotations", out var annotations) && annotations.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (var annotation in annotations.EnumerateArray())
-                        {
-                            if (!annotation.TryGetProperty("type", out var annotationType) ||
-                                annotationType.GetString() != "url_citation" ||
-                                !annotation.TryGetProperty("url", out var urlElement) ||
-                                !Uri.TryCreate(urlElement.GetString(), UriKind.Absolute, out var url) ||
-                                (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps))
-                                continue;
-
-                            var title = annotation.TryGetProperty("title", out var titleElement) &&
-                                        titleElement.ValueKind == JsonValueKind.String
-                                ? titleElement.GetString() ?? url.ToString()
-                                : url.ToString();
-                            if (!sources.Any(existing => existing.Url == url.ToString()))
-                                sources.Add(new SourceLink(title, url.ToString()));
-                        }
-                    }
                 }
             }
 
@@ -264,7 +251,7 @@ public sealed class ResponsesClient
             var text = rawText;
             var marks = new List<AnnotationMark>();
             var actions = new List<ToolRequest>();
-            if (rawText.TrimStart().StartsWith("{", StringComparison.Ordinal))
+            if (UsesStructuredOutput(request) && rawText.TrimStart().StartsWith("{", StringComparison.Ordinal))
             {
                 using var structured = JsonDocument.Parse(rawText);
                 var root = structured.RootElement;
@@ -302,6 +289,9 @@ public sealed class ResponsesClient
             throw new InvalidOperationException("OpenAI responses returned an invalid result.", exception);
         }
     }
+
+    private static bool UsesStructuredOutput(AssistantRequest request) =>
+        !(request.Research && request.Frame is null && !request.AllowActions);
 
     private static void ParseMarks(JsonElement element, List<AnnotationMark> marks)
     {

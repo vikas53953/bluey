@@ -656,6 +656,12 @@ public partial class MainWindow : Window
             {
                 return;
             }
+            var intent = RequestIntent.Classify(text);
+            if (intent == RequestKind.Undo)
+            {
+                await HandleUndoRequestAsync(frame, lease);
+                return;
+            }
             var speechEnabled = SpeechMute.IsChecked != true && _settings.SpeechEnabled;
             if (speechEnabled && !_realtimeConnected)
             {
@@ -686,13 +692,13 @@ public partial class MainWindow : Window
             }
             if (speechEnabled && _realtimeConnected && _realtime is not null)
             {
-                _voiceTaskAuthorized = LooksLikeExplicitTask(text);
+                _voiceTaskAuthorized = intent == RequestKind.Task;
                 await _realtime.SendTextAsync(text, lease.Token);
                 StatusText.Text = "Sent to the voice conversation; waiting for the response…";
                 return;
             }
 
-            var explicitTask = LooksLikeExplicitTask(text);
+            var explicitTask = intent == RequestKind.Task;
             ControlObservation? controls = null;
             if (explicitTask && frame is not null)
             {
@@ -708,14 +714,14 @@ public partial class MainWindow : Window
                 text,
                 lease.Generation,
                 frame,
-                Research: LooksLikeResearch(text),
+                Research: intent == RequestKind.Research,
                 AllowActions: explicitTask);
             var reply = await client.RespondAsync(request, lease.Token, controls);
             if (!IsCurrent(lease.Generation))
             {
                 return;
             }
-            RenderReply(reply, lease.Generation, frame, request.AllowActions, controls);
+            RenderReply(reply, lease.Generation, frame, request.AllowActions, controls, request.Research);
         }
         catch (OperationCanceledException)
         {
@@ -825,15 +831,11 @@ public partial class MainWindow : Window
         ListeningStatus.Text = "Microphone idle. Activate Talk when you want to speak.";
     }
 
-    private void RenderReply(AssistantReply reply, long generation, CapturedFrame? frame, bool explicitTask, ControlObservation? controls)
+    private void RenderReply(AssistantReply reply, long generation, CapturedFrame? frame, bool explicitTask, ControlObservation? controls, bool research = false)
     {
         ClearAnnotations();
         AppendTranscript("Boo", reply.Text);
-        SourceLinksList.Children.Clear();
-        foreach (var source in reply.Sources)
-        {
-            AppendSourceLink(source);
-        }
+        RenderSources(reply, research);
 
         if (reply.Annotations is not null && frame is not null)
         {
@@ -1023,7 +1025,9 @@ public partial class MainWindow : Window
                 CancelPendingAction();
                 return;
             }
+            var preActionControls = _pendingControls;
             var outcome = await EnsureDesktop().ExecuteAsync(action, authority, approval, target, lease.Token);
+            outcome = await ReadBackActionAsync(action, outcome, preActionControls, lease);
             if (!IsCurrent(lease.Generation))
             {
                 StatusText.Text = outcome.Committed
@@ -1607,6 +1611,7 @@ public partial class MainWindow : Window
         _ = CompletePendingRealtimeToolAsync("A newer request superseded this action.");
         _pendingRealtimeCallId = null;
         SourceLinksList.Children.Clear();
+        ClearSourceStatus();
         return _requestLease;
     }
 
@@ -1888,7 +1893,7 @@ public partial class MainWindow : Window
                         if (realtimeEvent.Kind == "conversation.item.input_audio_transcription.completed"
                             && !string.IsNullOrWhiteSpace(realtimeEvent.Text))
                         {
-                            _voiceTaskAuthorized = LooksLikeExplicitTask(realtimeEvent.Text);
+                            _voiceTaskAuthorized = RequestIntent.Classify(realtimeEvent.Text) == RequestKind.Task;
                         }
                         break;
                     case "response.output_audio.delta":
@@ -1996,7 +2001,7 @@ public partial class MainWindow : Window
             {
                 return;
             }
-            RenderReply(reply, lease.Generation, frame, explicitTask, controls);
+            RenderReply(reply, lease.Generation, frame, explicitTask, controls, mode == "research");
             if (explicitTask && reply.Actions.Count > 0)
             {
                 _pendingRealtimeCallId = realtimeEvent.ItemId;
@@ -2189,24 +2194,6 @@ public partial class MainWindow : Window
             }
         }
         return handles;
-    }
-
-    private static bool LooksLikeResearch(string text)
-    {
-        return text.StartsWith("find ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("search ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("research ", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool LooksLikeExplicitTask(string text)
-    {
-        return text.StartsWith("task ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("please open ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("open ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("please create ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("create ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("type ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("click ", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string SanitizedError(Exception ex, string fallback)
