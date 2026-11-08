@@ -12,6 +12,14 @@ namespace Boo.Providers;
 internal static class StructuredReplies
 {
     internal const string ScreenHelpSchemaName = "boo_screen_help_result";
+
+    /// <summary>Caps on what a model reply may carry. The reply is untrusted; beyond these the result is rejected or trimmed.</summary>
+    internal const int MaxTextLength = 20_000;
+    internal const int MaxMarks = 32;
+    internal const int MaxActions = 8;
+    internal const int MaxFieldLength = 512;
+    internal const int MaxArgumentLength = 65_536;
+    private const int MaxArgumentCount = 32;
     internal const string NudgeSchemaName = "boo_focus_nudge";
 
     internal const string StructuredInstructions =
@@ -75,12 +83,14 @@ internal static class StructuredReplies
         var actions = new List<ToolRequest>();
         if (UsesStructuredOutput(request) && rawText.TrimStart().StartsWith("{", StringComparison.Ordinal))
         {
-            using var structured = JsonDocument.Parse(rawText);
+            using var structured = ParseObject(vendor, rawText);
             var root = structured.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
                 throw new InvalidOperationException($"{vendor} returned an invalid structured result.");
-            if (root.TryGetProperty("text", out var textElement) && textElement.ValueKind == JsonValueKind.String)
-                text = textElement.GetString() ?? string.Empty;
+            // Without a text field the raw JSON must never be shown or spoken as the answer.
+            if (!root.TryGetProperty("text", out var textElement) || textElement.ValueKind != JsonValueKind.String)
+                throw new InvalidOperationException($"{vendor} returned a structured result without text.");
+            text = textElement.GetString() ?? string.Empty;
             if (root.TryGetProperty("marks", out var marksElement))
                 ParseMarks(vendor, marksElement, marks);
             if (request.AllowActions && root.TryGetProperty("actions", out var actionsElement))
@@ -89,6 +99,8 @@ internal static class StructuredReplies
 
         if (string.IsNullOrWhiteSpace(text))
             throw new InvalidOperationException($"{vendor} returned empty assistant text.");
+        if (text.Length > MaxTextLength)
+            text = TrimToLength(text, MaxTextLength);
 
         AnnotationProposal? proposal = null;
         if (request.Frame is not null && marks.Count > 0)
@@ -106,7 +118,7 @@ internal static class StructuredReplies
     /// <summary>Decodes the nudge JSON object (text + optional pointer_target).</summary>
     internal static FocusNudge BuildNudge(string vendor, string json)
     {
-        using var result = JsonDocument.Parse(json);
+        using var result = ParseObject(vendor, json);
         var root = result.RootElement;
         if (root.ValueKind != JsonValueKind.Object ||
             !root.TryGetProperty("text", out var nudgeText) || nudgeText.ValueKind != JsonValueKind.String)
@@ -115,11 +127,11 @@ internal static class StructuredReplies
         if (root.TryGetProperty("pointer_target", out var target) && target.ValueKind == JsonValueKind.String)
         {
             var phrase = target.GetString()?.Trim();
-            pointerTarget = string.IsNullOrEmpty(phrase) ? null : phrase.Length > 80 ? phrase[..80] : phrase;
+            pointerTarget = string.IsNullOrEmpty(phrase) ? null : TrimToLength(phrase, 80);
         }
 
         var text = (nudgeText.GetString() ?? string.Empty).Trim();
-        return new FocusNudge(text.Length > 160 ? text[..160] : text, pointerTarget);
+        return new FocusNudge(TrimToLength(text, 160), pointerTarget);
     }
 
     /// <summary>A plain research question (no frame, no actions) gets prose with citations; everything else is strict JSON.</summary>
@@ -162,12 +174,18 @@ internal static class StructuredReplies
                 !mark.TryGetProperty("width", out var width) || !TryFinite(width, out var widthValue) ||
                 !mark.TryGetProperty("height", out var height) || !TryFinite(height, out var heightValue))
                 throw new InvalidOperationException($"{vendor} returned invalid marks.");
+            // The schema's enum; rejected here so one invented kind cannot later void a whole proposal of good marks.
+            var kindText = kind.GetString() ?? string.Empty;
+            if (kindText is not ("ring" or "arrow" or "label"))
+                throw new InvalidOperationException($"{vendor} returned invalid marks.");
             var label = mark.TryGetProperty("label", out var labelElement) && labelElement.ValueKind == JsonValueKind.String
-                ? labelElement.GetString() ?? string.Empty
+                ? TrimToLength(labelElement.GetString() ?? string.Empty, MaxFieldLength)
                 : string.Empty;
             var endX = mark.TryGetProperty("endX", out var endXElement) && TryFinite(endXElement, out var endXValue) ? endXValue : 0;
             var endY = mark.TryGetProperty("endY", out var endYElement) && TryFinite(endYElement, out var endYValue) ? endYValue : 0;
-            marks.Add(new AnnotationMark(kind.GetString()!, new RectD(xValue, yValue, widthValue, heightValue), label, endX, endY));
+            marks.Add(new AnnotationMark(kindText, new RectD(xValue, yValue, widthValue, heightValue), label, endX, endY));
+            if (marks.Count == MaxMarks)
+                break; // A reply drawing more than this is noise; keep the first marks only.
         }
     }
 
@@ -189,6 +207,9 @@ internal static class StructuredReplies
             var actionName = name.GetString() ?? string.Empty;
             if (!ActionPolicy.ToolNames.Contains(actionName))
                 throw new InvalidOperationException($"{vendor} returned an action outside the bounded catalog.");
+            var targetText = target.GetString() ?? string.Empty;
+            if (targetText.Length > MaxFieldLength)
+                throw new InvalidOperationException($"{vendor} returned an action with an oversized target.");
             var arguments = new Dictionary<string, string>(StringComparer.Ordinal);
             if (action.TryGetProperty("arguments", out var argumentElement))
             {
@@ -198,9 +219,14 @@ internal static class StructuredReplies
                 {
                     if (property.Value.ValueKind == JsonValueKind.Null)
                         continue;
-                    arguments[property.Name] = property.Value.ValueKind == JsonValueKind.String
+                    var value = property.Value.ValueKind == JsonValueKind.String
                         ? property.Value.GetString() ?? string.Empty
                         : property.Value.GetRawText();
+                    if (property.Name.Length > MaxFieldLength || value.Length > MaxArgumentLength)
+                        throw new InvalidOperationException($"{vendor} returned an oversized action argument.");
+                    arguments[property.Name] = value;
+                    if (arguments.Count > MaxArgumentCount)
+                        throw new InvalidOperationException($"{vendor} returned too many action arguments.");
                 }
             }
             if (controls is not null && actionName is "click" or "type_text" &&
@@ -209,7 +235,9 @@ internal static class StructuredReplies
                 continue;
             }
 
-            actions.Add(new ToolRequest(actionName, target.GetString()!, arguments, generation));
+            actions.Add(new ToolRequest(actionName, targetText, arguments, generation));
+            if (actions.Count > MaxActions)
+                throw new InvalidOperationException($"{vendor} proposed more actions than Boo accepts in one reply.");
         }
     }
 
@@ -315,6 +343,34 @@ internal static class StructuredReplies
         schema["properties"] = properties;
         schema["required"] = required;
         return schema;
+    }
+
+    /// <summary>
+    /// Parses model text as JSON. A JSON string escape such as "\uD83D" decodes to an unpaired surrogate, which makes
+    /// <see cref="JsonDocument.Parse(string, JsonDocumentOptions)"/> throw ArgumentException instead of JsonException;
+    /// both become the classified failure the clients already handle.
+    /// </summary>
+    private static JsonDocument ParseObject(string vendor, string text)
+    {
+        try
+        {
+            return JsonDocument.Parse(text);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidOperationException($"{vendor} returned an unreadable structured result.", exception);
+        }
+    }
+
+    /// <summary>Cuts a string to at most <paramref name="max"/> UTF-16 units without splitting a surrogate pair.</summary>
+    internal static string TrimToLength(string value, int max)
+    {
+        if (value.Length <= max)
+            return value;
+        var cut = max;
+        if (cut > 0 && char.IsHighSurrogate(value[cut - 1]))
+            cut--;
+        return value[..cut];
     }
 
     private static bool TryFinite(JsonElement element, out double value)

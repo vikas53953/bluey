@@ -91,8 +91,9 @@ public static class VoiceCommandParser
             command = new VoiceCommand(VoiceCommandKind.FocusStart, task, minutes);
             return true;
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is JsonException or ArgumentException)
         {
+            // ArgumentException: the text holds an unpaired UTF-16 surrogate, which JsonDocument cannot transcode.
             error = MalformedError;
             return false;
         }
