@@ -28,11 +28,21 @@ public static class CrashReport
         @"(?<prefix>\bbearer\s+)[A-Za-z0-9\-._~+/=]{6,}",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, RegexTimeout);
 
+    // GitHub tokens (the private-repo update token) and Google API keys (Gemini) are not key=value shaped and
+    // can surface bare in HTTP exception text, so they get their own patterns.
+    private static readonly Regex GitHubToken = new(
+        @"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{16,}|\bgithub_pat_[A-Za-z0-9_]{16,}",
+        RegexOptions.CultureInvariant, RegexTimeout);
+
+    private static readonly Regex GoogleApiKey = new(
+        @"\bAIza[0-9A-Za-z_\-]{30,}",
+        RegexOptions.CultureInvariant, RegexTimeout);
+
     private static readonly Regex KeyValueSecret = new(
         @"(?<prefix>\b(?:api[_\-]?key|access[_\-]?token|client[_\-]?secret|password|secret|token)""?\s*[:=]\s*""?)[^\s""&,;]{4,}",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, RegexTimeout);
 
-    /// <summary>Removes API keys, bearer tokens, key=value secrets and (optionally) the user's profile path.</summary>
+    /// <summary>Removes API keys (OpenAI, Anthropic, Google), GitHub tokens, bearer tokens, key=value secrets and (optionally) the user's profile path.</summary>
     public static string Redact(string? text, string? userProfilePath = null)
     {
         if (string.IsNullOrEmpty(text))
@@ -44,6 +54,8 @@ public static class CrashReport
         try
         {
             result = OpenAiKey.Replace(text, "[redacted-key]");
+            result = GitHubToken.Replace(result, "[redacted-token]");
+            result = GoogleApiKey.Replace(result, "[redacted-key]");
             result = BearerToken.Replace(result, m => m.Groups["prefix"].Value + "[redacted]");
             result = KeyValueSecret.Replace(result, m => m.Groups["prefix"].Value + "[redacted]");
         }
