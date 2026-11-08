@@ -237,7 +237,8 @@ public sealed partial class BooSmokeTests
             || status.Contains("credential", StringComparison.OrdinalIgnoreCase)
             || status.Contains("provider", StringComparison.OrdinalIgnoreCase)
             || status.Contains("setup failed", StringComparison.OrdinalIgnoreCase)
-            || status.Contains("unavailable", StringComparison.OrdinalIgnoreCase);
+            || status.Contains("unavailable", StringComparison.OrdinalIgnoreCase)
+            || status.Contains("microphone", StringComparison.OrdinalIgnoreCase); // runner has no mic: an honest mic reason also counts
     }
 
     /// <summary>The microphone is off: the listening line does not claim Boo is listening, and the status does not either.</summary>
