@@ -34,6 +34,7 @@ public partial class App : System.Windows.Application
     private Boo.Core.ShortcutStatus _shortcuts = Boo.Core.ShortcutStatus.Pending;
     private Forms.ToolStripItem? _trayShowItem;
     private Forms.ToolStripItem? _trayStopItem;
+    private PerfDiagnostics? _perf;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -82,6 +83,7 @@ public partial class App : System.Windows.Application
         _notch.EyesHeldChanged += held => _panel?.SetEyesHeld(held);
         _notch.NudgeActionChosen += takeBreak => _panel?.HandleNudgeAction(takeBreak);
         _notch.ShowNotch();
+        _perf = PerfDiagnostics.TryStart(_notch, Dispatcher); // only when BOO_PERF_DIAG is set (perf tests)
 
         CreateTrayIcon();
         RefreshShortcutStatus(announce: true);
