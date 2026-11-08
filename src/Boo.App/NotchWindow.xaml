@@ -5,6 +5,7 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ResizeMode="NoResize" Topmost="True" Title="Boo launcher"
         AutomationProperties.Name="Open Boo companion"
+        AutomationProperties.HelpText="Boo's notch. Keyboard: Ctrl+Alt+B opens Boo's window, hold Ctrl+Alt+Space to talk, Ctrl+Alt+S or Ctrl+Alt+F12 pauses everything."
         MouseEnter="NotchWindow_OnMouseEnter" MouseLeave="NotchWindow_OnMouseLeave">
     <!--
         Face lane (U1/U2). Everything visible here is built from docs/design/boo-notch-spec.json
@@ -95,7 +96,8 @@
             <!-- Nudge actions (studio "Back to it" / "5 min break"), above the open button so they get the click. -->
             <StackPanel x:Name="NudgeActions" Orientation="Horizontal" Visibility="Collapsed">
                 <Button x:Name="NudgeBackButton" Click="NudgeBack_OnClick" Focusable="False" Cursor="Hand"
-                        AutomationProperties.Name="Back to it" Margin="0,0,6,0">
+                        AutomationProperties.Name="Back to it"
+                        AutomationProperties.HelpText="Resumes the focus session. Keyboard: Resume in Boo's window (Ctrl+Alt+B)." Margin="0,0,6,0">
                     <Button.Template>
                         <ControlTemplate TargetType="{x:Type Button}">
                             <Border x:Name="Pill" CornerRadius="10" Padding="10,2,10,3" Background="{TemplateBinding Background}">
@@ -106,7 +108,8 @@
                     </Button.Template>
                 </Button>
                 <Button x:Name="NudgeBreakButton" Click="NudgeBreak_OnClick" Focusable="False" Cursor="Hand"
-                        AutomationProperties.Name="5 min break">
+                        AutomationProperties.Name="5 min break"
+                        AutomationProperties.HelpText="Pauses the focus session for five minutes. Keyboard: Pause in Boo's window (Ctrl+Alt+B).">
                     <Button.Template>
                         <ControlTemplate TargetType="{x:Type Button}">
                             <Border CornerRadius="10" Padding="10,2,10,3" Background="{TemplateBinding Background}">

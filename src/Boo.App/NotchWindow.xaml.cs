@@ -531,7 +531,7 @@ public partial class NotchWindow : Window
         {
             app = false;
         }
-        return !SystemParameters.ClientAreaAnimation || app;
+        return MotionPreference.ReducedMotion(SystemParameters.ClientAreaAnimation, app);
     }
 
     // ---------------------------------------------------------------- render loop

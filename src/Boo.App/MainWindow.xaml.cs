@@ -309,6 +309,7 @@ public partial class MainWindow : Window
 
     private void Window_OnLoaded(object sender, RoutedEventArgs e)
     {
+        ApplyTextScale();
         PrepareInitialPlacement();
         InputBox.Focus();
     }
@@ -954,7 +955,10 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var window = new AnnotationWindow(frame.Context, proposal.Marks);
+            var window = new AnnotationWindow(frame.Context, proposal.Marks)
+            {
+                ReducedMotion = AccessibilitySettings.ReducedMotion(ReducedMotionEnabled)
+            };
             new WindowInteropHelper(window).EnsureHandle();
             if (!window.DisplayAvailable)
             {
@@ -1019,6 +1023,7 @@ public partial class MainWindow : Window
 
             ClearAnnotations();
             var window = AnnotationWindow.ForPhysicalTarget(frame.Context, match.Bounds);
+            window.ReducedMotion = AccessibilitySettings.ReducedMotion(ReducedMotionEnabled);
             new WindowInteropHelper(window).EnsureHandle();
             if (!window.DisplayAvailable || !window.CaptureExclusionAvailable)
             {
@@ -2314,7 +2319,7 @@ public partial class MainWindow : Window
             return;
         }
         _transcript.Add(new TranscriptLine(speaker, text));
-        TranscriptScroll.ScrollToEnd();
+        ScrollTranscriptToEnd();
     }
 
     private void AppendSourceLink(SourceLink source)
@@ -2392,7 +2397,15 @@ public partial class MainWindow : Window
             AppendTranscript(update.Speaker, update.Text);
             return;
         }
-        TranscriptScroll.ScrollToEnd();
+        ScrollTranscriptToEnd();
+    }
+
+    private void ScrollTranscriptToEnd()
+    {
+        if (_transcript.Count > 0)
+        {
+            TranscriptList.ScrollIntoView(_transcript[^1]);
+        }
     }
 
     private void RemoveRealtimeTranscriptRow((string ItemId, int ContentIndex, string Speaker) key, int index)
