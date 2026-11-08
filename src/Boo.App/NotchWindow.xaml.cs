@@ -933,7 +933,7 @@ public partial class NotchWindow : Window
         {
             SetStatus("Open via tray");
         }
-        CaptureExclusionAvailable = SetWindowDisplayAffinity(_handle, 0x11); // WDA_EXCLUDEFROMCAPTURE
+        CaptureExclusionAvailable = SetWindowDisplayAffinity(_handle, App.CaptureExclusion.DisplayAffinity); // WDA_EXCLUDEFROMCAPTURE unless BOO_QA_CAPTURABLE=1
         if (!CaptureExclusionAvailable)
         {
             SetStatus("Capture paused");

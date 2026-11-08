@@ -24,9 +24,14 @@ public static class RealtimeProtocol
         "conversation.item.added", "conversation.item.done"
     };
 
-    public static string SessionUpdate(ProviderSettings settings)
+    /// <param name="pushToTalk">
+    /// True turns server VAD off (turn_detection: null): the app commits each turn itself with
+    /// input_audio_buffer.commit + response.create when the user releases hold-to-talk.
+    /// </param>
+    public static string SessionUpdate(ProviderSettings settings, bool pushToTalk = false)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        object? turnDetection = pushToTalk ? null : new { type = "server_vad" };
         var update = new
         {
             type = "session.update",
@@ -41,7 +46,7 @@ public static class RealtimeProtocol
                     input = new
                     {
                         format = new { type = "audio/pcm", rate = 24000 },
-                        turn_detection = new { type = "server_vad" },
+                        turn_detection = turnDetection,
                         transcription = new { model = "gpt-4o-mini-transcribe" }
                     },
                     output = new
@@ -183,6 +188,7 @@ public sealed class RealtimeClient : IAsyncDisposable
 {
     private readonly Func<string?> _credential;
     private readonly ProviderSettings _settings;
+    private readonly bool _pushToTalk;
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly object _stateGate = new();
@@ -192,8 +198,9 @@ public sealed class RealtimeClient : IAsyncDisposable
     private bool _disposed;
     private Action<RealtimeEvent>? _received;
 
-    public RealtimeClient(Func<string?> credential, ProviderSettings settings)
+    public RealtimeClient(Func<string?> credential, ProviderSettings settings, bool pushToTalk = false)
     {
+        _pushToTalk = pushToTalk;
         _credential = credential ?? throw new ArgumentNullException(nameof(credential));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
     }
@@ -233,7 +240,7 @@ public sealed class RealtimeClient : IAsyncDisposable
             await socket.ConnectAsync(uri, cancellationToken).ConfigureAwait(false);
             var readiness = _readiness!;
             _receiveTask = ReceiveLoopAsync(socket, _lifetime.Token, readiness);
-            await SendJsonAsync(RealtimeProtocol.SessionUpdate(_settings), cancellationToken).ConfigureAwait(false);
+            await SendJsonAsync(RealtimeProtocol.SessionUpdate(_settings, _pushToTalk), cancellationToken).ConfigureAwait(false);
             try
             {
                 await readiness.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
@@ -293,6 +300,20 @@ public sealed class RealtimeClient : IAsyncDisposable
         await SendJsonAsync(output, cancellationToken).ConfigureAwait(false);
         await SendJsonAsync("{\"type\":\"response.create\"}", cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>True when this session was configured for push-to-talk (server VAD off).</summary>
+    public bool PushToTalk => _pushToTalk;
+
+    /// <summary>Push-to-talk release: commit the appended audio as a user turn and ask for a reply.</summary>
+    public async Task CommitAudioTurnAsync(CancellationToken cancellationToken)
+    {
+        await SendJsonAsync("{\"type\":\"input_audio_buffer.commit\"}", cancellationToken).ConfigureAwait(false);
+        await SendJsonAsync("{\"type\":\"response.create\"}", cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Push-to-talk cancel: drop audio appended since the last commit.</summary>
+    public Task ClearAudioBufferAsync(CancellationToken cancellationToken) =>
+        SendJsonAsync("{\"type\":\"input_audio_buffer.clear\"}", cancellationToken);
 
     public Task InterruptAsync(CancellationToken cancellationToken) =>
         SendJsonAsync("{\"type\":\"response.cancel\"}", cancellationToken);

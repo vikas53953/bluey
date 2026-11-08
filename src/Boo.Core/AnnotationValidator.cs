@@ -1,4 +1,5 @@
 namespace Boo.Core;
+
 public static class AnnotationValidator
 {
     private const double MaximumAgeSeconds = 15;
