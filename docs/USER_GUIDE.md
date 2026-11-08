@@ -90,7 +90,7 @@ The **full window** has four areas: **Ask Boo** (type a question or request, pre
 | **Ctrl+Alt+S** | Pause everything: cancels capture, audio and pending work and pauses a running focus session (Riley's Ctrl+Option+S) | Ctrl+Alt+F12 still stops Boo |
 | **Ctrl+Alt+F12** | Emergency stop, identical effect to Ctrl+Alt+S. Also cancels a hold in progress so nothing is sent | Use the tray **Stop** or right-click the eyes |
 
-Inside the full window: **Alt+A** approves and **Alt+C** cancels an action card, **Alt+S** saves settings, **Alt+R** resets appearance, **Ctrl+Enter** in **Ask Boo** sends, and **Esc** cancels a pending action card or, with none showing, hides the window. **Tab** moves between controls in the usual Windows order; every control has a screen-reader name. There is no F6 pane-cycling key.
+Inside the full window: **Alt+A** approves and **Alt+C** cancels an action card, **Alt+S** saves settings, **Alt+R** resets appearance, **Ctrl+Enter** in **Ask Boo** sends, and **Esc** cancels a pending action card or, with none showing, hides the window. **Tab** moves between controls in the usual Windows order, and **F6** / **Shift+F6** jump between the Ask, Focus and Settings regions; every control has a screen-reader name and a visible accent focus ring.
 
 Boo registers the hotkeys at start and tells the truth about them. If one fails, a single sentence appears in Settings, in the status line and on the notch ("Shortcut busy: use tray" or "Shortcut busy: use Talk"), and tray labels drop the dead shortcut. Registration is retried after you unlock the PC or change displays.
 
