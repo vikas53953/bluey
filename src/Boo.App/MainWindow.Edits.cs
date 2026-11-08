@@ -1,5 +1,6 @@
 using System.Windows;
 using Boo.Core;
+using System.Net.Http;
 using Boo.Providers;
 
 namespace Boo.App;
@@ -19,6 +20,16 @@ public partial class MainWindow
     private readonly UndoJournal _undoJournal = new();
     private ActiveUndo? _activeUndo;
     private bool _journalAwaitingApply;
+    private bool _voiceUndoInProgress;
+
+    /// <summary>
+    /// True while Boo is planning or showing a local Undo. Realtime tool calls fail
+    /// closed and replies leave the pending preview queue alone during that time.
+    /// </summary>
+    private bool UndoOwnsPendingActions =>
+        _voiceUndoInProgress || (_activeUndo is not null && _pendingPreview is not null);
+
+    private const string UndoOwnsVoiceTurnMessage = "Boo is handling Undo locally; no action taken.";
 
     private void RenderSources(AssistantReply reply, bool research)
     {
@@ -112,18 +123,19 @@ public partial class MainWindow
             return;
         }
 
-        try
-        {
-            await realtime.InterruptAsync(lease.Token);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // The local Undo plan does not depend on the model acknowledging the cancel.
-        }
-
+        _voiceUndoInProgress = true;
         var activity = _captureActivities.CreateOperation();
         try
         {
+            try
+            {
+                await realtime.InterruptAsync(lease.Token);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The local Undo plan does not depend on the model acknowledging the cancel.
+            }
+
             var frame = await CaptureForRequestAsync(lease, activity);
             if (frame is null)
             {
@@ -143,8 +155,35 @@ public partial class MainWindow
         }
         finally
         {
+            _voiceUndoInProgress = false;
             EndCaptureActivity(activity);
         }
+    }
+
+    /// <summary>
+    /// Completes a realtime tool call without acting when a local Undo owns the turn.
+    /// Returns true when the call was handled here.
+    /// </summary>
+    private async Task<bool> DeclineRealtimeToolDuringUndoAsync(RealtimeClient realtime, string? itemId, RequestLease lease)
+    {
+        if (!UndoOwnsPendingActions)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(itemId))
+        {
+            try
+            {
+                await realtime.CompleteToolAsync(itemId, UndoOwnsVoiceTurnMessage, lease.Token);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or InvalidOperationException or HttpRequestException)
+            {
+                // The local Undo continues whether or not the model hears this.
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -172,6 +211,7 @@ public partial class MainWindow
 
         if (action.Name == "type_text")
         {
+            var recorded = false;
             if (before is not null && outcome.Success && !string.IsNullOrWhiteSpace(automationId)
                 && action.Arguments.TryGetValue("text", out var typed) && typed is not null)
             {
@@ -179,6 +219,16 @@ public partial class MainWindow
                     control => string.Equals(control.AutomationId, automationId, StringComparison.Ordinal));
                 _undoJournal.RecordEdit(before.Context.Target, automationId, field?.Value, typed);
                 _journalAwaitingApply = true;
+                recorded = true;
+            }
+
+            var typedWindow = before?.Context.Target ?? target;
+            if (!recorded && _undoJournal.HasPendingUndo
+                && (typedWindow is null || SameWindow(_undoJournal.Window, typedWindow)))
+            {
+                // Committed but unverified typing in the edited window: the recorded
+                // values can no longer be trusted for a restore.
+                ClearUndoJournal();
             }
 
             if (before is not null && _pendingActions.Count > 0)
@@ -200,8 +250,26 @@ public partial class MainWindow
                 return outcome;
             }
 
+            // Keep reading after the first change until two consecutive reads agree, so
+            // an app that updates properties in sequence is recorded completely.
+            ControlObservation? changed = null;
             var after = await PollControlsAsync(before.Context, lease,
-                observation => ControlDiff.Compare(before, observation).Count > 0);
+                observation =>
+                {
+                    if (ControlDiff.Compare(before, observation).Count == 0)
+                    {
+                        return false;
+                    }
+
+                    if (changed is not null && ControlDiff.Compare(changed, observation).Count == 0)
+                    {
+                        return true;
+                    }
+
+                    changed = observation;
+                    return false;
+                },
+                extendOnce: () => changed is not null);
             AdvancePendingControls(before, after);
             if (after is null)
             {
@@ -270,9 +338,11 @@ public partial class MainWindow
     /// Returns the last good observation, or null when the read failed or went stale.
     /// </summary>
     private async Task<ControlObservation?> PollControlsAsync(
-        ScreenContext context, RequestLease lease, Func<ControlObservation, bool> settled)
+        ScreenContext context, RequestLease lease, Func<ControlObservation, bool> settled,
+        Func<bool>? extendOnce = null)
     {
-        const int attempts = 5;
+        const int baseAttempts = 5;
+        var attempts = baseAttempts;
         ControlObservation? last = null;
         for (var attempt = 0; attempt < attempts; attempt++)
         {
@@ -321,6 +391,11 @@ public partial class MainWindow
             if (settled(observation))
             {
                 break;
+            }
+
+            if (attempt == attempts - 1 && attempts == baseAttempts && extendOnce?.Invoke() == true)
+            {
+                attempts++;
             }
         }
 

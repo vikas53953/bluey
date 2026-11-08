@@ -846,7 +846,7 @@ public partial class MainWindow : Window
             ReportAnnotationOutcome("Boo explained the screen without a verified mark.");
         }
 
-        if (!IsCurrent(generation))
+        if (!IsCurrent(generation) || UndoOwnsPendingActions)
         {
             return;
         }
@@ -1981,6 +1981,10 @@ public partial class MainWindow : Window
         }
 
         var lease = _requestLease!;
+        if (await DeclineRealtimeToolDuringUndoAsync(realtime, realtimeEvent.ItemId, lease))
+        {
+            return;
+        }
         var activity = _captureActivities.CreateOperation();
         try
         {
@@ -2013,6 +2017,10 @@ public partial class MainWindow : Window
                 new AssistantRequest(question, lease.Generation, frame, Research: mode == "research", AllowActions: explicitTask),
                 lease.Token, controls);
             if (!IsCurrent(lease.Generation) || !_realtimeConnected || !ReferenceEquals(_realtime, realtime))
+            {
+                return;
+            }
+            if (await DeclineRealtimeToolDuringUndoAsync(realtime, realtimeEvent.ItemId, lease))
             {
                 return;
             }
