@@ -166,7 +166,20 @@ public sealed class DemoTests : IClassFixture<BooAppFixture>
         {
             var panel = _boo.EnsurePanel();
             Ask(panel, "Research the Boo project and give sources");
-            var links = _boo.WaitFor(() => SourceLinks(panel) is { Count: >= 3 } found ? found : null, UiTimeout, "at least 3 source links");
+            List<AutomationElement> links;
+            try
+            {
+                links = _boo.WaitFor(() => SourceLinks(panel) is { Count: >= 3 } found ? found : null, UiTimeout, "at least 3 source links");
+            }
+            catch (TimeoutException)
+            {
+                // Say what the window did show, so the next run's log explains itself.
+                var hyperlinks = panel.FindAllDescendants().Where(e => e.ControlType == ControlType.Hyperlink).Select(BooAppFixture.SafeName).ToList();
+                _boo.WriteObservation("03-research-timeout",
+                    $"hyperlinks={string.Join(" | ", hyperlinks)} sourceStatus='{NameOfId(panel, "SourceStatusText")}' status='{StatusText(panel)}' transcript='{TranscriptText(panel)}'");
+                _boo.CaptureScreen("03-research-timeout");
+                throw;
+            }
             _boo.CaptureScreen("03-research-sources");
             var names = links.Select(BooAppFixture.SafeName).ToList();
             _boo.WriteObservation("03-research", $"links={string.Join(" | ", names)} sourceStatus='{NameOfId(panel, "SourceStatusText")}'");
@@ -363,9 +376,10 @@ public sealed class DemoTests : IClassFixture<BooAppFixture>
 
     private static List<AutomationElement> SourceLinks(Window panel)
     {
-        var list = TryFind(panel, "SourceLinksList");
-        if (list is null) return new List<AutomationElement>();
-        return list.FindAllDescendants()
+        // SourceLinksList is a bare StackPanel: WPF gives panels no automation peer, so it is not in the
+        // UIA tree and a lookup by its AutomationId finds nothing. The Hyperlink inlines Boo adds are
+        // (HyperlinkAutomationPeer), so search the whole companion window for them instead.
+        return panel.FindAllDescendants()
             .Where(e => e.ControlType is ControlType.Hyperlink or ControlType.Button or ControlType.Text)
             .Where(e => BooAppFixture.SafeName(e).Contains("http", StringComparison.OrdinalIgnoreCase) || BooAppFixture.SafeName(e).Contains("example.com", StringComparison.OrdinalIgnoreCase) || BooAppFixture.SafeName(e).StartsWith("Open source ", StringComparison.Ordinal))
             .ToList();
