@@ -1,6 +1,6 @@
 # Boo morning checklist (one page)
 
-For Vikas, first thing at the PC. Build: `lane/face` (PR #3), head `9a84e3d` or newer. Nothing on this list has been tried on a real Windows PC yet; CI on windows-latest is green. Do the items in order: each one unblocks the next, and the first failures are the ones that would stop the demos. Budget: about 20 minutes to item 9, then 25 minutes for item 10. Tick as you go and photograph anything odd with your phone (Boo hides itself from screenshots).
+For Vikas, first thing at the PC. Build: `lane/face` (PR #3), head `47b6d9f` or newer. Nothing on this list has been tried on a real Windows PC yet; CI on windows-latest is green. Do the items in order: each one unblocks the next, and the first failures are the ones that would stop the demos. Budget: about 20 minutes to item 9, then 25 minutes for item 10. Tick as you go and photograph anything odd with your phone (Boo hides itself from screenshots).
 
 ## Before anything
 
