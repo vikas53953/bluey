@@ -155,6 +155,7 @@ public partial class MainWindow : Window
         LoadAppearance();
         LoadDisplays();
         InitializeHistory();
+        InitializeHoldToTalk();
         _shellInitialized = true;
     }
 
@@ -194,6 +195,7 @@ public partial class MainWindow : Window
 
     public void StopAll()
     {
+        StopHoldToTalk();
         _generation++;
         _coordinator.Stop();
 
@@ -244,6 +246,7 @@ public partial class MainWindow : Window
     {
         _closingForExit = true;
         StopAll();
+        DisposeHoldToTalk();
         _focusTimer.Stop();
         _focusCaptureTimer.Stop();
         _focusCancellation.Cancel();
@@ -788,6 +791,7 @@ public partial class MainWindow : Window
     private void StopListening()
     {
         var hadVoiceSession = _listening || _realtimeConnected || _audioUploads is not null || _realtime is not null;
+        DiscardPushToTalkUplink();
         StopAudioUploads();
         try
         {
@@ -1743,7 +1747,7 @@ public partial class MainWindow : Window
         return _responses;
     }
 
-    private RealtimeClient EnsureRealtime()
+    private RealtimeClient EnsureRealtime(bool pushToTalk = false)
     {
         if (_realtime is not null)
         {
@@ -1751,7 +1755,8 @@ public partial class MainWindow : Window
         }
 
         _credentialStore ??= new CredentialStore(Path.Combine(_dataDirectory, "credential.bin"));
-        var realtime = new RealtimeClient(() => _credentialStore.Load(), _settings.Provider ?? new ProviderSettings());
+        var realtime = new RealtimeClient(() => _credentialStore.Load(), _settings.Provider ?? new ProviderSettings(), pushToTalk);
+        _realtimePushToTalk = pushToTalk;
         _realtimeTranscript.Reset();
         _realtimeTranscriptRows.Clear();
         var generation = _generation;
@@ -1863,10 +1868,12 @@ public partial class MainWindow : Window
                 {
                     return;
                 }
+                ObserveTalkEvent(realtimeEvent);
                 switch (realtimeEvent.Kind)
                 {
                     case "input_audio_buffer.speech_started":
                     case "input_audio_buffer.speech_stopped":
+                    case "input_audio_buffer.committed":
                         ListeningStatus.Text = realtimeEvent.Kind.EndsWith("started", StringComparison.Ordinal)
                             ? "Listening…"
                             : "Thinking…";
