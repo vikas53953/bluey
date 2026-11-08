@@ -695,6 +695,12 @@ public partial class MainWindow : Window
             {
                 return;
             }
+            var intent = RequestIntent.Classify(text);
+            if (intent == RequestKind.Undo)
+            {
+                await HandleUndoRequestAsync(frame, lease);
+                return;
+            }
             var speechEnabled = SpeechMute.IsChecked != true && _settings.SpeechEnabled;
             if (speechEnabled && !_realtimeConnected)
             {
@@ -725,7 +731,7 @@ public partial class MainWindow : Window
             }
             if (speechEnabled && _realtimeConnected && _realtime is not null)
             {
-                _voiceTaskAuthorized = LooksLikeExplicitTask(text);
+                _voiceTaskAuthorized = intent == RequestKind.Task;
                 await _realtime.SendTextAsync(text, lease.Token);
                 StatusText.Text = "Sent to the voice conversation; waiting for the response…";
                 // The realtime reply (audio delta / response.done / error) clears Thinking.
@@ -733,7 +739,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var explicitTask = LooksLikeExplicitTask(text);
+            var explicitTask = intent == RequestKind.Task;
             ControlObservation? controls = null;
             if (explicitTask && frame is not null)
             {
@@ -749,14 +755,14 @@ public partial class MainWindow : Window
                 text,
                 lease.Generation,
                 frame,
-                Research: LooksLikeResearch(text),
+                Research: intent == RequestKind.Research,
                 AllowActions: explicitTask);
             var reply = await client.RespondAsync(request, lease.Token, controls);
             if (!IsCurrent(lease.Generation))
             {
                 return;
             }
-            RenderReply(reply, lease.Generation, frame, request.AllowActions, controls);
+            RenderReply(reply, lease.Generation, frame, request.AllowActions, controls, request.Research);
         }
         catch (OperationCanceledException)
         {
@@ -873,16 +879,12 @@ public partial class MainWindow : Window
         SetFace(_faceInputs with { Thinking = false, Responding = false });
     }
 
-    private void RenderReply(AssistantReply reply, long generation, CapturedFrame? frame, bool explicitTask, ControlObservation? controls)
+    private void RenderReply(AssistantReply reply, long generation, CapturedFrame? frame, bool explicitTask, ControlObservation? controls, bool research = false)
     {
         ClearAnnotations();
         SetFace(_faceInputs with { Thinking = false, Responding = true }, TimeSpan.FromSeconds(4));
         AppendTranscript("Boo", reply.Text);
-        SourceLinksList.Children.Clear();
-        foreach (var source in reply.Sources)
-        {
-            AppendSourceLink(source);
-        }
+        RenderSources(reply, research);
 
         if (reply.Annotations is not null && frame is not null)
         {
@@ -893,7 +895,7 @@ public partial class MainWindow : Window
             ReportAnnotationOutcome("Boo explained the screen without a verified mark.");
         }
 
-        if (!IsCurrent(generation))
+        if (!IsCurrent(generation) || UndoOwnsPendingActions)
         {
             return;
         }
@@ -1103,6 +1105,7 @@ public partial class MainWindow : Window
 
         _approvalInFlight = true;
         ApproveButton.IsEnabled = false;
+        var committedBeforeFailure = false;
         try
         {
             var decision = ActionPolicy.Evaluate(action, authority);
@@ -1139,7 +1142,10 @@ public partial class MainWindow : Window
                 CancelPendingAction();
                 return;
             }
+            var preActionControls = _pendingControls;
             var outcome = await EnsureDesktop().ExecuteAsync(action, authority, approval, target, lease.Token);
+            committedBeforeFailure = outcome.Committed;
+            outcome = await ReadBackActionAsync(action, outcome, preActionControls, target, lease);
             if (!IsCurrent(lease.Generation))
             {
                 StatusText.Text = outcome.Committed
@@ -1169,13 +1175,21 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
-            StatusText.Text = "Stopped before the action committed.";
-            await CompletePendingRealtimeToolAsync("Action stopped before commit; no later effect occurred.");
+            StatusText.Text = committedBeforeFailure
+                ? "Stopped after the action committed; its result was not verified."
+                : "Stopped before the action committed.";
+            await CompletePendingRealtimeToolAsync(committedBeforeFailure
+                ? "The action committed, then stopped before its result was verified."
+                : "Action stopped before commit; no later effect occurred.");
         }
         catch (Exception ex)
         {
-            StatusText.Text = SanitizedError(ex, "The action could not be verified.");
-            await CompletePendingRealtimeToolAsync("Action failed before a verified commit.");
+            StatusText.Text = committedBeforeFailure
+                ? "The action committed, but Boo could not verify its result."
+                : SanitizedError(ex, "The action could not be verified.");
+            await CompletePendingRealtimeToolAsync(committedBeforeFailure
+                ? "The action committed, but its result could not be verified."
+                : "Action failed before a verified commit.");
         }
         finally
         {
@@ -1726,6 +1740,7 @@ public partial class MainWindow : Window
         _ = CompletePendingRealtimeToolAsync("A newer request superseded this action.");
         _pendingRealtimeCallId = null;
         SourceLinksList.Children.Clear();
+        ClearSourceStatus();
         return _requestLease;
     }
 
@@ -2008,7 +2023,12 @@ public partial class MainWindow : Window
                         if (realtimeEvent.Kind == "conversation.item.input_audio_transcription.completed"
                             && !string.IsNullOrWhiteSpace(realtimeEvent.Text))
                         {
-                            _voiceTaskAuthorized = LooksLikeExplicitTask(realtimeEvent.Text);
+                            var spokenIntent = RequestIntent.Classify(realtimeEvent.Text);
+                            _voiceTaskAuthorized = spokenIntent == RequestKind.Task;
+                            if (spokenIntent == RequestKind.Undo)
+                            {
+                                await HandleVoiceUndoAsync(source);
+                            }
                         }
                         break;
                     case "response.output_audio.delta":
@@ -2089,6 +2109,10 @@ public partial class MainWindow : Window
         }
 
         var lease = _requestLease!;
+        if (await DeclineRealtimeToolDuringUndoAsync(realtime, realtimeEvent.ItemId, lease))
+        {
+            return;
+        }
         var activity = _captureActivities.CreateOperation();
         _realtimeToolsInFlight++;
         SetFace(_faceInputs with { Thinking = true });
@@ -2126,7 +2150,11 @@ public partial class MainWindow : Window
             {
                 return;
             }
-            RenderReply(reply, lease.Generation, frame, explicitTask, controls);
+            if (await DeclineRealtimeToolDuringUndoAsync(realtime, realtimeEvent.ItemId, lease))
+            {
+                return;
+            }
+            RenderReply(reply, lease.Generation, frame, explicitTask, controls, mode == "research");
             if (explicitTask && reply.Actions.Count > 0)
             {
                 _pendingRealtimeCallId = realtimeEvent.ItemId;
@@ -2323,24 +2351,6 @@ public partial class MainWindow : Window
             }
         }
         return handles;
-    }
-
-    private static bool LooksLikeResearch(string text)
-    {
-        return text.StartsWith("find ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("search ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("research ", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool LooksLikeExplicitTask(string text)
-    {
-        return text.StartsWith("task ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("please open ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("open ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("please create ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("create ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("type ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("click ", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string SanitizedError(Exception ex, string fallback)

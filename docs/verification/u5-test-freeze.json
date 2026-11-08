@@ -1,0 +1,12 @@
+{
+  "unit": "U5",
+  "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
+  "contract": "docs/plans/2026-11-08-u5-research-edit-undo.md",
+  "files": {
+    "tests/Boo.Core.Tests/RequestIntentTests.cs": "f0efe43e849bf7ecda1dafae78dbe3f7bca44490d5fdb902c7ae8f034cbe2ea9",
+    "tests/Boo.Core.Tests/ResearchSourcesTests.cs": "f1565ee92e0d858a2f6cfeda6fa20b3f270ec75e79e04c123972bc7e9e080fa9",
+    "tests/Boo.Core.Tests/ActionReadbackTests.cs": "bf32ccf3bc21301e45acc16110e26188f6e81ab85c5fe79a2c0448ab2aaa542c",
+    "tests/Boo.Core.Tests/UndoJournalTests.cs": "5f73cbb8de8b9a65d7d00bb3cb630fb66cf320437aa452936fa11762945b58c8",
+    "tests/Boo.Integration.Tests/ResearchRequestShapeTests.cs": "68607a9544c37c6b439e18aa658dad1bb5cf20da8563dd511611eddc16c9b36b"
+  }
+}

@@ -122,6 +122,9 @@
                             <TextBlock Text="Sources" Foreground="{DynamicResource BooMuted}" FontFamily="{StaticResource BooFont}" FontSize="12"
                                        Margin="0,9,0,3" />
                             <StackPanel x:Name="SourceLinksList" />
+                            <TextBlock x:Name="SourceStatusText" Visibility="Collapsed" Margin="0,2,0,0"
+                                       Foreground="{DynamicResource BooMuted}" FontSize="12" TextWrapping="Wrap"
+                                       AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}" />
                             <TextBlock x:Name="AnnotationDetail" Visibility="Collapsed" Margin="0,7,0,0"
                                        Foreground="{DynamicResource BooMuted}" FontSize="12" TextWrapping="Wrap"
                                        AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}"
