@@ -455,8 +455,10 @@ public sealed class FocusTimelineTests
     [Fact]
     public void History_row_minutes_round_down_and_score_rounds_to_nearest()
     {
-        // OnTask [0, 60), OffTask [60, 90), Unknown [90, 119): 60 / 90 = 66.67% -> 67%. 119 s -> 1 min.
-        var snapshot = Snapshot(119, new[] { C(0, FocusActivity.OnTask), C(60, FocusActivity.OffTask) },
+        // OnTask [0, 80), OffTask [80, 119): 80 / 119 = 67.2% -> 67%. 119 s -> 1 min.
+        // (Re-locked by the root: the first oracle assumed OffTask stopped at 90, contradicting the
+        // "min(next, Elapsed, e + 90)" coverage rule that the other frozen tests pin.)
+        var snapshot = Snapshot(119, new[] { C(0, FocusActivity.OnTask), C(80, FocusActivity.OffTask) },
             duration: 1500, status: FocusStatus.Running);
 
         var row = FocusTimeline.ToHistoryRow(snapshot, 300);
