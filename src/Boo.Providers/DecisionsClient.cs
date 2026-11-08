@@ -6,7 +6,7 @@ using Boo.Core;
 
 namespace Boo.Providers;
 
-public sealed class DecisionsClient
+public sealed class DecisionsClient : IFocusClassifier
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private readonly HttpClient _http;

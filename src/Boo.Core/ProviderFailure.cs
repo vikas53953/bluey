@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace Boo.Core;
 
-/// <summary>Why an OpenAI call failed, in terms the user can act on.</summary>
+/// <summary>Why a provider (OpenAI, Anthropic or Gemini) call failed, in terms the user can act on.</summary>
 public enum ProviderFailureKind
 {
     Unknown,
@@ -32,19 +32,28 @@ public sealed record ProviderFailure(ProviderFailureKind Kind, int? StatusCode, 
 public sealed class ProviderException : InvalidOperationException
 {
     public ProviderException(string operation, ProviderFailure failure)
-        : base(BuildMessage(operation, failure))
+        : this(AiProvider.OpenAI, operation, failure)
     {
+    }
+
+    public ProviderException(AiProvider provider, string operation, ProviderFailure failure)
+        : base(BuildMessage(provider, operation, failure))
+    {
+        Provider = provider;
         Failure = failure ?? throw new ArgumentNullException(nameof(failure));
     }
 
+    public AiProvider Provider { get; }
+
     public ProviderFailure Failure { get; }
 
-    private static string BuildMessage(string operation, ProviderFailure failure)
+    private static string BuildMessage(AiProvider provider, string operation, ProviderFailure failure)
     {
         ArgumentNullException.ThrowIfNull(failure);
+        var vendor = AiProviders.VendorName(provider);
         return failure.StatusCode is { } status
-            ? $"OpenAI {operation} returned HTTP {status} ({failure.Kind})."
-            : $"OpenAI {operation} failed ({failure.Kind}).";
+            ? $"{vendor} {operation} returned HTTP {status} ({failure.Kind})."
+            : $"{vendor} {operation} failed ({failure.Kind}).";
     }
 }
 
@@ -71,25 +80,32 @@ public static class ProviderFailureClassifier
     public const string TimeoutMessage = "OpenAI took too long to answer. Try again.";
     public const string UnknownMessage = "The OpenAI request failed. Try again in a moment.";
 
-    public static ProviderFailure FromHttp(int statusCode, string? errorBody)
+    public static ProviderFailure FromHttp(int statusCode, string? errorBody) => FromHttp(statusCode, errorBody, AiProvider.OpenAI);
+
+    /// <summary>
+    /// Provider-aware classification. Anthropic reports a typed "error.type" (authentication_error, rate_limit_error,
+    /// overloaded_error, ...); Gemini reports a gRPC-style "error.status" (RESOURCE_EXHAUSTED, PERMISSION_DENIED, ...)
+    /// and signals a bad key as HTTP 400 with "API key not valid" in the message. User messages name the vendor.
+    /// </summary>
+    public static ProviderFailure FromHttp(int statusCode, string? errorBody, AiProvider provider)
     {
         var (code, type) = ReadErrorBody(errorBody);
         var byCode = ClassifyCode(code, type);
         if (byCode is ProviderFailureKind.QuotaExhausted or ProviderFailureKind.ModelUnavailable or ProviderFailureKind.InvalidCredential)
-            return Create(byCode, statusCode);
+            return Create(byCode, statusCode, provider);
 
         return statusCode switch
         {
-            401 => Create(ProviderFailureKind.InvalidCredential, statusCode),
-            403 => Create(ProviderFailureKind.PermissionDenied, statusCode),
-            404 => Create(ProviderFailureKind.ModelUnavailable, statusCode),
-            408 => Create(ProviderFailureKind.Timeout, statusCode),
+            401 => Create(ProviderFailureKind.InvalidCredential, statusCode, provider),
+            403 => Create(ProviderFailureKind.PermissionDenied, statusCode, provider),
+            404 => Create(ProviderFailureKind.ModelUnavailable, statusCode, provider),
+            408 => Create(ProviderFailureKind.Timeout, statusCode, provider),
             429 => byCode == ProviderFailureKind.RateLimited
-                ? Create(ProviderFailureKind.RateLimited, statusCode)
-                : new ProviderFailure(ProviderFailureKind.RateLimited, statusCode, true, RateLimitedOrQuotaMessage),
-            >= 500 and <= 599 => Create(ProviderFailureKind.ServerError, statusCode),
-            >= 400 and <= 499 => Create(ProviderFailureKind.BadRequest, statusCode),
-            _ => Create(ProviderFailureKind.Unknown, statusCode)
+                ? Create(ProviderFailureKind.RateLimited, statusCode, provider)
+                : new ProviderFailure(ProviderFailureKind.RateLimited, statusCode, true, ForVendor(RateLimitedOrQuotaMessage, provider)),
+            >= 500 and <= 599 => Create(ProviderFailureKind.ServerError, statusCode, provider),
+            >= 400 and <= 499 => Create(ProviderFailureKind.BadRequest, statusCode, provider),
+            _ => Create(ProviderFailureKind.Unknown, statusCode, provider)
         };
     }
 
@@ -103,15 +119,26 @@ public static class ProviderFailureClassifier
         return FromErrorCode(code, type);
     }
 
-    public static ProviderFailure FromTransport(HttpRequestError error) => error switch
+    public static ProviderFailure FromTransport(HttpRequestError error) => FromTransport(error, AiProvider.OpenAI);
+
+    public static ProviderFailure FromTransport(HttpRequestError error, AiProvider provider) => error switch
     {
         HttpRequestError.NameResolutionError or HttpRequestError.ConnectionError or HttpRequestError.ProxyTunnelError
-            => Create(ProviderFailureKind.Offline, null),
-        HttpRequestError.SecureConnectionError => Create(ProviderFailureKind.SecureConnection, null),
-        _ => new ProviderFailure(ProviderFailureKind.Unknown, null, true, UnknownMessage)
+            => Create(ProviderFailureKind.Offline, null, provider),
+        HttpRequestError.SecureConnectionError => Create(ProviderFailureKind.SecureConnection, null, provider),
+        _ => new ProviderFailure(ProviderFailureKind.Unknown, null, true, ForVendor(UnknownMessage, provider))
     };
 
     public static ProviderFailure Timeout() => Create(ProviderFailureKind.Timeout, null);
+
+    public static ProviderFailure Timeout(AiProvider provider) => Create(ProviderFailureKind.Timeout, null, provider);
+
+    /// <summary>Rewrites an OpenAI-worded user message for another vendor. OpenAI text is returned unchanged.</summary>
+    public static string ForVendor(string message, AiProvider provider)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        return provider == AiProvider.OpenAI ? message : message.Replace("OpenAI", AiProviders.VendorName(provider), StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// Finds a classified failure in an exception chain: a <see cref="ProviderException"/>, or an
@@ -134,20 +161,26 @@ public static class ProviderFailureClassifier
         return null;
     }
 
-    private static ProviderFailure Create(ProviderFailureKind kind, int? status) => kind switch
+    private static ProviderFailure Create(ProviderFailureKind kind, int? status) => Create(kind, status, AiProvider.OpenAI);
+
+    private static ProviderFailure Create(ProviderFailureKind kind, int? status, AiProvider provider)
     {
-        ProviderFailureKind.InvalidCredential => new(kind, status, false, InvalidCredentialMessage),
-        ProviderFailureKind.PermissionDenied => new(kind, status, false, PermissionDeniedMessage),
-        ProviderFailureKind.QuotaExhausted => new(kind, status, false, QuotaExhaustedMessage),
-        ProviderFailureKind.RateLimited => new(kind, status, true, RateLimitedMessage),
-        ProviderFailureKind.ServerError => new(kind, status, true, ServerErrorMessage),
-        ProviderFailureKind.BadRequest => new(kind, status, false, BadRequestMessage),
-        ProviderFailureKind.ModelUnavailable => new(kind, status, false, ModelUnavailableMessage),
-        ProviderFailureKind.Offline => new(kind, status, true, OfflineMessage),
-        ProviderFailureKind.SecureConnection => new(kind, status, true, SecureConnectionMessage),
-        ProviderFailureKind.Timeout => new(kind, status, true, TimeoutMessage),
-        _ => new(ProviderFailureKind.Unknown, status, false, UnknownMessage)
-    };
+        var failure = kind switch
+        {
+            ProviderFailureKind.InvalidCredential => new ProviderFailure(kind, status, false, InvalidCredentialMessage),
+            ProviderFailureKind.PermissionDenied => new ProviderFailure(kind, status, false, PermissionDeniedMessage),
+            ProviderFailureKind.QuotaExhausted => new ProviderFailure(kind, status, false, QuotaExhaustedMessage),
+            ProviderFailureKind.RateLimited => new ProviderFailure(kind, status, true, RateLimitedMessage),
+            ProviderFailureKind.ServerError => new ProviderFailure(kind, status, true, ServerErrorMessage),
+            ProviderFailureKind.BadRequest => new ProviderFailure(kind, status, false, BadRequestMessage),
+            ProviderFailureKind.ModelUnavailable => new ProviderFailure(kind, status, false, ModelUnavailableMessage),
+            ProviderFailureKind.Offline => new ProviderFailure(kind, status, true, OfflineMessage),
+            ProviderFailureKind.SecureConnection => new ProviderFailure(kind, status, true, SecureConnectionMessage),
+            ProviderFailureKind.Timeout => new ProviderFailure(kind, status, true, TimeoutMessage),
+            _ => new ProviderFailure(ProviderFailureKind.Unknown, status, false, UnknownMessage)
+        };
+        return provider == AiProvider.OpenAI ? failure : failure with { UserMessage = ForVendor(failure.UserMessage, provider) };
+    }
 
     private static ProviderFailureKind ClassifyCode(string? code, string? type)
     {
@@ -161,6 +194,26 @@ public static class ProviderFailureClassifier
             return ProviderFailureKind.ModelUnavailable;
         if (code is "server_error" || type is "server_error")
             return ProviderFailureKind.ServerError;
+
+        // Anthropic error types.
+        switch (type)
+        {
+            case "permission_error": return ProviderFailureKind.PermissionDenied;
+            case "not_found_error": return ProviderFailureKind.ModelUnavailable;
+            case "rate_limit_error": return ProviderFailureKind.RateLimited;
+            case "billing_error": return ProviderFailureKind.QuotaExhausted;
+            case "overloaded_error" or "api_error": return ProviderFailureKind.ServerError;
+        }
+
+        // Gemini (Google API) statuses.
+        switch (type)
+        {
+            case "UNAUTHENTICATED": return ProviderFailureKind.InvalidCredential;
+            case "PERMISSION_DENIED": return ProviderFailureKind.PermissionDenied;
+            case "RESOURCE_EXHAUSTED": return ProviderFailureKind.RateLimited;
+            case "NOT_FOUND": return ProviderFailureKind.ModelUnavailable;
+            case "UNAVAILABLE" or "INTERNAL": return ProviderFailureKind.ServerError;
+        }
         return ProviderFailureKind.Unknown;
     }
 
@@ -201,7 +254,16 @@ public static class ProviderFailureClassifier
     {
         if (error.ValueKind != JsonValueKind.Object)
             return (null, null);
-        return (ReadString(error, "code"), ReadString(error, "type"));
+        var code = ReadString(error, "code");
+        // Gemini puts the gRPC status where OpenAI/Anthropic put "type", and reports a bad key only in the message.
+        var type = ReadString(error, "type") ?? ReadString(error, "status");
+        if (code is null && type is "INVALID_ARGUMENT" or "PERMISSION_DENIED" &&
+            ReadString(error, "message") is { } message &&
+            message.Contains("API key", StringComparison.OrdinalIgnoreCase))
+        {
+            code = "invalid_api_key";
+        }
+        return (code, type);
     }
 
     private static string? ReadString(JsonElement element, string name) =>

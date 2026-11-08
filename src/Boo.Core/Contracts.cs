@@ -22,7 +22,17 @@ public sealed record SourceLink(string Title, string Url);
 public sealed record AssistantRequest(string Text, long Generation, CapturedFrame? Frame = null, bool Research = false, bool AllowActions = false);
 public sealed record AssistantReply(string Text, IReadOnlyList<SourceLink> Sources, AnnotationProposal? Annotations, IReadOnlyList<ToolRequest> Actions);
 public sealed record ToolOutcome(bool Success, bool Committed, string Message);
-public sealed record ProviderSettings(string ReasoningModel = "gpt-6.1-sol", string RealtimeModel = "gpt-realtime-2.1", string FocusModel = "gpt-6-luna", string Voice = "marin");
+/// <summary>Model choices. OpenAI fields drive voice (Realtime) always, and text when <see cref="TextProvider"/> is OpenAI.</summary>
+public sealed record ProviderSettings(
+    string ReasoningModel = "gpt-6.1-sol",
+    string RealtimeModel = "gpt-realtime-2.1",
+    string FocusModel = "gpt-6-luna",
+    string Voice = "marin",
+    AiProvider TextProvider = AiProvider.OpenAI,
+    string AnthropicModel = AiProviders.DefaultAnthropicModel,
+    string AnthropicFocusModel = AiProviders.DefaultAnthropicFocusModel,
+    string GeminiModel = AiProviders.DefaultGeminiModel,
+    string GeminiFocusModel = AiProviders.DefaultGeminiFocusModel);
 public sealed record AppSettings(string? DisplayId = null, bool SpeechEnabled = true, bool ChirpsEnabled = true, bool ReducedMotion = false, double VerticalOffset = 0, int MicrophoneDevice = -1, string? FileRoot = null, ProviderSettings? Provider = null, bool StartWithWindows = false);
 public interface ICredentialStore { string? Load(); void Save(string key); void Delete(); }
 public interface ISessionStore { void Save(FocusSnapshot session); IReadOnlyList<FocusSnapshot> List(); void Delete(Guid id); }
