@@ -14,14 +14,20 @@ public sealed class CaptureExclusionPolicy
     public const uint NoAffinity = 0x0;
 
     /// <param name="readEnvironment">Reads an environment variable by name; returns null when unset.</param>
-    public CaptureExclusionPolicy(Func<string, string?> readEnvironment) => throw new NotImplementedException();
+    public CaptureExclusionPolicy(Func<string, string?> readEnvironment)
+    {
+        ArgumentNullException.ThrowIfNull(readEnvironment);
+        ExcludeFromCapture = !string.Equals(readEnvironment(QaEnvironmentVariable), "1", StringComparison.Ordinal);
+    }
 
-    public bool ExcludeFromCapture => throw new NotImplementedException();
+    public bool ExcludeFromCapture { get; }
 
     /// <summary>The value to pass to SetWindowDisplayAffinity: 0x11 when excluding, 0 otherwise.</summary>
-    public uint DisplayAffinity => throw new NotImplementedException();
+    public uint DisplayAffinity => ExcludeFromCapture ? ExcludeFromCaptureAffinity : NoAffinity;
 
-    public string? Warning => throw new NotImplementedException();
+    public string? Warning => ExcludeFromCapture
+        ? null
+        : "QA mode: Boo windows are capturable (BOO_QA_CAPTURABLE=1). Screenshots and screen shares will show Boo.";
 
     public static CaptureExclusionPolicy FromEnvironment() => new(Environment.GetEnvironmentVariable);
 }

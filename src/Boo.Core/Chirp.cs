@@ -39,16 +39,69 @@ public static class ChirpSynth
     /// Renders the chirp. Throws <see cref="ArgumentOutOfRangeException"/> when sampleRate is not
     /// between 8000 and 192000, or volume is NaN, negative or greater than 1.
     /// </summary>
-    public static short[] Render(ChirpKind kind, int sampleRate = DefaultSampleRate, double volume = DefaultVolume) =>
-        throw new NotImplementedException();
+    public static short[] Render(ChirpKind kind, int sampleRate = DefaultSampleRate, double volume = DefaultVolume)
+    {
+        // Both kinds intentionally render the same rising chirp (see ChirpKind docs).
+        _ = kind;
+        if (sampleRate is < 8000 or > 192000)
+            throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be between 8000 and 192000 Hz.");
+        if (double.IsNaN(volume) || volume < 0 || volume > 1)
+            throw new ArgumentOutOfRangeException(nameof(volume), volume, "Volume must be between 0 and 1.");
+
+        var tone = SamplesFor(sampleRate, ToneMilliseconds);
+        var gap = SamplesFor(sampleRate, GapMilliseconds);
+        var fade = SamplesFor(sampleRate, FadeMilliseconds);
+        var pcm = new short[tone + gap + tone];
+        WriteTone(pcm, 0, tone, fade, FirstToneHz, sampleRate, volume);
+        WriteTone(pcm, tone + gap, tone, fade, SecondToneHz, sampleRate, volume);
+        return pcm;
+    }
+
+    private static int SamplesFor(int sampleRate, int milliseconds) =>
+        (int)Math.Round(sampleRate * milliseconds / 1000.0, MidpointRounding.AwayFromZero);
+
+    private static void WriteTone(short[] pcm, int start, int length, int fade, double hz, int sampleRate, double volume)
+    {
+        var amplitude = volume * short.MaxValue;
+        var last = length - 1;
+        for (var i = 0; i < length; i++)
+        {
+            // Linear fade in/out reaching exactly zero at the first and last sample.
+            var edge = Math.Min(i, last - i);
+            var envelope = edge >= fade ? 1.0 : edge / (double)fade;
+            var value = amplitude * envelope * Math.Sin(2 * Math.PI * hz * i / sampleRate);
+            pcm[start + i] = (short)Math.Clamp(Math.Round(value), -amplitude, amplitude);
+        }
+    }
 
     /// <summary>
     /// Same samples as <see cref="Render"/> wrapped in a canonical 44-byte-header RIFF/WAVE
     /// container (PCM format 1, 1 channel, 16 bits, little-endian), suitable for a
     /// System.Media.SoundPlayer stream on Windows.
     /// </summary>
-    public static byte[] RenderWav(ChirpKind kind, int sampleRate = DefaultSampleRate, double volume = DefaultVolume) =>
-        throw new NotImplementedException();
+    public static byte[] RenderWav(ChirpKind kind, int sampleRate = DefaultSampleRate, double volume = DefaultVolume)
+    {
+        var pcm = Render(kind, sampleRate, volume);
+        var dataBytes = pcm.Length * 2;
+        var wav = new byte[44 + dataBytes];
+        var span = wav.AsSpan();
+        "RIFF"u8.CopyTo(span);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(span[4..], wav.Length - 8);
+        "WAVE"u8.CopyTo(span[8..]);
+        "fmt "u8.CopyTo(span[12..]);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(span[16..], 16);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(span[20..], 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(span[22..], 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(span[24..], sampleRate);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(span[28..], sampleRate * 2);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(span[32..], 2);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(span[34..], 16);
+        "data"u8.CopyTo(span[36..]);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(span[40..], dataBytes);
+        for (var i = 0; i < pcm.Length; i++)
+            System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(span[(44 + i * 2)..], pcm[i]);
+        return wav;
+    }
 }
 
 /// <summary>
@@ -62,6 +115,15 @@ public sealed class ChirpPolicy
     public static readonly TimeSpan MinimumInterval = TimeSpan.FromSeconds(2);
 
     /// <summary>Returns true (and records <paramref name="now"/> as the last play) when the chirp may play.</summary>
-    public bool TryPlay(bool chirpsEnabled, bool microphoneListening, DateTimeOffset now) =>
-        throw new NotImplementedException();
+    public bool TryPlay(bool chirpsEnabled, bool microphoneListening, DateTimeOffset now)
+    {
+        if (!chirpsEnabled || microphoneListening)
+            return false;
+        if (_lastPlayed is { } last && now - last < MinimumInterval)
+            return false;
+        _lastPlayed = now;
+        return true;
+    }
+
+    private DateTimeOffset? _lastPlayed;
 }

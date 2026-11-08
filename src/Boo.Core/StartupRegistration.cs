@@ -41,13 +41,41 @@ public static class StartupRegistration
     /// Builds <c>"&lt;exePath&gt;" --background</c>. Throws <see cref="ArgumentException"/> when
     /// exePath is null, empty, whitespace, or contains a double-quote character.
     /// </summary>
-    public static string BuildCommand(string exePath) => throw new NotImplementedException();
+    public static string BuildCommand(string exePath)
+    {
+        if (string.IsNullOrWhiteSpace(exePath))
+            throw new ArgumentException("Executable path is required.", nameof(exePath));
+        if (exePath.Contains('"', StringComparison.Ordinal))
+            throw new ArgumentException("Executable path must not contain a double quote.", nameof(exePath));
+        return "\"" + exePath + "\" " + BackgroundArgument;
+    }
 
     /// <summary>Computes the change needed given the current Run value (null when absent).</summary>
-    public static StartupChange Plan(bool startWithWindows, string exePath, string? currentValue) =>
-        throw new NotImplementedException();
+    public static StartupChange Plan(bool startWithWindows, string exePath, string? currentValue)
+    {
+        if (!startWithWindows)
+            return currentValue is null ? new StartupChange(StartupChangeKind.None, null) : new StartupChange(StartupChangeKind.Remove, null);
+        var command = BuildCommand(exePath);
+        return string.Equals(command, currentValue, StringComparison.OrdinalIgnoreCase)
+            ? new StartupChange(StartupChangeKind.None, null)
+            : new StartupChange(StartupChangeKind.Write, command);
+    }
 
     /// <summary>Reads the current value, plans, performs at most one Write or Delete, and returns the plan.</summary>
-    public static StartupChange Apply(bool startWithWindows, string exePath, IStartupRegistry registry) =>
-        throw new NotImplementedException();
+    public static StartupChange Apply(bool startWithWindows, string exePath, IStartupRegistry registry)
+    {
+        ArgumentNullException.ThrowIfNull(registry);
+        var change = Plan(startWithWindows, exePath, registry.Read(ValueName));
+        switch (change.Kind)
+        {
+            case StartupChangeKind.Write:
+                registry.Write(ValueName, change.Command!);
+                break;
+            case StartupChangeKind.Remove:
+                registry.Delete(ValueName);
+                break;
+        }
+
+        return change;
+    }
 }
