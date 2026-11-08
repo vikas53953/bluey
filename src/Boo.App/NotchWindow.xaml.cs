@@ -370,19 +370,37 @@ public partial class NotchWindow : Window
         var left = BodyLeftDip(_sizeNow) - _face.Shape.Shoulder - pad;
         var width = _sizeNow.Width + 2 * (_face.Shape.Shoulder + pad);
         var height = _sizeNow.Height + pad + (ActiveDisclosure.Visibility == Visibility.Visible ? 44 : 0);
-        Root.Measure(new System.Windows.Size(_windowWidthDip, _windowHeightDip));
-        Root.Arrange(new Rect(0, 0, _windowWidthDip, _windowHeightDip));
-        Root.UpdateLayout();
+        // Detached canvas: force a full layout + render-data pass (twice, with a dispatcher turn between) so shapes whose
+        // geometry changed this frame (the pocket path) are re-rendered before capture, then render the canvas itself.
+        for (var pass = 0; pass < 2; pass++)
+        {
+            foreach (var element in new UIElement[] { Root, NotchHost, BodyPath, FaceLayer })
+            {
+                element.InvalidateMeasure();
+                element.InvalidateArrange();
+                element.InvalidateVisual();
+            }
+            Root.Measure(new System.Windows.Size(_windowWidthDip, _windowHeightDip));
+            Root.Arrange(new Rect(0, 0, _windowWidthDip, _windowHeightDip));
+            Root.UpdateLayout();
+            Dispatcher.Invoke(static () => { }, System.Windows.Threading.DispatcherPriority.Render);
+        }
+
+        var full = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(_windowWidthDip * scale), (int)Math.Ceiling(_windowHeightDip * scale),
+            96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        full.Render(Root);
+        var crop = new Int32Rect((int)Math.Max(0, Math.Floor(left * scale)), 0,
+            (int)Math.Min(full.PixelWidth - Math.Max(0, Math.Floor(left * scale)), Math.Ceiling(width * scale)),
+            (int)Math.Min(full.PixelHeight, Math.Ceiling(height * scale)));
+        var cropped = new System.Windows.Media.Imaging.CroppedBitmap(full, crop);
 
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
-            dc.DrawRectangle(new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF3, 0xF3, 0xF1)), null, new Rect(0, 0, width, height));
-            dc.DrawRectangle(new VisualBrush(Root) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top,
-                Viewbox = new Rect(left, 0, width, height), ViewboxUnits = BrushMappingMode.Absolute }, null, new Rect(0, 0, width, height));
+            dc.DrawRectangle(new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF3, 0xF3, 0xF1)), null, new Rect(0, 0, crop.Width, crop.Height));
+            dc.DrawImage(cropped, new Rect(0, 0, crop.Width, crop.Height));
         }
-        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(width * scale), (int)Math.Ceiling(height * scale),
-            96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(crop.Width, crop.Height, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(visual);
         bitmap.Freeze();
         return bitmap;
