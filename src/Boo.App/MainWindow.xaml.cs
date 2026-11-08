@@ -78,6 +78,7 @@ public partial class MainWindow : Window
     private long _realtimeGeneration;
     private bool _realtimeConnected;
     private bool _listening;
+    private int _realtimeToolsInFlight;
     private readonly ChirpPlayer _chirps = new();
     private bool _voiceTaskAuthorized;
     private bool _closingForExit;
@@ -683,6 +684,7 @@ public partial class MainWindow : Window
         InputBox.Clear();
         StatusText.Text = "Thinking about the selected context…";
         var activity = _captureActivities.CreateOperation();
+        var handedToRealtime = false;
         try
         {
             var frame = await CaptureForRequestAsync(lease, activity);
@@ -727,6 +729,8 @@ public partial class MainWindow : Window
                 _voiceTaskAuthorized = LooksLikeExplicitTask(text);
                 await _realtime.SendTextAsync(text, lease.Token);
                 StatusText.Text = "Sent to the voice conversation; waiting for the response…";
+                // The realtime reply (audio delta / response.done / error) clears Thinking.
+                handedToRealtime = IsCurrent(lease.Generation);
                 return;
             }
 
@@ -772,7 +776,10 @@ public partial class MainWindow : Window
         finally
         {
             EndCaptureActivity(activity);
-            SetFace(_faceInputs with { Thinking = false });
+            if (!handedToRealtime && IsCurrent(lease.Generation))
+            {
+                SetFace(_faceInputs with { Thinking = false });
+            }
         }
     }
 
@@ -862,6 +869,9 @@ public partial class MainWindow : Window
         }
         TalkButton.Content = "Talk";
         ListeningStatus.Text = "Microphone idle. Activate Talk when you want to speak.";
+        // Errors, disconnects and superseded requests (BeginRequest) end here; never strand Thinking/Responding.
+        _realtimeToolsInFlight = 0;
+        SetFace(_faceInputs with { Thinking = false, Responding = false });
     }
 
     private void RenderReply(AssistantReply reply, long generation, CapturedFrame? frame, bool explicitTask, ControlObservation? controls)
@@ -2030,7 +2040,10 @@ public partial class MainWindow : Window
                         break;
                     case "response.done":
                         StatusText.Text = realtimeEvent.Text ?? "Reply complete. Text and spoken output share the same turn.";
-                        SetFace(_faceInputs with { Thinking = false }, TimeSpan.FromSeconds(1.5));
+                        var remainingPlayback = TimeSpan.FromMilliseconds(
+                            Interlocked.Read(ref _playbackUntilMs) - Environment.TickCount64);
+                        SetFace(_faceInputs with { Thinking = _realtimeToolsInFlight > 0 },
+                            FaceMoments.AfterReplyDone(remainingPlayback));
                         break;
                     case "disconnect":
                     case "error":
@@ -2041,6 +2054,7 @@ public partial class MainWindow : Window
                             _focusTimer.Stop();
                             StopFocusMonitoring();
                             SaveFocusSnapshot();
+                            SetFace(_faceInputs with { FocusPaused = true });
                         }
                         StatusText.Text = "Realtime connection stopped; typing remains available. Activate Talk to retry.";
                         break;
@@ -2084,6 +2098,8 @@ public partial class MainWindow : Window
 
         var lease = _requestLease!;
         var activity = _captureActivities.CreateOperation();
+        _realtimeToolsInFlight++;
+        SetFace(_faceInputs with { Thinking = true });
         try
         {
             var frame = await CaptureForRequestAsync(lease, activity);
@@ -2148,6 +2164,10 @@ public partial class MainWindow : Window
         finally
         {
             EndCaptureActivity(activity);
+            if (_realtimeToolsInFlight > 0)
+            {
+                _realtimeToolsInFlight--;
+            }
         }
     }
 
