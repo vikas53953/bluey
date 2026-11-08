@@ -40,7 +40,7 @@ public partial class MainWindow
         finally
         {
             // The end event is raised only once, so the notch must hear about it even if a chirp fails.
-            SetFace(_faceInputs with { FocusPaused = false, Happy = true }, TimeSpan.FromSeconds(2.5));
+            SetFace(_faceInputs with { FocusPaused = false, Happy = true }, TimeSpan.FromSeconds(2.5), FaceMomentKind.Happy);
             FocusSessionEnded?.Invoke(this, e);
         }
     }

@@ -63,11 +63,13 @@ jobs:
 
       # Before/after evidence for the face polish: also render the gallery of the pre-polish commit, then print
       # both contact sheets as base64 between markers so reviewers without artifact access can read them from the log.
+      # 21b8152 is the last lane/face commit before the face polish that already has Boo.exe --notch-gallery
+      # (the earlier hard-coded SHA was a rebased-away commit that no branch reaches, so it only worked until GC).
       - name: Check out the pre-polish commit (gallery before)
         continue-on-error: true
         uses: actions/checkout@v4
         with:
-          ref: 130a43af667e89c5c516c6e958fd0e52521d1265
+          ref: 21b8152cd6ee4cf6fbc9e1f8a699868ba83ea31e
           path: before-src
           persist-credentials: false
 
@@ -78,8 +80,13 @@ jobs:
           $bout = Join-Path $env:GITHUB_WORKSPACE 'artifacts\ui-smoke\notch-gallery-before'
           if (Test-Path before-src\src\Boo.App\Boo.App.csproj) {
             dotnet build before-src\src\Boo.App\Boo.App.csproj -c Release -o "$env:RUNNER_TEMP\before-bin" | Select-Object -Last 3
-            $p = Start-Process -FilePath "$env:RUNNER_TEMP\before-bin\Boo.exe" -ArgumentList '--notch-gallery', "`"$bout`"" -Wait -PassThru
-            "before gallery exit $($p.ExitCode)"
+            # A failed "before" build must not stop the AFTER contact sheet below from being printed.
+            if ($LASTEXITCODE -eq 0 -and (Test-Path "$env:RUNNER_TEMP\before-bin\Boo.exe")) {
+              $p = Start-Process -FilePath "$env:RUNNER_TEMP\before-bin\Boo.exe" -ArgumentList '--notch-gallery', "`"$bout`"" -Wait -PassThru
+              "before gallery exit $($p.ExitCode)"
+            } else {
+              "before build failed (exit $LASTEXITCODE); skipping the before gallery"
+            }
           }
           Add-Type -AssemblyName System.Drawing
           foreach ($pair in @(@('BEFORE', $bout), @('AFTER', (Join-Path $env:GITHUB_WORKSPACE 'artifacts\ui-smoke\notch-gallery')))) {

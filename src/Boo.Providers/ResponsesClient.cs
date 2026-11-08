@@ -234,14 +234,14 @@ public sealed class ResponsesClient : IScreenAssistant
         {
             using var document = JsonDocument.Parse(json);
             var texts = new StringBuilder();
-            foreach (var item in document.RootElement.GetProperty("output").EnumerateArray())
+            foreach (var item in ReadOutput(document.RootElement, "OpenAI nudge returned an invalid result.").EnumerateArray())
             {
-                if (!item.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
+                if (item.ValueKind != JsonValueKind.Object ||
+                    !item.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
                     continue;
                 foreach (var part in content.EnumerateArray())
                 {
-                    if (part.TryGetProperty("type", out var type) && type.GetString() == "output_text" &&
-                        part.TryGetProperty("text", out var textElement) && textElement.ValueKind == JsonValueKind.String)
+                    if (IsOutputText(part, out var textElement))
                         texts.Append(textElement.GetString());
                 }
             }
@@ -325,18 +325,18 @@ public sealed class ResponsesClient : IScreenAssistant
         try
         {
             using var document = JsonDocument.Parse(json);
-            var output = document.RootElement.GetProperty("output");
+            var output = ReadOutput(document.RootElement, "OpenAI responses returned an invalid result.");
             var texts = new List<string>();
             var sources = ResearchSources.Extract(document.RootElement);
             foreach (var item in output.EnumerateArray())
             {
-                if (!item.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
+                if (item.ValueKind != JsonValueKind.Object ||
+                    !item.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
                     continue;
 
                 foreach (var part in content.EnumerateArray())
                 {
-                    if (part.TryGetProperty("type", out var type) && type.GetString() == "output_text" &&
-                        part.TryGetProperty("text", out var textElement) && textElement.ValueKind == JsonValueKind.String)
+                    if (IsOutputText(part, out var textElement))
                     {
                         texts.Add(textElement.GetString() ?? string.Empty);
                     }
@@ -353,6 +353,26 @@ public sealed class ResponsesClient : IScreenAssistant
         {
             throw new InvalidOperationException("OpenAI responses returned an invalid result.", exception);
         }
+    }
+
+    /// <summary>
+    /// The "output" array of a Responses result. A root or output of the wrong JSON kind is reported with the vendor
+    /// message instead of leaking <see cref="JsonElement"/>'s own wording to the user.
+    /// </summary>
+    private static JsonElement ReadOutput(JsonElement root, string invalidMessage)
+    {
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("output", out var output) || output.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException(invalidMessage);
+        return output;
+    }
+
+    private static bool IsOutputText(JsonElement part, out JsonElement textElement)
+    {
+        textElement = default;
+        return part.ValueKind == JsonValueKind.Object &&
+               part.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "output_text" &&
+               part.TryGetProperty("text", out textElement) && textElement.ValueKind == JsonValueKind.String;
     }
 
     private Uri GetOfficialEndpoint(string path)

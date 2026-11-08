@@ -147,16 +147,23 @@ public partial class MainWindow : Window
     private FaceInputs _faceInputs = new();
     private DispatcherTimer? _faceMomentTimer;
 
-    private void SetFace(FaceInputs next, TimeSpan? momentFor = null)
+    private readonly FaceMomentSchedule _faceMoments = new();
+
+    private void SetFace(FaceInputs next, TimeSpan? momentFor = null, FaceMomentKind moment = FaceMomentKind.None)
     {
-        if (momentFor is { } duration)
+        // Responding / nudge / happy are moments: each is cleared when its own hold runs out, so a reply finishing
+        // does not take a happy face (session complete) or a nudge with it, and vice versa.
+        var now = Environment.TickCount64;
+        if (momentFor is { } duration && moment != FaceMomentKind.None)
         {
-            // Responding / nudge / happy are moments: clear them after a while.
-            _faceMomentTimer ??= CreateFaceMomentTimer();
-            _faceMomentTimer.Stop();
-            _faceMomentTimer.Interval = duration;
-            _faceMomentTimer.Start();
+            _faceMoments.Hold(moment, now, duration);
         }
+        var switchedOff = FaceMomentKind.None;
+        if (!next.Responding) switchedOff |= FaceMomentKind.Responding;
+        if (!next.NudgeShowing) switchedOff |= FaceMomentKind.Nudge;
+        if (!next.Happy) switchedOff |= FaceMomentKind.Happy;
+        _faceMoments.Clear(switchedOff);
+        ArmFaceMomentTimer(now);
         if (next == _faceInputs)
         {
             return;
@@ -165,13 +172,31 @@ public partial class MainWindow : Window
         FaceInputsChanged?.Invoke(next);
     }
 
+    private void ArmFaceMomentTimer(long nowMs)
+    {
+        var due = _faceMoments.NextDue(nowMs);
+        _faceMomentTimer ??= CreateFaceMomentTimer();
+        _faceMomentTimer.Stop();
+        if (due is { } interval)
+        {
+            _faceMomentTimer.Interval = interval;
+            _faceMomentTimer.Start();
+        }
+    }
+
     private DispatcherTimer CreateFaceMomentTimer()
     {
         var timer = new DispatcherTimer(DispatcherPriority.Background);
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            SetFace(_faceInputs with { Responding = false, NudgeShowing = false, Happy = false });
+            var expired = _faceMoments.Expire(Environment.TickCount64);
+            SetFace(_faceInputs with
+            {
+                Responding = _faceInputs.Responding && !expired.HasFlag(FaceMomentKind.Responding),
+                NudgeShowing = _faceInputs.NudgeShowing && !expired.HasFlag(FaceMomentKind.Nudge),
+                Happy = _faceInputs.Happy && !expired.HasFlag(FaceMomentKind.Happy),
+            });
         };
         return timer;
     }
@@ -925,7 +950,7 @@ public partial class MainWindow : Window
     private void RenderReply(AssistantReply reply, long generation, CapturedFrame? frame, bool explicitTask, ControlObservation? controls, bool research = false)
     {
         ClearAnnotations();
-        SetFace(_faceInputs with { Thinking = false, Responding = true, Caption = reply.Text }, TimeSpan.FromSeconds(4));
+        SetFace(_faceInputs with { Thinking = false, Responding = true, Caption = reply.Text }, TimeSpan.FromSeconds(4), FaceMomentKind.Responding);
         AppendTranscript("Boo", reply.Text);
         RenderSources(reply, research);
 
@@ -1300,6 +1325,15 @@ public partial class MainWindow : Window
             _focusCancellation.Cancel();
             _focusCancellation.Dispose();
             _focusCancellation = new CancellationTokenSource();
+            if (_focus is { Status: not Boo.Core.FocusStatus.Ended } superseded)
+            {
+                // Start while a session is live replaces it explicitly: settle it as ended and save it, so it is not
+                // left Running in sessions.db and reported as "interrupted when Boo closed" at the next start.
+                // No happy face or chirp: those belong to the session the user finishes.
+                superseded.SessionEnded -= Focus_OnSessionEnded;
+                superseded.EndQuietly();
+                SaveFocusSnapshot(superseded);
+            }
             _focus = new FocusSessionController(FocusTaskBox.Text.Trim(), Math.Clamp(minutes * 60d, 60d, 14400d),
                 DeveloperModeBox.IsChecked == true);
             _focus.SessionEnded += Focus_OnSessionEnded;
@@ -1490,7 +1524,7 @@ public partial class MainWindow : Window
                 {
                     NudgeShowing = true,
                     Caption = $"Still on {nudgeTask}? {minutesLeft} minute{(minutesLeft == 1 ? "" : "s")} left in this focus block.",
-                }, TimeSpan.FromSeconds(6));
+                }, TimeSpan.FromSeconds(6), FaceMomentKind.Nudge);
                 _ = ShowNudgePointerAsync(frame, snapshot.Task, token);
                 _chirps.PlayNudge(_settings.ChirpsEnabled, _listening);
             }
@@ -1577,15 +1611,16 @@ public partial class MainWindow : Window
         UpdateCaptureIndicator();
     }
 
-    private void SaveFocusSnapshot()
+    private void SaveFocusSnapshot(FocusSessionController? controller = null)
     {
-        if (_focus is null || _sessionStore is null)
+        controller ??= _focus;
+        if (controller is null || _sessionStore is null)
         {
             return;
         }
         try
         {
-            var snapshot = _focus.Snapshot;
+            var snapshot = controller.Snapshot;
             _sessionStore.Save(snapshot);
             _lastFocusSaveRealElapsed = snapshot.RealElapsed;
             LoadHistory();
@@ -2220,7 +2255,7 @@ public partial class MainWindow : Window
                     case "response.output_audio.delta":
                         // Moment refreshed by every audio delta so an error/disconnect before response.done
                         // cannot leave the notch stuck on Responding.
-                        SetFace(_faceInputs with { Thinking = false, Responding = true }, TimeSpan.FromSeconds(4));
+                        SetFace(_faceInputs with { Thinking = false, Responding = true }, TimeSpan.FromSeconds(4), FaceMomentKind.Responding);
                         if (realtimeEvent.Audio is not null && SpeechMute.IsChecked != true)
                         {
                             try
@@ -2241,7 +2276,7 @@ public partial class MainWindow : Window
                         var remainingPlayback = TimeSpan.FromMilliseconds(
                             Interlocked.Read(ref _playbackUntilMs) - Environment.TickCount64);
                         SetFace(_faceInputs with { Thinking = _realtimeToolsInFlight > 0 },
-                            FaceMoments.AfterReplyDone(remainingPlayback));
+                            FaceMoments.AfterReplyDone(remainingPlayback), FaceMomentKind.Responding);
                         break;
                     case "disconnect":
                     case "error":

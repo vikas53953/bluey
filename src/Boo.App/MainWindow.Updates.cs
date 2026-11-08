@@ -165,6 +165,7 @@ public partial class MainWindow
             return;
         _updateBusy = true;
         _updateCancellation?.Cancel();
+        _updateCancellation?.Dispose();
         _updateCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         SetUpdateStatus(UpdateCheckOutcome.Checking);
         try
@@ -200,6 +201,7 @@ public partial class MainWindow
             return;
         _updateBusy = true;
         _updateCancellation?.Cancel();
+        _updateCancellation?.Dispose();
         _updateCancellation = new CancellationTokenSource(TimeSpan.FromMinutes(15));
         try
         {
@@ -211,10 +213,11 @@ public partial class MainWindow
             }
             _updateBusy = false;
             SetUpdateStatus(UpdateCheckOutcome.ReadyToRestart, _availableVersion);
-            // Stop capture, audio and pending work, tell Velopack to apply once this process exits, then shut
-            // down normally so the tray icon and single-instance mutex are released before the new Boo starts.
-            _onStop();
+            // Tell Velopack to apply once this process exits first: if scheduling fails, Boo is still fully
+            // running and the status line says so. Then stop capture, audio and pending work and shut down
+            // normally so the tray icon and single-instance mutex are released before the new Boo starts.
             service.ApplyAfterExit();
+            _onStop();
             System.Windows.Application.Current.Shutdown();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
