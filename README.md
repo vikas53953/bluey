@@ -4,6 +4,8 @@ A local Windows desktop assistant with a top-center companion, screen explanatio
 
 **Current phase: integration and native Windows QA. This is a development build, not an accepted release.** See [project status](docs/STATUS.md) for what is implemented, demonstrated and still unverified.
 
+New here? Read the [user guide](docs/USER_GUIDE.md). Recording a video? Use the [demo script](docs/DEMO_SCRIPT.md).
+
 ## How to try
 
 This is the quickest path from download to the three demos and a focus session. It takes about 35 minutes, 25 of them for the focus session.
