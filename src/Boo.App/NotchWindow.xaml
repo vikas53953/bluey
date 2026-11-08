@@ -64,7 +64,7 @@
                 <!-- State indicators (no text). Built and positioned in code inside the indicator slot. -->
                 <Canvas x:Name="ListeningBars" Visibility="Collapsed" />
                 <Canvas x:Name="ThinkingDots" Visibility="Collapsed" />
-                <Ellipse x:Name="RecordRing" Fill="#47E5484D" Visibility="Collapsed" />
+                <Ellipse x:Name="RecordRing" Fill="#E5484D" Visibility="Collapsed" />
                 <Ellipse x:Name="RecordDot" Fill="#E5484D" Visibility="Collapsed" />
                 <Border x:Name="StopSquare" Width="18" Height="18" CornerRadius="5" Visibility="Collapsed">
                     <Border x:Name="StopSquareInner" Width="7" Height="7" CornerRadius="1.5"

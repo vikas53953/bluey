@@ -54,7 +54,7 @@ public partial class NotchWindow : Window
     private readonly NotchFaceSpec _face;
     private readonly NotchRevealTimeline _timeline;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
-    private readonly FaceMotion _motion;
+    private FaceMotion _motion;
     private readonly CaptionReveal _captionReveal;
     private readonly PressHoldTracker _press = new();
     private readonly DispatcherTimer _holdTimer;
@@ -336,21 +336,31 @@ public partial class NotchWindow : Window
                 : "Still on the Q4 rule review? 18 minutes left in this focus block.";
         }
         var start = at - TimeSpan.FromMilliseconds(4000);
+        _motion = new FaceMotion(_spec, new Random(7)); // deterministic gallery
         ApplyState(state, start);
+        _reducedMotion = false; // render full motion even when the CI desktop has animations off
+        _motion.ReducedMotion = false;
         _sizeFrom = _sizeTo = _sizeNow = _face.SizeFor(state);
         LayoutBody(_sizeNow);
         NotchHost.Visibility = Visibility.Visible;
         RevealTranslate.Y = 0;
         RevealScale.ScaleY = 1;
         // Settle the eyes: pointer below-right of the notch, as if the user just moved it there.
-        for (var t = start; t <= at; t += TimeSpan.FromMilliseconds(16))
+        // Pointer keeps moving slightly (no idle wander) below-right; skip ahead past any blink so eyes are open.
+        var jitter = 0;
+        FaceFrame frame = default;
+        var end = at;
+        for (var t = start; t <= end; t += TimeSpan.FromMilliseconds(16))
         {
-            var frame = _motion.Tick(t, new PointD(150, 110));
-            if (t + TimeSpan.FromMilliseconds(16) > at)
+            frame = _motion.Tick(t, new PointD(150 + (jitter++ % 2), 110));
+            var mood = FaceMoods.For(state, t.TotalMilliseconds);
+            if (t + TimeSpan.FromMilliseconds(16) > end && mood.Blinks && frame.Openness < mood.Open * 0.97 && end < at + TimeSpan.FromMilliseconds(600))
             {
-                ApplyFrame(frame);
+                end += TimeSpan.FromMilliseconds(16);
             }
         }
+        ApplyFrame(frame);
+        at = end;
         UpdateIndicators(at);
         UpdateCaption(at);
         UpdateDisclosure();
@@ -442,7 +452,7 @@ public partial class NotchWindow : Window
         PauseBars.Visibility = Show(state == NotchFaceState.Paused);
         var captioned = state is NotchFaceState.Responding or NotchFaceState.Nudge;
         Caption.Visibility = Show(captioned);
-        NudgeActions.Visibility = Show(state == NotchFaceState.Nudge);
+        NudgeActions.Visibility = Visibility.Collapsed; // shown once the caption has finished typing (studio)
         if (captioned)
         {
             RestartCaption(now);
@@ -665,7 +675,7 @@ public partial class NotchWindow : Window
 
     private void SetCaption(string? caption)
     {
-        var text = string.IsNullOrWhiteSpace(caption) ? string.Empty : caption.Trim();
+        var text = CaptionText(caption);
         if (string.Equals(text, _caption, StringComparison.Ordinal))
         {
             return;
@@ -679,10 +689,39 @@ public partial class NotchWindow : Window
         }
     }
 
+    private bool _captionDone;
+
+    /// <summary>The notch shows at most three caption lines: long replies keep their latest ~160 characters.</summary>
+    internal static string CaptionText(string? caption)
+    {
+        if (string.IsNullOrWhiteSpace(caption))
+        {
+            return string.Empty;
+        }
+        var text = string.Join(' ', caption.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        const int max = 160;
+        if (text.Length <= max)
+        {
+            return text;
+        }
+        var tail = text[^max..];
+        var space = tail.IndexOf(' ');
+        if (space > 0 && space < 40)
+        {
+            tail = tail[(space + 1)..];
+        }
+        if (char.IsLowSurrogate(tail[0]))
+        {
+            tail = tail[1..];
+        }
+        return "…" + tail;
+    }
+
     private void RestartCaption(TimeSpan now)
     {
         _captionStart = now;
         _captionShown = string.Empty;
+        _captionDone = false;
         Caption.Text = string.Empty;
         Caption.Opacity = _reducedMotion ? 1 : 0;
     }
@@ -694,6 +733,10 @@ public partial class NotchWindow : Window
             return;
         }
         var text = _caption.Length > 0 ? _caption : DefaultCaption(_state);
+        if (_captionDone && string.Equals(_captionShown, text, StringComparison.Ordinal))
+        {
+            return; // fully typed: no per-frame work
+        }
         var elapsed = now - _captionStart;
         SetIfChanged(Caption, OpacityProperty, _captionReveal.OpacityAt(elapsed, _reducedMotion));
         var shown = _captionReveal.VisibleText(text, elapsed, _reducedMotion);
@@ -701,6 +744,11 @@ public partial class NotchWindow : Window
         {
             _captionShown = shown;
             Caption.Text = shown;
+        }
+        _captionDone = shown.Length == text.Length && Caption.Opacity >= 1;
+        if (_captionDone && _state == NotchFaceState.Nudge)
+        {
+            NudgeActions.Visibility = Visibility.Visible;
         }
     }
 
@@ -748,6 +796,13 @@ public partial class NotchWindow : Window
         PositionEye(_row.RightEye, RightEye, RightBlink, RightWhite, RightPupil, RightGlint, RightHappy);
         PositionIndicators();
         PositionCaption(left);
+        // Studio ".clip{overflow:hidden}": caption and pills never draw outside the pocket while it resizes.
+        var bodyClip = new RectangleGeometry(new Rect(0, 0, size.Width, size.Height));
+        bodyClip.Freeze();
+        FaceLayer.Clip = bodyClip;
+        var pillsClip = new RectangleGeometry(new Rect(-Canvas.GetLeft(NudgeActions) + left, -Canvas.GetTop(NudgeActions), size.Width, size.Height));
+        pillsClip.Freeze();
+        NudgeActions.Clip = pillsClip;
         PositionDisclosure(size);
     }
 
@@ -1118,7 +1173,8 @@ public partial class NotchWindow : Window
         LeftWhite.Fill = RightWhite.Fill = eyes;
         LeftGlint.Fill = RightGlint.Fill = eyes;
         LeftHappy.Stroke = RightHappy.Stroke = eyes;
-        var pupil = SystemParameters.HighContrast ? MediaSystemColors.WindowBrush : PupilBrush;
+        // Studio ".pupil{background:var(--body)}": pupils take the body colour.
+        var pupil = SystemParameters.HighContrast ? MediaSystemColors.WindowBrush : body;
         LeftPupil.Fill = RightPupil.Fill = pupil;
         foreach (var bar in _listeningBars)
         {
