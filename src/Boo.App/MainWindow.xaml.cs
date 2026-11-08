@@ -952,6 +952,73 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// U6: word the nudge and, when the model names a visible phrase, OCR the last focus
+    /// frame (memory only), match it outside Boo's own windows, and fly the pointer + ring
+    /// there. Any miss or failure leaves the text-only nudge.
+    /// </summary>
+    private async Task ShowNudgePointerAsync(CapturedFrame frame, string task, CancellationToken token)
+    {
+        // A talk/explain turn or Stop bumps _generation; a pointer from this older
+        // focus frame must never clear or cover that newer turn's marks.
+        var generation = _generation;
+        try
+        {
+            var nudge = await EnsureResponses().NudgeAsync(frame, task, token);
+            if (token.IsCancellationRequested || _focus is not { ShouldMonitor: true } || _generation != generation)
+            {
+                return;
+            }
+            if (!string.IsNullOrWhiteSpace(nudge.Text))
+            {
+                FocusStatus.Text = $"Nudge: {nudge.Text}";
+            }
+            if (string.IsNullOrWhiteSpace(nudge.PointerTarget) || !_displayAffinitySupported)
+            {
+                return;
+            }
+
+            var words = await OcrReader.ReadAsync(frame, token);
+            var match = OcrNudgeTargetMatcher.Match(words, nudge.PointerTarget, OwnedWindowRects());
+            if (match is null || token.IsCancellationRequested || _focus is not { ShouldMonitor: true }
+                || _generation != generation || !Equals(frame.Context.Display, _selectedDisplay)
+                || GetForegroundWindow() != new IntPtr(frame.Context.Target.Handle))
+            {
+                // The OCR boxes describe the captured window; if the user has switched
+                // away since, the ring would land on unrelated content.
+                return;
+            }
+
+            ClearAnnotations();
+            var window = AnnotationWindow.ForPhysicalTarget(frame.Context, match.Bounds);
+            new WindowInteropHelper(window).EnsureHandle();
+            if (!window.CaptureExclusionAvailable)
+            {
+                window.Close();
+                return;
+            }
+            window.Show();
+            _annotationWindows.Add(window);
+        }
+        catch (Exception)
+        {
+            // Pointer guidance is optional: the text nudge already showed.
+        }
+    }
+
+    private List<RectD> OwnedWindowRects()
+    {
+        var rects = new List<RectD>();
+        foreach (var handle in OwnedWindowHandles())
+        {
+            if (GetWindowRect(new IntPtr(handle), out var rect) && rect.Right > rect.Left && rect.Bottom > rect.Top)
+            {
+                rects.Add(new RectD(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top));
+            }
+        }
+        return rects;
+    }
+
     private void ReportAnnotationOutcome(string message)
     {
         AnnotationDetail.Text = message;
@@ -1317,6 +1384,7 @@ public partial class MainWindow : Window
             {
                 FocusStatus.Text = "Nudge: return to the task when you are ready. Boo did not change your apps.";
                 SetFace(_faceInputs with { NudgeShowing = true }, TimeSpan.FromSeconds(6));
+                _ = ShowNudgePointerAsync(frame, snapshot.Task, token);
                 _chirps.PlayNudge(_settings.ChirpsEnabled, _listening);
             }
             else
@@ -2288,6 +2356,19 @@ public partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeWindowRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out NativeWindowRect rect);
 
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;

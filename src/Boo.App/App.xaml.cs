@@ -57,7 +57,7 @@ public partial class App : System.Windows.Application
             verticalOffset: () => _panel?.VerticalOffset ?? 0,
             appReducedMotion: () => _panel?.ReducedMotionEnabled == true);
         _panel.FaceInputsChanged += OnFaceInputsChanged;
-        // TODO(talk lane): subscribe _notch.EyesHeldChanged here to drive hold-to-talk (press-and-hold on the eyes).
+        _notch.EyesHeldChanged += held => _panel?.SetEyesHeld(held);
         _notch.ShowNotch();
 
         CreateTrayIcon();
