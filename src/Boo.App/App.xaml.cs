@@ -12,6 +12,12 @@ namespace Boo.App;
 
 public partial class App : System.Windows.Application
 {
+    /// <summary>One shared capture-exclusion decision (BOO_QA_CAPTURABLE) for every Boo window.</summary>
+    internal static Boo.Core.CaptureExclusionPolicy CaptureExclusion { get; } = Boo.Core.CaptureExclusionPolicy.FromEnvironment();
+
+    /// <summary>True when launched by the Run key ("--background"): only the notch appears, never the panel.</summary>
+    internal static bool StartedInBackground { get; private set; }
+
     private Mutex? _singleInstance;
     private NotchWindow? _notch;
     private MainWindow? _panel;
@@ -25,6 +31,7 @@ public partial class App : System.Windows.Application
     {
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        StartedInBackground = e.Args.Contains(Boo.Core.StartupRegistration.BackgroundArgument, StringComparer.OrdinalIgnoreCase);
 
         _singleInstance = new Mutex(true, "Local\\Boo.Companion.SingleInstance", out var created);
         _ownsMutex = created;
