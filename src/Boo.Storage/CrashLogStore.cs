@@ -81,7 +81,8 @@ public sealed class CrashLogStore
                 lastNotified = parsed;
             }
 
-            var names = FileNames().ToList();
+            // Only logs of real crashes ("Recovered: no"); errors Boo survived were already shown while running.
+            var names = FileNames().Where(IsUnrecoveredCrash).ToList();
             if (!CrashReport.ShouldNotify(names, lastNotified, now, window))
             {
                 return false;
@@ -109,6 +110,19 @@ public sealed class CrashLogStore
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
             }
+        }
+    }
+
+    private bool IsUnrecoveredCrash(string fileName)
+    {
+        try
+        {
+            return File.ReadLines(Path.Combine(LogsDirectory, fileName)).Take(20)
+                .Any(line => line.StartsWith("Recovered: no", StringComparison.Ordinal));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 

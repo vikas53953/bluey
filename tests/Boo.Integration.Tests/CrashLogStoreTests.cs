@@ -80,6 +80,19 @@ public sealed class CrashLogStoreTests : IDisposable
     }
 
     [Fact]
+    public void ErrorsBooSurvivedDoNotTriggerTheNextLaunchNotice()
+    {
+        var store = new CrashLogStore(_root);
+        var when = new DateTimeOffset(2026, 11, 8, 0, 0, 0, TimeSpan.Zero);
+        store.Write(new Exception("background"), "Task", when, recovered: true);
+
+        Assert.False(store.ConsumeRecoveredNotice(when.AddMinutes(1), TimeSpan.FromDays(7)));
+
+        store.Write(new Exception("fatal"), "Dispatcher", when.AddMinutes(2), recovered: false);
+        Assert.True(store.ConsumeRecoveredNotice(when.AddMinutes(3), TimeSpan.FromDays(7)));
+    }
+
+    [Fact]
     public void MissingFolderMeansNoRecentCrash()
     {
         Assert.False(new CrashLogStore(_root).HasRecentCrash(DateTimeOffset.UtcNow, TimeSpan.FromDays(1)));

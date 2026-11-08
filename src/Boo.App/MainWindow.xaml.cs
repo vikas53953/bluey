@@ -64,7 +64,8 @@ public partial class MainWindow : Window
     private CancellationTokenSource _focusCancellation = new();
     private bool _focusCaptureInFlight;
     private long _focusCaptureId;
-    private readonly FocusClock _focusClock = new();
+    // 30 s, not 10: a briefly busy UI thread must not look like sleep (real suspend already pauses via StopAll).
+    private readonly FocusClock _focusClock = new(maximumTickSeconds: 30);
     private double _lastFocusSaveRealElapsed;
     private ToolRequest? _pendingAction;
     private ActionPreviewModel? _pendingPreview;
@@ -116,7 +117,7 @@ public partial class MainWindow : Window
         _appearance = new NotchAppearance();
         InitializeComponent();
 
-        _focusTimer = new DispatcherTimer(DispatcherPriority.Background)
+        _focusTimer = new DispatcherTimer(DispatcherPriority.Normal)
         {
             Interval = TimeSpan.FromSeconds(1)
         };

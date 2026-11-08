@@ -29,6 +29,8 @@ public partial class App : System.Windows.Application
     private readonly Boo.Core.CrashLoopGuard _crashGuard = new(maxRecoveries: 5, window: TimeSpan.FromMinutes(1));
     private Boo.Storage.CrashLogStore? _crashLog;
     private volatile bool _fatalCrashLogged;
+    // Until OnStartup finishes, an unhandled error is fatal: recovering would leave an invisible Boo holding the mutex.
+    private bool _startupComplete;
     private Boo.Core.ShortcutStatus _shortcuts = Boo.Core.ShortcutStatus.Pending;
     private Forms.ToolStripItem? _trayShowItem;
     private Forms.ToolStripItem? _trayStopItem;
@@ -83,6 +85,7 @@ public partial class App : System.Windows.Application
         SystemEvents.SessionSwitch += OnSessionSwitch;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
         SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+        _startupComplete = true;
     }
 
     internal void OpenPanel(bool settings)
@@ -284,7 +287,7 @@ public partial class App : System.Windows.Application
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
-        var recover = Boo.Core.CrashReport.IsRecoverable(e.Exception) && _crashGuard.TryRecover(DateTimeOffset.UtcNow);
+        var recover = _startupComplete && Boo.Core.CrashReport.IsRecoverable(e.Exception) && _crashGuard.TryRecover(DateTimeOffset.UtcNow);
         WriteCrashLog(e.Exception, "Dispatcher", recover);
         if (!recover)
         {
