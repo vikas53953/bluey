@@ -919,10 +919,13 @@ public partial class MainWindow : Window
     /// </summary>
     private async Task ShowNudgePointerAsync(CapturedFrame frame, string task, CancellationToken token)
     {
+        // A talk/explain turn or Stop bumps _generation; a pointer from this older
+        // focus frame must never clear or cover that newer turn's marks.
+        var generation = _generation;
         try
         {
             var nudge = await EnsureResponses().NudgeAsync(frame, task, token);
-            if (token.IsCancellationRequested || _focus is not { ShouldMonitor: true })
+            if (token.IsCancellationRequested || _focus is not { ShouldMonitor: true } || _generation != generation)
             {
                 return;
             }
@@ -937,8 +940,12 @@ public partial class MainWindow : Window
 
             var words = await OcrReader.ReadAsync(frame, token);
             var match = OcrNudgeTargetMatcher.Match(words, nudge.PointerTarget, OwnedWindowRects());
-            if (match is null || token.IsCancellationRequested || _focus is not { ShouldMonitor: true })
+            if (match is null || token.IsCancellationRequested || _focus is not { ShouldMonitor: true }
+                || _generation != generation || !Equals(frame.Context.Display, _selectedDisplay)
+                || GetForegroundWindow() != new IntPtr(frame.Context.Target.Handle))
             {
+                // The OCR boxes describe the captured window; if the user has switched
+                // away since, the ring would land on unrelated content.
                 return;
             }
 
