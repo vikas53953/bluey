@@ -48,18 +48,30 @@ breach fails the job. Budgets are deliberately set from measured runner numbers 
 Filled from the `perf-results` artifacts of the two CI runs below. Runner numbers are noisy (shared vCPU, no GPU,
 WARP Direct3D); they are for direction and gating, not for a spec sheet.
 
-| Metric | Before (instrumentation only) | After (this branch) | Budget |
+| Metric | Before (instrumentation only, run 85) | After (this branch, run 89) | Budget (fails CI) |
 | --- | --- | --- | --- |
-| Startup to notch (ms) | _pending_ | _pending_ | see `budgets.json` |
-| Idle CPU (% of one core) | _pending_ | _pending_ | |
-| Idle working set (MB) | _pending_ | _pending_ | |
-| Idle private bytes (MB) | _pending_ | _pending_ | |
-| Idle allocation (KB/s) | _pending_ | _pending_ | |
-| Gen0 collections per minute idle | _pending_ | _pending_ | |
-| Notch frames/s while hidden | _pending_ | _pending_ | |
-| Notch frames/s while revealed | _pending_ | _pending_ | |
+| Startup to notch (ms) | 1027 | 964 | 4000 |
+| Idle CPU (% of one core) | 1.25 | 1.24 | 2.5 |
+| Idle working set (MB) | 104.0 | 99.6 | 160 |
+| Idle private bytes (MB) | 27.2 | 32.1 | 80 |
+| Idle allocation (KB/s) | 2.66 | 2.65 | 16 |
+| Gen0 collections per minute idle | 0 | 0 | 3 |
+| Notch frames/s while hidden (before and after a hover) | 0 / 0 | 0 / 0 | 0.5 |
+| Notch frames/s while revealed | 61.0 | 61.9 | >= 20 |
+| Working set after the hover round trip (MB) | 124.8 | 114.9 | (informational) |
+| Threads / handles idle | 18 / 543 | 18 / 544 | (informational) |
 
-Before = commit "perf: harness" (probe + tests, no optimisation). After = head of this branch.
+Reading: the lane/face baseline was already lean while idle, and the render loop was already off while hidden;
+this branch's value there is the proof and the gate, not a drop. Startup improved ~6 % and working set ~4 %
+with ReadyToRun (private bytes rose 5 MB because precompiled images map more private pages; working set, which
+is what Task Manager shows, went down). The frame pacer does nothing on the runner's 60 Hz display by design
+(`idlePacerSkippedDelta = 0`); its effect is on 120/144/240 Hz panels. The capture changes cannot be timed on
+the runner (see below).
+
+Before = commit 0ba778f (probe + tests, no optimisation), CI run 85. After = commit d161d29, CI run 89. Both on
+windows-latest, single 60 Hz virtual display, 1024x768, WARP Direct3D. Budgets were then set to roughly 1.5-3x the
+measured values so runner noise does not fail the build while a real regression (a leaked timer, a render loop that
+stays on, a doubled working set) does.
 
 ## Not measured here
 
