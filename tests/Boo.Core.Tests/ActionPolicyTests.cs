@@ -1,8 +1,16 @@
 using Boo.Core;
+using System.Diagnostics;
 using System.IO;
 using Xunit;
 
 namespace Boo.Core.Tests;
+
+public enum ReparseFixtureKind
+{
+    Junction,
+    DirectorySymlink,
+    FileSymlink,
+}
 
 public sealed class ActionPolicyTests
 {
@@ -279,68 +287,56 @@ public sealed class ScopedFilesTests
         WithTempRoot(root => AssertRejected(() => ScopedFiles.Resolve(root, "notes.txt:secret")));
     }
 
-    // SF-006
-    [Fact(Skip = "Pending native acceptance: this host did not provide a reparse-capable disposable fixture without changing system settings.")]
-    public void Reparse_point_escapes_are_rejected_when_the_host_allows_a_fixture_link()
+    // SF-006: a reparse point inside the root (directory junction, directory symlink or file symlink)
+    // must never let a scoped path reach a file outside it. A junction needs no privilege on NTFS, so
+    // that case always runs on Windows. Symbolic links need the create-symlink privilege (an elevated
+    // shell or Windows Developer Mode); without it those cases FAIL with instructions. This test never
+    // skips and never returns early: an untested escape guard is reported, not hidden.
+    [Theory]
+    [InlineData(ReparseFixtureKind.Junction)]
+    [InlineData(ReparseFixtureKind.DirectorySymlink)]
+    [InlineData(ReparseFixtureKind.FileSymlink)]
+    public void Reparse_point_escapes_are_rejected(ReparseFixtureKind kind)
     {
         WithTempRoot(root =>
         {
-            var parent = Path.GetDirectoryName(root)!;
-            var outside = Path.Combine(parent, "boo-reparse-outside-" + Guid.NewGuid().ToString("N"));
-            var link = Path.Combine(root, "link");
-            var directoryLink = false;
-            var linkCreated = false;
-
+            var outside = Path.Combine(Path.GetDirectoryName(root)!, "boo-reparse-outside-" + Guid.NewGuid().ToString("N"));
             try
             {
                 Directory.CreateDirectory(outside);
-                File.WriteAllText(Path.Combine(outside, "secret.txt"), "fixture");
+                var outsideFile = Path.Combine(outside, "secret.txt");
+                File.WriteAllText(outsideFile, "outside");
 
-                try
-                {
-                    Directory.CreateSymbolicLink(link, outside);
-                    directoryLink = true;
-                    linkCreated = true;
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    // A file link may be available even when directory links
-                    // are restricted by the host's current Windows policy.
-                }
-                catch (IOException)
-                {
-                    // Fall through to the file-link attempt.
-                }
-                catch (PlatformNotSupportedException)
-                {
-                    // The test is pending on a host without link support.
-                }
+                // Control: the same shape through an ordinary folder resolves, so the rejection
+                // asserted below can only come from the reparse point.
+                Directory.CreateDirectory(Path.Combine(root, "real"));
+                File.WriteAllText(Path.Combine(root, "real", "secret.txt"), "inside");
+                Assert.Equal(Path.GetFullPath(Path.Combine(root, "real", "secret.txt")), ScopedFiles.Resolve(root, Path.Combine("real", "secret.txt")));
 
-                if (!linkCreated)
+                var link = Path.Combine(root, "link");
+                string candidate;
+                switch (kind)
                 {
-                    var outsideFile = Path.Combine(outside, "file-secret.txt");
-                    File.WriteAllText(outsideFile, "fixture");
-                    try
-                    {
-                        File.CreateSymbolicLink(link, outsideFile);
-                        linkCreated = true;
-                    }
-                    catch (UnauthorizedAccessException)
-                    {
-                        return;
-                    }
-                    catch (IOException)
-                    {
-                        return;
-                    }
-                    catch (PlatformNotSupportedException)
-                    {
-                        return;
-                    }
+                    case ReparseFixtureKind.Junction:
+                        CreateJunction(link, outside);
+                        candidate = Path.Combine("link", "secret.txt");
+                        break;
+                    case ReparseFixtureKind.DirectorySymlink:
+                        CreateSymbolicLink(() => Directory.CreateSymbolicLink(link, outside));
+                        candidate = Path.Combine("link", "secret.txt");
+                        break;
+                    default:
+                        CreateSymbolicLink(() => File.CreateSymbolicLink(link, outsideFile));
+                        candidate = "link";
+                        break;
                 }
 
-                var candidate = directoryLink ? Path.Combine("link", "secret.txt") : "link";
-                AssertRejected(() => ScopedFiles.Resolve(root, candidate));
+                // The fixture really escapes: reading through the link reaches the outside file.
+                Assert.True(File.GetAttributes(link).HasFlag(FileAttributes.ReparsePoint), $"the {kind} fixture is not a reparse point");
+                Assert.Equal("outside", File.ReadAllText(Path.Combine(root, candidate)));
+
+                var exception = Assert.ThrowsAny<IOException>(() => ScopedFiles.Resolve(root, candidate));
+                Assert.Contains("reparse point", exception.Message, StringComparison.OrdinalIgnoreCase);
             }
             finally
             {
@@ -350,6 +346,45 @@ public sealed class ScopedFilesTests
                 }
             }
         });
+    }
+
+    private static void CreateJunction(string link, string target)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            // Junctions are an NTFS feature; elsewhere a directory symlink is the equivalent and needs no privilege.
+            Directory.CreateSymbolicLink(link, target);
+            return;
+        }
+
+        var start = new ProcessStartInfo("cmd.exe", $"/d /c mklink /J \"{link}\" \"{target}\"")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("cmd.exe did not start");
+        var output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0 || !Directory.Exists(link))
+        {
+            Assert.Fail($"SF-006 could not create its directory-junction fixture (mklink /J exit {process.ExitCode}): {output.Trim()}");
+        }
+    }
+
+    private static void CreateSymbolicLink(Action create)
+    {
+        try
+        {
+            create();
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+        {
+            Assert.Fail("SF-006 must create a symbolic link and this machine refused (" + exception.Message + "). "
+                + "Turn on Windows Developer Mode (Settings > System > For developers) or run the tests elevated. "
+                + "This case is never skipped.");
+        }
     }
 
     private static void WithTempRoot(Action<string> test)
