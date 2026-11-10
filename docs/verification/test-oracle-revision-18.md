@@ -123,3 +123,6 @@ Revision-history chain: all 16 links verify. They were hashed on Windows with CR
 ## Gate now in CI
 
 `windows-ci` runs `python -I scripts/test_oracle.py` and `python -I scripts/test_gate.py static` before restore, and `test_gate.py trx` after each test group. Any change to a file above now needs a reviewed revision (`--extend` for new files, `--rebaseline --reason ... --accept-changed <files>` naming every changed file).
+## Revision 19 (same day)
+
+`tests/Boo.Core.Tests/ActionPolicyTests.cs` only: SF-006 now deletes its junction or symlink before deleting the link's target. In CI run 42825010189 the junction case's rejection assertions all held, but the temp-root cleanup then failed ("The parameter is incorrect") on a junction whose target was already gone. No assertion changed. The oracle gate flagged this edit until the revision was recorded, as designed.

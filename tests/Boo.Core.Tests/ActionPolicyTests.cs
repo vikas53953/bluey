@@ -301,6 +301,7 @@ public sealed class ScopedFilesTests
         WithTempRoot(root =>
         {
             var outside = Path.Combine(Path.GetDirectoryName(root)!, "boo-reparse-outside-" + Guid.NewGuid().ToString("N"));
+            var link = Path.Combine(root, "link");
             try
             {
                 Directory.CreateDirectory(outside);
@@ -313,7 +314,6 @@ public sealed class ScopedFilesTests
                 File.WriteAllText(Path.Combine(root, "real", "secret.txt"), "inside");
                 Assert.Equal(Path.GetFullPath(Path.Combine(root, "real", "secret.txt")), ScopedFiles.Resolve(root, Path.Combine("real", "secret.txt")));
 
-                var link = Path.Combine(root, "link");
                 string candidate;
                 switch (kind)
                 {
@@ -340,6 +340,17 @@ public sealed class ScopedFilesTests
             }
             finally
             {
+                // Remove the link itself first (never its target): a recursive delete of the root
+                // fails on a junction whose target is already gone ("The parameter is incorrect").
+                if (File.Exists(link))
+                {
+                    File.Delete(link);
+                }
+                else if (Directory.Exists(link))
+                {
+                    Directory.Delete(link);
+                }
+
                 if (Directory.Exists(outside))
                 {
                     Directory.Delete(outside, recursive: true);
