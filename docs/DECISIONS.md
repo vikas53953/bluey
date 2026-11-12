@@ -1,8 +1,45 @@
-# Decisions
+# Boo decision log
 
-One entry per decision: what was decided, why, the evidence, and what would make us revisit it. Newest first.
+One line of context per decision: **what** was decided, **why**, and **where it is recorded**. Newest last. Add a
+row in every PR that makes or changes a decision (see [CONTRIBUTING.md](../CONTRIBUTING.md)). A decision that only
+lives in a chat with Vikas is copied here with the date he gave it, so it survives the chat.
 
-## D-2026-11-12-notch-software-drawing: the notch window draws in software
+Status words: **in force** (applies on `lane/face`), **proposed** (in an open PR, not merged), **superseded**.
+
+| Date | Decision | Why | Source | Status |
+| --- | --- | --- | --- | --- |
+| 6 Nov 2026 | Build Boo natively in **C# / WPF on .NET 10**, not Electron or Tauri. | Windows-only product that needs HWND ownership, native overlays, audio and UI Automation; WPF vector rendering suits the avatar and annotations. Electron would add a Chromium runtime, and Tauri a Rust/web boundary. Chosen for platform fit, not a measured memory claim. | `docs/plans/2026-11-06-2242-feat-boo-windows-companion-plan.md` (KTD1) | in force |
+| 6 Nov 2026 | Pin the .NET SDK exactly (`10.0.403`, `rollForward: disable`). | Same build everywhere; CI and local agree. | `global.json`; plan U8 "Bootstrap the native build and verification harness" | in force |
+| 7 Nov 2026 | The idle notch shows **only eyes**: no wordmark, no profile name (never read from the Windows account). Black body, white eyes by default; colours adjustable and saved locally. It retracts when idle, hover reveals it, and a click opens the full window. Capture and microphone always visibly disclosed. | Owner's product direction for the companion's look and privacy. | `docs/STATUS.md` ("Latest product decisions") | in force (look refined by Living ink, below) |
+| 8 Nov 2026 | **Separate roles per change**: an independent test author freezes failing tests first, a different builder implements, a third agent reviews. | Prevents agents grading their own work. | `docs/STATUS.md` (8 Nov additions); README | in force |
+| 8 Nov 2026 | Installer is **Velopack** (per-user, no admin), not MSIX. | Works unsigned (SmartScreen prompt only); MSIX would need a trusted signing certificate or every tester importing a root cert. | `docs/plans/2026-11-08-installer-auto-update.md`; PR #8 | in force |
+| 8 Nov 2026 | Updates are **opt-in**: a daily check of GitHub Releases with a DPAPI-protected read token; nothing downloads until **Install and restart**; never downgrade. | Boo must not contact the network unless the user turns it on. | README ("Updates"); PR #8 | in force |
+| 8 Nov 2026 | Text AI provider is selectable (OpenAI default, Anthropic Claude, Google Gemini). **Voice always uses OpenAI Realtime.** One DPAPI key file per provider; a key only ever goes to that vendor's official origin. | Choice for text answers without rebuilding voice. | `docs/plans/2026-11-08-multi-provider.md`; README ("AI providers") | in force |
+| 10 Nov 2026 | **Frozen-test oracle and no-vacuous-pass gate run in CI.** Tests change only through `--extend` (new files) or a reviewed `--rebaseline`. No `Skip =`; a run with zero or skipped tests fails. SF-006 symlink tests never skip. | An emptied test file had once let CI stay green. A skipped security test is an untested one. | PR #10; `scripts/test_oracle.py`; `scripts/test_gate.py` | in force |
+| 12 Nov 2026 | **Mock green = false green.** demo-ci (mock AI) is a blocking gate for UI behaviour, but a feature that talks to AI is only proven by a **real-key live round trip** (`live-ai-smoke`, manual, fails closed without a key). | The mock proves Boo's screens and policies, not that Boo can talk to the real AI. | PR #11; `docs/LIVE_AI_SMOKE.md` ("Why it exists") | in force |
+| 12 Nov 2026 | Close PRs #1, #2, #5, #6 as **superseded**. | All their commits were already in `lane/face`, which passed full checks and a real-key live run (43194762101). | Closing comments on #1, #2, #5, #6 | done |
+| 12 Nov 2026 | Notch look: **Living ink** (organic ink-blot pocket, cream eyes, wake-up, celebrate, light/dark). | Picked by Vikas on 12 Nov. | PR #12 description ("the Living ink look picked on 12 Nov 2026") | **proposed** (PR #12 open) |
+| 12 Nov 2026 | **Branch protection** on `lane/face` and `main`: required checks `demos` and `build-test-publish`, up-to-date branch, no force push, no deletion; no required approvals; admins not enforced. `live-ai-smoke` not required (manual only). | Vikas asked for gates. He is the only reviewer, so approvals would block him. | GitHub branch-protection API, set and read back 12 Nov; HANDOFF.md §4 | in force |
+| 12 Nov 2026 | **Merging, tagging and releasing stay with Vikas.** Agents never merge, tag, release, or push to `lane/face` / `main`. | The owner signs off what ships. | Vikas's standing instruction (chat); stated in PR #12's body and in the QA comments on PRs #3 and #14 | in force |
+| 12 Nov 2026 | **Live QA uses only the OpenAI key for now.** Claude, Gemini and voice are reported as **UNVERIFIED: not tested, by choice**, not BLOCKED and not green. | Owner's scope choice. | Vikas instruction, 12 Nov 2026, 7:18 PM IST | in force |
+| 12 Nov 2026 | **Missing evidence stays red.** No `continue-on-error` on upload or test steps to get green while artifact storage is full. Wait for storage, then re-run. | A green without evidence is not proof. | Vikas instruction, 12 Nov 2026, 7:18 PM IST | in force |
+| 12 Nov 2026 | Free artifact storage by **deleting Actions artifacts older than 7 days** (artifacts only: not runs, logs, branches, releases, caches or secrets). | Storage quota full (22.45 GB). | Vikas instruction, 12 Nov 2026, 6:46 PM IST | superseded by the next row (nothing qualified before about 15 Nov) |
+| 12 Nov 2026 | Instead, **delete only the 8 Nov app and installer copies** (rebuildable) and keep every screenshot, test result and evidence artifact. Done: 168 artifacts, 15.93 GB, about 14:21–14:27 UTC (time from the verify-boo agent thread's log). | Unblock CI the same day instead of waiting for the 7-day rule. | Vikas approval, 12 Nov 2026, 7:50 PM IST (verify-boo agent thread) | done; waiting for GitHub's 6–12 h recount |
+| 12 Nov 2026 | **Keep CI artifacts 7 days** (`retention-days: 7` on every upload) instead of the 90-day default. | Stops storage filling up again. | PR #15 | **proposed** |
+| 12 Nov 2026 | The live smoke's **anti-mock guard must reject every private and LAN address** (10/8, 172.16/12, 192.168/16, 169.254/16, fc00::/7, fe80::/10, loopback) and hostnames resolving to them. PR #14 also rejects proxies and other local or translation ranges. | A mock on the LAN would otherwise pass as the real provider. | Vikas instruction, 12 Nov 2026, 7:18 PM IST; PR #14 | **proposed** (PR #14 open) |
+| 12 Nov 2026 | **Never capture the owner's real screen.** Evidence comes only from test windows, CI/VM runners or Boo's offscreen gallery. The UI/perf/demo suites (full-screen captures) run only in CI or a VM. | Privacy. | Vikas's standing instruction | in force |
+| 12 Nov 2026 | Keep **HANDOFF.md** and this log up to date in **every PR**. | Any agent must be able to pick up the project cold. | Vikas instruction, 12 Nov 2026, 8:00 PM IST; this PR | proposed (this PR) |
+| 12 Nov 2026 (PR #12, merged 13 Nov 00:40 IST) | **The notch window draws in software** (`RenderMode = SoftwareOnly`); the panel and overlay keep the graphics card. | Removed the ~17 MB post-hover memory gap found in PR #12's review; no measured cost. Guarded by `tests/Boo.Perf.Tests/NotchDrawingMemoryTests.cs`. | Record `D-2026-11-12-notch-software-drawing` below; PR #12 | in force |
+| 12 Nov 2026 (PR #12, merged 13 Nov 00:40 IST) | **Oracle revision 20**: accept PR #12's edits to four frozen face tests (they load face B by name, same assertions) and freeze two new test files. | The shipped spec now chooses face D (Living ink). | Record `D-2026-11-12-oracle-revision-20` below; `docs/verification/test-oracle-revision-20.md` | in force |
+| 13 Nov 2026 | **Make the repo public**, after a read-only pre-public audit: no secrets in full history including orphaned commits, no real-desktop screenshots, no job ever ran on a personal PC. **MIT license** (Copyright 2026 Vikas Mittal) committed **directly** to `lane/face` (`9729a14`) and `main` (`ecea48b`), bypassing the required checks. Fonts keep their existing SIL OFL 1.1 texts beside them. Vikas sets fork-PR approval ("Require approval for all external contributors") himself. | Public repos get free standard Actions minutes; the private repo's Actions budget was exhausted, so CI could not run a PR. | Vikas approval, 13 Nov 2026, 12:10 AM IST; audit https://claude.ai/artifact/V4AZbFnAHAcUcRzRWrPWV7 | in force |
+| 13 Nov 2026 | **Sync open PRs by merging `origin/lane/face` in (no force push)**; when two PRs both add an oracle revision, take `lane/face`'s and re-run `--extend` on top (PR #14 → revision 21). | `lane/face` requires up-to-date branches; force pushes are blocked. | Grok Bot pipeline update, 13 Nov 2026, 12:45 AM IST | proposed (this PR) |
+
+## Detailed decision records
+
+Longer records with full evidence, copied verbatim from PR #12. Each also has a row in the table above.
+Update (13 Nov): the notch memory guard has since run in CI and passed (windows-ci on `8474556`, run 43287434389).
+
+### D-2026-11-12-notch-software-drawing: the notch window draws in software
 
 **Decision.** The notch window (`NotchWindow`) tells Windows to draw it in software
 (`HwndSource.CompositionTarget.RenderMode = SoftwareOnly`, set in `OnSourceInitialized`). Only the notch: the panel
@@ -45,7 +82,7 @@ It has not run in CI yet (see HANDOFF.md, artifact storage).
 **Revisit if.** The notch ever needs effects that are slow in software (blur, drop shadows, large bitmaps), or a
 PC shows the face below ~30 fps. Measure again with the perf suite on a real PC before changing it.
 
-## D-2026-11-12-oracle-revision-20: re-freeze the face tests for Living ink
+### D-2026-11-12-oracle-revision-20: re-freeze the face tests for Living ink
 
 **Decision.** Accept the PR #12 edits to four frozen face tests and freeze two new test files (oracle revision 20).
 
