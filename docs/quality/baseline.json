@@ -22,8 +22,8 @@
       "Boo.Windows": 0
     },
     "BOO-CMT-001": {
-      "Boo.App": 195,
-      "Boo.Core": 74,
+      "Boo.App": 214,
+      "Boo.Core": 80,
       "Boo.Providers": 21,
       "Boo.Storage": 1,
       "Boo.Windows": 83
@@ -43,7 +43,7 @@
       "Boo.Windows": 5
     },
     "BOO-ERR-002": {
-      "Boo.App": 43,
+      "Boo.App": 44,
       "Boo.Core": 2,
       "Boo.Providers": 8,
       "Boo.Storage": 5,
@@ -106,7 +106,7 @@
       "Boo.Windows": 0
     },
     "BOO-UI-002": {
-      "Boo.App": 14,
+      "Boo.App": 15,
       "Boo.Core": 0,
       "Boo.Providers": 0,
       "Boo.Storage": 0,

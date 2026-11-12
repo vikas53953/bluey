@@ -26,7 +26,7 @@ issues, item 0.)
 A ratchet counts, it does not track identity: removing one hit and adding another of the same rule in the same project
 keeps the count equal and passes. That is accepted; the compiler-exact checks in later Phase 1 PRs close it per rule.
 
-## Rules (baseline 13 Nov 2026, IST)
+## Rules (baseline 13 Nov 2026, IST, measured on `lane/face` 8474556, after PR #12)
 
 | Rule | Pattern | Baseline |
 | --- | --- | --- |
@@ -34,7 +34,7 @@ keeps the count equal and passes. That is accepted; the compiler-exact checks in
 | [BOO-ASYNC-002](#boo-async-002) | blocking wait on async work | 1 |
 | [BOO-ASYNC-003](#boo-async-003) | `async void`, `+= async` event lambdas | 7 |
 | [BOO-UI-001](#boo-ui-001) | `Dispatcher.Invoke` (any dispatcher variable) | 2 |
-| [BOO-UI-002](#boo-ui-002) | `Dispatcher.BeginInvoke` (any dispatcher variable) | 14 |
+| [BOO-UI-002](#boo-ui-002) | `Dispatcher.BeginInvoke` (any dispatcher variable) | 15 |
 | [BOO-TIME-001](#boo-time-001) | `DateTime(Offset).Now/UtcNow/Today` | 14 |
 | [BOO-TIME-002](#boo-time-002) | `Task.Delay` | 1 |
 | [BOO-TIME-003](#boo-time-003) | `new DispatcherTimer` | 8 |
@@ -42,11 +42,15 @@ keeps the count equal and passes. That is accepted; the compiler-exact checks in
 | [BOO-RT-002](#boo-rt-002) | `Environment.GetEnvironmentVariable` | 3 |
 | [BOO-SAFE-003](#boo-safe-003) | `Process.Start` | 3 |
 | [BOO-ERR-001](#boo-err-001) | broad `catch` with an empty body | 24 |
-| [BOO-ERR-002](#boo-err-002) | broad `catch` that handles and carries on | 73 |
+| [BOO-ERR-002](#boo-err-002) | broad `catch` that handles and carries on | 74 |
 | [BOO-STATE-001](#boo-state-001) | mutable static state | 2 |
-| [BOO-CMT-001](#boo-cmt-001) | comment lines that are not `///` (allowed tags excepted) | 374 |
+| [BOO-CMT-001](#boo-cmt-001) | comment lines that are not `///` (allowed tags excepted) | 399 |
 | [BOO-CMT-002](#boo-cmt-002) | `TODO`/`FIXME`/`HACK`/`XXX` without `(#issue)` | 1 |
-| **total** | | **527** |
+| **total** | | **554** |
+
+Why 554 and not the plan's 525: the lexer finds 2 the plan's grep missed (a lower-case `dispatcher.BeginInvoke`
+and `_pump.Task.Result`), and PR #12 (Living ink), merged on 13 Nov before the ratchet existed, added 25 comment
+lines, 1 `BeginInvoke` and 1 broad catch. The baseline starts at what `lane/face` holds today and only goes down.
 
 ## BOO-ASYNC-001
 **Thread.Sleep** (also `Thread .Sleep`, fully qualified, a method group, and bare `Sleep(` after

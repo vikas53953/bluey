@@ -282,7 +282,7 @@ From `docs/plans/agent-trust-plan.md` (PR #17). Steps run strictly in this order
 ### Quality ratchet (Phase 1, PR 1.1)
 
 `.github/workflows/quality-gates.yml` (job `quality`, Linux, about a minute, no uploads) runs
-`scripts/quality/ratchet.py`: today's count of 16 known-bad patterns in `src/` (527 hits, 13 Nov 2026, per project, in
+`scripts/quality/ratchet.py`: today's count of 16 known-bad patterns in `src/` (554 hits on `lane/face` 8474556, 13 Nov 2026, per project, in
 `docs/quality/baseline.json`) may only go **down**. A rise fails with what / why / fix / do-not / rule; a fall fails
 until `--lower` writes the new baseline. On a pull request the **base branch's own** ratchet and baseline also judge
 the code, so a PR cannot raise its own numbers. `--self-test` checks 59 snippets with exact counts and the pass/fail
