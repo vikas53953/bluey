@@ -49,9 +49,10 @@ All numbers come from this checkout. The exact commands are in the appendix so a
 | **all of `src/`** | | | **97** | **22,431** |
 
 - `Boo.sln` holds the 5 `src` projects and 3 test projects (`Boo.Core.Tests`, `Boo.Integration.Tests`,
-  `Boo.Providers.Tests`). `tests/Boo.Demo.Tests`, `tests/Boo.Ui.Tests`, `tests/Boo.Perf.Tests` and the three
-  `tools/` projects (`Boo.LiveProbe`, `Boo.LiveSmoke`, `Boo.QaMockAi`) are outside the solution and built by
-  the workflows one by one.
+  `Boo.Providers.Tests`). `tests/Boo.Demo.Tests`, `tests/Boo.Ui.Tests`, `tests/Boo.Perf.Tests`, the fixture project
+  `tests/fixtures/native/Boo.QaWorkspace` and the three `tools/` projects (`Boo.LiveProbe`, `Boo.LiveSmoke`,
+  `Boo.QaMockAi`) are outside the solution. The workflows build the three test projects, `Boo.LiveSmoke` and
+  `Boo.QaMockAi` one by one; **no workflow builds `Boo.LiveProbe`**, so it can rot unnoticed.
 - Test attributes (`[Fact]`/`[Theory]` lines): Core 969, Integration 123, Providers 62, Ui 15, Demo 5, Perf 1.
 - The biggest files are WPF code-behind: `MainWindow.xaml.cs` 2,674 lines, `NotchWindow.xaml.cs` 1,489,
   `App.xaml.cs` 469. Most of the notch's behaviour lives there, not in `Boo.Core`. This matters for Phase 2.
@@ -60,6 +61,8 @@ All numbers come from this checkout. The exact commands are in the appendix so a
 
 `Directory.Build.props` (applies to every project in the repo, tests and tools included):
 `Nullable=enable`, `ImplicitUsings=enable`, `TreatWarningsAsErrors=true`, `AnalysisLevel=latest`, `Deterministic=true`.
+**One exception:** `tools/Boo.QaMockAi/Boo.QaMockAi.csproj:10` sets `TreatWarningsAsErrors=false`, so warnings
+in the mock AI server do not fail the build.
 
 | Setting | Today |
 | --- | --- |
@@ -74,7 +77,9 @@ All numbers come from this checkout. The exact commands are in the appendix so a
 | NetArchTest, FsCheck, TLA+, statechart library | none in the repo |
 | Hand-rolled seeded fuzz helper | `tests/Boo.Core.Tests/FuzzKit.cs` (used by `UntrustedInputFuzzTests.cs`; also `tests/Boo.Providers.Tests/StructuredReplyFuzzTests.cs`) |
 
-Good news: warnings already fail the build, and nobody has suppressed one. That makes a ratchet cheap.
+Good news: warnings already fail the build everywhere except `tools/Boo.QaMockAi`, and no single warning has been
+suppressed in code. That makes a ratchet cheap. The `QaMockAi` opt-out goes into the baseline on day one and is
+removed in cleanup C10 (2.8).
 
 ### 1.3 What we already have, mapped to the pyramid
 
@@ -120,19 +125,19 @@ Each row is a rule that today is only written in a prompt or a PR habit. Phase 1
 | `Task.Delay` | **1** | `MainWindow.Edits.cs:382`: a 120 ms retry loop while re-reading a control (a "wait and hope" fix) | 0 | 20 | Tests: `ResponseDeadlineTests.cs` 8, ... |
 | `new DispatcherTimer` | **8** | `MainWindow.xaml.cs` 3, `NotchWindow.xaml.cs` 2, `MainWindow.Talk.cs` 1, `MainWindow.Voice.cs` 1, `PerfDiagnostics.cs` 1 | 0 | – | Mostly real timers (focus clock, perf sampling). Not banned; counted so new ones are visible. |
 | `Dispatcher.Invoke(` (blocking) | **2** | `App.xaml.cs:353`, `NotchWindow.xaml.cs:438` | 0 | 0 | |
-| `Dispatcher.BeginInvoke(` | **13** | `App.xaml.cs` 9 (tray menu), `MainWindow.xaml.cs` 2, `MainWindow.Talk.cs` 1, `NotchWindow.xaml.cs` 1 | 0 | 0 | |
+| `Dispatcher.BeginInvoke(` | **13** | `App.xaml.cs` 9 (5 tray-menu items, 4 system events: display, session switch ×2, power), `MainWindow.xaml.cs` 2, `MainWindow.Talk.cs` 1, `NotchWindow.xaml.cs` 1 | 0 | 0 | |
 | `Dispatcher.InvokeAsync(` | 2 | `MainWindow.Voice.cs:27`, `MainWindow.xaml.cs:2240` | 0 | 0 | The pattern to standardise on. |
 | `Task<T>.Result` | **1** | `PushToTalkUplink.cs:97` (read only after `IsCompleted`, so it does not block) | 0 | 0 | `AudioSession.cs:111` `mm.Result` is an `MmException` property, not a task. |
 | `Task.Wait(` / `.GetAwaiter().GetResult()` | **0** | | 1 | 1 | The 3 `.Wait(` calls in `src/` are on `ManualResetEventSlim` (`LowLevelKeyboardHook.cs:57`) and `SemaphoreSlim` with a timeout (`ScreenCapture.cs:109,117`), not on tasks. |
 | Static mutable state | **2** | `AccessibilitySettings.cs:17` (`static UISettings? _uiSettings`), `App.xaml.cs:19` (`static bool StartedInBackground { get; private set; }`) | 4 | 2 | All other statics in `src/` are `readonly`, `const` or get-only. |
-| Broad `catch` (bare `catch` or `catch (Exception …)`) | **134** | 118 `catch (Exception…)` + 16 bare `catch` | 3 | 62 | Of the 134: **24 have an empty body** (swallow), **73 handle and carry on** without rethrowing, **37 rethrow or wrap**. Top files: `MainWindow.xaml.cs`, `DesktopTools.cs`, `AudioUploadQueue.cs`, `CrashLogStore.cs`. |
-| `DateTime.Now/UtcNow`, `DateTimeOffset.Now/UtcNow` | **14** | App 11, Windows 2, Core 1 | 5 | 13 | Hidden clock: makes time-based behaviour hard to test. |
+| Broad `catch` (bare `catch` or `catch (Exception …)`) | **134** | 118 `catch (Exception…)` + 16 bare `catch` | 3 | 62 | Of the 134: **24 have an empty body** (swallow), **73 handle and carry on** without rethrowing, **37 rethrow or wrap**. Top files: `MainWindow.xaml.cs` 32, `DesktopTools.cs` 9, `ControlObservationReader.cs` 7, `ResponsesClient.cs` 7. **69 of the 118** `catch (Exception…)` carry a `when (…)` filter, so they are already narrower than they look. |
+| `DateTime.Now/UtcNow`, `DateTimeOffset.Now/UtcNow` | **14** | App 11, Windows 2, Core 1 | 6 | 15 | Hidden clock: makes time-based behaviour hard to test. |
 | `Environment.GetEnvironmentVariable` | **3** | App 2, Core 1 (`CaptureExclusionPolicy`) | 4 | 9 | Hidden switches (`BOO_DATA_DIR`, `BOO_PERF_DIAG`, `BOO_QA_CAPTURABLE`). |
 | `Process.Start(` | 3 | `DesktopTools.cs` 2, `MainWindow.xaml.cs` 1 | 0 | 1 | Launching programs is security-sensitive. |
 | `GC.Collect(` | **0** | | 0 | 5 | Perf tests only. |
-| Non-doc comments (`//`, `/* */`) | **368 lines** | 333 full-line + 35 trailing; block comments 0 | 20 | 575 | `///` XML doc lines: 1,291 in `src/`. XAML/csproj `<!-- -->`: 17. |
-| …of which contain a "reason" word | 62 | e.g. "otherwise", "never", "must not", "race", "instead", "because" (heuristic, list in appendix) | 5 | 64 | **Heuristic.** A sample shows most are invariants ("user-info URLs are never offered"), not workaround excuses. Needs a human pass, not a mass delete. |
-| `TODO` / `FIXME` / `HACK` / `XXX` in comments | **0** | | 0 | 0 | |
+| Non-doc comments (`//`, `/* */`) | **374 lines** | 333 full-line `//` + 35 trailing `//` + 6 inline `/* */` | 20 | 575 | `///` XML doc lines: 1,291 in `src/`. XAML/csproj `<!-- -->`: 17. |
+| …of which contain a "reason" word | about 62–65 (depends on how strings are stripped) | e.g. "otherwise", "never", "must not", "race", "instead", "because" (heuristic, list in appendix) | 5 | 64 | **Heuristic.** A sample shows most are invariants ("user-info URLs are never offered"), not workaround excuses. Needs a human pass, not a mass delete. |
+| `TODO` / `FIXME` / `HACK` / `XXX` in comments | **1** | `NotchWindow.xaml.cs:111` `/// TODO(talk lane): …` (no issue link) | 0 | 0 | |
 
 **Cross-layer references**
 
@@ -161,7 +166,11 @@ Each row is a rule that today is only written in a prompt or a PR habit. Phase 1
   Unexpired total listed: ~6,214 MB. PR #15's commit message reports 22.4 GB used in 4 days (90-day default retention).
 - Every push to a PR branch runs `windows-ci` and `demo-ci` **twice** (once for `push`, once for `pull_request`;
   the run list shows them in pairs), so the 84 MB app upload happens twice per push.
-- Recent green run times: `windows-ci` 5–6 min, `demo-ci` 2–4 min, `live-ai-smoke` with journeys 9–13 min.
+- `release.yml` also runs on **every** `pull_request` (plus pushes to `main`, tags `v*` and manual runs) and uploads
+  the installer (~182 MB) and the portable ZIP (~85 MB), about 3× the app upload. This is the largest storage cost
+  per PR push.
+- Recent green run times: `windows-ci` 5–6 min, `demo-ci` 2–4 min. `live-ai-smoke` with journeys: 3 runs on PR #13
+  took about 10, 10 and 14 min (only one fully green), so plan on 10–14 min.
 - PR #15 (open) sets `retention-days: 7` on every upload. It is the first thing to merge; nothing in this plan
   can be proven in CI until uploads work again.
 
@@ -294,8 +303,15 @@ Why each one, in plain words:
 Not banned, on purpose: `DispatcherTimer` (8 real uses; counted by the ratchet instead), `lock` (42 uses; correct
 tool), `Task.Run` (0 in `src/`).
 
-Honest limit: the overload lists above were generated from the .NET Framework reference assemblies on this PC.
-.NET 10 may add overloads (for example `Task.WaitAll(ReadOnlySpan<Task>)`, `Task.WaitAll(IEnumerable<Task>)`).
+Honest limit: the `Dispatcher`, `DispatcherExtensions` and most `Task` overload lists were generated by reflecting
+the .NET Framework assemblies on this PC; two newer overloads (`Task.Wait(TimeSpan, CancellationToken)`,
+`Process.Start(String, IEnumerable<String>)`) were added by hand. .NET 10 may have more (for example
+`Task.WaitAll(ReadOnlySpan<Task>)`, `Task.WaitAll(IEnumerable<Task>)`). The list above also still misses escape
+routes the reviewer found, which PR 1.3 must add: instance `Process.Start()` (`new Process { … }.Start()`), the
+`SecureString` `Process.Start` overloads, `ConfiguredTaskAwaitable…ConfiguredTaskAwaiter.GetResult`
+(`.ConfigureAwait(false).GetAwaiter().GetResult()`), and `DateTime.Today`. Since C# 10,
+`Dispatcher.BeginInvoke(() => …)` binds to the instance `BeginInvoke(Delegate, Object[])`, not the extension;
+both are banned, so it fires either way.
 PR 1.3 regenerates the list from the `net10.0` reference pack and adds a **canary**: a tiny project
 `scripts/quality/canary/` with one deliberate call per line. CI builds it and **expects** one `RS0030` per
 banned line. If a line stops firing, the canary fails. That proves every ban works.
@@ -310,13 +326,14 @@ Added via a root `.editorconfig` (applies to `src/` first):
 | `VSTHRD101` | async lambda passed as `void` delegate | measured in PR 1.4 |
 | `VSTHRD110` | a returned `Task` that nobody observes | measured in PR 1.4 |
 | `VSTHRD002` | sync wait on async work | overlaps 2.2; kept as a second net |
-| `VSTHRD001`, `VSTHRD004`, `VSTHRD010`, `VSTHRD011`, `VSTHRD200` | (JoinableTaskFactory / naming rules) | **off**: Boo does not use JoinableTaskFactory; the `Async` suffix rule is noise |
-| `CA1031` | catching `Exception` (or bare `catch`) without rethrow | about 97 (24 empty + 73 handle-and-continue from 1.5); exact number measured in PR 1.4 |
+| `VSTHRD001` | legacy thread-switching APIs (`Dispatcher.Invoke`/`BeginInvoke`) | **off**: its suggested fix is JoinableTaskFactory, which Boo does not use; the same calls are already banned by `BOO-UI-001/002` |
+| `VSTHRD004`, `VSTHRD010`, `VSTHRD011`, `VSTHRD200` | JoinableTaskFactory and `Async`-suffix naming rules | **off**: Boo does not use JoinableTaskFactory; the naming rule is noise |
+| `CA1031` | catching `Exception` (or bare `catch`) without rethrow | at most 97 (24 empty + 73 handle-and-continue from 1.5); likely fewer, because filtered `catch … when (…)` may not be flagged; exact number measured in PR 1.4 |
 | `CA2211` | non-constant public static fields | 0 public today; `BOO-ARCH-005` (2.4) covers the 2 private ones |
 | `CA2007` | missing `ConfigureAwait` | **off**: 70 `ConfigureAwait(false)` already used where it matters; in WPF UI code it would be wrong |
 
-**TreatWarningsAsErrors scope.** Keep it as it is: on for every project (already true). Add only:
-`EnforceCodeStyleInBuild=true` for `src/` with a short `.editorconfig` that makes 3 style rules errors
+**TreatWarningsAsErrors scope.** Keep it as it is: on for every project (true today except `tools/Boo.QaMockAi`, fixed in C10). Add only:
+`EnforceCodeStyleInBuild=true` for `src/` with a short `.editorconfig` that makes one style rule an error
 (`IDE0005` unused usings, which needs `GenerateDocumentationFile=true` with `CS1591` off; `IDE0055` formatting is
 **not** turned on, too noisy). Do **not** switch to `AnalysisMode=All`: it would light up hundreds of rules at once.
 `BOO-LINT-002` makes it impossible to turn warnings off again (2.5).
@@ -361,7 +378,7 @@ folders is not worth the churn now.
 ### 2.5 Comment policy (ban ~99% of comments, for new code)
 
 poteto's point: agents use comments to justify a workaround ("retry because X is flaky") instead of fixing it.
-Boo's sample shows something different too: many of the 368 non-doc comment lines in `src/` state **invariants**
+Boo's sample shows something different too: many of the 374 non-doc comment lines in `src/` state **invariants**
 ("user-info URLs are never offered", "the end event is raised only once"). Those are rules that belong in a test
 or a type, not in a comment. So: forbid new ones, and convert old ones into checks over time.
 
@@ -374,6 +391,8 @@ or a type, not in a comment. So: forbid new ones, and convert old ones into chec
 | `// SECURITY: … see <TestClass>.<TestName>` | `// SECURITY: user-info URLs never offered, see SecurityHardeningTests.UserInfoUrls` | Invariant with its proof. A check verifies the named test exists. |
 | `// INVARIANT: … see <TestClass>.<TestName>` | same idea, for non-security rules | Same. |
 | License headers | (none today) | Legal. |
+
+The one existing `/// TODO(talk lane)` has no issue link; it is baselined and fixed in C11.
 | XAML `<!-- -->` and `.csproj` comments | 17 today | Out of scope for now; counted by the ratchet. |
 
 **Enforcement:**
@@ -381,7 +400,7 @@ or a type, not in a comment. So: forbid new ones, and convert old ones into chec
   and `tools/**/*.cs`. Any added `//` or `/* */` that is not in the allowed list fails with:
   `BOO-CMT-001 src/X.cs:42 new comment. If it explains a workaround, fix the cause instead. If it states a rule,
   write a test and use "// INVARIANT: … see Test.Name". If it documents an API, use ///.`
-- `ratchet.py` also counts total non-doc comment lines (368 today in `src/`); the number may only go down.
+- `ratchet.py` also counts total non-doc comment lines (374 today in `src/`); the number may only go down.
 - `tests/` is not linted for comments in Phase 1 (frozen, and test comments often explain the scenario).
 
 ### 2.6 Prose rules turned into CI checks
@@ -422,14 +441,16 @@ New violations fail from the day each PR lands. Old ones are fixed one class per
 | Cleanup PR | From → to | How |
 | --- | --- | --- |
 | C1 async void | 7 → 0 | `RunUiAction(Func<Task>)` helper in `Boo.App` that awaits and reports to `CrashLogStore`; handlers become one-liners. `StartPushToTalk` becomes `Task`-returning. |
-| C2 Dispatcher | 2 `Invoke` + 13 `BeginInvoke` → 0 | Switch to `InvokeAsync`; the 9 tray-menu calls in `App.xaml.cs` share one helper. |
+| C2 Dispatcher | 2 `Invoke` + 13 `BeginInvoke` → 0 | Switch to `InvokeAsync`; the 9 calls in `App.xaml.cs` (5 tray-menu, 4 system events) share one helper. |
 | C3 Hidden clock | 14 → 0 | Inject `TimeProvider` (App 11, Windows 2, Core 1). Prerequisite for Phase 2 property tests. |
 | C4 Delay-as-fix | 1 → 0 | `MainWindow.Edits.cs:382` retry loop waits for the UI Automation property-changed event (or a `TimeProvider` delay if no event exists, with a test). |
 | C5 Static state | 2 → 0 | Instance fields owned by `App`. |
 | C6 Empty catches | 24 → 0 | Each becomes either a narrow `catch (SpecificException)` or a call to a named `IgnoreBecause.…` method whose name states the reason, with a test. |
 | C7 Handle-and-continue catches | 73 → ratchet | Narrow the type where the thrown exceptions are known; the rest stay baselined. |
 | C8 Env vars, Process.Start, Core leaks | 3, 3, 1+2 | `BooEnvironment`; route through `DesktopTools`; move `HttpRequestException` mapping into Providers; `IFileSystem` for Core. |
-| C9 Comments | 368 → ratchet | Convert invariant comments into tests + `// INVARIANT:` tags; delete the rest when the code nearby is touched. |
+| C10 Mock server warnings | `QaMockAi` `TreatWarningsAsErrors=false` → removed | Fix its warnings, delete the opt-out. |
+| C11 Untracked TODO | 1 → 0 | Turn `NotchWindow.xaml.cs:111` into a GitHub issue and a `// TODO(#N)` line. |
+| C9 Comments | 374 → ratchet | Convert invariant comments into tests + `// INVARIANT:` tags; delete the rest when the code nearby is touched. |
 
 Each cleanup PR is **behaviour-preserving** and must keep `demo-ci` and the live journeys green.
 
@@ -613,10 +634,11 @@ table. Formal and property PRs each include a **red proof** (the checker catches
 - FsCheck at 200 cases: estimated +30–90 s on the existing Windows test step (2× billing); nightly 20,000 cases
   on Linux (the property project targets `net10.0`): about 5–10 min.
 - Video: estimated 3–10 MB per demo run, 5–15 MB per live run (estimate; measured in PR 2.8). With 7-day
-  retention and roughly 10 PR pushes a day, that is about 0.5–1 GB held at any time — **this only fits once the
+  retention, roughly 10 PR pushes a day and today's paired push/PR runs, that is about 0.4–1.4 GB held at any time
+  for demo videos alone (half that if decision 6 drops the paired runs) — **this only fits once the
   `boo-win-x64` uploads are fixed** (they are ~84 MB each today).
-- Live journeys: 9–13 min on `windows-latest` per run (from PR #13's runs), which bills as 18–26 min on a
-  private repo, plus OpenAI usage per run. At one live run per PR head, 20 PRs a month ≈ 360–520 billed minutes.
+- Live journeys: 10–14 min on `windows-latest` per run (from PR #13's runs), which bills as 20–28 min on a
+  private repo, plus OpenAI usage per run. At one live run per PR head, 20 PRs a month ≈ 400–560 billed minutes.
 
 **Done when:**
 - TLC proves all `INV-*` and `LIVE-*` on every change to the model or reducer;
@@ -645,8 +667,8 @@ every problem it finds comes back as a reproducible bug with a fix PR waiting fo
   any log; Boo's process exiting.
 - **Trace minimiser:** on a failure, replay with fewer steps (delta debugging) until the shortest sequence that
   still fails; save it as `repro.json` + video + screenshots + Boo's logs.
-- `.github/workflows/release-fuzz.yml`: runs on tags `v*` (same trigger as `release.yml`) before the release job
-  publishes, plus nightly on `lane/face`. Budget: 30 min on 1 runner for nightly, 60 min for a release.
+- `.github/workflows/release-fuzz.yml`: runs on tags `v*` (one of `release.yml`'s triggers; that workflow also runs
+  on every PR, which the fuzz must not) before the release job publishes, plus nightly on `lane/face`. Budget: 30 min on 1 runner for nightly, 60 min for a release.
   The release job waits for it.
 - **Fix-PR bot:** for each minimised failure it opens a GitHub issue (label `fuzz`), then a **draft** PR whose
   first commit is the repro as a failing test (FsCheck regression `[Fact]` if it maps to the reducer, otherwise a
@@ -713,8 +735,9 @@ Published as a weekly table in `docs/quality/trust-metrics.md` and as a visual p
 PR goes through the same pipeline (separate reviewer, evidence table, live real-key journeys with video, no skips)
 plus guardrails 1–7.
 
-**CI cost:** nightly 30 min on `windows-latest` = 60 billed min/day ≈ 1,800 billed min/month (more than GitHub
-Free's 2,000 included minutes on its own — so nightly may need to be weekly, about 240 billed min/month); a release
+**CI cost:** nightly 30 min on `windows-latest` = 60 billed min/day ≈ 1,800 billed min/month (90% of GitHub
+Free's 2,000 included minutes on its own, if the account is on Free; the plan was not checked), so nightly may need
+to be weekly, about 240 billed min/month; a release
 run 60 min = 120 billed min. Storage: only failing runs upload (repro + video, about 10–30 MB each), 7-day
 retention. OpenAI: capped live turns per run.
 
@@ -748,7 +771,7 @@ Each has a recommendation. Asked one at a time.
 | 3 | Comment policy: block **new** non-doc comments and ratchet old ones, or delete old ones too? | **Block new, ratchet old.** Many old comments are real rules that should become tests first. |
 | 4 | Turn on `enforce_admins` and require 1 approving review on `lane/face` and `main`? | **Yes.** Today an admin token can push past the checks. |
 | 5 | Live journeys required on every PR, or only PRs touching `src/`, `tools/`, `.github/`? | **Only those paths, once per head SHA.** Docs-only PRs do not need a paid live run. |
-| 6 | Run `windows-ci`/`demo-ci` on `push` only for `lane/face`/`main` (PRs use `pull_request`)? | **Yes.** Halves Windows minutes and artifact uploads. |
+| 6 | Run `windows-ci`/`demo-ci` on `push` only for `lane/face`/`main` (PRs use `pull_request`), and stop `release.yml` running on every PR? | **Yes.** Halves Windows minutes, and drops the ~267 MB of installer + ZIP uploaded per PR push. |
 | 7 | Formal model: TLA+ for the notch lifecycle only, or skip formal and rely on FsCheck? | **TLA+ for the lifecycle only.** It is the one place with real concurrency (talk, capture, replies, Stop). |
 | 8 | Fuzz cadence: nightly or weekly? | **Weekly + every release** until the minutes budget is known (nightly alone is about 1,800 billed min/month). |
 | 9 | Auto-merge of bot PRs | **Not in this plan.** Revisit only with the data in 4.2. |
@@ -800,7 +823,8 @@ git grep -nE 'System\.Windows\.(Controls|Shapes)' -- 'src/Boo.Windows/*.cs'   # 
 ```
 
 Broad-catch split (24 empty / 73 handle-and-continue / 37 rethrow) and the comment counts (1,291 `///`, 333
-full-line `//`, 35 trailing `//`, 0 block; 62 with a "reason" word) came from a small script that matches each
+full-line `//`, 35 trailing `//`; the 6 inline `/* */` come from `git grep -nP '/\*' -- 'src/*.cs'`; 62–65 with a
+"reason" word) came from a small script that matches each
 `catch` to its block and classifies the body, and walks every line of `src/**/*.cs` outside string literals. The
 "reason" words: workaround, work around, hack, kludge, for now, temporar*, until, otherwise, so that, so the,
 must not, never, avoid, race, flak*, retry, because, guard, in case, instead, without this, do not, don't, can't,
