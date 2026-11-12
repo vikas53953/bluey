@@ -3,6 +3,17 @@
 Status: **PLAN ONLY, for Vikas to decide on.** No product code changes in this PR.
 Written 12 Nov 2026 on `lane/face` at `f244e47`. Source idea: poteto's AIE talk (12 Nov 2026) on trusting coding agents.
 
+> **Update 13 Nov 2026 (fact-check against `lane/face` at `8474556`).** The counts in sections 1 and 2 and the appendix
+> are a baseline measured at `f244e47`. PR #12 (Living ink notch) merged since then and moved some of them:
+> `src/` 98 files / 23,286 lines (Core 49 files / 8,209 lines, App 7,586 lines); `NotchWindow.xaml.cs` 1,716 lines
+> (code-behind total 4,390); test attributes Core 1,001 and Perf 2; test oracle revision 20, 141 files, 19 history
+> links; `Dispatcher.Invoke` in NotchWindow now at line 472; `Dispatcher.BeginInvoke` 14 (NotchWindow 2);
+> `catch (Exception…)` 119 (135 broad catches, 70 filtered, about 74 handle-and-continue); tests use
+> `Thread.Sleep` 27 times and `Environment.GetEnvironmentVariable` 11 times; non-doc comment lines about 395–400,
+> `///` 1,399, XAML/csproj comments 18; the `TODO(talk lane)` is now at `NotchWindow.xaml.cs:126`. PR 1.1 measures
+> the baseline again on its own head, so these numbers only change targets, not the plan. Also changed since
+> `f244e47`: the repo is **public** (13 Nov) and CI uploads work again (section 1.6).
+
 ## The idea in one picture
 
 poteto's "inverse pyramid": the widest, most trusted layer is the one a machine checks the same way every time.
@@ -89,11 +100,11 @@ removed in cleanup C10 (2.8).
 | 2 Lint / types | Nullable on, warnings are errors, `AnalysisLevel=latest` | `Directory.Build.props` | No banned APIs, no threading analyzers, no comment policy, no style enforcement. |
 | 2 Tests | Frozen-test oracle: every file under `tests/`, the acceptance notes and `Contracts.cs` hash to `docs/verification/test-oracle.json` (revision 19, 139 files, 18 history links intact) | `scripts/test_oracle.py`, `windows-ci` step "Frozen-test oracle" | Only covers `tests/`; `tools/` is not frozen. |
 | 2 Tests | No-vacuous-pass gate: no empty test file, no test project without tests, no `Skip =`; every `.trx` must show tests ran and none skipped | `scripts/test_gate.py` (static + trx), `scripts/ci/assert-tests-ran.ps1` | `test_gate.py static` only scans `tests/`, not `tools/Boo.LiveSmoke` / `tools/Boo.VerifyLive` (the trx check does cover them in `live-ai-smoke`). |
-| 3 Runtime | UI smoke + perf budgets on the published `Boo.exe` (FlaUI) | `windows-ci` | **Currently skipped** (see 1.6). |
+| 3 Runtime | UI smoke + perf budgets on the published `Boo.exe` (FlaUI) | `windows-ci` | Skipped at `f244e47` (storage quota); running again since 12 Nov (see 1.6). |
 | 3 Runtime | 4 end-to-end demos on the published `Boo.exe` against a mock OpenAI (blocking) | `demo-ci`, `tools/Boo.QaMockAi`, `tests/Boo.Demo.Tests` | No video. |
 | 3 Runtime | Live real-key round trip, fails closed when the key is missing; keys masked twice; evidence scanned for keys before upload | `live-ai-smoke.yml` (manual `workflow_dispatch`) | Manual only; not a required check. |
 | 3 Runtime | Anti-mock guard: refuses to run if any AI host is pinned in `hosts` or resolves to loopback | `live-ai-smoke.yml` step "Refuse if any AI host is redirected"; PR #14 (open) widens it to every private/LAN address and moves it into `tools/Boo.LiveSmoke/RealAiHostGuard.cs` | PR #14 not merged. |
-| 3 Runtime | Notch face gallery: every face state rendered offscreen to PNG | `Boo.exe --notch-gallery`, `windows-ci` | Skipped right now (1.6). |
+| 3 Runtime | Notch face gallery: every face state rendered offscreen to PNG | `Boo.exe --notch-gallery`, `windows-ci` | Skipped at `f244e47`; running again since 12 Nov (1.6). |
 | Process | Branch protection on `lane/face` and `main`: required checks `demos` and `build-test-publish`, strict (branch must be up to date) | GitHub settings | No required reviews, admins not enforced, no rulesets. |
 | Process | Separate reviewer, evidence table with live / mock / manual / UNVERIFIED labels | Vikas's pipeline; PR bodies | Lives only in prompts and PR habits. Nothing fails if the table is missing. |
 | Process | verify-boo skill: 7 live journeys (j0–j6) on the real `Boo.exe`, a feature map of 68 features, a prove-it rule, a map drift checker | PR #13 (open, `test/verify-boo-skill`): `.claude/skills/verify-boo/`, `tools/Boo.VerifyLive/`, `docs/FEATURE_MAP.md`, `AGENTS.md` | Not merged; j3 (screen explain) failed 2 of 3 live runs; not a required check. |
@@ -153,13 +164,16 @@ Each row is a rule that today is only written in a prompt or a PR habit. Phase 1
 | App (UI) → network directly | **3**: `MainWindow.xaml.cs:65` field `HttpClient? _http`, created at `:1624` and `:2123`. Network calls should go through Providers. |
 | Windows → WPF UI | 0 uses of `System.Windows.Controls`/`Shapes`; `NativeCaptureDevice.cs` uses `System.Windows.Media(.Imaging)` (bitmaps) and 2 files use `System.Windows.Automation` (UI Automation). Both fit a "Windows integration" layer. |
 
-### 1.6 CI health right now (honest red)
+### 1.6 CI health (red at `f244e47`, green again since 12 Nov)
 
-- GitHub Actions **artifact storage quota is full** (the repo is private). The 10 most recent completed runs of
+- **Update 13 Nov:** the repo is now public and uploads work again. `windows-ci` run 43287422701 and `demo-ci` run
+  43287422696 on `lane/face` `8474556` passed every step, including the upload, notch gallery, UI smoke and perf
+  budgets. The rest of this section describes 12 Nov, when it was written.
+- On 12 Nov GitHub Actions **artifact storage quota was full** (the repo was private then). The 10 most recent completed runs of
   `windows-ci` and of `demo-ci` all failed. Example `windows-ci` run 43245893674: build and all three unit
   test steps **passed**; "Upload published app" failed with "Artifact storage quota has been hit"; as a result
-  the notch gallery, **UI smoke tests and perf budgets were skipped**. So today the required check
-  `build-test-publish` is red for storage reasons, and the UI/perf layer is not running at all.
+  the notch gallery, **UI smoke tests and perf budgets were skipped**. So on 12 Nov the required check
+  `build-test-publish` was red for storage reasons, and the UI/perf layer was not running at all.
 - Artifact list (API, 12 Nov): `boo-win-x64` 34 uploads × ~84 MB, `boo-installer-win-x64` 10 × ~182 MB,
   `boo-portable-win-x64` 11 × ~85 MB, `ui-smoke-screenshots` 135 × ~3.4 MB, `demo-evidence` 70 × ~1.0 MB,
   `test-results` 176 × ~0.3 MB, `perf-results` 65 × ~0.2 MB, `live-ai-evidence` 8 × ~1.1 MB.
@@ -171,8 +185,8 @@ Each row is a rule that today is only written in a prompt or a PR habit. Phase 1
   per PR push.
 - Recent green run times: `windows-ci` 5–6 min, `demo-ci` 2–4 min. `live-ai-smoke` with journeys: 3 runs on PR #13
   took about 10, 10 and 14 min (only one fully green), so plan on 10–14 min.
-- PR #15 (open) sets `retention-days: 7` on every upload. It is the first thing to merge; nothing in this plan
-  can be proven in CI until uploads work again.
+- PR #15 (open) sets `retention-days: 7` on every upload. Uploads already work again (repo public), so it is no
+  longer a blocker, but it still keeps storage from filling up again.
 
 ---
 
@@ -449,7 +463,7 @@ New violations fail from the day each PR lands. Old ones are fixed one class per
 | C7 Handle-and-continue catches | 73 → ratchet | Narrow the type where the thrown exceptions are known; the rest stay baselined. |
 | C8 Env vars, Process.Start, Core leaks | 3, 3, 1+2 | `BooEnvironment`; route through `DesktopTools`; move `HttpRequestException` mapping into Providers; `IFileSystem` for Core. |
 | C10 Mock server warnings | `QaMockAi` `TreatWarningsAsErrors=false` → removed | Fix its warnings, delete the opt-out. |
-| C11 Untracked TODO | 1 → 0 | Turn `NotchWindow.xaml.cs:111` into a GitHub issue and a `// TODO(#N)` line. |
+| C11 Untracked TODO | 1 → 0 | Turn `NotchWindow.xaml.cs:126` into a GitHub issue and a `// TODO(#N)` line. |
 | C9 Comments | 374 → ratchet | Convert invariant comments into tests + `// INVARIANT:` tags; delete the rest when the code nearby is touched. |
 
 Each cleanup PR is **behaviour-preserving** and must keep `demo-ci` and the live journeys green.
@@ -458,7 +472,7 @@ Each cleanup PR is **behaviour-preserving** and must keep `demo-ci` and the live
 
 | # | PR | Files | Size | Done when |
 | --- | --- | --- | --- | --- |
-| 0 | (prerequisite) Merge PR #15, artifact retention 7 days, and wait for storage to recalculate | workflows | exists | `windows-ci` reaches UI smoke and perf again on one run |
+| 0 | (prerequisite) Merge PR #15, artifact retention 7 days, and wait for storage to recalculate | workflows | exists | `windows-ci` reaches UI smoke and perf again on one run. **Already met** (run 43287422701, 13 Nov); PR #15 is still worth merging for retention |
 | 1.1 | Quality workflow + ratchet + rule catalog | `.github/workflows/quality-gates.yml`, `scripts/quality/ratchet.py`, `docs/quality/baseline.json`, `docs/quality/RULES.md` | S | Red proof: a throwaway commit adding `Thread.Sleep` makes `quality` fail with `BOO-ASYNC-001`; green on the real head |
 | 1.2 | Architecture refs | `docs/architecture/layers.json`, `scripts/quality/arch_refs.py` | S | Red proof: adding `Boo.Windows → Boo.Providers` fails |
 | 1.3 | Banned APIs + canary + baselines | `Directory.Build.props`, `src/BannedSymbols.txt`, `src/*/AnalyzerBaseline.cs`, `scripts/quality/canary/` | M | Canary shows one `RS0030` per banned line; real build green with only baselined hits |
@@ -467,7 +481,7 @@ Each cleanup PR is **behaviour-preserving** and must keep `demo-ci` and the live
 | 1.6 | Comment lint | `scripts/quality/comment_lint.py` | S | Red proof: an added `// retry because flaky` fails |
 | 1.7 | Key scan everywhere | `scripts/quality/key_scan.py`, 3 workflows | S | Red proof with a fake key-shaped string in a temp file; no real key involved |
 | 1.8 | No-real-screen guard (tools + workflow lint + live-smoke default runner) | `tools/Boo.LiveSmoke/CaptureGuard.cs`, `scripts/quality/workflow_lint.py`, `live-ai-smoke.yml` | S | Red proof: guard throws when `RUNNER_ENVIRONMENT` is not `github-hosted`; live smoke still green on `windows-latest` |
-| 1.9 | Same guard in the 3 frozen fixtures | `tests/*/BooAppFixture.cs`, `PerfAppFixture.cs`, oracle `--rebaseline` | S | Oracle revision 20 with reason; reviewer approves the exact 3 files |
+| 1.9 | Same guard in the 3 frozen fixtures | `tests/*/BooAppFixture.cs`, `PerfAppFixture.cs`, oracle `--rebaseline` | S | Next oracle revision (21 or later; PR #12 used 20) with reason; reviewer approves the exact 3 files |
 | 1.10 | Evidence-table check + tools in static test gate | `scripts/quality/pr_evidence.py`, `scripts/test_gate.py` | S | A PR body without a table fails `quality` |
 | 1.11 | NetArchTest project | `tests/Boo.Architecture.Tests/`, oracle `--extend` | M | 6 rules, baselined counts match section 1.5 |
 | 1.12 | Trust-metrics baseline (start measuring now, see Phase 3) | `scripts/quality/trust_metrics.py`, `docs/quality/trust-metrics.md` | S | First table published with numbers from git + Actions history |
@@ -477,8 +491,9 @@ Each cleanup PR is **behaviour-preserving** and must keep `demo-ci` and the live
 Cleanups C1–C9: about 2 weeks at low priority, one PR at a time, interleaved with feature work.
 
 **Risks:**
-- Quota red hides real red. Until PR #15 lands and storage recalculates, `windows-ci` stops at the upload step and
-  UI smoke / perf never run. Every Phase 1 PR must say so in its evidence table, not call it green.
+- Quota red hides real red. On 12 Nov `windows-ci` stopped at the upload step and UI smoke / perf never ran; it runs
+  again since the repo went public. If storage fills again, every Phase 1 PR must say so in its evidence table, not
+  call it green.
 - Analyzer noise. `CA1031` and `VSTHRD*` may report more than section 1.5 counted. Mitigation: baseline file, measure
   first (PR 1.4), never `AnalysisMode=All`.
 - Banned-API overloads drift with .NET versions. Mitigation: the canary.
@@ -631,14 +646,14 @@ table. Formal and property PRs each include a **red proof** (the checker catches
 
 **CI cost:**
 - TLC: about 2–5 min on `ubuntu-latest` (1×), only when `specs/` or `NotchLifecycle*` change, plus nightly.
-- FsCheck at 200 cases: estimated +30–90 s on the existing Windows test step (2× billing); nightly 20,000 cases
+- FsCheck at 200 cases: estimated +30–90 s on the existing Windows test step (2× billing on private repos); nightly 20,000 cases
   on Linux (the property project targets `net10.0`): about 5–10 min.
 - Video: estimated 3–10 MB per demo run, 5–15 MB per live run (estimate; measured in PR 2.8). With 7-day
   retention, roughly 10 PR pushes a day and today's paired push/PR runs, that is about 0.4–1.4 GB held at any time
   for demo videos alone (half that if decision 6 drops the paired runs) — **this only fits once the
   `boo-win-x64` uploads are fixed** (they are ~84 MB each today).
 - Live journeys: 10–14 min on `windows-latest` per run (from PR #13's runs), which bills as 20–28 min on a
-  private repo, plus OpenAI usage per run. At one live run per PR head, 20 PRs a month ≈ 400–560 billed minutes.
+  private repo (the repo is public since 13 Nov, where GitHub's standard hosted runners are free), plus OpenAI usage per run. At one live run per PR head, 20 PRs a month ≈ 400–560 billed minutes.
 
 **Done when:**
 - TLC proves all `INV-*` and `LIVE-*` on every change to the model or reducer;
@@ -735,7 +750,7 @@ Published as a weekly table in `docs/quality/trust-metrics.md` and as a visual p
 PR goes through the same pipeline (separate reviewer, evidence table, live real-key journeys with video, no skips)
 plus guardrails 1–7.
 
-**CI cost:** nightly 30 min on `windows-latest` = 60 billed min/day ≈ 1,800 billed min/month (90% of GitHub
+**CI cost:** (billed minutes apply only if the repo is private; it is public since 13 Nov) nightly 30 min on `windows-latest` = 60 billed min/day ≈ 1,800 billed min/month (90% of GitHub
 Free's 2,000 included minutes on its own, if the account is on Free; the plan was not checked), so nightly may need
 to be weekly, about 240 billed min/month; a release
 run 60 min = 120 billed min. Storage: only failing runs upload (repro + video, about 10–30 MB each), 7-day
@@ -751,8 +766,8 @@ retention. OpenAI: capped live turns per run.
 
 ## 5. Recommended order
 
-1. **Fix storage first** (merge PR #15, wait for the quota to recalculate). Until then every CI result is honest
-   red for the wrong reason and the UI/perf layer does not run.
+1. **Keep storage healthy** (merge PR #15). Since 13 Nov the repo is public and the UI/perf layer runs again; on
+   12 Nov every CI result was red for the wrong reason.
 2. **Stop the real-screen risk** (PR 1.8: live smoke default to `windows-latest`, capture guard in tools).
    Small, and it closes a privacy gap today.
 3. **Phase 1 gates 1.1 → 1.7, 1.10–1.12**, then cleanups C1–C5 (they unblock Phase 2).
@@ -773,7 +788,7 @@ Each has a recommendation. Asked one at a time.
 | 5 | Live journeys required on every PR, or only PRs touching `src/`, `tools/`, `.github/`? | **Only those paths, once per head SHA.** Docs-only PRs do not need a paid live run. |
 | 6 | Run `windows-ci`/`demo-ci` on `push` only for `lane/face`/`main` (PRs use `pull_request`), and stop `release.yml` running on every PR? | **Yes.** Halves Windows minutes, and drops the ~267 MB of installer + ZIP uploaded per PR push. |
 | 7 | Formal model: TLA+ for the notch lifecycle only, or skip formal and rely on FsCheck? | **TLA+ for the lifecycle only.** It is the one place with real concurrency (talk, capture, replies, Stop). |
-| 8 | Fuzz cadence: nightly or weekly? | **Weekly + every release** until the minutes budget is known (nightly alone is about 1,800 billed min/month). |
+| 8 | Fuzz cadence: nightly or weekly? | **Weekly + every release** until the minutes budget is known (nightly alone was about 1,800 billed min/month while the repo was private). |
 | 9 | Auto-merge of bot PRs | **Not in this plan.** Revisit only with the data in 4.2. |
 | 10 | Monthly budgets: GitHub plan minutes/storage and an OpenAI spend cap for live runs | Needed before Phase 2's required live check. |
 
