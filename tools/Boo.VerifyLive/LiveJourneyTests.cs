@@ -133,12 +133,9 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
         Evidence("j3-explain", () =>
         {
             // Boo skips the pointer on purpose when Windows "Animation effects" are off (AnnotationWindow.StartSequence,
-            // reduced motion). GitHub's Windows VMs run with them off; most users have them on. Turn them on for this
-            // step only, for this session only (never saved to the profile), and put the original value back after.
-            using var animations = WindowsAnimations.EnsureOn();
-            _boo.WriteObservation("j3-animations", $"animationEffectsBefore={animations.WasOn} on={WindowsAnimations.IsOn()}");
-            Assert.True(WindowsAnimations.IsOn(), "TEST SETUP: Windows animation effects could not be turned on, so Boo would not show its pointer by design. Nothing about Boo was checked.");
-            Thread.Sleep(500); // let Boo receive the settings-change broadcast
+            // reduced motion). DpiSetup turns them on before Boo launches; check they are still on now.
+            _boo.WriteObservation("j3-animations", $"{DpiSetup.BeforeLaunch} onNow={WindowsAnimations.IsOn()}");
+            Assert.True(WindowsAnimations.IsOn(), "TEST SETUP: Windows animation effects are off, so Boo would not show its pointer by design. Nothing about Boo was checked.");
 
             var panel = _boo.EnsurePanel();
             EnsureDisplaySelected(panel);
@@ -560,7 +557,20 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
 internal static class DpiSetup
 {
     [ModuleInitializer]
-    internal static void Initialize() => SetProcessDpiAwarenessContext(new IntPtr(-4)); // PER_MONITOR_AWARE_V2
+    internal static void Initialize()
+    {
+        SetProcessDpiAwarenessContext(new IntPtr(-4)); // PER_MONITOR_AWARE_V2
+
+        // Boo reads Windows "Animation effects" when it starts and skips its pointer when they are off (reduced
+        // motion, by design). GitHub's Windows VMs have them off; most users have them on. Turn them on before the
+        // fixture launches Boo (session only, never saved to the profile) and put the original value back on exit.
+        var animations = WindowsAnimations.EnsureOn();
+        BeforeLaunch = $"animationEffectsBeforeLaunch={animations.WasOn} onAtLaunch={WindowsAnimations.IsOn()}";
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => animations.Dispose();
+    }
+
+    /// <summary>What the animation setting was before Boo launched, for the j3 observation.</summary>
+    internal static string BeforeLaunch { get; private set; } = "<module initializer did not run>";
 
     [DllImport("user32.dll")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
