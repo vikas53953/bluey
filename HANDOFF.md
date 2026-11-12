@@ -139,9 +139,10 @@ screenshot a key; logs record lengths only.
   - force pushes and branch deletion blocked;
   - no required approvals (Vikas is the only reviewer); admins not enforced (Vikas can override).
   - `live-ai-smoke` is **not** a required check: it only runs by hand, so it would block every merge.
-- **Merging:** since 12 Nov 2026, 11:20 PM IST, Vikas pre-authorises agents to merge PR #18, PR #17 and every
-  agent-trust Phase 1/2/3 PR **once every gate passes** (all required checks green on the head, a real-key
-  `live-ai-smoke` pass on the head, a fresh reviewer's PASS, the evidence table, no skips). Any other PR still needs
+- **Merging:** since 12 Nov 2026, 11:20 PM IST, PR #18, PR #17 and every agent-trust Phase 1/2/3 PR may be merged
+  without asking Vikas **once every gate passes** (all required checks green on the head, a real-key
+  `live-ai-smoke` pass on the head, a fresh reviewer's PASS, the evidence table, no skips). Since 13 Nov 2026,
+  12:15 AM IST the verifying bot (Grok Bot) does the merge, never the agent that built the PR. Any other PR still needs
   him. **Tagging and releasing stay with Vikas.** Agents never push directly to `lane/face` or `main`.
 
 ## 5. Vikas's pipeline (rules every agent follows)
