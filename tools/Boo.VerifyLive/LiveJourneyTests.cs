@@ -507,7 +507,20 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
         catch (Exception ex)
         {
             _boo.CaptureScreen(step + "-FAILED");
-            _boo.WriteObservation(step + "-FAILED", ex.ToString());
+            // Logs before guesses: record what Boo itself said, so a failure explains itself even without screenshots.
+            var said = "<panel not readable>";
+            try
+            {
+                var panel = _boo.FindPanel() ?? _boo.EnsurePanel();
+                said = $"status='{StatusText(panel)}'\nannotationDetail='{NameOfId(panel, "AnnotationDetail")}'\n" +
+                       $"focusStatus='{NameOfId(panel, "FocusStatus")}'\nlastBooRows='{string.Join(" || ", BooRows(panel).TakeLast(2).Select(r => Shorten(r, 300)))}'";
+                _boo.CaptureScreen(step + "-FAILED-panel");
+            }
+            catch (Exception)
+            {
+                // Best effort only; the original failure is what matters.
+            }
+            _boo.WriteObservation(step + "-FAILED", ex + "\n----- what Boo showed -----\n" + said);
             throw;
         }
     }
