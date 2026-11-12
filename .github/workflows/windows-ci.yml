@@ -71,6 +71,7 @@ jobs:
       - name: Upload published app
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: boo-win-x64
           path: artifacts/ci
 
@@ -143,6 +144,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: ui-smoke-screenshots
           path: artifacts/ui-smoke
           if-no-files-found: warn
@@ -166,6 +168,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: perf-results
           path: artifacts/ui-smoke/perf
           if-no-files-found: warn
@@ -174,5 +177,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: test-results
           path: artifacts/test-results
