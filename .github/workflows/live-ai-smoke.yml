@@ -176,18 +176,28 @@ jobs:
         run: |
           Add-Type -AssemblyName System.Drawing, System.Windows.Forms
           foreach ($m in [System.Windows.Forms.Screen]::AllScreens) { "Runner monitor: $($m.Bounds.Width) x $($m.Bounds.Height)" }
-          $shots = @(Get-ChildItem artifacts/live-evidence -Recurse -Filter *.png -ErrorAction SilentlyContinue)
+          $images = '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tif', '.tiff', '.webp'
+          $shots = @(Get-ChildItem artifacts/live-evidence -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $images -contains $_.Extension.ToLowerInvariant() })
           if ($shots.Count -eq 0) { "::error title=Live AI smoke::no screenshots were written, so there is no visual evidence"; exit 1 }
           $bad = 0
           foreach ($s in $shots) {
-            $img = [System.Drawing.Image]::FromFile($s.FullName)
             $ok = $s.Name -match '\.boo-\d+\.png$'
-            "{0}: {1} x {2}{3}" -f $s.Name, $img.Width, $img.Height, $(if ($ok) { '' } else { '  <-- NOT FROM THE BOO-WINDOW RENDERER' })
+            $note = if ($ok) { '' } else { '  <-- NOT FROM THE BOO-WINDOW RENDERER' }
+            try {
+              $img = [System.Drawing.Bitmap]::FromFile($s.FullName)
+              # A blank render (PrintWindow failing quietly) is not evidence: sample every 4th pixel for a second colour.
+              $first = $img.GetPixel(0, 0).ToArgb(); $varied = $false
+              for ($y = 0; $y -lt $img.Height -and -not $varied; $y += 4) {
+                for ($x = 0; $x -lt $img.Width; $x += 4) { if ($img.GetPixel($x, $y).ToArgb() -ne $first) { $varied = $true; break } }
+              }
+              if (-not $varied) { $ok = $false; $note += '  <-- ONE COLOUR (blank render)' }
+              "{0}: {1} x {2}{3}" -f $s.Name, $img.Width, $img.Height, $note
+              $img.Dispose()
+            } catch { $ok = $false; "{0}: unreadable ({1})" -f $s.Name, $_.Exception.Message }
             if (-not $ok) { $bad++ }
-            $img.Dispose()
           }
           Get-ChildItem artifacts/live-evidence -Recurse -Filter *.capture.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
-          if ($bad -gt 0) { "::error title=Live AI smoke::$bad screenshot(s) were copied from the screen; only Boo's own windows may be captured"; exit 1 }
+          if ($bad -gt 0) { "::error title=Live AI smoke::$bad screenshot(s) were copied from the screen, blank or unreadable; only real renders of Boo's own windows count"; exit 1 }
 
       # Belt and braces: no evidence file may contain a key. A hit deletes the file before upload and fails the run.
       - name: Key leak scan of the evidence

@@ -39,4 +39,15 @@ have been a whole-display picture. It also found the note's claim "no test reads
 marks, and the claim is corrected. The workflow `live-ai-smoke.yml` fails the run if any evidence PNG did not come
 from this renderer (`*.boo-<n>.png`).
 
+A second fresh review (head `fa630a8`) passed the capture fixes and found a bypass in `scripts/ci/check_runners.py`
+(a quoted key with an escape sequence that YAML reads as `runs-on`), fixed in the next commit by checking each job on its own with plain-word keys only.
+It also asked for `BOO_CAPTURE_SCOPE` to be honoured when it holds only spaces (`IsNullOrEmpty`, not
+`IsNullOrWhiteSpace`), done here.
+
+**Reasoned, not observed:** in the live runs so far only the notch and the main panel were open at capture time. That
+`PrintWindow` draws the transparent explanation overlay without the desktop beneath is reasoned from how Windows
+composes layered windows (the window's own surface never contains other windows), not yet seen in a run. The workflow
+step fails blank, unreadable or non-renderer images, but it cannot tell desktop pixels inside a render, so this point
+stays reasoned until someone looks at an overlay capture from a GitHub VM run.
+
 Added to the oracle: none. Removed: none.

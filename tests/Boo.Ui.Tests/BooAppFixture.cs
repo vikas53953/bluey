@@ -189,7 +189,7 @@ public class BooAppFixture : IDisposable
         string.Equals(Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT"), "github-hosted", StringComparison.Ordinal);
 
     public static bool FullDesktopCaptureAllowed() =>
-        OnGitHubHostedRunner() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("BOO_CAPTURE_SCOPE"));
+        OnGitHubHostedRunner() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BOO_CAPTURE_SCOPE"));
 
     private static void RequireGitHubHostedRunnerForRectangle()
     {
