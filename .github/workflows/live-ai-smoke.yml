@@ -2,8 +2,12 @@ name: live-ai-smoke
 
 # ONE real AI round trip against the published Boo.exe (no mock): typed question -> screen capture -> real provider ->
 # answer row in Boo's transcript. Manual only (workflow_dispatch): it spends real money and needs a real key, so it
-# never runs on push or pull_request. How to add the key, register a self-hosted runner and run it:
-# docs/LIVE_AI_SMOKE.md.
+# never runs on push or pull_request. How to add the key and run it: docs/LIVE_AI_SMOKE.md.
+#
+# RUNS ONLY ON GITHUB'S OWN WINDOWS VM (windows-latest), never on the owner's PC: the test drives the mouse and
+# keyboard, and Boo sends a picture of the screen to the AI. A step refuses any runner that is not GitHub-hosted, and
+# scripts/ci/check_runners.py (windows-ci) fails any workflow that names a self-hosted runner. Evidence screenshots are
+# of Boo's own windows only (BOO_CAPTURE_SCOPE=boo-windows), never the whole desktop.
 #
 # FAILS CLOSED: if the key for the chosen text provider is missing or malformed, the `preflight` job goes red with a
 # plain message and the smoke job never starts. A missing key is never a skip and never a green.
@@ -19,11 +23,6 @@ on:
         type: choice
         options: [openai, anthropic, gemini]
         default: openai
-      runner:
-        description: "self-hosted = your own Windows PC registered as a runner (see docs). windows-latest = GitHub's VM fallback"
-        type: choice
-        options: [self-hosted, windows-latest]
-        default: self-hosted
       model:
         description: Optional model id override for the chosen provider (blank = Boo's default)
         type: string
@@ -38,7 +37,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Runs on a cheap Linux VM so a missing secret fails in seconds, even when no self-hosted runner is online.
+  # Runs on a cheap Linux VM so a missing secret fails in seconds, before the Windows VM starts.
   preflight:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -80,13 +79,24 @@ jobs:
 
   smoke:
     needs: preflight
-    # Preferred: your own Windows PC (labels self-hosted + windows). Fallback: GitHub's windows-latest VM.
-    runs-on: ${{ inputs.runner == 'windows-latest' && 'windows-latest' || fromJSON('["self-hosted","windows"]') }}
+    # GitHub's own Windows VM only. Never the owner's PC (see the header).
+    runs-on: windows-latest
     timeout-minutes: 30
     env:
       DOTNET_NOLOGO: "1"
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      # Evidence screenshots show Boo's own windows only, never the whole desktop (BooAppFixture.CaptureScreen).
+      BOO_CAPTURE_SCOPE: boo-windows
     steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=Live AI smoke refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)'). Use runs-on: windows-latest."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -155,6 +165,27 @@ jobs:
         if: always()
         shell: pwsh
         run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/live-evidence/trx -SourceDirectory tools/Boo.LiveSmoke
+
+      # Proof in the log (readable even when artifact upload fails) that every screenshot is a Boo window, not the
+      # whole desktop: each PNG's pixel size next to the runner's screen size. A whole-desktop shot fails the run.
+      - name: Screenshot sizes (Boo windows only, never the desktop)
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing, System.Windows.Forms
+          $screen = [System.Windows.Forms.SystemInformation]::VirtualScreen
+          "Runner screen: $($screen.Width) x $($screen.Height)"
+          $shots = @(Get-ChildItem artifacts/live-evidence -Recurse -Filter *.png -ErrorAction SilentlyContinue)
+          if ($shots.Count -eq 0) { 'no screenshots were written'; exit 0 }
+          $desktop = 0
+          foreach ($s in $shots) {
+            $img = [System.Drawing.Image]::FromFile($s.FullName)
+            $full = $img.Width -ge $screen.Width -and $img.Height -ge $screen.Height
+            "{0}: {1} x {2}{3}" -f $s.Name, $img.Width, $img.Height, $(if ($full) { '  <-- WHOLE DESKTOP' } else { '' })
+            if ($full) { $desktop++ }
+            $img.Dispose()
+          }
+          if ($desktop -gt 0) { "::error title=Live AI smoke::$desktop screenshot(s) cover the whole desktop; only Boo's windows may be captured"; exit 1 }
 
       # Belt and braces: no evidence file may contain a key. A hit deletes the file before upload and fails the run.
       - name: Key leak scan of the evidence

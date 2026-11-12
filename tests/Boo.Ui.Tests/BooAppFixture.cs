@@ -163,13 +163,63 @@ public class BooAppFixture : IDisposable
         var path = Path.Combine(ArtifactsDirectory, Sanitize(name) + ".png");
         try
         {
-            Capture.Screen().ToFile(path);
+            if (FullDesktopCaptureAllowed())
+            {
+                Capture.Screen().ToFile(path);
+            }
+            else
+            {
+                CaptureBooWindows(path);
+            }
         }
         catch (Exception ex)
         {
             File.WriteAllText(Path.ChangeExtension(path, ".error.txt"), ex.ToString());
         }
         return path;
+    }
+
+    /// <summary>
+    /// Whole-desktop screenshots are allowed only on a GitHub-hosted runner (a throwaway VM) and never when the run asks
+    /// for Boo's windows only (<c>BOO_CAPTURE_SCOPE=boo-windows</c>, which the live AI smoke always sets). Anywhere else
+    /// (the owner's or a developer's own PC, a self-hosted runner) only Boo's own windows are captured, so a test run can
+    /// never photograph someone's real screen.
+    /// </summary>
+    public static bool FullDesktopCaptureAllowed() =>
+        string.Equals(Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT"), "github-hosted", StringComparison.Ordinal)
+        && !string.Equals(Environment.GetEnvironmentVariable("BOO_CAPTURE_SCOPE"), "boo-windows", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Saves each visible top-level window of the Boo process (name.png, name-1.png, ...); nothing else.</summary>
+    private void CaptureBooWindows(string path)
+    {
+        var saved = 0;
+        var windows = App.HasExited ? Array.Empty<Window>() : App.GetAllTopLevelWindows(Automation);
+        foreach (var window in windows)
+        {
+            var target = saved == 0
+                ? path
+                : Path.Combine(Path.GetDirectoryName(path)!, Path.GetFileNameWithoutExtension(path) + "-" + saved + ".png");
+            try
+            {
+                var bounds = window.BoundingRectangle;
+                if (bounds.Width <= 0 || bounds.Height <= 0 || window.IsOffscreen)
+                {
+                    continue;
+                }
+                using var image = Capture.Element(window);
+                image.ToFile(target);
+                saved++;
+            }
+            catch (Exception ex)
+            {
+                File.WriteAllText(Path.ChangeExtension(target, ".error.txt"), ex.ToString());
+            }
+        }
+        if (saved == 0)
+        {
+            File.WriteAllText(Path.ChangeExtension(path, ".no-window.txt"),
+                "No visible Boo window to capture. The full desktop is captured only on a GitHub-hosted runner.");
+        }
     }
 
     public string CaptureRectangle(string name, Rectangle rectangle)

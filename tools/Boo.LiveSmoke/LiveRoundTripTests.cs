@@ -97,6 +97,8 @@ public sealed class LiveAppFixture : BooAppFixture
     {
     }
 
+    public const string CaptureScopeVariable = "BOO_CAPTURE_SCOPE";
+
     private static LiveConfig? s_config;
 
     // Not a static initializer: a throw there would surface as a bare TypeInitializationException.
@@ -104,6 +106,8 @@ public sealed class LiveAppFixture : BooAppFixture
 
     private static void Seed(string dataDirectory)
     {
+        // Screenshots of Boo's own windows only, never the whole desktop, wherever this runs (BooAppFixture.CaptureScreen).
+        Environment.SetEnvironmentVariable(CaptureScopeVariable, "boo-windows");
         new CredentialStore(Path.Combine(dataDirectory, AiProviders.CredentialFileName(Config.TextProvider))).Save(Config.Key);
         new SettingsStore(Path.Combine(dataDirectory, "settings.json"))
             .Save(new AppSettings(SpeechEnabled: false, Provider: Config.ProviderSettings()));
