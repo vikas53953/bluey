@@ -207,12 +207,13 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 2. **Anti-mock guard** (PR #14, merged): rejects loopback, private/LAN, link-local, unique-local, CGNAT and fake-IP
    addresses and proxies. Still not detected: a planted trusted root certificate, or a mock on the PC's own
    public-looking address.
-3. **Flaky demo: `Step4_Focus_NudgeThenBackToIt_EndsHappy`.** Seen again on docs-only `3593ba3`
-   ([43296734862](https://github.com/vikas53953/bluey/actions/runs/43296734862)). On docs-only commit `1e5c754`, all 5 demo tests passed in
-   [43240969060](https://github.com/vikas53953/bluey/actions/runs/43240969060) but Step 4 failed in
-   [43240958545](https://github.com/vikas53953/bluey/actions/runs/43240958545): the "Back to it" button appeared while
-   the notch's reported state still read `Capture` (`DemoTests.cs:228`). The cause isn't proven. The test is frozen, so
-   a fix needs its own reviewed PR.
+3. **Demo Step 4 race (fix in PR "Demo Step 4: re-read the notch state after the button search", not merged).**
+   `Step4_Focus_NudgeThenBackToIt_EndsHappy` failed twice on docs-only commits
+   ([43240958545](https://github.com/vikas53953/bluey/actions/runs/43240958545),
+   [43296734862](https://github.com/vikas53953/bluey/actions/runs/43296734862)). Judged a test race, not an app bug:
+   the test sampled `Capture`, then found "Back to it" after the flip to `Nudge`, and never re-read the state. The fix
+   re-reads the state after the button search (oracle revision 22; record in
+   `docs/verification/test-oracle-revision-22.md`).
 4. **Flaky perf budget: `revealFramesPerSecond >= 20`.** On GitHub's shared Windows VMs the notch's reveal frame rate
    swings widely on the same code: 44 windows-ci runs between 19:00 and 20:10 UTC on 12 Nov measured 8 to ~74 fps (28 of
    them 40–55). One docs-only run failed at 8 fps ([43296723546](https://github.com/vikas53953/bluey/actions/runs/43296723546))
