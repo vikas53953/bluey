@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Capture-privacy proof: with Boo's explanation overlay OPEN over a full-screen magenta decoy, the window-only
+    screenshots (BooAppFixture.CaptureBooWindows, BOO_CAPTURE_SCOPE=boo-windows) must contain the overlay and must
+    contain zero decoy pixels, i.e. nothing from the desktop behind Boo. Run by demo-ci (mock AI, no key), after the
+    demos, against the same mock api.openai.com. GitHub-hosted runners only (the sanity check copies one small screen
+    rectangle, which the fixture refuses anywhere else).
+
+    Lives in tools/, not tests/: tests/** is the frozen oracle. Links the demo harness unchanged. Not part of Boo.sln.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
+    <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Boo.Storage/Boo.Storage.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Compile Include="../../tests/Boo.Demo.Tests/BooAppFixture.cs" Link="Harness/BooAppFixture.cs" />
+  </ItemGroup>
+</Project>

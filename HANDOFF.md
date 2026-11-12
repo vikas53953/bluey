@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #22 merged**, with `lane/face` at `af241fa`.
+Status last updated: **13 Nov 2026, after PR #18 merged (05:17 IST)**, with `lane/face` at `00a1fc2`.
 
 ---
 
@@ -90,7 +90,9 @@ artifacts\ci\Boo.exe                      # then Ctrl+Alt+B
 artifacts\ci\Boo.exe --notch-gallery <dir> # renders every face state to PNG, offscreen, then exits
 ```
 
-**Warning: the UI, perf and demo suites take FULL-SCREEN screenshots** (`Capture.Screen()` in
+**Warning: run the UI, perf and demo suites only in CI or a VM.** Since PR #18 their fixtures copy the whole desktop
+only on a GitHub-hosted runner; anywhere else they draw Boo's own windows only and refuse rectangle screenshots, so
+those tests fail by design on a personal PC. Before PR #18 they took FULL-SCREEN screenshots (`Capture.Screen()` in
 `tests/Boo.Ui.Tests/BooAppFixture.cs`). Never run them on the owner's real desktop. Run them in CI, a VM or Windows
 Sandbox. To see Boo on the owner's PC, use `--notch-gallery` or capture only Boo's own window.
 
@@ -104,12 +106,12 @@ create symbolic links. Turn on Windows Developer Mode or run elevated.
 | `windows-ci.yml` | every push and PR (and manual) | `build-test-publish` | oracle + static gate → build → Core / Integration / Providers tests (+ trx gate) → publish → notch gallery → UI smoke (FlaUI) → perf budgets | no |
 | `demo-ci.yml` | every push and PR (and manual) | `demos` | setup + the 4 demos (5 tests), end to end, against `Boo.QaMockAi` (hosts-file entry + a self-signed root certificate on the runner) | **no: mock** |
 | `release.yml` | push to `main`, `v*` tags, PRs (and manual) | `package`, `github-release` | Core / Integration / Providers tests, then Velopack installer + portable ZIP; a `v*` tag publishes a GitHub Release | no |
-| `live-ai-smoke.yml` | **manual only** (`workflow_dispatch`) | `preflight`, `smoke` | one real round trip: typed question → screenshot → real provider → answer in Boo. Fails closed without a key. | **yes** |
+| `live-ai-smoke.yml` | **manual only** (`workflow_dispatch`), **GitHub's `windows-latest` VM only** | `preflight`, `smoke` | one real round trip: typed question → screenshot → real provider → answer in Boo. Fails closed without a key. Refuses any non-GitHub runner; evidence screenshots are Boo's windows only (PR #18). | **yes** |
 
-Run the live smoke: GitHub → Actions → live-ai-smoke → Run workflow, `text_provider=openai`,
-`runner=windows-latest` (the default `self-hosted` needs a registered runner; none is registered as of 12 Nov), and an
-optional `model` override (blank = Boo's default). Or:
-`gh workflow run live-ai-smoke.yml --ref <branch> -f text_provider=openai -f runner=windows-latest`.
+Run the live smoke: GitHub → Actions → live-ai-smoke → Run workflow, `text_provider=openai`, and an optional `model`
+override (blank = Boo's default). There is no runner choice: it always runs on GitHub's `windows-latest` VM, never on
+a personal PC (`scripts/ci/check_runners.py` in windows-ci fails any workflow that could run elsewhere; the repo keeps
+0 registered self-hosted runners). Or: `gh workflow run live-ai-smoke.yml --ref <branch> -f text_provider=openai`.
 Full guide: [docs/LIVE_AI_SMOKE.md](docs/LIVE_AI_SMOKE.md).
 
 ### Required secrets (names only — never put values anywhere)
@@ -139,7 +141,7 @@ screenshot a key; logs record lengths only.
   - no required approvals (Vikas is the only reviewer); admins not enforced (Vikas can override).
   - `live-ai-smoke` is **not** a required check: it only runs by hand, so it would block every merge.
 - **Merging, tagging and releasing stay with Vikas**, and agents never merge, tag, release, or push to `lane/face` or
-  `main`. Proposed in PR #18 (not merged yet): since 13 Nov 12:15 AM IST the verifying bot (Grok Bot) merges PR #17, PR #18 and the
+  `main`. Exception, recorded by PR #18: since 13 Nov 12:15 AM IST the verifying bot (Grok Bot) merges PR #17, PR #18 and the
   agent-trust Phase 1–3 PRs once every gate passes; tags and releases stay with Vikas either way.
 
 ## 5. Vikas's pipeline (rules every agent follows)
@@ -160,7 +162,11 @@ screenshot a key; logs record lengths only.
 6. **Evidence table in the PR.** Every check or feature is marked **mock** / **live** / **manual** / **UNVERIFIED**,
    with a run link. No run link = UNVERIFIED. End with one line: `QA PASS — <full head SHA>` or `QA FAIL — <SHA>`.
 7. **Never capture the owner's real screen.** Screenshots only of a test window, a VM or CI runner, or Boo's own
-   offscreen renders.
+   offscreen renders. Enforced in code since PR #18: the FlaUI fixtures copy the whole desktop only on a GitHub-hosted
+   runner and never in the live smoke (`BOO_CAPTURE_SCOPE=boo-windows`); anywhere else they draw Boo's own windows
+   from their own content (`PrintWindow`, files `*.boo-<n>.png`) and refuse rectangle screenshots. demo-ci proves it
+   with the explanation overlay open over a magenta decoy (`tools/Boo.CaptureProof`, zero decoy pixels). No workflow
+   may use a self-hosted runner (`scripts/ci/check_runners.py`).
 8. **Honest red.** If evidence cannot be uploaded (for example the artifact quota), the job stays red. Never add
    `continue-on-error` to uploads or tests to get a green.
 9. **Secrets:** names only. Never print a key, write one to disk logs, or put one in a screenshot.
@@ -178,13 +184,13 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 PRs into `lane/face` must be **up to date** with it to merge, so every merge makes the others BEHIND. Sync by merging
 `origin/lane/face` into the branch (no force push), then re-run CI and one live smoke on the new head.
 
-| PR | Branch → base | State (13 Nov, after PR #22) | Notes |
+| PR | Branch → base | State (13 Nov, after PR #18) | Notes |
 | --- | --- | --- | --- |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
-| [#22](https://github.com/vikas53953/bluey/pull/22) | `fix/demo-step4-state-race` → `lane/face` | merged 13 Nov (`af241fa`) | Demo Step 4 test race fix: re-read the notch state after the button search; oracle revisions 22–23 (`docs/verification/test-oracle-revision-22.md`). |
-| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open**, synced with `af241fa`; the QA verdict for the current head is in the PR description | `verify-boo` skill (`.claude/skills/verify-boo`), live journeys j0–j6 (`tools/Boo.VerifyLive`), `docs/FEATURE_MAP.md`, prove-it rule (AGENTS.md, CLAUDE.md), `journeys` input on `live-ai-smoke` (default runner `windows-latest`). Also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks). Previous QA PASS at `e86a107` (live [43314004618](https://github.com/vikas53953/bluey/actions/runs/43314004618): round trip + 7/7 journeys; fresh reviewer REVIEW PASS at `de9492f`). |
+| [#22](https://github.com/vikas53953/bluey/pull/22) | `fix/demo-step4-state-race` → `lane/face` | **merged 13 Nov** (`af241fa`) | Demo Step 4 test race fix: re-read the notch state after the button search; oracle revisions 22–23 (`docs/verification/test-oracle-revision-22.md`). |
+| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open**, synced with `00a1fc2` (PR #18); the QA verdict for the current head is in the PR description | `verify-boo` skill (`.claude/skills/verify-boo`), live journeys j0–j6 (`tools/Boo.VerifyLive`), `docs/FEATURE_MAP.md`, prove-it rule (AGENTS.md, CLAUDE.md), `journeys` input on `live-ai-smoke`. Also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks). After PR #18: no runner choice anywhere, the journeys capture Boo's windows only (j3 reads the ring and pointer from Boo's overlay rendered from its own content; "target in front" is asked of Windows, not read from the screen), and the skill's local runner refuses to run on a personal PC. Previous QA PASS at `87a1442` (live [43319490629](https://github.com/vikas53953/bluey/actions/runs/43319490629); fresh reviewer REVIEW PASS). |
 | [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **open** | 3-phase agent trust plan (`docs/plans/agent-trust-plan.md`). |
-| [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **open** | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option. |
+| [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | merged 13 Nov 05:17 IST (`00a1fc2`) | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option; runner check in windows-ci; overlay capture proof in demo-ci; oracle revision 24 (3 capture fixtures). Latest completed QA: **QA PASS at `b590f92`** (live [43313942831](https://github.com/vikas53953/bluey/actions/runs/43313942831), windows-ci [43313897620](https://github.com/vikas53953/bluey/actions/runs/43313897620), demo-ci [43313897674](https://github.com/vikas53953/bluey/actions/runs/43313897674)); the head after this sync is re-QA'd in the PR body. |
 | [#20](https://github.com/vikas53953/bluey/pull/20) → #18's branch, [#21](https://github.com/vikas53953/bluey/pull/21) → #20's branch | stacked | **open** | Live smoke as a required check on every PR; a ratchet of known-bad code patterns. |
 | [#19](https://github.com/vikas53953/bluey/pull/19) | `docs/scrub-local-paths` → `lane/face` | merged 13 Nov 03:17 IST (`b765f0f`) | Replaces the owner's Windows username and home paths in old docs (and in files that arrived later, e.g. the Living ink evidence notes) with `%USERPROFILE%` / `<user>_<machine>`. Old commits keep the old text (no history rewrite). |
 | [#16](https://github.com/vikas53953/bluey/pull/16) | `docs/project-handoff` → `lane/face` | merged 13 Nov 02:46 IST (`e0fb7b3`) | This handoff (HANDOFF.md, docs/DECISIONS.md, CONTRIBUTING.md). Merged with the PR #12 session notes and decision records. |
@@ -208,7 +214,7 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 2. **Anti-mock guard** (PR #14, merged): rejects loopback, private/LAN, link-local, unique-local, CGNAT and fake-IP
    addresses and proxies. Still not detected: a planted trusted root certificate, or a mock on the PC's own
    public-looking address.
-3. **Demo Step 4 race (fixed by PR #22, merged 13 Nov, `af241fa`).**
+3. **Demo Step 4 race (fix in PR #22, not merged).**
    `Step4_Focus_NudgeThenBackToIt_EndsHappy` failed twice on docs-only commits
    ([43240958545](https://github.com/vikas53953/bluey/actions/runs/43240958545),
    [43296734862](https://github.com/vikas53953/bluey/actions/runs/43296734862)). Judged a test race, not an app bug:
@@ -226,8 +232,9 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    and live runs only. Not measured: software-drawing CPU on 4K / 200 % or high-refresh screens, memory after the
    panel has been opened, and repeat hovers (~0.7 MB each, same on the old build).
 6. **SF-006 symlink cases** fail on a dev PC without Windows Developer Mode, same on unchanged `lane/face` (never skipped); they pass in CI.
-7. **Merge order / oracle revisions.** `lane/face` is at oracle revision 23 (PR #22, after PR #14's 21). PR #18
-   (its own revision 22) must re-sync and re-freeze on top. Still-open PRs that edit the same workflows: #13 and #18 edit `live-ai-smoke.yml` and
+7. **Merge order / oracle revisions.** `lane/face` is at oracle revision 23 (PR #22, merged `af241fa`, took 22–23 on
+   top of PR #14's 21). PR #18 has re-synced and re-frozen its 3 capture fixtures on top as **revision 24**. PR #18 merged
+   (`00a1fc2`), so `lane/face` is at revision 24; PR #13 dropped every `-f runner=` use when it synced with it. Still-open PRs that edit the same workflows: #13 and #18 edit `live-ai-smoke.yml` and
    `demo-ci.yml`; #18 also edits `windows-ci.yml`. #20 and #21, stacked on #18, carry #18's edits; #20 also edits
    `live-ai-smoke.yml` and #21 adds `quality-gates.yml`.
 8. The notch memory guard (`NotchDrawingMemoryTests`) has now run in CI: windows-ci on `8474556`
@@ -237,9 +244,10 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 10. Resolved 13 Nov: the artifact storage quota and the Actions budget block. The repo went public, so standard runners
    are free. On 12 Nov the 8 Nov app copies (168 artifacts, 15.93 GB) were deleted, and uploads work again.
 11. **PR #13 follow-ups (low, from its reviews).** `Test-FeatureMap.ps1` does not catch a map row typed without its
-   leading `|` or a lowercase ID; a failed restore of Windows animation effects after a local live run is only written
+   leading `|` or a lowercase ID; a failed restore of Windows animation effects after a live run is only written
    to stderr; Boo's `AnnotationValidator` still drops a whole explanation when one mark is invalid (run 43196068202:
-   "The annotation mark bounds are invalid"; PR #13 only tells the AI the mark rules).
+   "The annotation mark bounds are invalid"; PR #13 only tells the AI the mark rules); `docs/DECISIONS.md` showed
+   PR #22's decision as proposed after it merged.
 
 ### UNVERIFIED (not proven on `lane/face`)
 
@@ -247,9 +255,10 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 - **Voice** (OpenAI Realtime, hold-to-talk) as a live round trip on `lane/face`. PR #12's builder reports one live
   voice turn on `feat/living-ink`; not re-verified independently.
 - **Pointer + ring with a real model, beyond PR #13's one target.** Once PR #13 merges, its live journey j3 proves the
-  ring runs through a known button's edges and the pointer lands on it (passed on `de9492f`, `7c5af8d`, `60930b9` and
-  `e86a107`), on one 1024x768 VM screen. Still UNVERIFIED: other targets, other DPI or multiple monitors, and **Windows
-  animation effects off**: Boo then hides the pointer by design, and the journeys run with animations switched on.
+  ring runs through a known button's edges and the pointer lands on it (passed on `de9492f`, `7c5af8d`, `60930b9`,
+  `e86a107` and `87a1442`), on one 1024x768 VM screen. Still UNVERIFIED: other targets, other DPI or multiple monitors,
+  and **Windows animation effects off**: Boo then hides the pointer by design, and the journeys run with animations
+  switched on.
 - **A manual run by Vikas on his PC**: the three demos and a real 25-minute focus session
   ([docs/MORNING_CHECKLIST.md](docs/MORNING_CHECKLIST.md)). Delivery is not accepted until this is done.
 - Installer install / Start-menu / uninstall / real update round trip on a PC; the SmartScreen prompt.

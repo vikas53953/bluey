@@ -77,7 +77,7 @@ public sealed class LiveRoundTripTests : IClassFixture<LiveAppFixture>
             Assert.False(string.IsNullOrWhiteSpace(reply), "Boo's answer row is empty.");
             Assert.True(annotation.Length > 0,
                 $"An answer arrived but Boo wrote no screen-explanation line, so the answer is not proven to come from " +
-                $"{provider} with the screenshot (most likely the screen capture failed; check live-01-after-answer.png). " +
+                $"{provider} with the screenshot (most likely the screen capture failed; check the live-01-after-answer.boo-*.png screenshots). " +
                 $"Status: '{status}'");
             Assert.True(answered, "Answer and screen-explanation line were not both present at the same time.");
             // The CI mock (tools/Boo.QaMockAi) prefixes every scripted answer with "QA-". A real model never does.

@@ -95,6 +95,8 @@ public sealed class LiveAppFixture : BooAppFixture
     {
     }
 
+    public const string CaptureScopeVariable = "BOO_CAPTURE_SCOPE";
+
     private static LiveConfig? s_config;
 
     // Not a static initializer: a throw there would surface as a bare TypeInitializationException.
@@ -102,6 +104,8 @@ public sealed class LiveAppFixture : BooAppFixture
 
     private static void Seed(string dataDirectory)
     {
+        // Screenshots of Boo's own windows only, never the whole desktop, wherever this runs (BooAppFixture.CaptureScreen).
+        Environment.SetEnvironmentVariable(CaptureScopeVariable, "boo-windows");
         // Anti-mock guard, before Boo starts: every AI host must resolve only to public internet addresses and no proxy
         // may sit in between. Loopback, LAN/private, link-local, unique-local, CGNAT, IPv6-wrapped forms of them or a
         // proxy fail the run closed. What it accepted goes into the evidence (the workflow prints every .txt there).

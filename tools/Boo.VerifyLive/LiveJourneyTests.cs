@@ -61,8 +61,7 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             Assert.DoesNotContain(resolved, IPAddress.IsLoopback);
 
             var notch = _boo.WaitForNotch(UiTimeout);
-            Assert.Null(_boo.FindPanel()); // Boo starts with only the notch.
-            _boo.CaptureScreen("j0-before-hotkey");
+            Assert.Null(_boo.FindPanel()); // Boo starts with only the notch (no screenshot: a resting notch draws nothing).
 
             BooAppFixture.PressOpenShortcut();
             var panel = _boo.WaitForPanel(TimeSpan.FromSeconds(15));
@@ -90,15 +89,12 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             Mouse.MoveTo(away);
             Assert.True(BooAppFixture.WaitUntil(() => NotchState() == "Hidden", RestTimeout),
                 $"The notch did not rest in 'Hidden' before hovering. ItemStatus: '{NotchState()}'.");
-            _boo.CaptureScreen("j1-before-hover");
 
             Mouse.MoveTo(hover);
             var clock = Stopwatch.StartNew();
             var revealed = BooAppFixture.WaitUntil(() => NotchState() is { Length: > 0 } s && s != "Hidden", RevealTimeout);
             var revealMs = clock.ElapsedMilliseconds;
             var state = NotchState();
-            var notch = _boo.FindNotch();
-            if (notch is not null) _boo.CaptureRectangle("j1-hover-notch", Inflate(notch.BoundingRectangle, 80));
             _boo.CaptureScreen("j1-hover-revealed");
 
             Mouse.MoveTo(away);
@@ -146,36 +142,39 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             SetText(panel, "InputBox", "Explain the window titled 'Boo live target' and point at its big 'Send report' button.");
 
             // Send, then get out of the way like a user would: hide Boo's panel (on a small screen it covers everything)
-            // and bring the target forward, so the screenshots show the target and whatever Boo draws on it.
+            // and bring the target forward, so Boo explains (and the AI sees) the target.
             Find(panel, "SendButton").AsButton().Invoke();
             Find(panel, "CloseButton").AsButton().Invoke();
-            // The panel uses the ring's peach as its accent colour: it must really be gone before any pixel is judged.
             Assert.True(BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, UiTimeout), "TEST SETUP: Boo's panel did not hide.");
             BringTargetForward("j3");
-            var beforePath = _boo.CaptureScreen("j3-before-ring");
-            AssertTargetVisible(beforePath, targetRect, "j3-before-ring.png");
+            AssertTargetOnTop(s_target, "j3");
 
-            // Only pixels that CHANGED since the shot above count, so colours already on screen cannot fake anything.
-            // Ring = AnnotationWindow.MarkColor (243,181,155); pointer = AnnotationWindow.PointerColor (0x42,0x54,0xD6), shown
-            // at its landing point for the whole 10 s hold. Poll: the answer takes a few seconds.
+            // Screenshots are of Boo's own windows only (PR #18), so the marks are read from Boo's explanation overlay
+            // itself ("Boo screen explanation"), rendered from its own content in memory: it holds only Boo's marks, never
+            // the desktop, so nothing else on screen can fake a ring or a pointer. Its window rectangle maps its pixels
+            // to screen positions. Ring = AnnotationWindow.MarkColor (243,181,155); pointer = AnnotationWindow.PointerColor
+            // (0x42,0x54,0xD6), shown at its landing point for the whole 10 s hold. Poll: the answer takes a few seconds.
             var search = Inflate(windowRect, 160);
             var centre = Point.Empty;
             var pixels = 0;
-            var afterPath = beforePath;
+            OverlayRender? overlay = null;
             var found = BooAppFixture.WaitUntil(() =>
             {
-                afterPath = _boo.CaptureScreen("j3-explain-ring");
-                return ColourProbe.FindNew(beforePath, afterPath, search, ColourProbe.Ring, 12, out centre, out pixels);
+                overlay?.Dispose();
+                overlay = OverlayRender.Capture(_boo);
+                return overlay is not null && overlay.Find(search, ColourProbe.Ring, 12, out centre, out pixels);
             }, TimeSpan.FromSeconds(90));
             var pointer = Point.Empty;
             var pointerPixels = 0;
             var pointerFound = false;
             if (found)
             {
-                Thread.Sleep(900); // let the ring finish drawing, then keep the clearest shot
-                afterPath = _boo.CaptureScreen("j3-explain-ring");
-                ColourProbe.FindNew(beforePath, afterPath, search, ColourProbe.Ring, 12, out centre, out pixels);
-                pointerFound = ColourProbe.FindNew(beforePath, afterPath, search, ColourProbe.Pointer, 15, out pointer, out pointerPixels);
+                Thread.Sleep(900); // let the ring finish drawing, then judge the settled marks
+                overlay?.Dispose();
+                overlay = OverlayRender.Capture(_boo);
+                found = overlay is not null && overlay.Find(search, ColourProbe.Ring, 12, out centre, out pixels);
+                pointerFound = overlay is not null && overlay.Find(search, ColourProbe.Pointer, 15, out pointer, out pointerPixels);
+                _boo.CaptureScreen("j3-explain-ring"); // evidence: Boo's windows (including the overlay with its marks)
             }
             var onWindow = Inflate(windowRect, 20).Contains(centre);
             // Boo's ring is an ellipse inscribed in the mark's box (AnnotationWindow: Ellipse Width/Height = bounds), so a
@@ -189,9 +188,11 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
                 ("right", new Point(targetRect.Right, mid.Y)),
                 ("bottom", new Point(mid.X, targetRect.Bottom)),
             };
-            var edgeHits = edges.Select(e => (e.Item1, ColourProbe.CountNew(beforePath, afterPath, AroundPoint(e.Item2, 30), ColourProbe.Ring))).ToList();
+            var edgeHits = edges.Select(e => (e.Item1, overlay?.Count(AroundPoint(e.Item2, 30), ColourProbe.Ring) ?? 0)).ToList();
             var ringOnButton = found && edgeHits.All(h => h.Item2 >= 6);
             var pointerOnButton = Inflate(targetRect, 20).Contains(pointer);
+            var overlayRect = overlay?.ScreenRect.ToString() ?? "<no overlay>";
+            overlay?.Dispose();
 
             BooAppFixture.PressOpenShortcut();
             panel = _boo.WaitForPanel(UiTimeout);
@@ -199,15 +200,15 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             var reply = BooRows(panel).Skip(before).LastOrDefault() ?? string.Empty;
             _boo.CaptureScreen("j3-explain-panel");
             _boo.WriteObservation("j3-explain",
-                $"detail='{detail}' ringFound={found} ringPixels={pixels} ringCentre={centre} button={targetRect} window={windowRect} " +
+                $"detail='{detail}' overlay={overlayRect} ringFound={found} ringPixels={pixels} ringCentre={centre} button={targetRect} window={windowRect} " +
                 $"ringOnButton={ringOnButton} ringPixelsAtButtonEdges={string.Join(",", edgeHits.Select(h => $"{h.Item1}:{h.Item2}"))} onWindow={onWindow} " +
                 $"pointerFound={pointerFound} pointerPixels={pointerPixels} pointerCentre={pointer} pointerOnButton={pointerOnButton}\n" +
                 $"reply='{Shorten(reply, 600)}'\nstatus='{StatusText(panel)}'");
 
             Assert.StartsWith("Screen explanation is shown", detail, StringComparison.Ordinal);
-            Assert.True(found, $"No new ring-coloured pixels near the target window {windowRect} (search {search}). See j3-explain-ring.png.");
-            Assert.True(ringOnButton, $"The ring does not run through the 'Send report' button's left, right and bottom edges ({string.Join(", ", edgeHits.Select(h => $"{h.Item1}={h.Item2} px"))}; button {targetRect}), so it is not around the button. See j3-explain-ring.png.");
-            Assert.True(pointerFound, $"No pointer-coloured pixels appeared with the ring (search {search}). See j3-explain-ring.png.");
+            Assert.True(found, $"No ring-coloured pixels in Boo's explanation overlay near the target window {windowRect} (search {search}). See the j3-explain-ring.boo-*.png overlay render.");
+            Assert.True(ringOnButton, $"The ring does not run through the 'Send report' button's left, right and bottom edges ({string.Join(", ", edgeHits.Select(h => $"{h.Item1}={h.Item2} px"))}; button {targetRect}), so it is not around the button. See the j3-explain-ring.boo-*.png overlay render.");
+            Assert.True(pointerFound, $"No pointer-coloured pixels in Boo's explanation overlay with the ring (search {search}). See the j3-explain-ring.boo-*.png overlay render.");
             Assert.True(pointerOnButton, $"The pointer {pointer} did not land on the 'Send report' button {targetRect} (20 px margin).");
         });
     }
@@ -325,11 +326,13 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
                 Assert.True(BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, UiTimeout), "TEST SETUP: Boo's panel did not hide.");
 
                 // The user now works in the on-task window: keep it in front for the whole session (re-raised whenever
-                // something else takes the foreground) and photograph the screen now and then as proof of what Boo saw.
+                // something else takes the foreground). Screenshots are of Boo's windows only, so "in front" is proven by
+                // asking Windows which window is at the button, and counted on every re-check.
                 BringTargetForward("j6");
-                AssertTargetVisible(_boo.CaptureScreen("j6-on-task-0"), s_target.ButtonScreenRectangle(), "j6-on-task-0.png");
+                AssertTargetOnTop(s_target, "j6 start");
                 var lastRaise = Stopwatch.StartNew();
-                var shots = 0;
+                var onTopChecks = 0;
+                var onTopHits = 0;
 
                 var states = new List<string>();
                 var nudges = 0;
@@ -350,16 +353,15 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
                         t.BringToFront(_boo.Automation);
                         lastRaise.Restart();
                     }
-                    if (shots < 3 && clock.Elapsed > TimeSpan.FromSeconds(100 * (shots + 1)))
+                    if (s_target is { } top && clock.Elapsed > TimeSpan.FromSeconds(30 * (onTopChecks + 1)))
                     {
-                        shots++;
-                        _boo.CaptureScreen($"j6-on-task-{shots}");
+                        onTopChecks++;
+                        if (top.IsTopAt(top.ButtonScreenRectangle())) onTopHits++;
                     }
                     return state == "Happy";
                 }, TimeSpan.FromMinutes(9));
                 var realSeconds = clock.Elapsed.TotalSeconds;
                 _boo.CaptureScreen("j6-focus-happy");
-                if (_boo.FindNotch() is { } n) _boo.CaptureRectangle("j6-focus-happy-notch", Inflate(n.BoundingRectangle, 80));
 
                 // The session is over: close the target so the final screenshot shows Boo's status and history row.
                 s_target?.Dispose();
@@ -375,9 +377,13 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
                 var history = historyRow ?? "<no completed 25 min row>";
                 _boo.CaptureScreen("j6-focus-complete");
                 _boo.WriteObservation("j6-focus",
-                    $"task='{FocusTask}' minutes={FocusMinutes} developerMode=true realSeconds={realSeconds:0} sawHappy={sawHappy} nudges={nudges}\n" +
+                    $"task='{FocusTask}' minutes={FocusMinutes} developerMode=true realSeconds={realSeconds:0} sawHappy={sawHappy} nudges={nudges} " +
+                    $"targetOnTopChecks={onTopHits}/{onTopChecks}\n" +
                     $"states={string.Join(">", states)}\nfocusStatus='{NameOfId(panel, "FocusStatus")}'\nhistory='{Shorten(history, 600)}'");
 
+                // The focus estimate below is only meaningful if the on-task window really was what Boo saw.
+                Assert.True(onTopChecks > 0 && onTopHits * 2 > onTopChecks,
+                    $"TEST SETUP: the on-task window was in front for only {onTopHits} of {onTopChecks} checks, so the focus estimate proves nothing.");
                 Assert.True(sawHappy, $"The notch never showed the happy face. States: {string.Join(">", states)}");
                 Assert.True(complete, $"The session did not complete: '{NameOfId(panel, "FocusStatus")}'");
                 // 25 focus-minutes at 4x is 375 real seconds; allow for check round trips and UI polling.
@@ -488,19 +494,15 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
     }
 
     /// <summary>
-    /// Fails with a setup message (not a verdict on Boo) when the target's blue button is not on screen, so a covered
-    /// target can never pass or fail a check about what Boo saw or drew.
+    /// Fails with a setup message (not a verdict on Boo) when the target's button is not the window on top at that spot,
+    /// so a covered target can never pass or fail a check about what Boo saw or drew. Windows answers which window is at
+    /// the point (WindowFromPoint skips click-through windows such as Boo's explanation overlay); no screen pixels are read.
     /// </summary>
-    private static void AssertTargetVisible(string screenshot, Rectangle button, string shotName)
+    private void AssertTargetOnTop(TargetWindow target, string step)
     {
-        using var bitmap = new Bitmap(screenshot);
-        var origin = System.Windows.Forms.SystemInformation.VirtualScreen.Location;
-        var x = Math.Clamp(button.Left + button.Width / 8 - origin.X, 0, bitmap.Width - 1);
-        var y = Math.Clamp(button.Top + button.Height / 8 - origin.Y, 0, bitmap.Height - 1);
-        var c = bitmap.GetPixel(x, y);
-        var blue = TargetWindow.ButtonColor;
-        Assert.True(Math.Abs(c.R - blue.R) <= 30 && Math.Abs(c.G - blue.G) <= 30 && Math.Abs(c.B - blue.B) <= 30,
-            $"TEST SETUP: the target window is not visible on screen (pixel {c} at the button in {shotName}). Nothing about Boo was checked.");
+        var onTop = BooAppFixture.WaitUntil(() => target.IsTopAt(target.ButtonScreenRectangle()), TimeSpan.FromSeconds(5));
+        _output.WriteLine($"{step}: target on top at its button = {onTop}");
+        Assert.True(onTop, $"TEST SETUP ({step}): the target window is not the top window at its button, so Boo would not see it. Nothing about Boo was checked.");
     }
 
     private static Rectangle AroundPoint(Point p, int half) => new(p.X - half, p.Y - half, 2 * half, 2 * half);
@@ -720,6 +722,28 @@ internal sealed class TargetWindow : IDisposable
 
     public bool IsForeground() => GetForegroundWindow() == Handle;
 
+    /// <summary>True when the top-level window at the centre of <paramref name="area"/> (screen pixels) is this window.</summary>
+    public bool IsTopAt(Rectangle area)
+    {
+        var hit = WindowFromPoint(new NativePoint { X = area.Left + area.Width / 2, Y = area.Top + area.Height / 2 });
+        return hit != IntPtr.Zero && GetAncestor(hit, 2 /* GA_ROOT */) == Handle;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [DllImport("user32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern IntPtr WindowFromPoint(NativePoint point);
+
+    [DllImport("user32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
     /// <summary>Topmost and foreground, the way a user clicking into it would leave it.</summary>
     public void BringToFront(FlaUI.UIA3.UIA3Automation automation)
     {
@@ -730,7 +754,7 @@ internal sealed class TargetWindow : IDisposable
         }
         catch (Exception)
         {
-            // Topmost alone still keeps it in view; AssertTargetVisible checks the result.
+            // Topmost alone still keeps it in view; AssertTargetOnTop checks the result.
         }
     }
 
@@ -763,33 +787,88 @@ internal sealed class TargetWindow : IDisposable
     }
 }
 
-/// <summary>
-/// Finds pixels of one of Boo's annotation colours that are NEW in a screenshot compared with an earlier one, and their
-/// centre. Ring = AnnotationWindow.MarkColor; Pointer = AnnotationWindow.PointerColor.
-/// </summary>
+/// <summary>Boo's annotation colours: Ring = AnnotationWindow.MarkColor; Pointer = AnnotationWindow.PointerColor.</summary>
 internal static class ColourProbe
 {
     public static readonly Color Ring = Color.FromArgb(243, 181, 155);
     public static readonly Color Pointer = Color.FromArgb(0x42, 0x54, 0xD6);
 
-    public static bool FindNew(string beforePath, string afterPath, Rectangle search, Color colour, int minPixels, out Point centre, out int pixels)
+    public static bool Near(Color c, Color target) =>
+        Math.Abs(c.R - target.R) <= 18 && Math.Abs(c.G - target.G) <= 18 && Math.Abs(c.B - target.B) <= 18;
+}
+
+/// <summary>
+/// Boo's explanation overlay ("Boo screen explanation", AnnotationWindow) rendered from its OWN content with PrintWindow,
+/// in memory only (never saved; the evidence screenshots come from BooAppFixture.CaptureScreen). Same method as PR #18's
+/// Boo-window renderer, so it holds only Boo's marks, never the desktop: nothing else on screen can fake a ring or a
+/// pointer. <see cref="ScreenRect"/> (physical pixels; this process is per-monitor DPI aware) maps pixels to the screen.
+/// </summary>
+internal sealed class OverlayRender : IDisposable
+{
+    public const string OverlayTitle = "Boo screen explanation";
+
+    private readonly Bitmap _bitmap;
+
+    private OverlayRender(Bitmap bitmap, Rectangle screenRect)
+    {
+        _bitmap = bitmap;
+        ScreenRect = screenRect;
+    }
+
+    public Rectangle ScreenRect { get; }
+
+    /// <summary>The visible overlay rendered now, or null when Boo shows none.</summary>
+    public static OverlayRender? Capture(BooAppFixture boo)
+    {
+        try
+        {
+            foreach (var window in boo.App.GetAllTopLevelWindows(boo.Automation))
+            {
+                if (BooAppFixture.SafeName(window) != OverlayTitle || window.IsOffscreen) continue;
+                var hwnd = window.Properties.NativeWindowHandle.ValueOrDefault;
+                if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var r) || r.Right <= r.Left || r.Bottom <= r.Top) continue;
+                var rect = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
+                var bitmap = new Bitmap(rect.Width, rect.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                var rendered = false;
+                using (var graphics = Graphics.FromImage(bitmap))
+                {
+                    var hdc = graphics.GetHdc();
+                    try
+                    {
+                        rendered = PrintWindow(hwnd, hdc, 2 /* PW_RENDERFULLCONTENT */);
+                    }
+                    finally
+                    {
+                        graphics.ReleaseHdc(hdc);
+                    }
+                }
+                if (!rendered)
+                {
+                    bitmap.Dispose();
+                    continue;
+                }
+                return new OverlayRender(bitmap, rect);
+            }
+        }
+        catch (Exception)
+        {
+            // The overlay may close between the lookup and the render; the caller polls again.
+        }
+        return null;
+    }
+
+    /// <summary>Pixels of <paramref name="colour"/> inside <paramref name="search"/> (screen pixels), and their centre.</summary>
+    public bool Find(Rectangle search, Color colour, int minPixels, out Point centre, out int pixels)
     {
         centre = Point.Empty;
         pixels = 0;
-        if (!File.Exists(beforePath) || !File.Exists(afterPath)) return false;
-        using var before = new Bitmap(beforePath);
-        using var after = new Bitmap(afterPath);
-        var origin = System.Windows.Forms.SystemInformation.VirtualScreen.Location;
-        var x0 = Math.Max(0, search.Left - origin.X);
-        var y0 = Math.Max(0, search.Top - origin.Y);
-        var x1 = Math.Min(Math.Min(after.Width, before.Width) - 1, search.Right - origin.X);
-        var y1 = Math.Min(Math.Min(after.Height, before.Height) - 1, search.Bottom - origin.Y);
+        var area = Rectangle.Intersect(search, ScreenRect);
         long sumX = 0, sumY = 0;
-        for (var y = y0; y <= y1; y++)
+        for (var y = area.Top; y < area.Bottom; y++)
         {
-            for (var x = x0; x <= x1; x++)
+            for (var x = area.Left; x < area.Right; x++)
             {
-                if (!Near(after.GetPixel(x, y), colour) || Near(before.GetPixel(x, y), colour)) continue;
+                if (!ColourProbe.Near(_bitmap.GetPixel(x - ScreenRect.Left, y - ScreenRect.Top), colour)) continue;
                 sumX += x;
                 sumY += y;
                 pixels++;
@@ -797,17 +876,31 @@ internal static class ColourProbe
         }
         // A 3 px ring stroke yields hundreds of pixels and the pointer's fill dozens; a handful of hits is noise.
         if (pixels < minPixels) return false;
-        centre = new Point((int)(sumX / pixels) + origin.X, (int)(sumY / pixels) + origin.Y);
+        centre = new Point((int)(sumX / pixels), (int)(sumY / pixels));
         return true;
     }
 
-    /// <summary>How many NEW pixels of <paramref name="colour"/> are inside <paramref name="area"/> (screen pixels).</summary>
-    public static int CountNew(string beforePath, string afterPath, Rectangle area, Color colour)
+    public int Count(Rectangle area, Color colour)
     {
-        FindNew(beforePath, afterPath, area, colour, int.MaxValue, out _, out var pixels);
+        Find(area, colour, int.MaxValue, out _, out var pixels);
         return pixels;
     }
 
-    private static bool Near(Color c, Color target) =>
-        Math.Abs(c.R - target.R) <= 18 && Math.Abs(c.G - target.G) <= 18 && Math.Abs(c.B - target.B) <= 18;
+    public void Dispose() => _bitmap.Dispose();
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left, Top, Right, Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
+
+    [DllImport("user32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
 }

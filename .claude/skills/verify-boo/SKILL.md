@@ -49,25 +49,33 @@ never call that part live until a person has run it.
 ### 1. Live, on GitHub (the normal way; needs the `BOO_LIVE_OPENAI_KEY` repository secret)
 
 ```powershell
-gh workflow run live-ai-smoke.yml --ref <your-branch> -f text_provider=openai -f runner=windows-latest -f journeys=true
+gh workflow run live-ai-smoke.yml --ref <your-branch> -f text_provider=openai -f journeys=true   # always GitHub's own Windows VM
 gh run list --workflow live-ai-smoke.yml --branch <your-branch> -L 1     # get the run id and URL
 gh run watch <run-id> --exit-status
 gh run view <run-id> --log | Select-String 'j[0-6]-|live-01|test gate'   # observations + gates
-gh run download <run-id> -n live-ai-evidence -D artifacts/live-evidence-<run-id>   # screenshots
+gh run download <run-id> -n live-ai-evidence -D artifacts/live-evidence-<run-id>   # screenshots of Boo's windows only
 ```
 
 Pass needs both gates green: "Test gate (the live test ran and passed)" and "Test gate (every live journey ran and
-passed)". A red `preflight` job means the key secret is missing: that is BLOCKED, not a product failure.
+passed)", plus "Screenshots are Boo windows only". A red `preflight` job means the key secret is missing: that is
+BLOCKED, not a product failure. Only ONE live run may wait in the queue (`concurrency: live-ai-smoke`): a new dispatch
+cancels another branch's WAITING run, so dispatch only when none is waiting, and check the run's head SHA before you
+trust its result (a failed dispatch can leave you looking at an older run).
 
-### 2. Locally on a Windows PC (drives the real mouse and keyboard; do not touch the PC while it runs)
+### 2. By hand, only inside a throwaway Windows VM (never on a personal PC)
+
+These suites drive the real mouse and keyboard, and in the live suite Boo sends a picture of the screen to the AI. So
+they never run on Vikas's or a developer's own PC (decision log: "never capture the owner's real screen"; the live
+smoke runs only on GitHub's VM). The script refuses unless it runs on a GitHub-hosted runner or you pass
+`-ThrowawayVm` inside a disposable VM. Even there, evidence screenshots are of Boo's own windows only.
 
 ```powershell
-# No key: notch hover + hotkey, focus controls, pause hotkeys, appearance, accessibility (tests/Boo.Ui.Tests)
-powershell -ExecutionPolicy Bypass -File .claude/skills/verify-boo/scripts/Invoke-VerifyBoo.ps1 -Suite ui
+# Inside a throwaway VM only. No key: notch hover + hotkey, focus controls, pause hotkeys, appearance, accessibility
+powershell -ExecutionPolicy Bypass -File .claude/skills/verify-boo/scripts/Invoke-VerifyBoo.ps1 -Suite ui -ThrowawayVm
 
-# Real key, this shell only (never in a file): the live smoke + all seven live journeys
+# Inside a throwaway VM only. Real key, this shell only (never in a file): the live smoke + all seven live journeys
 $env:BOO_LIVE_OPENAI_KEY = '<paste from your password manager>'
-powershell -ExecutionPolicy Bypass -File .claude/skills/verify-boo/scripts/Invoke-VerifyBoo.ps1 -Suite live
+powershell -ExecutionPolicy Bypass -File .claude/skills/verify-boo/scripts/Invoke-VerifyBoo.ps1 -Suite live -ThrowawayVm
 Remove-Item Env:BOO_LIVE_OPENAI_KEY
 ```
 

@@ -15,22 +15,31 @@
   Evidence goes to artifacts/verify/<UTC time>/<suite>/ (screenshots *.png, observations *.txt, trx) plus summary.md.
   Keys: read only from the environment, never printed (length only), and the evidence is scanned for them at the end.
 
-  WARNING: it drives this PC's real mouse and keyboard for several minutes (live: about 15). Do not touch the PC while
-  it runs, and quit any running Boo first (Boo is single-instance).
+  WARNING: it drives the machine's real mouse and keyboard for several minutes (live: about 15), and in the live suite
+  Boo sends a picture of the screen to the AI. It therefore REFUSES to run unless it is on a GitHub-hosted runner
+  (RUNNER_ENVIRONMENT=github-hosted) or you pass -ThrowawayVm inside a disposable VM: never on a personal PC
+  (decision log: "never capture the owner's real screen"). Quit any running Boo first (Boo is single-instance).
 
 .EXAMPLE
-  pwsh .claude/skills/verify-boo/scripts/Invoke-VerifyBoo.ps1 -Suite ui
+  pwsh .claude/skills/verify-boo/scripts/Invoke-VerifyBoo.ps1 -Suite ui -ThrowawayVm
 .EXAMPLE
-  $env:BOO_LIVE_OPENAI_KEY = '<from your password manager>'; pwsh .claude/skills/verify-boo/scripts/Invoke-VerifyBoo.ps1 -Suite live
+  $env:BOO_LIVE_OPENAI_KEY = '<from your password manager>'; pwsh .claude/skills/verify-boo/scripts/Invoke-VerifyBoo.ps1 -Suite live -ThrowawayVm
 #>
 param(
   [ValidateSet('ui', 'live', 'all')] [string] $Suite = 'ui',
   [ValidateSet('openai', 'anthropic', 'gemini')] [string] $Provider = 'openai',
   # Use an already published Boo.exe instead of publishing one from this checkout.
   [string] $Exe,
-  [string] $OutDir
+  [string] $OutDir,
+  # You state this machine is a disposable VM with nothing private on screen. Required off a GitHub-hosted runner.
+  [switch] $ThrowawayVm
 )
 $ErrorActionPreference = 'Stop'
+if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted' -and -not $ThrowawayVm) {
+  Write-Host '[verify-boo] REFUSED: these suites drive the real mouse and keyboard and (live) send a picture of the screen to the AI.'
+  Write-Host '[verify-boo] Run them on GitHub (gh workflow run live-ai-smoke.yml -f text_provider=openai -f journeys=true), or inside a throwaway VM with -ThrowawayVm. Never on a personal PC.'
+  exit 2
+}
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 Set-Location $repo
 $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')
