@@ -113,8 +113,10 @@ public sealed class LiveAppFixture : BooAppFixture
 /// <summary>
 /// One real round trip: typed question -> Boo captures the screen -> chosen text provider -> answer in Boo's transcript.
 /// Pass needs BOTH a "Boo: ..." transcript row AND the annotation outcome line: Boo's screen-help text path
-/// (RenderReply with a captured frame) always writes that line and the voice path never does, so together they prove
-/// the answer came from the chosen provider with the screenshot. Every provider failure (bad key, no quota, offline,
+/// (RenderReply with a captured frame) always writes that line. A plain voice reply never does; the only voice route
+/// that writes it (the voice screen-help tool) needs speech on plus a Talk click, and even then calls the chosen text
+/// provider with the screenshot. Speech is seeded off and the test never clicks Talk, so together they prove the
+/// answer came from the chosen provider with the screenshot. Every provider failure (bad key, no quota, offline,
 /// model unavailable) goes to the status line instead, which is the failure evidence. Any status mentioning the
 /// voice conversation fails the run outright.
 /// </summary>
@@ -169,11 +171,15 @@ public sealed class LiveRoundTripTests : IClassFixture<LiveAppFixture>
 
             Assert.DoesNotContain(statuses, s => s.Contains("voice conversation", StringComparison.OrdinalIgnoreCase));
 
-            Assert.True(answered,
+            // Each failure names its real cause: no answer at all, versus an answer without the screenshot-path line.
+            Assert.True(reply is not null,
                 $"No answer from {provider} within {AnswerTimeout.TotalSeconds:0}s. Boo's status line says: '{status}'");
             Assert.False(string.IsNullOrWhiteSpace(reply), "Boo's answer row is empty.");
-            Assert.False(string.IsNullOrEmpty(annotation),
-                "Boo answered, but not through the screen-help text path (no annotation outcome line), so the chosen provider was not proven.");
+            Assert.True(annotation.Length > 0,
+                $"An answer arrived but Boo wrote no screen-explanation line, so the answer is not proven to come from " +
+                $"{provider} with the screenshot (most likely the screen capture failed; check live-01-after-answer.png). " +
+                $"Status: '{status}'");
+            Assert.True(answered, "Answer and screen-explanation line were not both present at the same time.");
             // The CI mock (tools/Boo.QaMockAi) prefixes every scripted answer with "QA-". A real model never does.
             Assert.False(reply!.StartsWith("QA-", StringComparison.Ordinal),
                 $"The answer came from the QA mock, not the real provider: '{Shorten(reply, 120)}'");
