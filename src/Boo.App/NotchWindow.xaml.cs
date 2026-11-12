@@ -143,6 +143,10 @@ public partial class NotchWindow : Window
     /// <summary>True while CompositionTarget.Rendering is subscribed, i.e. the notch is visible or animating.</summary>
     internal bool IsRenderLoopActive => _rendering;
 
+    /// <summary>How Windows draws the notch, as the running window reports it (perf diagnostics; must be SoftwareOnly).</summary>
+    internal string RenderModeName =>
+        _handle != IntPtr.Zero && HwndSource.FromHwnd(_handle)?.CompositionTarget is { } target ? target.RenderMode.ToString() : string.Empty;
+
     /// <summary>Frames the pacer dropped on high-refresh displays (perf diagnostics).</summary>
     internal long PacerSkippedFrames => _pacer.Skipped;
 
@@ -1419,6 +1423,14 @@ public partial class NotchWindow : Window
         SetWindowLongPtr(_handle, GwlExstyle, new IntPtr(style | WsExNoActivate | WsExToolWindow));
         var source = HwndSource.FromHwnd(_handle);
         source?.AddHook(EmergencyWindowProc);
+        // The notch is a small see-through window that stays on screen all day. Drawn on the graphics card it kept
+        // ~35 MB of driver memory from launch plus ~35-50 MB more once the face had come out; drawn in software it
+        // costs neither, with the same frame rate and CPU (measured 2026-11-12, docs/DECISIONS.md). Only this window:
+        // the panel and the annotation overlay keep the graphics card.
+        if (source?.CompositionTarget is { } target)
+        {
+            target.RenderMode = RenderMode.SoftwareOnly;
+        }
         RegisterMissingHotkeys();
         // One combined, truthful hint (two separate SetStatus calls used to overwrite each other); App refines it with the hold-to-talk result.
         if (new ShortcutStatus(EmergencyStopRegistered, OpenShortcutRegistered, HoldToTalk: true, PauseAllRegistered).NotchMessage is { } shortcutHint)
