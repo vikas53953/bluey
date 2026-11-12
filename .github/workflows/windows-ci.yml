@@ -20,6 +20,21 @@ jobs:
           # Do not leave the job token in .git/config for later build/test steps.
           persist-credentials: false
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Frozen-test contract: every file under tests/, the acceptance notes and Contracts.cs must hash to
+      # docs/verification/test-oracle.json, and the revision history must be intact. Editing, emptying,
+      # deleting or adding a test without a reviewed oracle revision (--extend / --rebaseline) fails here.
+      - name: Frozen-test oracle
+        run: python -I scripts/test_oracle.py
+
+      # No empty test file, no *Tests.cs file without a [Fact]/[Theory], no test project without tests,
+      # no Skip = on any test. (8185c1d once emptied a 474-line test file and CI stayed green.)
+      - name: Test gate (source)
+        run: python -I scripts/test_gate.py static
+
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -40,6 +55,10 @@ jobs:
       # Anthropic/Gemini/OpenAI text-provider clients against in-memory HTTP handlers; no key is needed.
       - name: Provider tests
         run: dotnet test tests/Boo.Providers.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/providers
+
+      # Each project must have produced results with tests that ran, and none skipped or not executed.
+      - name: Test gate (unit, integration, provider results)
+        run: python -I scripts/test_gate.py trx artifacts/test-results/core artifacts/test-results/integration artifacts/test-results/providers
 
       - name: Publish app
         run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
@@ -134,6 +153,9 @@ jobs:
           BOO_UI_EXE: ${{ github.workspace }}\artifacts\ci\Boo.exe
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\ui-smoke
         run: dotnet test tests/Boo.Perf.Tests -c Release --no-build --logger trx --logger "console;verbosity=detailed" --results-directory artifacts/test-results/perf
+
+      - name: Test gate (UI smoke and perf results)
+        run: python -I scripts/test_gate.py trx artifacts/test-results/ui artifacts/test-results/perf
 
       - name: Upload perf results
         if: always()
