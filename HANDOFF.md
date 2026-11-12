@@ -105,7 +105,7 @@ create symbolic links. Turn on Windows Developer Mode or run elevated.
 | `windows-ci.yml` | every push and PR (and manual) | `build-test-publish` | oracle + static gate → build → Core / Integration / Providers tests (+ trx gate) → publish → notch gallery → UI smoke (FlaUI) → perf budgets | no |
 | `demo-ci.yml` | every push and PR (and manual) | `demos` | setup + the 4 demos (5 tests), end to end, against `Boo.QaMockAi` (hosts-file entry + a self-signed root certificate on the runner) | **no: mock** |
 | `release.yml` | push to `main`, `v*` tags, PRs (and manual) | `package`, `github-release` | Core / Integration / Providers tests, then Velopack installer + portable ZIP; a `v*` tag publishes a GitHub Release | no |
-| `live-ai-smoke.yml` | **manual only** (`workflow_dispatch`), **GitHub's `windows-latest` VM only** | `preflight`, `smoke` | one real round trip: typed question → screenshot → real provider → answer in Boo. Fails closed without a key. Refuses any non-GitHub runner; evidence screenshots are Boo's windows only. | **yes** |
+| `live-ai-smoke.yml` | **every pull request** + manual, **GitHub's `windows-latest` VM only** | `preflight`, `smoke`, **`live-ai-smoke` (required)** | one real round trip: typed question → screenshot → real provider → answer in Boo. Fails closed without a key. Refuses any non-GitHub runner; evidence screenshots are Boo's windows only. | **yes** |
 
 Run the live smoke: GitHub → Actions → live-ai-smoke → Run workflow, `text_provider=openai`, and an optional `model`
 override (blank = Boo's default). There is no runner choice: it always runs on GitHub's `windows-latest` VM, never on
@@ -138,7 +138,9 @@ screenshot a key; logs record lengths only.
   - branch must be up to date before merging;
   - force pushes and branch deletion blocked;
   - no required approvals (Vikas is the only reviewer); admins not enforced (Vikas can override).
-  - `live-ai-smoke` is **not** a required check: it only runs by hand, so it would block every merge.
+  - `live-ai-smoke` becomes a **required** check once the PR adding the `pull_request` trigger merges (Vikas,
+    12 Nov 2026, 11:20 PM IST). It is the workflow's final job, which is green only if the key check and the real
+    round trip both succeeded (a skipped job would otherwise count as passing).
 - **Merging:** since 12 Nov 2026, 11:20 PM IST, PR #18, PR #17 and every agent-trust Phase 1/2/3 PR may be merged
   without asking Vikas **once every gate passes** (all required checks green on the head, a real-key
   `live-ai-smoke` pass on the head, a fresh reviewer's PASS, the evidence table, no skips). Since 13 Nov 2026,
