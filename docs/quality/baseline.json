@@ -1,0 +1,117 @@
+{
+  "counts": {
+    "BOO-ASYNC-001": {
+      "Boo.App": 0,
+      "Boo.Core": 0,
+      "Boo.Providers": 0,
+      "Boo.Storage": 0,
+      "Boo.Windows": 0
+    },
+    "BOO-ASYNC-002": {
+      "Boo.App": 0,
+      "Boo.Core": 0,
+      "Boo.Providers": 0,
+      "Boo.Storage": 0,
+      "Boo.Windows": 0
+    },
+    "BOO-ASYNC-003": {
+      "Boo.App": 7,
+      "Boo.Core": 0,
+      "Boo.Providers": 0,
+      "Boo.Storage": 0,
+      "Boo.Windows": 0
+    },
+    "BOO-CMT-001": {
+      "Boo.App": 195,
+      "Boo.Core": 74,
+      "Boo.Providers": 21,
+      "Boo.Storage": 1,
+      "Boo.Windows": 83
+    },
+    "BOO-CMT-002": {
+      "Boo.App": 1,
+      "Boo.Core": 0,
+      "Boo.Providers": 0,
+      "Boo.Storage": 0,
+      "Boo.Windows": 0
+    },
+    "BOO-ERR-001": {
+      "Boo.App": 14,
+      "Boo.Core": 0,
+      "Boo.Providers": 4,
+      "Boo.Storage": 1,
+      "Boo.Windows": 5
+    },
+    "BOO-ERR-002": {
+      "Boo.App": 43,
+      "Boo.Core": 2,
+      "Boo.Providers": 8,
+      "Boo.Storage": 5,
+      "Boo.Windows": 15
+    },
+    "BOO-RT-001": {
+      "Boo.App": 0,
+      "Boo.Core": 0,
+      "Boo.Providers": 0,
+      "Boo.Storage": 0,
+      "Boo.Windows": 0
+    },
+    "BOO-RT-002": {
+      "Boo.App": 2,
+      "Boo.Core": 1,
+      "Boo.Providers": 0,
+      "Boo.Storage": 0,
+      "Boo.Windows": 0
+    },
+    "BOO-SAFE-003": {
+      "Boo.App": 1,
+      "Boo.Core": 0,
+      "Boo.Providers": 0,
+      "Boo.Storage": 0,
+      "Boo.Windows": 2
+    },
+    "BOO-STATE-001": {
+      "Boo.App": 2,
+      "Boo.Core": 0,
+      "Boo.Providers": 0,
+      "Boo.Storage": 0,
+      "Boo.Windows": 0
+    },
+    "BOO-TIME-001": {
+      "Boo.App": 11,
+      "Boo.Core": 1,
+      "Boo.Providers": 0,
+      "Boo.Storage": 0,
+      "Boo.Windows": 2
+    },
+    "BOO-TIME-002": {
+      "Boo.App": 1,
+      "Boo.Core": 0,
+      "Boo.Providers": 0,
+      "Boo.Storage": 0,
+      "Boo.Windows": 0
+    },
+    "BOO-TIME-003": {
+      "Boo.App": 8,
+      "Boo.Core": 0,
+      "Boo.Providers": 0,
+      "Boo.Storage": 0,
+      "Boo.Windows": 0
+    },
+    "BOO-UI-001": {
+      "Boo.App": 2,
+      "Boo.Core": 0,
+      "Boo.Providers": 0,
+      "Boo.Storage": 0,
+      "Boo.Windows": 0
+    },
+    "BOO-UI-002": {
+      "Boo.App": 13,
+      "Boo.Core": 0,
+      "Boo.Providers": 0,
+      "Boo.Storage": 0,
+      "Boo.Windows": 0
+    }
+  },
+  "note": "Counts of known-bad patterns in src/, per project. May only go down. Written by scripts/quality/ratchet.py --lower."
+}

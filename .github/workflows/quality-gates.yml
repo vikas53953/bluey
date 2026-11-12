@@ -1,0 +1,35 @@
+name: quality-gates
+
+# Phase 1 of docs/plans/agent-trust-plan.md: deterministic checks that refuse a repeat mistake. Cheap: Linux, no .NET
+# build, no artifacts (nothing to upload, so storage quota cannot turn it red).
+#   - ratchet: today's count of each known-bad pattern in src/ (docs/quality/baseline.json) may only go DOWN.
+#     A self-test first proves every rule fires on a planted sample, so a broken rule cannot pass vacuously.
+# Rule texts and fixes: docs/quality/RULES.md. Job name `quality` is meant to become a required check.
+
+on:
+  push:
+    branches: [lane/face, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Ratchet self-test (every rule fires on a planted sample)
+        run: python -I scripts/quality/ratchet.py --self-test
+
+      - name: Ratchet (no known-bad pattern may go up)
+        run: python -I scripts/quality/ratchet.py

@@ -278,6 +278,14 @@ From `docs/plans/agent-trust-plan.md` (PR #17). Steps run strictly in this order
 5. Phase 2 and 6. Phase 3: **do not start** without Vikas's explicit go after Phase 1. Phase 2 also needs a monthly
    OpenAI spend cap set by Vikas (GitHub minutes are free since the repo went public).
 
+### Quality ratchet (Phase 1, PR 1.1)
+
+`.github/workflows/quality-gates.yml` (job `quality`, Linux, about a minute, no uploads) runs
+`scripts/quality/ratchet.py`: today's count of 16 known-bad patterns in `src/` (525 hits on 13 Nov 2026, per project,
+in `docs/quality/baseline.json`) may only go **down**. A count that rises fails with what / why / fix / rule; a count
+that falls fails until `--lower` writes the new baseline, so every gain is locked in. A `--self-test` proves each rule
+fires on a planted sample. Rules and fixes: `docs/quality/RULES.md`. To be made a required check after it merges.
+
 ### Next phase
 
 Packaging for real use. What exists and what is missing:
