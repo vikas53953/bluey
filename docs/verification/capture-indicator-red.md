@@ -17,7 +17,7 @@ scripts/build.ps1 -Action test -Project tests/Boo.Core.Tests/Boo.Core.Tests.cspr
 
 Result: **RED** — 9 failed, 2 passed, 0 skipped, 11 total.
 
-TRX: `TestResults/vikasmit_VIKASMIT_2026-11-07_13_15_31_net10.0.trx`
+TRX: `TestResults/<user>_<machine>_2026-11-07_13_15_31_net10.0.trx`
 
 The 9 expected behavioral failures against the no-op stub were:
 
@@ -53,4 +53,4 @@ separate builder owns the Core tracker implementation; the root owns shell
 integration and final freeze/review.
 
 Root independently reproduced 9 failures and 2 passes before implementation:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_13_16_20_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_13_16_20_net10.0.trx`.
