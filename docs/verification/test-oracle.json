@@ -1,5 +1,5 @@
 {
-  "revision": 19,
+  "revision": 20,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -110,6 +110,8 @@
     "tests/Boo.Integration.Tests/SessionRecoveryTests.cs": "604ff4bb833ce2be64718fc82650417dca2091517d4d33a71359fd5fd9d62e36",
     "tests/Boo.Integration.Tests/StoragePrivacyTests.cs": "dd188faa6dd2e0e92b039971fef54aadcbf37176d43ca0ec71ee2363d3982811",
     "tests/Boo.Integration.Tests/VoiceToolProtocolTests.cs": "c95200c7c8ae01709e3f2f2aa5a8a5b223b831c86da47a874fe31e1e07f3bb72",
+    "tests/Boo.LiveGuard.Tests/Boo.LiveGuard.Tests.csproj": "d3e603b8be62c068ce9a72d30223ada335aec3176d5c808117a0c8d9112c1473",
+    "tests/Boo.LiveGuard.Tests/RealAiHostGuardTests.cs": "2ac00c0fdbc026422a3419e1dc61bedc627eabbe5a02e2b1fbe374d1c58699d9",
     "tests/Boo.Perf.Tests/Boo.Perf.Tests.csproj": "ef2df8fde46266721d7affba05ca8d59d083a5949b509d163956e347a6d13168",
     "tests/Boo.Perf.Tests/BooPerfBudgetTests.cs": "ce2fccccd4c53f15f44e5bee159236db5f238a3a6815ad7eecd6434ad0ab5757",
     "tests/Boo.Perf.Tests/DiagSnapshot.cs": "cbb9c990e3b576a955cafe14826a0bad8347ad5e20107e249a2bd88373b2ece9",
@@ -143,13 +145,14 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-18.json",
-  "previousManifestSha256": "bb1308ec36516224f2e54fa7eaeeca72bc80c09d65ceb107fb4f1c4b69277d50",
-  "revisionReason": "SF-006 fixture cleanup: delete the junction/symlink itself before its target. CI run 42825010189 showed the junction case's rejection assertions held but the temp-root recursive delete failed with 'The parameter is incorrect' on a junction whose target was already removed. No assertion changed.",
-  "addedFiles": [],
-  "revisionCommit": "98810592391f1e6d3993cd04e2f6f0d292a0f780",
-  "changedFiles": [
-    "tests/Boo.Core.Tests/ActionPolicyTests.cs"
+  "previousManifest": "docs/verification/test-oracle-history/revision-19.json",
+  "previousManifestSha256": "8d37156ab9eaedf25d842c0437c934274b1bc1f8b98b1884ade81c0b553bddde",
+  "revisionReason": "Add tests/Boo.LiveGuard.Tests: behaviour tests for the live-AI anti-mock guard (every local, private and LAN range rejected, including hostnames that resolve to one; a real public API host passes). New files only.",
+  "addedFiles": [
+    "tests/Boo.LiveGuard.Tests/Boo.LiveGuard.Tests.csproj",
+    "tests/Boo.LiveGuard.Tests/RealAiHostGuardTests.cs"
   ],
+  "revisionCommit": "f244e47928ca95de7d903e4d8f188930a33665da",
+  "changedFiles": [],
   "removedFiles": []
 }

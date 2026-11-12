@@ -104,6 +104,10 @@ public sealed class LiveAppFixture : BooAppFixture
 
     private static void Seed(string dataDirectory)
     {
+        // Anti-mock guard, before Boo starts: every AI host must resolve only to public internet addresses. Loopback,
+        // LAN/private, link-local, unique-local, CGNAT or IPv6-wrapped forms of them fail the run closed.
+        RealAiHostGuard.EnsureRealProviderHosts();
+
         new CredentialStore(Path.Combine(dataDirectory, AiProviders.CredentialFileName(Config.TextProvider))).Save(Config.Key);
         new SettingsStore(Path.Combine(dataDirectory, "settings.json"))
             .Save(new AppSettings(SpeechEnabled: false, Provider: Config.ProviderSettings()));
