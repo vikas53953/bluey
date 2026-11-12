@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    LIVE-AI smoke test: one real round trip from the published Boo.exe to a real AI provider.
+    Run only by .github/workflows/live-ai-smoke.yml (workflow_dispatch). See docs/LIVE_AI_SMOKE.md.
+
+    Lives in tools/, not tests/: tests/** is the frozen test oracle (docs/verification/test-oracle.json),
+    and this project must not add to it. It REUSES the demo harness unchanged by linking
+    tests/Boo.Demo.Tests/BooAppFixture.cs (launch published Boo, isolated BOO_DATA_DIR, screenshots, Run-key restore).
+
+    Not part of Boo.sln. Costs money per run (one paid request), so nothing runs it automatically.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
+    <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Boo.Storage/Boo.Storage.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Compile Include="../../tests/Boo.Demo.Tests/BooAppFixture.cs" Link="Harness/BooAppFixture.cs" />
+  </ItemGroup>
+</Project>
