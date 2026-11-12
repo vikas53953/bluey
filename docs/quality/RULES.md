@@ -13,7 +13,7 @@ each pattern below **per project, every match on a line**, and compares with [`b
 - a count that goes **up** fails (new problem);
 - a count that goes **down** also fails until you run `python -I scripts/quality/ratchet.py --lower` and commit the
   lower baseline, so every gain is locked in; `--lower` refuses to raise any number;
-- `--list <RULE>` prints every hit; `--self-test` checks 48 snippets with exact expected counts, that clean code stays
+- `--list <RULE>` prints every hit; `--self-test` checks 59 snippets (including tricky strings that could hide code) with exact expected counts, that clean code stays
   quiet, and the pass/fail logic itself (equal passes, rise fails, fall fails until lowered).
 
 **A PR cannot loosen its own gate.** On a pull request, the workflow
@@ -110,8 +110,8 @@ ordering bugs. **Fix:** an instance member owned by one object, or `readonly`. *
 
 ## BOO-CMT-001
 **Comment that is not `///`** (`////` counts). Agents use comments to justify workarounds, and rules written in comments
-are not checked. Not counted: `// INVARIANT: ... see TestClass.TestName`, `// SECURITY: ... see TestClass.TestName`, and
-`// TODO(#123): ...` lines. **Fix:** fix the cause instead of explaining it; if it states a rule, write the test and use
+are not checked. Not counted: whole-line comments of the form `// INVARIANT: ... see TestClass.TestName`,
+`// SECURITY: ... see TestClass.TestName` and `// TODO(#123): ...`. **Fix:** fix the cause instead of explaining it; if it states a rule, write the test and use
 the INVARIANT tag; API docs use `///`. **Do NOT** reword the comment to dodge the count.
 
 ## BOO-CMT-002
@@ -125,3 +125,6 @@ the INVARIANT tag; API docs use `///`. **Do NOT** reword the comment to dodge th
 - A static field declared over two lines, or with a tuple type plus `=>` initializer.
 - `///` comments written inside a method body count as documentation.
 - Identity: a swap (one removed, one added, same rule and project) passes, as explained above.
+- Scope: only `src/<Project>/` folders that hold a `.csproj` are scanned; `bin/` and `obj/` are skipped; files compiled in
+  from outside `src/` (`<Compile Include="../..">`) are not scanned. A baselined project that disappears from the scan
+  fails the check instead of silently dropping its counts.

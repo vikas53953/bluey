@@ -79,8 +79,8 @@ def lex(text):
             if m and (m.group(1) or m.group(2) or m.group(3) or c == '"'):
                 dollars = len(m.group(1)) + len(m.group(3))
                 verbatim = bool(m.group(2))
-                quotes = m.group(4)
-                i = scan_string(i + m.end(), dollars, verbatim, len(quotes))
+                quote_count = 1 if verbatim else len(m.group(4))
+                i = scan_string(i + m.start(4) + quote_count, dollars, verbatim, quote_count)
                 continue
             if stop_at_brace:
                 if c == '{':
@@ -203,7 +203,7 @@ def static_mutable(source):
     return hits
 
 
-ALLOWED_COMMENT = re.compile(r'^//\s*(INVARIANT|SECURITY):.*\bsee\s+[\w.]+|\bTODO\(#\d+\)')
+ALLOWED_COMMENT = re.compile(r'^//\s*(INVARIANT|SECURITY):.*\bsee\s+\w+\.\w+|^//\s*TODO\(#\d+\):')
 TODO = re.compile(r'\b(TODO|FIXME|HACK|XXX)\b(?!\(#\d+\))')
 
 
@@ -279,7 +279,19 @@ RULES = [
     Rule('BOO-RT-001', 'GC.Collect', 'Forcing a garbage collection hides a leak.',
          'Find what holds the memory and dispose it.', 'Do NOT call it "just in case".',
          pattern_hits(r'\bGC\s*\.\s*Collect\b'), [('GC.Collect();', 1), ('Action a = GC.Collect;', 1),
-                                                    ('var n = GC.CollectionCount(0);', 0)]),
+                                                    ('var n = GC.CollectionCount(0);', 0),
+                                                    # lexer: nothing may hide (or invent) the call after these
+                                                    ('var q = @""""; GC.Collect();', 1),
+                                                    ('var q = $@""""; GC.Collect();', 1),
+                                                    ('var q = @$""""; GC.Collect();', 1),
+                                                    ('var c = \'"\'; GC.Collect();', 1),
+                                                    ("var c = '\\''; GC.Collect();", 1),
+                                                    ('var s = @"a""b"; GC.Collect();', 1),
+                                                    ('var s = $"{{"; GC.Collect(); var t = $"}}";', 1),
+                                                    ('var s = $"{(x ? "}" : "{")}"; GC.Collect();', 1),
+                                                    ('var s = $$"""{{x}} { """; GC.Collect();', 1),
+                                                    ('var s = "GC.Collect();"; var r = """\n GC.Collect()\n """;', 0),
+                                                    ('var s = $"{GC.Collect}";', 1)]),
     Rule('BOO-RT-002', 'Environment.GetEnvironmentVariable',
          'Hidden switches (for example BOO_QA_CAPTURABLE) change privacy behaviour and must be auditable.',
          'Read environment variables in one place and pass the value in.', 'Do NOT add another reader.',
@@ -352,6 +364,12 @@ def compare(result, baseline, rise_only=False):
     """Return (rose, fell) message lists."""
     now = counts(result)
     rose, fell = [], []
+    scanned = {project for by_project in now.values() for project in by_project}
+    for rule_id, by_project in baseline.items():
+        for project, allowed in by_project.items():
+            if allowed and project not in scanned:
+                rose.append(f'{rule_id}  {project}: baselined at {allowed}, but the project is no longer scanned (moved, '
+                            f'renamed or its .csproj removed). Restore it under src/, or lower the baseline in a reviewed PR.')
     for rule in RULES:
         if rule.id not in baseline:
             if not rise_only:
