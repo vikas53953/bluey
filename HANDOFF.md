@@ -225,8 +225,9 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    panel has been opened, and repeat hovers (~0.7 MB each, same on the old build).
 6. **SF-006 symlink cases** fail on a dev PC without Windows Developer Mode, same on unchanged `lane/face` (never skipped); they pass in CI.
 7. **Merge order / oracle revisions.** `lane/face` is at oracle revision 21 (PR #14). PR #18 has already re-synced and
-   sits at revision 22 on top of it. Still-open PRs that edit the same workflows: #13 and #18 (plus #20 and #21, stacked
-   on #18) edit `live-ai-smoke.yml`; #13 and #18 edit `demo-ci.yml`; #18 edits `windows-ci.yml`.
+   sits at revision 22 on top of it. Still-open PRs that edit the same workflows: #13 and #18 edit `live-ai-smoke.yml` and
+   `demo-ci.yml`; #18 also edits `windows-ci.yml`. #20 and #21, stacked on #18, carry #18's edits; #20 also edits
+   `live-ai-smoke.yml` and #21 adds `quality-gates.yml`.
 8. The notch memory guard (`NotchDrawingMemoryTests`) has now run in CI: windows-ci on `8474556`
    ([43287434389](https://github.com/vikas53953/bluey/actions/runs/43287434389)) passed UI smoke, perf budgets and the gate.
 9. Residuals listed in [docs/STATUS.md](docs/STATUS.md) ("Known residuals") still apply unless a later PR says
