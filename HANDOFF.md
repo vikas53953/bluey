@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, ~01:30 IST**, with `lane/face` at `84745563e615574e2d45a043b1f00615a623f42f`.
+Status last updated: **13 Nov 2026, ~01:50 IST**, with `lane/face` at `d0dfd0ec036696c5b7a737e4ad8554e7043cb826`.
 
 ---
 
@@ -181,14 +181,14 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | PR | Branch → base | State (13 Nov, ~01:30 IST) | Notes |
 | --- | --- | --- | --- |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
-| [#15](https://github.com/vikas53953/bluey/pull/15) | `ci/artifact-retention-7d` → `lane/face` | **open**, QA PASS at `5dcece5` | `retention-days: 7` on every upload. |
-| [#14](https://github.com/vikas53953/bluey/pull/14) | `fix/anti-mock-lan-ips` → `lane/face` | **open**, synced at `d52dbbe` | The anti-mock guard rejects every local, private and LAN address, plus proxies (99 tests). Freezes its tests as oracle **revision 21** on top of Living ink's revision 20. |
+| [#15](https://github.com/vikas53953/bluey/pull/15) | `ci/artifact-retention-7d` → `lane/face` | **open**, QA PASS at `dbd0deb` (synced after #14) | `retention-days: 7` on every upload. |
 | [#16](https://github.com/vikas53953/bluey/pull/16) | `docs/project-handoff` → `lane/face` | **open** | This handoff (HANDOFF.md, docs/DECISIONS.md, CONTRIBUTING.md). Merged with the PR #12 session notes and decision records. |
 | [#19](https://github.com/vikas53953/bluey/pull/19) | `docs/scrub-local-paths` → `lane/face` | **open**, QA PASS at `44be70b` (needs sync) | Replaces the owner's Windows username and home paths in old docs. |
 | [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open** | `verify-boo` skill: live journeys j0–j6, `docs/FEATURE_MAP.md`, prove-it rule. Since `1c4b2d1` it also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks). |
 | [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **open** | 3-phase agent trust plan (`docs/plans/agent-trust-plan.md`). |
 | [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **open** | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option. |
 | [#20](https://github.com/vikas53953/bluey/pull/20) → #18's branch, [#21](https://github.com/vikas53953/bluey/pull/21) → #20's branch | stacked | **open** | Live smoke as a required check on every PR; a ratchet of known-bad code patterns. |
+| [#14](https://github.com/vikas53953/bluey/pull/14) | `fix/anti-mock-lan-ips` → `lane/face` | merged 13 Nov 01:16 IST (`d0dfd0e`) | The anti-mock guard rejects every local, private and LAN address, plus proxies (99 tests). Its tests are frozen as oracle **revision 21** (on top of Living ink's revision 20). |
 | [#12](https://github.com/vikas53953/bluey/pull/12) | `feat/living-ink` → `lane/face` | merged 13 Nov 00:40 IST (`8474556`) | Living ink notch. Oracle revision 20 (face tests load face B by name; `docs/verification/test-oracle-revision-20.md`). The ~17 MB memory finding was fixed by drawing the notch in software (decision `D-2026-11-12-notch-software-drawing`). |
 | — | `lane/face`, `main` | direct commits 13 Nov 00:11 IST | MIT LICENSE (`9729a14` on lane/face, `ecea48b` on main), with Vikas's approval while Actions was blocked. |
 | [#11](https://github.com/vikas53953/bluey/pull/11) | `ci/real-gates` → `lane/face` | merged 12 Nov (`db0a339`) | demo-ci made a blocking gate; manual `live-ai-smoke` that fails closed. |
@@ -204,8 +204,9 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 1. **Live-smoke queue.** `live-ai-smoke` has `concurrency: group: live-ai-smoke` (no cancel-in-progress). GitHub keeps
    only ONE waiting run per group, so a new dispatch cancels an older *waiting* run before it starts (no AI request is
    made). Dispatch only when no live run is waiting. Live runs cost real money; keep to one per PR head (the Grok Bot pipeline note of 13 Nov, 12:45 AM IST, gives the OpenAI cap as $10/month; the cap itself is UNVERIFIED in the repo).
-2. **Anti-mock guard** on `lane/face` still only rejects loopback until PR #14 merges. Even with #14: a planted trusted
-   root certificate, or a mock on the PC's own public-looking address, is not detected.
+2. **Anti-mock guard** (PR #14, merged): rejects loopback, private/LAN, link-local, unique-local, CGNAT and fake-IP
+   addresses and proxies. Still not detected: a planted trusted root certificate, or a mock on the PC's own
+   public-looking address.
 3. **Flaky demo: `Step4_Focus_NudgeThenBackToIt_EndsHappy`.** On docs-only commit `1e5c754`, all 5 demo tests passed in
    [43240969060](https://github.com/vikas53953/bluey/actions/runs/43240969060) but Step 4 failed in
    [43240958545](https://github.com/vikas53953/bluey/actions/runs/43240958545): the "Back to it" button appeared while
@@ -217,8 +218,8 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    and live runs only. Not measured: software-drawing CPU on 4K / 200 % or high-refresh screens, memory after the
    panel has been opened, and repeat hovers (~0.7 MB each, same on the old build).
 5. **SF-006 symlink cases** fail on a dev PC without Windows Developer Mode, same on unchanged `lane/face` (never skipped); they pass in CI.
-6. **Merge order / oracle revisions.** PR #14 (`d52dbbe`) and PR #18 (`eec75f3`) both set the oracle to revision 21 on
-   top of revision 20; whichever merges second must re-sync and re-run `--extend` / `--rebaseline` (revision 22).
+6. **Merge order / oracle revisions.** `lane/face` is at oracle revision 21 (PR #14). PR #18 also made its own revision
+   21, so it must re-sync and re-run `--extend` / `--rebaseline` on top (revision 22).
    PRs #13, #14, #15 and #18 all edit `live-ai-smoke.yml`; #13, #15 and #18 edit `demo-ci.yml`; #14, #15 and #18 edit
    `windows-ci.yml` (#20 and #21, stacked on #18, carry #18's edits).
 7. The notch memory guard (`NotchDrawingMemoryTests`) has now run in CI: windows-ci on `8474556`
