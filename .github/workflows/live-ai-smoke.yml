@@ -23,7 +23,7 @@ on:
         description: "self-hosted = your own Windows PC registered as a runner (see docs). windows-latest = GitHub's VM fallback"
         type: choice
         options: [self-hosted, windows-latest]
-        default: self-hosted
+        default: windows-latest
       model:
         description: Optional model id override for the chosen provider (blank = Boo's default)
         type: string

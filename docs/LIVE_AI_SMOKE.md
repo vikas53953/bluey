@@ -49,7 +49,9 @@ OpenAI.
 
 The test needs a real Windows desktop, because it clicks Boo's real window.
 
-### Option A (preferred): your own PC as a "self-hosted runner"
+**Since the repository became public (13 Nov 2026), use Option B (`windows-latest`, now the default). Standard GitHub runners are free for public repositories, and a self-hosted runner on a public repository is a security risk.**
+
+### Option A (no longer recommended): your own PC as a "self-hosted runner"
 
 A runner is a small GitHub program on your PC that picks up jobs from this repo.
 
@@ -71,7 +73,7 @@ While the test runs (about 5–10 minutes, most of it building Boo):
 - **The screenshot sent to the AI is of your real screen**, and screenshots are uploaded as evidence. Close anything
   private first.
 
-### Option B (fallback): GitHub's own Windows machine
+### Option B (default): GitHub's own Windows machine
 
 Choose **windows-latest** in the runner box when you start the run. Nothing to install, and the screen it sends is
 an empty test desktop. Use this when your PC is off or you do not want to set up a runner.

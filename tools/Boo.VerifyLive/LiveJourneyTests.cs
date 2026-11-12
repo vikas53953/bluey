@@ -177,9 +177,21 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
                 ColourProbe.FindNew(beforePath, afterPath, search, ColourProbe.Ring, 12, out centre, out pixels);
                 pointerFound = ColourProbe.FindNew(beforePath, afterPath, search, ColourProbe.Pointer, 15, out pointer, out pointerPixels);
             }
-            var onButton = Inflate(targetRect, 60).Contains(centre);
             var onWindow = Inflate(windowRect, 20).Contains(centre);
-            var pointerOnButton = Inflate(targetRect, 60).Contains(pointer);
+            // Boo's ring is an ellipse inscribed in the mark's box (AnnotationWindow: Ellipse Width/Height = bounds), so a
+            // ring around the BUTTON passes through the middle of the button's left, right and bottom edges. A ring around
+            // anything bigger (the whole window, for instance) misses those points by ~100 px. The top edge is left out:
+            // the mark's label (also ring-coloured) sits just above the button. A centroid check alone could not tell.
+            var mid = new Point(targetRect.Left + targetRect.Width / 2, targetRect.Top + targetRect.Height / 2);
+            var edges = new[]
+            {
+                ("left", new Point(targetRect.Left, mid.Y)),
+                ("right", new Point(targetRect.Right, mid.Y)),
+                ("bottom", new Point(mid.X, targetRect.Bottom)),
+            };
+            var edgeHits = edges.Select(e => (e.Item1, ColourProbe.CountNew(beforePath, afterPath, AroundPoint(e.Item2, 30), ColourProbe.Ring))).ToList();
+            var ringOnButton = found && edgeHits.All(h => h.Item2 >= 6);
+            var pointerOnButton = Inflate(targetRect, 20).Contains(pointer);
 
             BooAppFixture.PressOpenShortcut();
             panel = _boo.WaitForPanel(UiTimeout);
@@ -188,14 +200,15 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             _boo.CaptureScreen("j3-explain-panel");
             _boo.WriteObservation("j3-explain",
                 $"detail='{detail}' ringFound={found} ringPixels={pixels} ringCentre={centre} button={targetRect} window={windowRect} " +
-                $"onButton={onButton} onWindow={onWindow} pointerFound={pointerFound} pointerPixels={pointerPixels} pointerCentre={pointer} pointerOnButton={pointerOnButton}\n" +
+                $"ringOnButton={ringOnButton} ringPixelsAtButtonEdges={string.Join(",", edgeHits.Select(h => $"{h.Item1}:{h.Item2}"))} onWindow={onWindow} " +
+                $"pointerFound={pointerFound} pointerPixels={pointerPixels} pointerCentre={pointer} pointerOnButton={pointerOnButton}\n" +
                 $"reply='{Shorten(reply, 600)}'\nstatus='{StatusText(panel)}'");
 
             Assert.StartsWith("Screen explanation is shown", detail, StringComparison.Ordinal);
             Assert.True(found, $"No new ring-coloured pixels near the target window {windowRect} (search {search}). See j3-explain-ring.png.");
-            Assert.True(onButton, $"The ring centre {centre} is not on the 'Send report' button {targetRect} (60 px margin). See j3-explain-ring.png.");
+            Assert.True(ringOnButton, $"The ring does not run through the 'Send report' button's left, right and bottom edges ({string.Join(", ", edgeHits.Select(h => $"{h.Item1}={h.Item2} px"))}; button {targetRect}), so it is not around the button. See j3-explain-ring.png.");
             Assert.True(pointerFound, $"No pointer-coloured pixels appeared with the ring (search {search}). See j3-explain-ring.png.");
-            Assert.True(pointerOnButton, $"The pointer {pointer} did not land on the 'Send report' button {targetRect} (60 px margin).");
+            Assert.True(pointerOnButton, $"The pointer {pointer} did not land on the 'Send report' button {targetRect} (20 px margin).");
         });
     }
 
@@ -490,6 +503,8 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             $"TEST SETUP: the target window is not visible on screen (pixel {c} at the button in {shotName}). Nothing about Boo was checked.");
     }
 
+    private static Rectangle AroundPoint(Point p, int half) => new(p.X - half, p.Y - half, 2 * half, 2 * half);
+
     private static Rectangle Inflate(Rectangle r, int by) => new(r.Left - by, r.Top - by, r.Width + 2 * by, r.Height + 2 * by);
 
     private static string? NonEmpty(string text) => text.Length > 0 ? text : null;
@@ -564,9 +579,20 @@ internal static class DpiSetup
         // Boo reads Windows "Animation effects" when it starts and skips its pointer when they are off (reduced
         // motion, by design). GitHub's Windows VMs have them off; most users have them on. Turn them on before the
         // fixture launches Boo (session only, never saved to the profile) and put the original value back on exit.
+        // Only for a real live run (the workflow and Invoke-VerifyBoo.ps1 set BOO_LIVE_TEXT_PROVIDER), never when a test
+        // explorer merely loads this assembly to list its tests.
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(LiveConfig.ProviderVariable)))
+        {
+            BeforeLaunch = $"not changed: {LiveConfig.ProviderVariable} is not set (not a live run); on={WindowsAnimations.IsOn()}";
+            return;
+        }
         var animations = WindowsAnimations.EnsureOn();
         BeforeLaunch = $"animationEffectsBeforeLaunch={animations.WasOn} onAtLaunch={WindowsAnimations.IsOn()}";
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => animations.Dispose();
+        // A killed run skips this; nothing is saved to the profile, so signing out restores the user's own value.
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            if (!animations.Restore()) Console.Error.WriteLine("verify-boo: could not restore Windows animation effects to off.");
+        };
     }
 
     /// <summary>What the animation setting was before Boo launched, for the j3 observation.</summary>
@@ -606,12 +632,12 @@ internal sealed class WindowsAnimations : IDisposable
         return new WindowsAnimations(wasOn);
     }
 
-    public void Dispose()
-    {
-        if (!WasOn) Set(false);
-    }
+    public void Dispose() => Restore();
 
-    private static void Set(bool on) => SystemParametersInfo(SetClientAreaAnimation, 0, new IntPtr(on ? 1 : 0), SendChange);
+    /// <summary>Puts back the value seen before <see cref="EnsureOn"/>; false only when Windows refused.</summary>
+    public bool Restore() => WasOn || Set(false);
+
+    private static bool Set(bool on) => SystemParametersInfo(SetClientAreaAnimation, 0, new IntPtr(on ? 1 : 0), SendChange);
 
     [DllImport("user32.dll", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
@@ -773,6 +799,13 @@ internal static class ColourProbe
         if (pixels < minPixels) return false;
         centre = new Point((int)(sumX / pixels) + origin.X, (int)(sumY / pixels) + origin.Y);
         return true;
+    }
+
+    /// <summary>How many NEW pixels of <paramref name="colour"/> are inside <paramref name="area"/> (screen pixels).</summary>
+    public static int CountNew(string beforePath, string afterPath, Rectangle area, Color colour)
+    {
+        FindNew(beforePath, afterPath, area, colour, int.MaxValue, out _, out var pixels);
+        return pixels;
     }
 
     private static bool Near(Color c, Color target) =>

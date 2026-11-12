@@ -28,7 +28,16 @@ $ids = @{}
 $rows = 0
 $cited = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 
+$inMap = $false
 foreach ($line in Get-Content $MapPath -Encoding UTF8) {
+  # Everything under "## The map" that looks like a table row must be a header, a separator or a proper map row:
+  # a mistyped ID ("NTR8") or a stray space must be reported, never silently skipped.
+  if ($line -match '^##\s') { $inMap = ($line -match '^##\s+The map') }
+  if ($inMap -and $line -match '^\s*\|' -and $line -notmatch '^\|\s*#\s*\|' -and $line -notmatch '^\|\s*-' -and
+      $line -notmatch '^\|\s*([A-Z]{1,2}\d+)\s*\|') {
+    $problems.Add("malformed map row (ID must be 1-2 capital letters and a number, at the start of the line): $($line.Substring(0, [Math]::Min(60, $line.Length)))")
+    continue
+  }
   # Map rows look like: | N1 | feature | how verified | proof |
   if ($line -notmatch '^\|\s*([A-Z]{1,2}\d+)\s*\|') { continue }
   $cells = $line.Trim().Trim('|').Split('|') | ForEach-Object { $_.Trim() }
@@ -57,9 +66,12 @@ foreach ($line in Get-Content $MapPath -Encoding UTF8) {
       $hasProof = $true
       if ($method) {
         $code = Get-Content $file -Raw
+        # The cited method must be a TEST ([Fact]/[Theory]), not a helper that merely exists in the file.
+        $isTest = $code -match "\[\s*(Xunit\.)?(Fact|Theory)\b[^\]]*\]\s*(\[[^\]]*\]\s*)*public\s+(async\s+)?\w+\s+$([regex]::Escape($method))\s*\("
         if ($code -notmatch "\b$([regex]::Escape($method))\s*\(") { $problems.Add("$id cites ${relFile}::$method, but no such method is in that file") }
+        elseif (-not $isTest) { $problems.Add("$id cites ${relFile}::$method, which is not a [Fact]/[Theory] test") }
         [void] $cited.Add("${relFile}::$method")
-        if ($relFile -match '^(tools/Boo\.VerifyLive|tools/Boo\.LiveSmoke|tests/Boo\.Ui\.Tests|tests/Boo\.Perf\.Tests)/') { $liveCited = $true }
+        if ($isTest -and $relFile -match '^(tools/Boo\.VerifyLive|tools/Boo\.LiveSmoke|tests/Boo\.Ui\.Tests|tests/Boo\.Perf\.Tests)/') { $liveCited = $true }
       }
     } elseif ($ref -match 'gh workflow run|Boo\.exe --notch-gallery|text_provider=|SpeechEnabled|BOO_LIVE_') {
       $hasProof = $true
