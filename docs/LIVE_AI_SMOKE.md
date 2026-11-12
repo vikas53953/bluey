@@ -34,8 +34,14 @@ Tip: make a separate key just for this test, with a small monthly spend limit se
 You can delete it any time and the test will simply go red again.
 
 **How the key is protected:** GitHub hides secret values in every log. The run hides them a second time, never
-prints them (only their length), never types them into Boo's window (so they cannot show up in a screenshot), and
-scans every evidence file before upload — a file containing a key is deleted and the run goes red.
+prints them (only their length), and never types them into Boo's window. Before upload it scans every **text**
+evidence file — a text file containing a key is deleted and the run goes red. It **cannot** read text inside
+screenshots: if a key (or anything private) is visible on your screen while the test runs, it ends up in the
+screenshot sent to the AI and in the uploaded evidence. On your own PC, close such windows first.
+
+**Only the chosen provider's key is used.** Boo is started with only that one key and with speech turned off, and the
+test checks the answer came through Boo's screen-help path. So a run with `anthropic` really tests Claude, not
+OpenAI.
 
 ## 2. Pick where it runs
 
@@ -45,7 +51,8 @@ The test needs a real Windows desktop, because it clicks Boo's real window.
 
 A runner is a small GitHub program on your PC that picks up jobs from this repo.
 
-1. Install PowerShell 7 if you do not have it: `winget install Microsoft.PowerShell`.
+1. Install PowerShell 7 and Git if you do not have them: `winget install Microsoft.PowerShell` and
+   `winget install Git.Git`.
 2. On GitHub: repo → **Settings** → **Actions** → **Runners** → **New self-hosted runner** → **Windows** / **x64**.
 3. Follow the commands GitHub shows (download, then `config.cmd --url ... --token ...`).
    - When it asks for **labels**, press Enter — `self-hosted` and `Windows` are added automatically, which is what
@@ -67,8 +74,8 @@ While the test runs (about 5–10 minutes, most of it building Boo):
 Choose **windows-latest** in the runner box when you start the run. Nothing to install, and the screen it sends is
 an empty test desktop. Use this when your PC is off or you do not want to set up a runner.
 
-If you pick **self-hosted** but no runner is online, the job just waits in the queue ("Waiting for a runner"). Cancel
-it and run again with **windows-latest**.
+If you pick **self-hosted** but no runner is online, the job just waits in the queue ("Waiting for a runner") — for
+up to a day before GitHub gives up. Cancel it and run again with **windows-latest**.
 
 ## 3. Run it
 
@@ -85,7 +92,7 @@ From a terminal instead: `gh workflow run live-ai-smoke.yml --ref <branch> -f te
 | --- | --- |
 | `preflight` red: **"Live AI smoke FAILED CLOSED: Repository secret BOO_LIVE_OPENAI_KEY is missing"** | No key added yet (step 1). Nothing else ran. This is never counted as a pass. |
 | `smoke` red at **"Refuse if any AI host is redirected"** | The machine's hosts file points an AI address at a fake server. Remove that line and run again. |
-| `smoke` red at **"Real AI round trip"** | Boo did not get a real answer. The log and `live-01-round-trip.txt` show Boo's own message (for example "OpenAI rejected the API key" or "quota is used up"). |
+| `smoke` red at **"Real AI round trip"** | Boo did not get a real answer through the chosen provider. The log and `live-01-round-trip.txt` show Boo's own message (for example "OpenAI rejected the API key" or "quota is used up"). |
 | Both green | Boo sent a real question to the real AI and showed the real answer. |
 
 The evidence (screenshots, the answer text, test results) is attached to the run as **live-ai-evidence** — open the

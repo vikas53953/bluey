@@ -26,7 +26,9 @@ foreach ($s in $sources) {
   $code = Get-Content $s.FullName -Raw
   $code = [regex]::Replace($code, '/\*.*?\*/', '', 'Singleline')
   $code = [regex]::Replace($code, '(?m)//.*$', '')
-  $declared += [regex]::Matches($code, '(?m)^\s*\[\s*(Xunit\.)?(Fact|Theory)\b').Count
+  # Anywhere on a line, so [Trait(..)][Fact] and [Fact, Step(0)] both count. A stray match inside a string can only
+  # raise the count, which makes the gate stricter, never looser.
+  $declared += [regex]::Matches($code, '\[\s*(Xunit\.)?(Fact|Theory)\b').Count
 }
 
 $failures = @()

@@ -14,7 +14,7 @@ namespace Boo.LiveSmoke;
 /// What the live run needs, read from the environment the workflow sets. Fails closed: a missing or malformed key
 /// throws with a plain message (never the key itself), so the run goes red instead of skipping as green.
 /// </summary>
-public sealed record LiveConfig(AiProvider TextProvider, IReadOnlyDictionary<AiProvider, string> Keys, string? Model)
+public sealed record LiveConfig(AiProvider TextProvider, string Key, string? Model)
 {
     public const string ProviderVariable = "BOO_LIVE_TEXT_PROVIDER";
     public const string ModelVariable = "BOO_LIVE_MODEL";
@@ -39,25 +39,20 @@ public sealed record LiveConfig(AiProvider TextProvider, IReadOnlyDictionary<AiP
                 $"LIVE SMOKE FAILED CLOSED: {ProviderVariable} must be openai, anthropic or gemini (got '{providerText}')."),
         };
 
-        var keys = new Dictionary<AiProvider, string>();
-        foreach (var candidate in AiProviders.All)
-        {
-            var value = Environment.GetEnvironmentVariable(KeyVariable(candidate));
-            if (string.IsNullOrWhiteSpace(value)) continue;
-            if (AiProviders.CredentialRejectReason(candidate, value) is { } reason)
-            {
-                throw new InvalidOperationException(
-                    $"LIVE SMOKE FAILED CLOSED: the {KeyVariable(candidate)} secret is not a usable key: {reason}");
-            }
-            keys[candidate] = value.Trim();
-        }
-
-        if (!keys.ContainsKey(provider))
+        // Only the chosen provider's key is read and seeded. Any other key in Boo's data folder would let a different
+        // service (for example OpenAI voice, which always uses the OpenAI key) answer and turn the run into a false green.
+        var value = Environment.GetEnvironmentVariable(KeyVariable(provider));
+        if (string.IsNullOrWhiteSpace(value))
         {
             throw new InvalidOperationException(
                 $"LIVE SMOKE FAILED CLOSED: text provider is {AiProviders.DisplayName(provider)} but the repository secret " +
                 $"{KeyVariable(provider)} is missing or empty. Add it under Settings > Secrets and variables > Actions " +
                 "(see docs/LIVE_AI_SMOKE.md). This run is not a pass.");
+        }
+        if (AiProviders.CredentialRejectReason(provider, value) is { } reason)
+        {
+            throw new InvalidOperationException(
+                $"LIVE SMOKE FAILED CLOSED: the {KeyVariable(provider)} secret is not a usable key: {reason}");
         }
 
         var model = Environment.GetEnvironmentVariable(ModelVariable)?.Trim();
@@ -70,7 +65,7 @@ public sealed record LiveConfig(AiProvider TextProvider, IReadOnlyDictionary<AiP
             throw new InvalidOperationException($"LIVE SMOKE FAILED CLOSED: {ModelVariable} '{model}' is not a valid model id.");
         }
 
-        return new LiveConfig(provider, keys, model);
+        return new LiveConfig(provider, value.Trim(), model);
     }
 
     /// <summary>The settings Boo starts with: the chosen text provider, and the model override for it if one was given.</summary>
@@ -89,9 +84,11 @@ public sealed record LiveConfig(AiProvider TextProvider, IReadOnlyDictionary<AiP
 }
 
 /// <summary>
-/// The demo harness's fixture, with Boo's data folder pre-seeded before launch: each provided key goes through Boo's
-/// own DPAPI <see cref="CredentialStore"/> (so no key is ever typed into the UI or visible in a screenshot) and
-/// settings.json selects the text provider. The temp data folder is deleted when the fixture is disposed.
+/// The demo harness's fixture, with Boo's data folder pre-seeded before launch: the chosen provider's key (and only
+/// that one) goes through Boo's own DPAPI <see cref="CredentialStore"/> (so no key is ever typed into the UI or visible
+/// in a screenshot), and settings.json selects the text provider with speech OFF. With speech on, Boo hands a typed
+/// question to the OpenAI voice conversation instead of the text provider, which would test the wrong path.
+/// The temp data folder is deleted when the fixture is disposed.
 /// </summary>
 public sealed class LiveAppFixture : BooAppFixture
 {
@@ -107,19 +104,19 @@ public sealed class LiveAppFixture : BooAppFixture
 
     private static void Seed(string dataDirectory)
     {
-        foreach (var (provider, key) in Config.Keys)
-        {
-            new CredentialStore(Path.Combine(dataDirectory, AiProviders.CredentialFileName(provider))).Save(key);
-        }
-        new SettingsStore(Path.Combine(dataDirectory, "settings.json")).Save(new AppSettings(Provider: Config.ProviderSettings()));
+        new CredentialStore(Path.Combine(dataDirectory, AiProviders.CredentialFileName(Config.TextProvider))).Save(Config.Key);
+        new SettingsStore(Path.Combine(dataDirectory, "settings.json"))
+            .Save(new AppSettings(SpeechEnabled: false, Provider: Config.ProviderSettings()));
     }
 }
 
 /// <summary>
-/// One real round trip: typed question -> Boo captures the screen -> real provider -> answer row in Boo's transcript.
-/// Boo appends a "Boo: ..." transcript row only when the provider call succeeded; every failure (bad key, no quota,
-/// offline, model unavailable) goes to the status line instead, so the row is the pass signal and the status line is
-/// the failure evidence.
+/// One real round trip: typed question -> Boo captures the screen -> chosen text provider -> answer in Boo's transcript.
+/// Pass needs BOTH a "Boo: ..." transcript row AND the annotation outcome line: Boo's screen-help text path
+/// (RenderReply with a captured frame) always writes that line and the voice path never does, so together they prove
+/// the answer came from the chosen provider with the screenshot. Every provider failure (bad key, no quota, offline,
+/// model unavailable) goes to the status line instead, which is the failure evidence. Any status mentioning the
+/// voice conversation fails the run outright.
 /// </summary>
 public sealed class LiveRoundTripTests : IClassFixture<LiveAppFixture>
 {
@@ -154,17 +151,29 @@ public sealed class LiveRoundTripTests : IClassFixture<LiveAppFixture>
             _output.WriteLine($"Sent to {provider}: {Question}");
 
             string? reply = null;
-            var answered = BooAppFixture.WaitUntil(() => (reply = BooReply(panel)) is not null, AnswerTimeout);
+            var statuses = new List<string>();
+            var answered = BooAppFixture.WaitUntil(() =>
+            {
+                var now = NameOfId(panel, "StatusText");
+                if (now.Length > 0 && (statuses.Count == 0 || statuses[^1] != now)) statuses.Add(now);
+                return (reply = BooReply(panel)) is not null && NameOfId(panel, "AnnotationDetail").Length > 0;
+            }, AnswerTimeout);
             var status = NameOfId(panel, "StatusText");
             var annotation = NameOfId(panel, "AnnotationDetail");
+            reply ??= BooReply(panel);
             _boo.CaptureScreen("live-01-after-answer");
             _boo.WriteObservation("live-01-round-trip",
                 $"provider={provider} model={config.Model ?? "<Boo default>"} answered={answered} " +
-                $"replyLength={reply?.Length ?? 0}\nstatus='{status}'\nannotation='{annotation}'\nreply='{Shorten(reply, 600)}'");
+                $"replyLength={reply?.Length ?? 0}\nstatusesSeen='{string.Join(" > ", statuses)}'\nstatus='{status}'\n" +
+                $"annotation='{annotation}'\nreply='{Shorten(reply, 600)}'");
+
+            Assert.DoesNotContain(statuses, s => s.Contains("voice conversation", StringComparison.OrdinalIgnoreCase));
 
             Assert.True(answered,
                 $"No answer from {provider} within {AnswerTimeout.TotalSeconds:0}s. Boo's status line says: '{status}'");
             Assert.False(string.IsNullOrWhiteSpace(reply), "Boo's answer row is empty.");
+            Assert.False(string.IsNullOrEmpty(annotation),
+                "Boo answered, but not through the screen-help text path (no annotation outcome line), so the chosen provider was not proven.");
             // The CI mock (tools/Boo.QaMockAi) prefixes every scripted answer with "QA-". A real model never does.
             Assert.False(reply!.StartsWith("QA-", StringComparison.Ordinal),
                 $"The answer came from the QA mock, not the real provider: '{Shorten(reply, 120)}'");
