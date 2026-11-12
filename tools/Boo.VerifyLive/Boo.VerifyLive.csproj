@@ -35,6 +35,7 @@
     <Compile Include="../../tests/Boo.Demo.Tests/BooAppFixture.cs" Link="Harness/BooAppFixture.cs" />
     <Compile Include="../../tests/Boo.Demo.Tests/OrderedSteps.cs" Link="Harness/OrderedSteps.cs" />
     <Compile Include="../Boo.LiveSmoke/LiveAppFixture.cs" Link="Harness/LiveAppFixture.cs" />
+    <Compile Include="../Boo.LiveSmoke/RealAiHostGuard.cs" Link="Harness/RealAiHostGuard.cs" />
     <Content Include="../../tests/Boo.Demo.Tests/xunit.runner.json" Link="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
