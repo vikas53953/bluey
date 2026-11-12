@@ -139,8 +139,8 @@ screenshot a key; logs record lengths only.
   - no required approvals (Vikas is the only reviewer); admins not enforced (Vikas can override).
   - `live-ai-smoke` is **not** a required check: it only runs by hand, so it would block every merge.
 - **Merging, tagging and releasing stay with Vikas**, and agents never merge, tag, release, or push to `lane/face` or
-  `main`. Proposed in PR #18 (not merged yet): since 13 Nov 12:15 AM IST the verifying bot (Grok Bot) merges PRs once
-  every gate passes; tags and releases stay with Vikas either way.
+  `main`. Proposed in PR #18 (not merged yet): since 13 Nov 12:15 AM IST the verifying bot (Grok Bot) merges PR #17, PR #18 and the
+  agent-trust Phase 1–3 PRs once every gate passes; tags and releases stay with Vikas either way.
 
 ## 5. Vikas's pipeline (rules every agent follows)
 
@@ -219,7 +219,8 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 5. **SF-006 symlink cases** fail on a dev PC without Windows Developer Mode, same on unchanged `lane/face` (never skipped); they pass in CI.
 6. **Merge order / oracle revisions.** PR #14 (`d52dbbe`) and PR #18 (`eec75f3`) both set the oracle to revision 21 on
    top of revision 20; whichever merges second must re-sync and re-run `--extend` / `--rebaseline` (revision 22).
-   PRs #13, #14, #15 and #18 all edit `live-ai-smoke.yml`; #13 and #15 both edit `demo-ci.yml`.
+   PRs #13, #14, #15 and #18 all edit `live-ai-smoke.yml`; #13, #15 and #18 edit `demo-ci.yml`; #14, #15 and #18 edit
+   `windows-ci.yml` (#20 and #21, stacked on #18, carry #18's edits).
 7. The notch memory guard (`NotchDrawingMemoryTests`) has now run in CI: windows-ci on `8474556`
    ([43287434389](https://github.com/vikas53953/bluey/actions/runs/43287434389)) passed UI smoke, perf budgets and the gate.
 8. Residuals listed in [docs/STATUS.md](docs/STATUS.md) ("Known residuals") still apply unless a later PR says
