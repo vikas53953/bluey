@@ -3,7 +3,7 @@
 Development candidate; native acceptance is not complete.
 
 - Source: `1493d18fb1133a645ee3f6ee0110ddaedf863453`
-- Directory: `C:\Users\vikasmit\Downloads\blue--fo\artifacts\candidate14`
+- Directory: `%USERPROFILE%\Downloads\blue--fo\artifacts\candidate14`
 - Package: `artifacts/Boo-0.1.0-candidate14-win-x64.zip`
 - ZIP SHA-256: `D96A8FBCD32985EEE7AEA529C919FD3825750D31CFF84812AB08DBDB488726A0`
 - Manifest: `artifacts/candidate-14-manifest.json`

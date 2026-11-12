@@ -36,7 +36,7 @@ scaffold:
 
 Result: `Failed: 7, Passed: 1, Skipped: 0, Total: 8`.
 
-TRX: `TestResults/vikasmit_VIKASMIT_2026-11-07_14_51_25_net10.0.trx`
+TRX: `TestResults/<user>_<machine>_2026-11-07_14_51_25_net10.0.trx`
 
 The failures were the expected missing serial admission, pre-cancellation,
 queued cancellation, in-flight cancellation/late-success discard, faulted
@@ -53,7 +53,7 @@ After implementation, the same focused command passed:
 
 Result: `Passed! - Failed: 0, Passed: 8, Skipped: 0, Total: 8`.
 
-TRX: `TestResults/vikasmit_VIKASMIT_2026-11-07_14_52_13_net10.0.trx`
+TRX: `TestResults/<user>_<machine>_2026-11-07_14_52_13_net10.0.trx`
 
 The scoped Windows Release build also passed with zero warnings and zero
 errors:

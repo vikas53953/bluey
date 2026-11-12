@@ -3,7 +3,7 @@
 The independent backlog tracer failed before implementation at `a809e53`.
 After its first implementation, seven independently authored lifecycle tests
 found six passes and a real blocking-Stop failure. Root reproduced that
-failure in `TestResults/vikasmit_VIKASMIT_2026-11-07_11_06_01_net10.0.trx`
+failure in `TestResults/<user>_<machine>_2026-11-07_11_06_01_net10.0.trx`
 and froze oracle revision 5 at `206a026` before repairing it.
 
 The repair schedules cancellation callbacks asynchronously and observes their
@@ -22,8 +22,8 @@ After repair, all eight audio boundary tests passed. Full Release build had
 zero warnings/errors; the full suite passed **92 tests**, with **one unchanged
 host-dependent reparse fixture skipped**. Results:
 
-- `TestResults/vikasmit_VIKASMIT_2026-11-07_11_08_07_net10.0.trx`
-- `TestResults/vikasmit_VIKASMIT_2026-11-07_11_08_07_net10.0[1].trx`
+- `TestResults/<user>_<machine>_2026-11-07_11_08_07_net10.0.trx`
+- `TestResults/<user>_<machine>_2026-11-07_11_08_07_net10.0[1].trx`
 
 Oracle revision 5 verifies 25 files; diff whitespace checks passed. No native
 microphone, spoken-turn, or application-level acceptance is established here.

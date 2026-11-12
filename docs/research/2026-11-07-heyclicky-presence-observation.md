@@ -10,7 +10,7 @@ messages, microphone, credentials, or alternate UI automation were used.
   - display name: `HeyClicky`
   - returned window ID: `68530`
   - title: `HeyClicky`
-  - app path: `C:\Users\vikasmit\AppData\Local\HeyClickyApp\current\HeyClicky.exe`
+  - app path: `%USERPROFILE%\AppData\Local\HeyClickyApp\current\HeyClicky.exe`
 - `sky.list_windows()` also returned only that HeyClicky window.
 - `sky.get_window_state(...)` returned the supported runtime error:
   `window is minimized; call activate_window, refresh with get_window, then retry get_window_state`.

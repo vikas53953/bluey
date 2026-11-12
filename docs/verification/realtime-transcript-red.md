@@ -46,7 +46,7 @@ author owns no production code.
 
 Root independently reproduced the final 24-case suite in the canonical
 checkout before implementation: 22 failed, 2 passed, no skips. The retained
-TRX is `TestResults/vikasmit_VIKASMIT_2026-11-07_12_25_10_net10.0.trx`.
+TRX is `TestResults/<user>_<machine>_2026-11-07_12_25_10_net10.0.trx`.
 The author released ownership before root extended oracle revision 9; all
 prior frozen hashes remain unchanged. The reducer stub is a compile-time
 contract only, with no working behavior or application wiring yet.

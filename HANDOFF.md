@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, ~02:50 IST**, with `lane/face` at `e0fb7b3213a7aab3bd171326a83a08130d06f7f4`.
+Status last updated: **13 Nov 2026, after PR #19 merged**, with `lane/face` at `b765f0f`.
 
 ---
 
@@ -178,15 +178,15 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 PRs into `lane/face` must be **up to date** with it to merge, so every merge makes the others BEHIND. Sync by merging
 `origin/lane/face` into the branch (no force push), then re-run CI and one live smoke on the new head.
 
-| PR | Branch → base | State (13 Nov, ~02:50 IST) | Notes |
+| PR | Branch → base | State (13 Nov, after PR #19) | Notes |
 | --- | --- | --- | --- |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
-| [#16](https://github.com/vikas53953/bluey/pull/16) | `docs/project-handoff` → `lane/face` | merged 13 Nov 02:46 IST (`e0fb7b3`) | This handoff (HANDOFF.md, docs/DECISIONS.md, CONTRIBUTING.md). Merged with the PR #12 session notes and decision records. |
-| [#19](https://github.com/vikas53953/bluey/pull/19) | `docs/scrub-local-paths` → `lane/face` | **open**, QA PASS at `44be70b` (needs sync) | Replaces the owner's Windows username and home paths in old docs. |
-| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open**, synced with `e0fb7b3`; the QA verdict for the current head is in the PR description | `verify-boo` skill (`.claude/skills/verify-boo`), live journeys j0–j6 (`tools/Boo.VerifyLive`), `docs/FEATURE_MAP.md`, prove-it rule (AGENTS.md, CLAUDE.md), `journeys` input on `live-ai-smoke` (default runner `windows-latest`). Also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks). Previous QA PASS at `7c5af8d` (live [43297768829](https://github.com/vikas53953/bluey/actions/runs/43297768829): round trip + 7/7 journeys; fresh reviewer REVIEW PASS at `de9492f`). |
+| [#19](https://github.com/vikas53953/bluey/pull/19) | `docs/scrub-local-paths` → `lane/face` | merged 13 Nov (`b765f0f`) | Replaces the owner's Windows username and home paths in old docs (and in files that arrived later, e.g. the Living ink evidence notes) with `%USERPROFILE%` / `<user>_<machine>`. Old commits keep the old text (no history rewrite). |
+| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open**, synced with `b765f0f`; the QA verdict for the current head is in the PR description | `verify-boo` skill (`.claude/skills/verify-boo`), live journeys j0–j6 (`tools/Boo.VerifyLive`), `docs/FEATURE_MAP.md`, prove-it rule (AGENTS.md, CLAUDE.md), `journeys` input on `live-ai-smoke` (default runner `windows-latest`). Also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks). Previous QA PASS at `60930b9` (live [43309593215](https://github.com/vikas53953/bluey/actions/runs/43309593215): round trip + 7/7 journeys; fresh reviewer REVIEW PASS at `de9492f`). |
 | [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **open** | 3-phase agent trust plan (`docs/plans/agent-trust-plan.md`). |
 | [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **open** | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option. |
 | [#20](https://github.com/vikas53953/bluey/pull/20) → #18's branch, [#21](https://github.com/vikas53953/bluey/pull/21) → #20's branch | stacked | **open** | Live smoke as a required check on every PR; a ratchet of known-bad code patterns. |
+| [#16](https://github.com/vikas53953/bluey/pull/16) | `docs/project-handoff` → `lane/face` | merged 13 Nov 02:46 IST (`e0fb7b3`) | This handoff (HANDOFF.md, docs/DECISIONS.md, CONTRIBUTING.md). Merged with the PR #12 session notes and decision records. |
 | [#15](https://github.com/vikas53953/bluey/pull/15) | `ci/artifact-retention-7d` → `lane/face` | merged 13 Nov 01:40 IST (`95e9718`) | `retention-days: 7` on every upload. |
 | [#14](https://github.com/vikas53953/bluey/pull/14) | `fix/anti-mock-lan-ips` → `lane/face` | merged 13 Nov 01:16 IST (`d0dfd0e`) | The anti-mock guard rejects every local, private and LAN address, plus proxies (99 tests). Its tests are frozen as oracle **revision 21** (on top of Living ink's revision 20). |
 | [#12](https://github.com/vikas53953/bluey/pull/12) | `feat/living-ink` → `lane/face` | merged 13 Nov 00:40 IST (`8474556`) | Living ink notch. Oracle revision 20 (face tests load face B by name; `docs/verification/test-oracle-revision-20.md`). The ~17 MB memory finding was fixed by drawing the notch in software (decision `D-2026-11-12-notch-software-drawing`). |
@@ -245,8 +245,8 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 - **Voice** (OpenAI Realtime, hold-to-talk) as a live round trip on `lane/face`. PR #12's builder reports one live
   voice turn on `feat/living-ink`; not re-verified independently.
 - **Pointer + ring with a real model, beyond PR #13's one target.** Once PR #13 merges, its live journey j3 proves the
-  ring runs through a known button's edges and the pointer lands on it (passed on `de9492f` and `7c5af8d`), on one
-  1024x768 VM screen. Still UNVERIFIED: other targets, other DPI or multiple monitors, and **Windows animation effects
+  ring runs through a known button's edges and the pointer lands on it (passed on `de9492f`, `7c5af8d` and `60930b9`), on
+  one 1024x768 VM screen. Still UNVERIFIED: other targets, other DPI or multiple monitors, and **Windows animation effects
   off**: Boo then hides the pointer by design, and the journeys run with animations switched on.
 - **A manual run by Vikas on his PC**: the three demos and a real 25-minute focus session
   ([docs/MORNING_CHECKLIST.md](docs/MORNING_CHECKLIST.md)). Delivery is not accepted until this is done.

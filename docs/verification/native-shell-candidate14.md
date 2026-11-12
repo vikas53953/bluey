@@ -21,7 +21,7 @@ presence, color, typing, or provider cases.
 
 - Candidate14 launched as PID `25356` from the exact executable path using
   hidden `Start-Process`, workspace working directory, and
-  `BOO_DATA_DIR=C:\Users\vikasmit\Downloads\blue--fo\artifacts\qa-profile-candidate14-shell`.
+  `BOO_DATA_DIR=%USERPROFILE%\Downloads\blue--fo\artifacts\qa-profile-candidate14-shell`.
   Process path and executable hash were revalidated.
 - Candidate14 was absent from the first `list_windows`/`list_apps` refresh and
   remained absent across five fresh polls:

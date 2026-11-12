@@ -74,6 +74,6 @@ release acceptance result.
 Root independently reproduced the final 13-case contract in the canonical
 checkout: 8 failed, 5 passed, no skips. The stalled body reached its outer
 watchdog and drained before the process completed. TRX:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_12_43_48_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_12_43_48_net10.0.trx`.
 The author released ownership before oracle revision 10 added this file;
 every earlier frozen hash remains unchanged. Implementation has not started.
