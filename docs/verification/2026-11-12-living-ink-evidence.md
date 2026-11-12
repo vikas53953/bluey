@@ -11,7 +11,7 @@ This page is the **builder's** record. The verdict belongs to the separate revie
 | `src/Boo.App/NotchWindow.xaml(.cs)` | Draws the blot, eyes, lids, shine, happy arcs, blooms, drip, rising dots, splatters, speaking bars; light/dark rim; reduced motion. |
 | `src/Boo.App/NotchGallery.cs` | Gallery adds dark-theme, wake-up and celebrate stills (21 PNGs). |
 | `docs/design/boo-notch-spec.json` | New face `D` "Living ink" (sizes); `chosen.face` = `D`. Faces A/B/C unchanged. Hover/retract timings unchanged. |
-| `tests/Boo.Core.Tests/LivingInkTests.cs` | New behaviour tests (69 cases). |
+| `tests/Boo.Core.Tests/LivingInkTests.cs` | New behaviour tests (Core count 1682 → 1752). |
 | `tests/Boo.Core.Tests/{FaceSpec,FaceMotion,NotchLayout,NotchFaceGeometry}Tests.cs` | These pinned "the chosen face" to face B's numbers. They now load face B explicitly (`FaceSpecFixture.LoadFaceB()`), same assertions; `Shipped_spec_chooses_face_B_button_eyes` became `..._D_living_ink`. None of these files is in the frozen oracle (`docs/verification/test-oracle.json`); no frozen file was touched. |
 
 No token file was added: the five Living ink colours live in `LivingInkPalette` (code), because only the notch uses them.
