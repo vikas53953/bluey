@@ -44,7 +44,9 @@ A second fresh review (head `fa630a8`) passed the capture fixes and found a bypa
 It also asked for `BOO_CAPTURE_SCOPE` to be honoured when it holds only spaces (`IsNullOrEmpty`, not
 `IsNullOrWhiteSpace`), done here.
 
-**Reasoned, not observed:** in the live runs so far only the notch and the main panel were open at capture time. That
+**Now tested, not only reasoned:** `tools/Boo.CaptureProof` (run by `demo-ci` after the demos) opens the overlay over a
+full-screen magenta decoy window and fails if the window-only screenshots miss the overlay or contain a single decoy
+pixel; a copied screen corner first proves the decoy was visible. Before that test existed: in the live runs so far only the notch and the main panel were open at capture time. That
 `PrintWindow` draws the transparent explanation overlay without the desktop beneath is reasoned from how Windows
 composes layered windows (the window's own surface never contains other windows), not yet seen in a run. The workflow
 step fails blank, unreadable or non-renderer images, but it cannot tell desktop pixels inside a render, so this point

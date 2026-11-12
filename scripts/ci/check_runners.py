@@ -1,7 +1,8 @@
 """Fail if any GitHub Actions job could run anywhere except GitHub's own hosted VMs. Never reads secrets.
 
   python -I scripts/ci/check_runners.py [--self-test]
-  Needs PyYAML 6.0.2 in the interpreter's own site-packages (`python -m pip install pyyaml==6.0.2`; `python -I`
+  Needs PyYAML 6.0.2 in the interpreter's own site-packages, hash-pinned in scripts/ci/requirements-ci.txt
+  (`python -m pip install --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt`; `python -I`
   ignores PYTHONPATH and user site-packages). Without it every workflow fails the check; it never passes.
 
 Why: Boo's UI, demo, perf and live tests drive the real mouse and keyboard, take screenshots, and the live smoke sends a
@@ -278,8 +279,21 @@ SELF_TEST_GOOD = ('on: push\n# self-hosted is fine in a comment\njobs:\n  a:\n  
                   '      - run: |\n          echo "runs on GitHub"\n  b:\n    needs: a\n    runs-on: ubuntu-latest\r\n')
 
 
+# Each layer must catch these cases ON ITS OWN, so a regression that silently disables one layer fails the self-test.
+TEXT_LAYER_MUST_CATCH = ['quoted key', 'tab indentation', 'single-quoted string at column 0', 'unicode line break',
+                         'second document', 'top-level key after jobs', 'odd indent hides uses', 'flow mapping']
+PARSER_LAYER_MUST_CATCH = ['yaml 1.1 boolean job ids', 'reusable workflow', 'unknown label', 'anchor and alias',
+                           'explicit tag', 'duplicate job id', 'job without runs-on', 'expression', 'quoted key']
+
+
 def self_test():
     problems = [name for name, text in SELF_TEST_BAD.items() if not check_text(name, text)[0]]
+    for name in TEXT_LAYER_MUST_CATCH:
+        if not shape_failures(name, SELF_TEST_BAD[name].replace('\r\n', '\n'))[0]:
+            problems.append(f'text layer alone missed: {name}')
+    for name in PARSER_LAYER_MUST_CATCH:
+        if not meaning_failures(name, SELF_TEST_BAD[name].replace('\r\n', '\n')):
+            problems.append(f'parser layer alone missed: {name}')
     good, _ = check_text('good', SELF_TEST_GOOD)
     if good:
         problems.append('false failure on a good workflow: ' + '; '.join(good))

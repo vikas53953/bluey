@@ -165,7 +165,8 @@ screenshot a key; logs record lengths only.
    from their own content (`PrintWindow`, files `*.boo-<n>.png`) and refuse rectangle screenshots. No workflow may use
    a self-hosted runner (`scripts/ci/check_runners.py`), and the repo must keep 0 registered runners. Side effect,
    intended: the UI, demo and perf suites now refuse to run on a personal PC (rectangle screenshots throw), so run
-   them only through CI. Not yet observed: a capture while the explanation overlay is open (reasoned safe).
+   them only through CI. A capture with the explanation overlay open is tested by `tools/Boo.CaptureProof` in demo-ci (overlay over a magenta
+   decoy; zero decoy pixels allowed).
 8. **Honest red.** If evidence cannot be uploaded (for example the artifact quota), the job stays red. Never add
    `continue-on-error` to uploads or tests to get a green.
 9. **Secrets:** names only. Never print a key, write one to disk logs, or put one in a screenshot.

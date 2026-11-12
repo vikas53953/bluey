@@ -59,7 +59,8 @@ desktop. Decided by Vikas on 12 Nov 2026 (`docs/DECISIONS.md`). Three things enf
 
 Evidence screenshots show **Boo's own windows only**, never the whole desktop (`BOO_CAPTURE_SCOPE=boo-windows`). Each
 Boo window is drawn from its own content (`PrintWindow`), not copied from the screen, so nothing behind or on top of it
-can appear. Files are named `<step>.boo-<n>.png`; a step in the workflow fails the run if any screenshot has another
+can appear. `demo-ci` proves it on every push with `tools/Boo.CaptureProof`: Boo's transparent explanation overlay is
+opened over a magenta decoy window, and the window-only screenshots must contain the overlay and zero magenta pixels. Files are named `<step>.boo-<n>.png`; a step in the workflow fails the run if any screenshot has another
 name. The same harness, run on anyone's own PC (for example a local UI or demo run), also draws Boo's windows only, and
 refuses rectangle screenshots; it copies the whole desktop only on a GitHub VM.
 
