@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, ~01:50 IST**, with `lane/face` at `d0dfd0ec036696c5b7a737e4ad8554e7043cb826`.
+Status last updated: **13 Nov 2026, ~02:00 IST**, with `lane/face` at `95e97189c8a44d15b1ff6efeea89c4eb8b212770`.
 
 ---
 
@@ -181,13 +181,13 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | PR | Branch → base | State (13 Nov, ~01:30 IST) | Notes |
 | --- | --- | --- | --- |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
-| [#15](https://github.com/vikas53953/bluey/pull/15) | `ci/artifact-retention-7d` → `lane/face` | **open**, QA PASS at `dbd0deb` (synced after #14) | `retention-days: 7` on every upload. |
 | [#16](https://github.com/vikas53953/bluey/pull/16) | `docs/project-handoff` → `lane/face` | **open** | This handoff (HANDOFF.md, docs/DECISIONS.md, CONTRIBUTING.md). Merged with the PR #12 session notes and decision records. |
 | [#19](https://github.com/vikas53953/bluey/pull/19) | `docs/scrub-local-paths` → `lane/face` | **open**, QA PASS at `44be70b` (needs sync) | Replaces the owner's Windows username and home paths in old docs. |
 | [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open** | `verify-boo` skill: live journeys j0–j6, `docs/FEATURE_MAP.md`, prove-it rule. Since `1c4b2d1` it also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks). |
 | [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **open** | 3-phase agent trust plan (`docs/plans/agent-trust-plan.md`). |
 | [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **open** | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option. |
 | [#20](https://github.com/vikas53953/bluey/pull/20) → #18's branch, [#21](https://github.com/vikas53953/bluey/pull/21) → #20's branch | stacked | **open** | Live smoke as a required check on every PR; a ratchet of known-bad code patterns. |
+| [#15](https://github.com/vikas53953/bluey/pull/15) | `ci/artifact-retention-7d` → `lane/face` | merged 13 Nov 01:40 IST (`95e9718`) | `retention-days: 7` on every upload. |
 | [#14](https://github.com/vikas53953/bluey/pull/14) | `fix/anti-mock-lan-ips` → `lane/face` | merged 13 Nov 01:16 IST (`d0dfd0e`) | The anti-mock guard rejects every local, private and LAN address, plus proxies (99 tests). Its tests are frozen as oracle **revision 21** (on top of Living ink's revision 20). |
 | [#12](https://github.com/vikas53953/bluey/pull/12) | `feat/living-ink` → `lane/face` | merged 13 Nov 00:40 IST (`8474556`) | Living ink notch. Oracle revision 20 (face tests load face B by name; `docs/verification/test-oracle-revision-20.md`). The ~17 MB memory finding was fixed by drawing the notch in software (decision `D-2026-11-12-notch-software-drawing`). |
 | — | `lane/face`, `main` | direct commits 13 Nov 00:11 IST | MIT LICENSE (`9729a14` on lane/face, `ecea48b` on main), with Vikas's approval while Actions was blocked. |
@@ -207,26 +207,32 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 2. **Anti-mock guard** (PR #14, merged): rejects loopback, private/LAN, link-local, unique-local, CGNAT and fake-IP
    addresses and proxies. Still not detected: a planted trusted root certificate, or a mock on the PC's own
    public-looking address.
-3. **Flaky demo: `Step4_Focus_NudgeThenBackToIt_EndsHappy`.** On docs-only commit `1e5c754`, all 5 demo tests passed in
+3. **Flaky demo: `Step4_Focus_NudgeThenBackToIt_EndsHappy`.** Seen again on docs-only `3593ba3`
+   ([43296734862](https://github.com/vikas53953/bluey/actions/runs/43296734862)). On docs-only commit `1e5c754`, all 5 demo tests passed in
    [43240969060](https://github.com/vikas53953/bluey/actions/runs/43240969060) but Step 4 failed in
    [43240958545](https://github.com/vikas53953/bluey/actions/runs/43240958545): the "Back to it" button appeared while
    the notch's reported state still read `Capture` (`DemoTests.cs:228`). The cause isn't proven. The test is frozen, so
    a fix needs its own reviewed PR.
-4. **Living ink notes** (from PR #12's reviews, low): built-in fallback face is still B (`NotchSpec.Default`); the
+4. **Flaky perf budget: `revealFramesPerSecond >= 20`.** On GitHub's shared Windows VMs the notch's reveal frame rate
+   swings widely on the same code: 18 windows-ci runs between 19:00 and 20:10 UTC on 12 Nov measured 8 to 70 fps (most
+   40–55). One docs-only run failed at 8 fps ([43296723546](https://github.com/vikas53953/bluey/actions/runs/43296723546))
+   while its twin passed at 41 fps; another got 20.99. Since PR #12 the notch draws in software, so it may be more
+   sensitive to VM load. Not fixed; a budget or measurement change needs its own reviewed PR.
+5. **Living ink notes** (from PR #12's reviews, low): built-in fallback face is still B (`NotchSpec.Default`); the
    dark-desktop rim follows the Windows app mode, not the wallpaper; pure black/white custom colours draw as ink/cream;
    the wake-up's first beats are faint on dark desktops and the eyes are not drawn in its "eyes shut" beat; window-level wake-up/celebrate rules are covered by the gallery
    and live runs only. Not measured: software-drawing CPU on 4K / 200 % or high-refresh screens, memory after the
    panel has been opened, and repeat hovers (~0.7 MB each, same on the old build).
-5. **SF-006 symlink cases** fail on a dev PC without Windows Developer Mode, same on unchanged `lane/face` (never skipped); they pass in CI.
-6. **Merge order / oracle revisions.** `lane/face` is at oracle revision 21 (PR #14). PR #18 also made its own revision
+6. **SF-006 symlink cases** fail on a dev PC without Windows Developer Mode, same on unchanged `lane/face` (never skipped); they pass in CI.
+7. **Merge order / oracle revisions.** `lane/face` is at oracle revision 21 (PR #14). PR #18 also made its own revision
    21, so it must re-sync and re-run `--extend` / `--rebaseline` on top (revision 22).
    PRs #13, #14, #15 and #18 all edit `live-ai-smoke.yml`; #13, #15 and #18 edit `demo-ci.yml`; #14, #15 and #18 edit
    `windows-ci.yml` (#20 and #21, stacked on #18, carry #18's edits).
-7. The notch memory guard (`NotchDrawingMemoryTests`) has now run in CI: windows-ci on `8474556`
+8. The notch memory guard (`NotchDrawingMemoryTests`) has now run in CI: windows-ci on `8474556`
    ([43287434389](https://github.com/vikas53953/bluey/actions/runs/43287434389)) passed UI smoke, perf budgets and the gate.
-8. Residuals listed in [docs/STATUS.md](docs/STATUS.md) ("Known residuals") still apply unless a later PR says
+9. Residuals listed in [docs/STATUS.md](docs/STATUS.md) ("Known residuals") still apply unless a later PR says
    otherwise.
-9. Resolved 13 Nov: the artifact storage quota and the Actions budget block. The repo went public, so standard runners
+10. Resolved 13 Nov: the artifact storage quota and the Actions budget block. The repo went public, so standard runners
    are free. On 12 Nov the 8 Nov app copies (168 artifacts, 15.93 GB) were deleted, and uploads work again.
 
 ### UNVERIFIED (not proven on `lane/face`)
