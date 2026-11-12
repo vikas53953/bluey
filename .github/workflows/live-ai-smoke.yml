@@ -235,4 +235,4 @@ jobs:
           name: live-ai-evidence
           path: artifacts/live-evidence
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
