@@ -19,10 +19,10 @@ using MediaSystemColors = System.Windows.SystemColors;
 namespace Boo.App;
 
 /// <summary>
-/// The notch: a black "HeyClicky pocket" at the top centre with living button eyes (face lane U1/U2).
-/// All sizes and timings come from docs/design/boo-notch-spec.json (chosen face); the behaviour lives in
-/// Boo.Core (FaceStateResolver, GazeSolver/GazeSpring, BlinkScheduler, NotchLayout, NotchRevealTimeline)
-/// and this class is the thin WPF/Win32 glue. Compiled only in the Linux container: not verified on Windows.
+/// The notch: a Living ink blot at the top centre with two cream eyes (face lane U1/U2, Living ink 2026-11-12).
+/// Sizes and hover timings come from docs/design/boo-notch-spec.json (chosen face D); the behaviour lives in
+/// Boo.Core (FaceStateResolver, FaceMotion gaze, NotchLayout, NotchRevealTimeline, and LivingInk: blot shapes, moods,
+/// morph, wake-up, celebrate, lid blink) and this class is the thin WPF/Win32 glue.
 /// </summary>
 public partial class NotchWindow : Window
 {
@@ -45,7 +45,10 @@ public partial class NotchWindow : Window
     private const string SpecResourceName = "Boo.App.boo-notch-spec.json";
     private const double ShakePadDip = 6;
     private const double DisclosureReserveDip = 76;
-    private static readonly MediaBrush PupilBrush = Frozen(new SolidColorBrush(Colors.Black));
+    /// <summary>Room each side of the widest blot for loose ink (rising thinking dots, splatters).</summary>
+    private const double InkPadDip = 30;
+    /// <summary>The wake-up plays on Boo's first appearance and again only after it has been hidden this long (an "arrival", not a hover).</summary>
+    private static readonly TimeSpan WakeAgainAfter = TimeSpan.FromMinutes(5);
 
     private readonly Action _onOpenPanel;
     private readonly Action _onStop;
@@ -61,8 +64,23 @@ public partial class NotchWindow : Window
     private readonly CaptionReveal _captionReveal;
     private readonly PressHoldTracker _press = new();
     private readonly DispatcherTimer _holdTimer;
-    private readonly Rectangle[] _listeningBars = new Rectangle[FaceIndicators.BarCount];
-    private readonly Ellipse[] _thinkingDots = new Ellipse[FaceIndicators.DotCount];
+    private readonly Rectangle[] _speakingBars = new Rectangle[LivingInk.BarCount];
+    private readonly Ellipse[] _thinkDots = new Ellipse[LivingInk.ThinkDotSizes.Count];
+    private readonly Ellipse[] _blooms = new Ellipse[LivingInk.Blooms.Count];
+    private readonly Ellipse[] _splatters = new Ellipse[LivingInk.Splatters.Count];
+    private readonly Rectangle _drip = new() { Width = LivingInk.DripWidth, RadiusX = LivingInk.DripWidth / 2, RadiusY = LivingInk.DripWidth / 2 };
+    private readonly InkMorph _morph;
+    private readonly InkWakeUp _wake;
+    private readonly InkCelebrate _celebrate = new();
+    private InkBlink _blink = new(new Random());
+    private InkBlot? _builtBlot;
+    private NotchFaceState _builtState = NotchFaceState.Hidden;
+    private double _builtTopRadius = double.NaN;
+    private bool _everShown;
+    private TimeSpan? _hiddenSince;
+    private bool _darkTheme;
+    private MediaBrush _bodyBrush = MediaBrushes.Black;
+    private MediaBrush _alertBrush = MediaBrushes.DarkRed;
     private readonly double _windowWidthDip;
     private readonly double _windowHeightDip;
     private NotchAppearance _appearance = new();
@@ -75,11 +93,8 @@ public partial class NotchWindow : Window
     private bool _hovered;
     private NotchFaceState _state = NotchFaceState.Hidden;
     private TimeSpan _stateSince;
-    private SizeD _sizeFrom;
-    private SizeD _sizeTo;
     private SizeD _sizeNow;
     private SizeD _builtSize;
-    private TimeSpan _resizeStart;
     private bool _rendering;
     private TimeSpan _lastFrame;
     private readonly FramePacer _pacer = new();
@@ -128,6 +143,10 @@ public partial class NotchWindow : Window
     /// <summary>True while CompositionTarget.Rendering is subscribed, i.e. the notch is visible or animating.</summary>
     internal bool IsRenderLoopActive => _rendering;
 
+    /// <summary>How Windows draws the notch, as the running window reports it (perf diagnostics; must be SoftwareOnly).</summary>
+    internal string RenderModeName =>
+        _handle != IntPtr.Zero && HwndSource.FromHwnd(_handle)?.CompositionTarget is { } target ? target.RenderMode.ToString() : string.Empty;
+
     /// <summary>Frames the pacer dropped on high-refresh displays (perf diagnostics).</summary>
     internal long PacerSkippedFrames => _pacer.Skipped;
 
@@ -154,10 +173,13 @@ public partial class NotchWindow : Window
         // UI automation sees the resting face state from the start (NotchFaceState name, e.g. "Hidden").
         System.Windows.Automation.AutomationProperties.SetItemStatus(this, _state.ToString());
 
-        _windowWidthDip = Enum.GetValues<NotchFaceState>().Max(s => _face.SizeFor(s).Width) + 2 * _face.Shape.Shoulder + 2 * ShakePadDip;
+        _windowWidthDip = Enum.GetValues<NotchFaceState>().Max(s => _face.SizeFor(s).Width) + 2 * _face.Shape.Shoulder + 2 * ShakePadDip + 2 * InkPadDip;
         _windowWidthDip = Math.Max(_windowWidthDip, _spec.HoverStrip.Width);
         _windowHeightDip = Enum.GetValues<NotchFaceState>().Max(s => _face.SizeFor(s).Height) + DisclosureReserveDip;
-        _sizeFrom = _sizeTo = _sizeNow = _face.SizeFor(NotchFaceState.Hidden);
+        _sizeNow = _face.SizeFor(NotchFaceState.Hidden);
+        _morph = new InkMorph(_sizeNow);
+        _wake = new InkWakeUp(_face.SizeFor(NotchFaceState.Idle));
+        _darkTheme = ReadDarkTheme();
 
         InitializeComponent();
         Width = _windowWidthDip;
@@ -170,9 +192,10 @@ public partial class NotchWindow : Window
         BuildFace();
         BuildIndicators();
         ApplyAppearance();
-        LayoutBody(_sizeNow);
+        LayoutBody(_sizeNow, InkBlot.Idle);
 
         SystemParameters.StaticPropertyChanged += SystemParameters_OnStaticPropertyChanged;
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged += SystemEvents_OnUserPreferenceChanged;
         SourceInitialized += OnSourceInitialized;
         LocationChanged += (_, _) => CaptureExternalTarget();
         IsVisibleChanged += (_, _) =>
@@ -211,6 +234,7 @@ public partial class NotchWindow : Window
                 UnregisterHotKey(_handle, PauseAllHotKeyId);
             }
             SystemParameters.StaticPropertyChanged -= SystemParameters_OnStaticPropertyChanged;
+            Microsoft.Win32.SystemEvents.UserPreferenceChanged -= SystemEvents_OnUserPreferenceChanged;
         };
         Recompute();
     }
@@ -372,13 +396,20 @@ public partial class NotchWindow : Window
 
     // ---------------------------------------------------------------- gallery (CI screenshots)
 
-    /// <summary>Renders the notch in <paramref name="state"/> at time <paramref name="at"/> into a bitmap (no window shown).</summary>
-    internal System.Windows.Media.Imaging.BitmapSource RenderGalleryFrame(NotchFaceState state, TimeSpan at, double scale)
+    /// <summary>
+    /// Renders the notch in <paramref name="state"/> at time <paramref name="at"/> into a bitmap (no window shown).
+    /// <paramref name="dark"/> draws on a dark desktop with the dark-theme rim; <paramref name="wakeMs"/> /
+    /// <paramref name="celebrateMs"/> freeze the wake-up / celebrate sequence that many ms after it started.
+    /// </summary>
+    internal System.Windows.Media.Imaging.BitmapSource RenderGalleryFrame(NotchFaceState state, TimeSpan at, double scale,
+        bool dark = false, int? wakeMs = null, int? celebrateMs = null)
     {
         if (ReferenceEquals(Content, Root))
         {
             Content = null; // render the canvas standalone; the window is never shown in gallery mode
         }
+        _darkTheme = dark;
+        ApplyAppearance();
         _reducedMotion = false;
         _state = NotchFaceState.Hidden;
         if (state is NotchFaceState.Responding or NotchFaceState.Nudge)
@@ -389,44 +420,47 @@ public partial class NotchWindow : Window
         }
         var start = at - TimeSpan.FromMilliseconds(4000);
         _motion = new FaceMotion(_spec, new Random(7)); // deterministic gallery
+        _blink = new InkBlink(new Random(7));
         ApplyState(state, start);
         _reducedMotion = false; // render full motion even when the CI desktop has animations off
         _motion.ReducedMotion = false;
-        _sizeFrom = _sizeTo = _sizeNow = _face.SizeFor(state);
-        LayoutBody(_sizeNow);
+        _wake.Cancel();
+        _celebrate.Cancel();
+        if (wakeMs is { } w)
+        {
+            _wake.Start(at - TimeSpan.FromMilliseconds(w), reducedMotion: false);
+        }
+        if (celebrateMs is { } c)
+        {
+            _celebrate.Start(at - TimeSpan.FromMilliseconds(c), reducedMotion: false);
+        }
+        _blink.Restart(at); // no blink caught mid-way in a still
         NotchHost.Visibility = Visibility.Visible;
         RevealTranslate.Y = 0;
         RevealScale.ScaleY = 1;
         // Settle the eyes: pointer below-right of the notch, as if the user just moved it there.
-        // Pointer keeps moving slightly (no idle wander) below-right; skip ahead past any blink so eyes are open.
         var jitter = 0;
         FaceFrame frame = default;
-        var end = at;
-        for (var t = start; t <= end; t += TimeSpan.FromMilliseconds(16))
+        for (var t = start; t <= at; t += TimeSpan.FromMilliseconds(16))
         {
             frame = _motion.Tick(t, new PointD(150 + (jitter++ % 2), 110));
-            var mood = FaceMoods.For(state, t.TotalMilliseconds);
-            if (t + TimeSpan.FromMilliseconds(16) > end && mood.Blinks && frame.Openness < mood.Open * 0.97 && end < at + TimeSpan.FromMilliseconds(600))
-            {
-                end += TimeSpan.FromMilliseconds(16);
-            }
         }
-        ApplyFrame(frame);
-        at = end;
+        DrawInk(at, frame);
         UpdateIndicators(at);
         UpdateCaption(at);
         UpdateDisclosure();
         HoverStrip.Visibility = Visibility.Collapsed;
 
         var pad = 12d;
-        var left = BodyLeftDip(_sizeNow) - _face.Shape.Shoulder - pad;
-        var width = _sizeNow.Width + 2 * (_face.Shape.Shoulder + pad);
-        var height = _sizeNow.Height + pad + (ActiveDisclosure.Visibility == Visibility.Visible ? 44 : 0);
+        var reach = Math.Max(_sizeNow.Width, _face.SizeFor(state).Width);
+        var left = BodyLeftDip(new SizeD(reach, 0)) - _face.Shape.Shoulder - pad - InkPadDip;
+        var width = reach + 2 * (_face.Shape.Shoulder + pad + InkPadDip);
+        var height = Math.Max(_sizeNow.Height, _face.SizeFor(state).Height) + pad + 16 + (ActiveDisclosure.Visibility == Visibility.Visible ? 44 : 0);
         // Detached canvas: force a full layout + render-data pass (twice, with a dispatcher turn between) so shapes whose
-        // geometry changed this frame (the pocket path) are re-rendered before capture, then render the canvas itself.
+        // geometry changed this frame (the blot path) are re-rendered before capture, then render the canvas itself.
         for (var pass = 0; pass < 2; pass++)
         {
-            foreach (var element in new UIElement[] { Root, NotchHost, BodyPath, FaceLayer })
+            foreach (var element in new UIElement[] { Root, NotchHost, BodyPath, FaceLayer, InkLayer })
             {
                 element.InvalidateMeasure();
                 element.InvalidateArrange();
@@ -441,15 +475,17 @@ public partial class NotchWindow : Window
         var full = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(_windowWidthDip * scale), (int)Math.Ceiling(_windowHeightDip * scale),
             96 * scale, 96 * scale, PixelFormats.Pbgra32);
         full.Render(Root);
-        var crop = new Int32Rect((int)Math.Max(0, Math.Floor(left * scale)), 0,
-            (int)Math.Min(full.PixelWidth - Math.Max(0, Math.Floor(left * scale)), Math.Ceiling(width * scale)),
+        var x0 = (int)Math.Max(0, Math.Floor(left * scale));
+        var crop = new Int32Rect(x0, 0,
+            (int)Math.Min(full.PixelWidth - x0, Math.Ceiling(width * scale)),
             (int)Math.Min(full.PixelHeight, Math.Ceiling(height * scale)));
         var cropped = new System.Windows.Media.Imaging.CroppedBitmap(full, crop);
 
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
-            dc.DrawRectangle(new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF3, 0xF3, 0xF1)), null, new Rect(0, 0, crop.Width, crop.Height));
+            var desk = dark ? System.Windows.Media.Color.FromRgb(0x1B, 0x1C, 0x1F) : System.Windows.Media.Color.FromRgb(0xE4, 0xDD, 0xD1);
+            dc.DrawRectangle(new SolidColorBrush(desk), null, new Rect(0, 0, crop.Width, crop.Height));
             dc.DrawImage(cropped, new Rect(0, 0, crop.Width, crop.Height));
         }
         var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(crop.Width, crop.Height, 96, 96, PixelFormats.Pbgra32);
@@ -496,32 +532,50 @@ public partial class NotchWindow : Window
         _motion.ReducedMotion = _reducedMotion;
         _motion.SetState(state, now);
 
-        _sizeFrom = _sizeNow;
-        _sizeTo = _face.SizeFor(state);
-        _resizeStart = now;
-        if (_reducedMotion || wasHidden)
+        // Living ink: morph blot, size and eyes toward the new mood. A new state always cuts the running morph
+        // (it restarts from the pose on screen) and the wake-up; reduced motion and a fresh appearance jump to the end pose.
+        var target = _face.SizeFor(state);
+        var snap = _reducedMotion || wasHidden;
+        _morph.Retarget(LivingInk.BlotFor(state), InkEyePose.For(LivingInk.MoodFor(state)), target, now, LivingInk.MorphMs(state), snap);
+        if (state == NotchFaceState.Hidden)
         {
-            _sizeFrom = _sizeTo;
-            _sizeNow = _sizeTo;
+            _wake.Cancel();
+            _hiddenSince = now;
         }
-
-        var happy = state == NotchFaceState.Happy;
-        var showPupils = !happy && _face.Eye.Pupil > 0;
-        foreach (var white in new[] { LeftWhite, RightWhite })
+        else if (wasHidden)
         {
-            white.Visibility = happy ? Visibility.Collapsed : Visibility.Visible;
+            var arrival = !_everShown || (_hiddenSince is { } since && now - since >= WakeAgainAfter);
+            _everShown = true;
+            if (arrival && state is NotchFaceState.Hover or NotchFaceState.Idle)
+            {
+                _wake.Start(now, _reducedMotion);
+            }
+            else
+            {
+                _wake.Cancel();
+            }
+            _blink.Restart(now);
         }
-        foreach (var part in new UIElement[] { LeftPupil, RightPupil, LeftGlint, RightGlint })
+        else
         {
-            part.Visibility = showPupils ? Visibility.Visible : Visibility.Collapsed;
+            _wake.Cancel();
         }
-        LeftHappy.Visibility = RightHappy.Visibility = happy ? Visibility.Visible : Visibility.Collapsed;
+        if (state == NotchFaceState.Happy && previous != NotchFaceState.Happy)
+        {
+            _celebrate.Start(now, _reducedMotion);
+        }
+        else if (state != NotchFaceState.Happy)
+        {
+            _celebrate.Cancel();
+        }
+        if (snap)
+        {
+            _sizeNow = target;
+        }
 
         static Visibility Show(bool on) => on ? Visibility.Visible : Visibility.Collapsed;
-        ListeningBars.Visibility = Show(state is NotchFaceState.Listening or NotchFaceState.Responding);
-        ThinkingDots.Visibility = Show(state == NotchFaceState.Thinking);
+        SpeakingBars.Visibility = Show(LivingInk.HasBars(state));
         RecordDot.Visibility = RecordRing.Visibility = StopSquare.Visibility = Show(state == NotchFaceState.Capture);
-        PauseBars.Visibility = Show(state == NotchFaceState.Paused);
         var captioned = state is NotchFaceState.Responding or NotchFaceState.Nudge;
         Caption.Visibility = Show(captioned);
         NudgeActions.Visibility = Visibility.Collapsed; // shown once the caption has finished typing (studio)
@@ -529,7 +583,8 @@ public partial class NotchWindow : Window
         {
             RestartCaption(now);
         }
-        LayoutBody(_sizeNow);
+        _builtBlot = null; // slots changed with the state: re-place the face parts
+        LayoutBody(_sizeNow, _morph.Sample(now).Blot);
     }
 
     private bool ComputeReducedMotion()
@@ -603,33 +658,16 @@ public partial class NotchWindow : Window
             Recompute();
         }
 
-        // Resize (sideways growth from the centre) over resizeMs.
-        if (_sizeNow != _sizeTo)
-        {
-            var t = (now - _resizeStart).TotalMilliseconds / _spec.Timings.ResizeMs;
-            if (_reducedMotion || t >= 1)
-            {
-                _sizeNow = _sizeTo;
-            }
-            else
-            {
-                var k = CubicBezierEase.Resize.Evaluate(t);
-                _sizeNow = new SizeD(
-                    _sizeFrom.Width + (_sizeTo.Width - _sizeFrom.Width) * k,
-                    _sizeFrom.Height + (_sizeTo.Height - _sizeFrom.Height) * k);
-            }
-            LayoutBody(_sizeNow);
-        }
-
         ApplyReveal(phase, now);
         if (_state != NotchFaceState.Hidden)
         {
-            ApplyFrame(_motion.Tick(now, PointerFromBodyCentre()));
+            DrawInk(now, _motion.Tick(now, PointerFromBodyCentre()));
             UpdateIndicators(now);
             UpdateCaption(now);
         }
 
-        if (NotchRenderPolicy.MayStop(phase, _state, sizeSettled: _sizeNow == _sizeTo))
+        var settled = _morph.Sample(now).Settled && !_wake.Active && !_celebrate.Active;
+        if (NotchRenderPolicy.MayStop(phase, _state, sizeSettled: settled))
         {
             NotchHost.Visibility = Visibility.Collapsed;
             StopRendering();
@@ -650,6 +688,10 @@ public partial class NotchWindow : Window
         if (_state == NotchFaceState.Hidden && phase != RevealPhase.Retracting)
         {
             visible = 0;
+        }
+        else if (_wake.Active)
+        {
+            visible = 1; // Living ink wake-up: the stain grows in place instead of sliding down
         }
 
         var height = _sizeNow.Height + 2;
@@ -674,41 +716,180 @@ public partial class NotchWindow : Window
         return new PointD((cursor.X - _windowLeftPx) / _scale - centreX, (cursor.Y - _windowTopPx) / _scale - centreY);
     }
 
-    private void ApplyFrame(FaceFrame frame)
+    /// <summary>
+    /// One Living ink frame: morph (blot, size, eye pose), overridden by the wake-up while it runs, squashed by the
+    /// celebrate beat, plus the soft lid blink; then the blot, eyes and loose ink are drawn. Shapes are only rebuilt
+    /// when they change, so a resting face costs a few property compares per frame.
+    /// </summary>
+    private void DrawInk(TimeSpan now, FaceFrame frame)
     {
-        ApplyEye(frame, _row.LeftEye, LeftEye, LeftBlink, LeftShift, LeftPupil, LeftGlint);
-        ApplyEye(frame, _row.RightEye, RightEye, RightBlink, RightShift, RightPupil, RightGlint);
+        var morph = _morph.Sample(now);
+        var blot = morph.Blot;
+        var pose = morph.Pose;
+        var size = morph.Size;
+        var bodyOpacity = 1d;
+        var eyesVisible = true;
+        var blinks = !_reducedMotion && !pose.Happy && _state != NotchFaceState.Hidden;
+        if (_wake.Active)
+        {
+            var wake = _wake.At(now);
+            if (wake.Phase != InkWakePhase.Done)
+            {
+                blot = wake.Blot;
+                size = wake.Size;
+                bodyOpacity = wake.Opacity;
+                eyesVisible = wake.EyesVisible;
+                pose = InkEyePose.For(InkMood.Curious) with { ScaleY = wake.EyeScaleY, Lid = wake.Lid };
+                blinks = false;
+            }
+        }
+        double splatterScale = 0, splatterOpacity = 0;
+        if (_celebrate.Active)
+        {
+            var c = _celebrate.At(now);
+            if (!c.Done)
+            {
+                size = new SizeD(size.Width * c.SquashX, size.Height * c.SquashY);
+                splatterScale = c.SplatterScale;
+                splatterOpacity = c.SplatterOpacity;
+            }
+        }
+        if (blinks)
+        {
+            var lid = _blink.LidAt(now, sleepy: _state == NotchFaceState.Paused, reducedMotion: false);
+            if (lid > pose.Lid)
+            {
+                pose = pose with { Lid = lid };
+            }
+        }
+
+        _sizeNow = size;
+        LayoutBody(size, blot);
+        SetIfChanged(BodyPath, OpacityProperty, bodyOpacity);
+        SetIfChanged(InkLayer, OpacityProperty, bodyOpacity);
+        ApplyEyes(pose, frame, eyesVisible);
+        UpdateLooseInk(now, size, morph.Progress, splatterScale, splatterOpacity);
         _talkLevel = frame.TalkLevel;
     }
 
     private double _talkLevel;
 
-    private void ApplyEye(FaceFrame frame, PointD centre, Canvas eyeCanvas, ScaleTransform blink, TranslateTransform shift, Ellipse pupil, Ellipse glint)
+    private void ApplyEyes(InkEyePose pose, FaceFrame frame, bool visible)
     {
-        SetIfChanged(blink, ScaleTransform.ScaleYProperty, frame.Happy ? 1 : frame.Openness);
-        SetIfChanged(shift, TranslateTransform.XProperty, frame.EyeShift.X);
-        SetIfChanged(shift, TranslateTransform.YProperty, frame.EyeShift.Y);
-        SetIfChanged(eyeCanvas, OpacityProperty, frame.EyeOpacity);
-
-        var eye = _face.Eye;
-        if (eye.Pupil <= 0 || frame.Happy)
+        var happy = pose.Happy;
+        var eyes = visible && !happy ? Visibility.Visible : Visibility.Collapsed;
+        LeftEye.Visibility = RightEye.Visibility = eyes;
+        LeftHappy.Visibility = RightHappy.Visibility = visible && happy ? Visibility.Visible : Visibility.Collapsed;
+        var bounce = frame.Bounce;
+        SetIfChanged(LeftHappy, Canvas.TopProperty, -bounce);
+        SetIfChanged(RightHappy, Canvas.TopProperty, -bounce);
+        if (eyes != Visibility.Visible)
         {
             return;
         }
-        // Pupil (scaled per mood) with the glint in its upper right (studio: right 1px, top 1px).
-        var size = eye.Pupil * frame.PupilScale;
-        var px = centre.X + frame.PupilOffset.X;
-        var py = centre.Y + frame.PupilOffset.Y;
+
+        var topRadius = Math.Round(pose.TopRadius, 3);
+        if (topRadius != _builtTopRadius)
+        {
+            _builtTopRadius = topRadius;
+            ShapeEye(_row.LeftEye, LeftEye, LeftWhite, topRadius);
+            ShapeEye(_row.RightEye, RightEye, RightWhite, topRadius);
+        }
+        var pupilFill = pose.Alert >= 0.5 ? _alertBrush : _bodyBrush;
+        ApplyEye(pose, frame, _row.LeftEye, LeftBlink, LeftShift, LeftPupil, LeftGlint, LeftLid, pupilFill);
+        ApplyEye(pose, frame, _row.RightEye, RightBlink, RightShift, RightPupil, RightGlint, RightLid, pupilFill);
+    }
+
+    private void ApplyEye(InkEyePose pose, FaceFrame frame, PointD centre, ScaleTransform squash, TranslateTransform shift,
+        Ellipse pupil, Ellipse shine, Rectangle lid, MediaBrush pupilFill)
+    {
+        var eye = _face.Eye;
+        SetIfChanged(squash, ScaleTransform.ScaleXProperty, pose.ScaleX);
+        SetIfChanged(squash, ScaleTransform.ScaleYProperty, pose.ScaleY);
+        // The whole eye drifts 1 DIP with the gaze (life), and bounces when happy / talking.
+        SetIfChanged(shift, TranslateTransform.XProperty, frame.Gaze.X);
+        SetIfChanged(shift, TranslateTransform.YProperty, frame.Gaze.Y - frame.Bounce);
+
+        // Look-direction: the pupil travels toward the pointer but never leaves the cream.
+        var size = pose.Pupil * eye.Width;
+        var travel = pose.PupilTravel;
+        var px = centre.X + pose.PupilDx * eye.Width + frame.Gaze.X * travel * eye.Width;
+        var py = centre.Y + pose.PupilDy * eye.Height + frame.Gaze.Y * travel * eye.Height;
         SetIfChanged(pupil, WidthProperty, size);
         SetIfChanged(pupil, HeightProperty, size);
         SetIfChanged(pupil, Canvas.LeftProperty, px - size / 2);
         SetIfChanged(pupil, Canvas.TopProperty, py - size / 2);
-        var g = eye.Glint * frame.PupilScale;
-        var inset = (eye.Pupil / 2 - 1 - eye.Glint / 2) * frame.PupilScale;
-        SetIfChanged(glint, WidthProperty, g);
-        SetIfChanged(glint, HeightProperty, g);
-        SetIfChanged(glint, Canvas.LeftProperty, px + inset - g / 2);
-        SetIfChanged(glint, Canvas.TopProperty, py - inset - g / 2);
+        if (!ReferenceEquals(pupil.Fill, pupilFill))
+        {
+            pupil.Fill = pupilFill;
+        }
+        SetIfChanged(shine, OpacityProperty, LivingInkPalette.ShineOpacity * pose.Shine);
+        SetIfChanged(lid, HeightProperty, Math.Clamp(pose.Lid, 0, 1) * (eye.Height + 2));
+    }
+
+    private void UpdateLooseInk(TimeSpan now, SizeD size, double progress, double splatterScale, double splatterOpacity)
+    {
+        var grow = _reducedMotion ? 1 : Math.Clamp(progress, 0, 1);
+
+        var blooms = LivingInk.HasBlooms(_state) ? Visibility.Visible : Visibility.Collapsed;
+        for (var i = 0; i < _blooms.Length; i++)
+        {
+            var bloom = _blooms[i];
+            bloom.Visibility = blooms;
+            if (blooms != Visibility.Visible) continue;
+            var spot = LivingInk.Blooms[i];
+            var c = InkBlot.Map(new PointD(spot.X, spot.Y), size);
+            var rx = spot.RadiusX * size.Width * grow;
+            var ry = spot.RadiusY * size.Height * grow;
+            SetIfChanged(bloom, WidthProperty, 2 * rx);
+            SetIfChanged(bloom, HeightProperty, 2 * ry);
+            SetIfChanged(bloom, Canvas.LeftProperty, c.X - rx);
+            SetIfChanged(bloom, Canvas.TopProperty, c.Y - ry);
+        }
+
+        // Thinking: a drip forms under the blot (never with reduced motion) and three ink dots rise beside it.
+        var drip = LivingInk.HasDrip(_state) && !_reducedMotion;
+        _drip.Visibility = drip ? Visibility.Visible : Visibility.Collapsed;
+        if (drip)
+        {
+            var top = InkBlot.Map(new PointD(LivingInk.DripX, 0.84), size).Y - 4;
+            SetIfChanged(_drip, Canvas.LeftProperty, LivingInk.DripX * size.Width - LivingInk.DripWidth / 2);
+            SetIfChanged(_drip, Canvas.TopProperty, top);
+            SetIfChanged(_drip, HeightProperty, 4 + LivingInk.DripHeight * grow);
+        }
+        var dots = LivingInk.HasThinkDots(_state);
+        var since = (now - _stateSince).TotalMilliseconds;
+        for (var i = 0; i < _thinkDots.Length; i++)
+        {
+            var dot = _thinkDots[i];
+            dot.Visibility = dots ? Visibility.Visible : Visibility.Collapsed;
+            if (!dots) continue;
+            var d = LivingInk.ThinkDotSizes[i];
+            var (opacity, rise) = _reducedMotion ? (1d, 0d) : FaceIndicators.ThinkingDot(i, since);
+            var bottom = _row.RowHeight * 0.5 - 7 * i;
+            SetIfChanged(dot, Canvas.LeftProperty, size.Width + 1 + 9 * i);
+            SetIfChanged(dot, Canvas.TopProperty, bottom - d + 2 * rise);
+            SetIfChanged(dot, OpacityProperty, 0.35 + 0.65 * opacity);
+        }
+
+        // Focus done: a few splatters around the blot that fade (never with reduced motion: the celebrate does not run).
+        for (var i = 0; i < _splatters.Length; i++)
+        {
+            var splatter = _splatters[i];
+            var on = splatterOpacity > 0.01 && splatterScale > 0.01;
+            splatter.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+            if (!on) continue;
+            var spot = LivingInk.Splatters[i];
+            var c = InkBlot.Map(new PointD(spot.X, spot.Y), size);
+            var r = spot.RadiusX * splatterScale;
+            // Pushed slightly outward so the marks sit around the blot, not inside it.
+            var outward = spot.X < 0.5 ? -6 : 6;
+            SetIfChanged(splatter, WidthProperty, 2 * r);
+            SetIfChanged(splatter, HeightProperty, 2 * r);
+            SetIfChanged(splatter, Canvas.LeftProperty, c.X + outward - r);
+            SetIfChanged(splatter, Canvas.TopProperty, c.Y + 3 - r);
+            SetIfChanged(splatter, OpacityProperty, splatterOpacity);
+        }
     }
 
     private void UpdateIndicators(TimeSpan now)
@@ -718,14 +899,6 @@ public partial class NotchWindow : Window
         var cy = _row.RowHeight / 2;
         switch (_state)
         {
-            case NotchFaceState.Thinking:
-                for (var i = 0; i < _thinkingDots.Length; i++)
-                {
-                    var (opacity, offset) = _reducedMotion ? (0.25, 0d) : FaceIndicators.ThinkingDot(i, since);
-                    SetIfChanged(_thinkingDots[i], OpacityProperty, opacity);
-                    SetIfChanged(_thinkingDots[i], Canvas.TopProperty, cy - FaceIndicators.DotSize / 2 + offset);
-                }
-                break;
             case NotchFaceState.Capture:
                 // The red dot never fades; only its halo pulses (studio box-shadow ring).
                 var (spread, alpha) = _reducedMotion ? (3d, 0.28) : FaceIndicators.RecordRing(since);
@@ -736,16 +909,14 @@ public partial class NotchWindow : Window
                 SetIfChanged(RecordRing, Canvas.TopProperty, cy - d / 2);
                 SetIfChanged(RecordRing, OpacityProperty, alpha);
                 break;
-            case NotchFaceState.Listening:
             case NotchFaceState.Responding:
-                for (var i = 0; i < _listeningBars.Length; i++)
+                // Four cream ink bars, bottoms aligned, keeping time with the voice level.
+                for (var i = 0; i < _speakingBars.Length; i++)
                 {
-                    var h = _state == NotchFaceState.Listening
-                        ? FaceIndicators.ListeningBarHeight(i, ms)
-                        : FaceIndicators.TalkingBarHeight(i, ms, _talkLevel);
-                    var bar = _listeningBars[i];
+                    var h = LivingInk.BarHeight(i, ms, _talkLevel, _reducedMotion);
+                    var bar = _speakingBars[i];
                     SetIfChanged(bar, HeightProperty, h);
-                    SetIfChanged(bar, Canvas.TopProperty, cy - h / 2);
+                    SetIfChanged(bar, Canvas.TopProperty, cy + 9 - h);
                 }
                 break;
         }
@@ -866,17 +1037,21 @@ public partial class NotchWindow : Window
 
     private double BodyLeftDip(SizeD size) => (_windowWidthDip - size.Width) / 2;
 
-    private void LayoutBody(SizeD size)
+    private void LayoutBody(SizeD size, InkBlot blot)
     {
-        var left = BodyLeftDip(size);
-        var shoulder = _face.Shape.Shoulder;
-        if (size != _builtSize)
+        if (size == _builtSize && ReferenceEquals(blot, _builtBlot) && _state == _builtState)
         {
-            BodyPath.Data = BuildPocket(size.Width, size.Height, shoulder, _face.Shape.BottomRadius);
-            _builtSize = size;
+            return; // nothing moved: no geometry, clip or layout work this frame
         }
-        Canvas.SetLeft(BodyPath, left - shoulder);
+        var left = BodyLeftDip(size);
+        BodyPath.Data = BuildBlot(blot, size);
+        _builtSize = size;
+        _builtBlot = blot;
+        _builtState = _state;
+        Canvas.SetLeft(BodyPath, left);
         Canvas.SetTop(BodyPath, 0);
+        Canvas.SetLeft(InkLayer, left);
+        Canvas.SetTop(InkLayer, 0);
         Canvas.SetLeft(FaceLayer, left);
         Canvas.SetTop(FaceLayer, 0);
         Canvas.SetLeft(OpenButton, left);
@@ -884,11 +1059,11 @@ public partial class NotchWindow : Window
         OpenButton.Width = size.Width;
         OpenButton.Height = size.Height;
 
-        var (lead, trail) = NotchRowLayout.SlotWidths(_state);
-        _row = NotchRowLayout.Place(_face, size, lead, trail);
+        _row = LivingInk.Place(_face, size, _state);
         _parts = new NotchFaceParts(_row.LeftEye, _row.RightEye, _row.Trail);
-        PositionEye(_row.LeftEye, LeftEye, LeftBlink, LeftWhite, LeftPupil, LeftGlint, LeftHappy);
-        PositionEye(_row.RightEye, RightEye, RightBlink, RightWhite, RightPupil, RightGlint, RightHappy);
+        PositionEye(_row.LeftEye, LeftEye, LeftBlink, LeftWhite, LeftPupil, LeftGlint, LeftLid, LeftHappy);
+        PositionEye(_row.RightEye, RightEye, RightBlink, RightWhite, RightPupil, RightGlint, RightLid, RightHappy);
+        _builtTopRadius = double.NaN; // eye outlines follow the new centres
         PositionIndicators();
         PositionCaption(left);
         // Studio ".clip{overflow:hidden}": caption and pills never draw outside the pocket while it resizes.
@@ -901,134 +1076,133 @@ public partial class NotchWindow : Window
         PositionDisclosure(size);
     }
 
-    /// <summary>
-    /// HeyClicky pocket: concave shoulders (radius = shoulder) flowing from the screen edge into the sides,
-    /// straight sides, rounded bottom corners. Path origin = left end of the left shoulder.
-    /// </summary>
-    private static Geometry BuildPocket(double width, double height, double shoulder, double bottomRadius)
+    /// <summary>The ink blot (Boo.Core InkBlot) as a WPF path: a top line flush with the screen edge and six curves.</summary>
+    private static Geometry BuildBlot(InkBlot blot, SizeD size)
     {
-        var s = Math.Max(0, Math.Min(shoulder, height / 2));
-        var r = Math.Max(0, Math.Min(bottomRadius, Math.Min(width / 2, height - s)));
+        var p = blot.Points(size);
         var geometry = new StreamGeometry();
         using (var ctx = geometry.Open())
         {
-            ctx.BeginFigure(new System.Windows.Point(0, 0), isFilled: true, isClosed: true);
-            ctx.QuadraticBezierTo(new System.Windows.Point(s, 0), new System.Windows.Point(s, s), true, true);
-            ctx.LineTo(new System.Windows.Point(s, height - r), true, true);
-            ctx.ArcTo(new System.Windows.Point(s + r, height), new System.Windows.Size(r, r), 0, false, SweepDirection.Counterclockwise, true, true);
-            ctx.LineTo(new System.Windows.Point(s + width - r, height), true, true);
-            ctx.ArcTo(new System.Windows.Point(s + width, height - r), new System.Windows.Size(r, r), 0, false, SweepDirection.Counterclockwise, true, true);
-            ctx.LineTo(new System.Windows.Point(s + width, s), true, true);
-            ctx.QuadraticBezierTo(new System.Windows.Point(s + width, 0), new System.Windows.Point(width + 2 * s, 0), true, true);
+            ctx.BeginFigure(new System.Windows.Point(p[0].X, p[0].Y), isFilled: true, isClosed: true);
+            ctx.LineTo(new System.Windows.Point(p[1].X, p[1].Y), true, true);
+            for (var c = 0; c < 6; c++)
+            {
+                ctx.BezierTo(
+                    new System.Windows.Point(p[2 + 3 * c].X, p[2 + 3 * c].Y),
+                    new System.Windows.Point(p[3 + 3 * c].X, p[3 + 3 * c].Y),
+                    new System.Windows.Point(p[4 + 3 * c].X, p[4 + 3 * c].Y), true, true);
+            }
         }
         geometry.Freeze();
         return geometry;
     }
 
-    private void BuildFace()
+    /// <summary>
+    /// Eye outline: an ellipse whose upper and lower halves have different heights (CSS border-radius
+    /// "50% 50% x x / t t b b"); <paramref name="topRadius"/> is the upper share. The eye canvas is clipped to it,
+    /// so the pupil and the lid never leave the cream.
+    /// </summary>
+    private void ShapeEye(PointD c, Canvas eyeCanvas, System.Windows.Shapes.Path white, double topRadius)
     {
         var eye = _face.Eye;
-        var radius = Math.Min(eye.Width, eye.Height) / 2;
-        foreach (var white in new[] { LeftWhite, RightWhite })
+        var w = eye.Width;
+        var h = eye.Height;
+        var top = c.Y - h / 2;
+        var rt = Math.Clamp(topRadius, 0.2, 0.8) * h;
+        var rb = h - rt;
+        var mid = top + rt;
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
         {
-            white.Width = eye.Width;
-            white.Height = eye.Height;
-            white.RadiusX = radius;
-            white.RadiusY = radius;
+            ctx.BeginFigure(new System.Windows.Point(c.X - w / 2, mid), true, true);
+            ctx.ArcTo(new System.Windows.Point(c.X, top), new System.Windows.Size(w / 2, rt), 0, false, SweepDirection.Clockwise, true, true);
+            ctx.ArcTo(new System.Windows.Point(c.X + w / 2, mid), new System.Windows.Size(w / 2, rt), 0, false, SweepDirection.Clockwise, true, true);
+            ctx.ArcTo(new System.Windows.Point(c.X, top + h), new System.Windows.Size(w / 2, rb), 0, false, SweepDirection.Clockwise, true, true);
+            ctx.ArcTo(new System.Windows.Point(c.X - w / 2, mid), new System.Windows.Size(w / 2, rb), 0, false, SweepDirection.Clockwise, true, true);
         }
-        foreach (var pupil in new[] { LeftPupil, RightPupil })
-        {
-            pupil.Width = pupil.Height = eye.Pupil;
-            pupil.Fill = PupilBrush;
-        }
-        foreach (var glint in new[] { LeftGlint, RightGlint })
-        {
-            glint.Width = glint.Height = eye.Glint;
-        }
-        // Happy: studio ".eye.happy" = the top border (3 px) of an eye-sized circle dropped 6 px, i.e. a smiling arc.
-        // Drawn in eye-box coordinates: circle centre (w/2, h/2 + 3), stroke-centre radius w/2 - 1.5, 210..330 degrees.
-        var arc = new StreamGeometry();
-        var r = eye.Width / 2 - 1.5;
-        var acx = eye.Width / 2;
-        var acy = eye.Height / 2 + 3;
-        System.Windows.Point At(double degrees) => new(acx + r * Math.Cos(degrees * Math.PI / 180), acy + r * Math.Sin(degrees * Math.PI / 180));
-        using (var ctx = arc.Open())
-        {
-            ctx.BeginFigure(At(210), false, false);
-            ctx.ArcTo(At(330), new System.Windows.Size(r, r), 0, false, SweepDirection.Clockwise, true, true);
-        }
-        arc.Freeze();
-        LeftHappy.Data = arc;
-        RightHappy.Data = arc;
+        geometry.Freeze();
+        white.Data = geometry;
+        eyeCanvas.Clip = geometry;
     }
 
-    private void PositionEye(PointD centre, Canvas eyeCanvas, ScaleTransform blink, Rectangle white, Ellipse pupil, Ellipse glint, System.Windows.Shapes.Path happy)
+    private void BuildFace()
+    {
+        foreach (var glint in new[] { LeftGlint, RightGlint })
+        {
+            glint.Width = glint.Height = 0.28 * _face.Eye.Width;
+        }
+    }
+
+    private void PositionEye(PointD centre, Canvas eyeCanvas, ScaleTransform squash, System.Windows.Shapes.Path white, Ellipse pupil,
+        Ellipse shine, Rectangle lid, System.Windows.Shapes.Path happy)
     {
         var eye = _face.Eye;
         Canvas.SetLeft(eyeCanvas, 0);
-        blink.CenterX = centre.X;
-        blink.CenterY = centre.Y;
-        // Studio ".eye{overflow:hidden}": the pupil never leaves the white.
-        var clip = new EllipseGeometry(new System.Windows.Point(centre.X, centre.Y), eye.Width / 2, eye.Height / 2);
-        clip.Freeze();
-        eyeCanvas.Clip = clip;
-        Canvas.SetLeft(white, centre.X - eye.Width / 2);
-        Canvas.SetTop(white, centre.Y - eye.Height / 2);
-        Canvas.SetLeft(happy, centre.X - eye.Width / 2);
-        Canvas.SetTop(happy, centre.Y - eye.Height / 2);
-        if (eye.Pupil > 0)
+        Canvas.SetTop(eyeCanvas, 0);
+        // A real box (not 0×0) so WPF lays out and renders the scaled, clipped eye correctly.
+        eyeCanvas.Width = centre.X + eye.Width;
+        eyeCanvas.Height = centre.Y + eye.Height;
+        squash.CenterX = centre.X;
+        squash.CenterY = centre.Y;
+        // Shine: upper-left of the eye, 28 % of it (living-ink.css .eye .shine).
+        Canvas.SetLeft(shine, centre.X - eye.Width / 2 + 0.22 * eye.Width);
+        Canvas.SetTop(shine, centre.Y - eye.Height / 2 + 0.18 * eye.Height);
+        // Lid: ink, grows down from the top of the eye.
+        lid.Width = eye.Width + 2;
+        Canvas.SetLeft(lid, centre.X - eye.Width / 2 - 1);
+        Canvas.SetTop(lid, centre.Y - eye.Height / 2 - 1);
+        Canvas.SetLeft(pupil, centre.X - eye.Pupil / 2);
+        Canvas.SetTop(pupil, centre.Y - eye.Pupil / 2);
+        // Happy squint: one cream smile arc per eye (board svg "M4 4 Q18 22 32 4" in the eye box).
+        var w = eye.Width;
+        var arc = new StreamGeometry();
+        using (var ctx = arc.Open())
         {
-            Canvas.SetLeft(pupil, centre.X - eye.Pupil / 2);
-            Canvas.SetTop(pupil, centre.Y - eye.Pupil / 2);
-            Canvas.SetLeft(glint, centre.X + eye.Pupil * 0.05 - eye.Glint / 2);
-            Canvas.SetTop(glint, centre.Y - eye.Pupil * 0.2 - eye.Glint / 2);
+            ctx.BeginFigure(new System.Windows.Point(centre.X - 0.44 * w, centre.Y - 0.16 * w), false, false);
+            ctx.QuadraticBezierTo(new System.Windows.Point(centre.X, centre.Y + 0.40 * w), new System.Windows.Point(centre.X + 0.44 * w, centre.Y - 0.16 * w), true, true);
         }
+        arc.Freeze();
+        happy.Data = arc;
+        happy.StrokeThickness = Math.Max(2, w * 0.1);
+        _ = white;
     }
 
     private void BuildIndicators()
     {
-        for (var i = 0; i < _listeningBars.Length; i++)
+        for (var i = 0; i < _speakingBars.Length; i++)
         {
-            var bar = new Rectangle { Width = FaceIndicators.BarWidth, Height = 4, RadiusX = 1.5, RadiusY = 1.5 };
-            Canvas.SetLeft(bar, i * (FaceIndicators.BarWidth + FaceIndicators.BarGap));
-            _listeningBars[i] = bar;
-            ListeningBars.Children.Add(bar);
+            var bar = new Rectangle { Width = LivingInk.BarWidth, Height = 4, RadiusX = 1.5, RadiusY = 1.5 };
+            Canvas.SetLeft(bar, i * (LivingInk.BarWidth + LivingInk.BarGap));
+            _speakingBars[i] = bar;
+            SpeakingBars.Children.Add(bar);
         }
-        for (var i = 0; i < _thinkingDots.Length; i++)
+        for (var i = 0; i < _blooms.Length; i++)
         {
-            var dot = new Ellipse { Width = FaceIndicators.DotSize, Height = FaceIndicators.DotSize, Opacity = 0.25 };
-            Canvas.SetLeft(dot, i * (FaceIndicators.DotSize + FaceIndicators.DotGap));
-            _thinkingDots[i] = dot;
-            ThinkingDots.Children.Add(dot);
+            _blooms[i] = new Ellipse { Visibility = Visibility.Collapsed };
+            InkLayer.Children.Add(_blooms[i]);
+        }
+        _drip.Visibility = Visibility.Collapsed;
+        InkLayer.Children.Add(_drip);
+        for (var i = 0; i < _thinkDots.Length; i++)
+        {
+            var d = LivingInk.ThinkDotSizes[i];
+            _thinkDots[i] = new Ellipse { Width = d, Height = d, Visibility = Visibility.Collapsed };
+            InkLayer.Children.Add(_thinkDots[i]);
+        }
+        for (var i = 0; i < _splatters.Length; i++)
+        {
+            _splatters[i] = new Ellipse { Visibility = Visibility.Collapsed };
+            InkLayer.Children.Add(_splatters[i]);
         }
         RecordDot.Width = RecordDot.Height = 7;
-        for (var i = 0; i < 2; i++)
-        {
-            var bar = new Rectangle { Width = 3, Height = 10, RadiusX = 1, RadiusY = 1, Opacity = 0.7 };
-            Canvas.SetLeft(bar, i * 6);
-            PauseBars.Children.Add(bar);
-        }
     }
 
     private void PositionIndicators()
     {
-        // Studio row: lead slot (record dot) left of the eyes, trail slot (bars, dots, pause, stop) right-aligned.
-        // Bars and dots are positioned vertically per frame; containers sit at the slot's left edge, top 0.
+        // Lead slot (record dot) left of the eyes, trail slot (speaking bars, stop square) right-aligned.
         var cy = _row.RowHeight / 2;
-        Canvas.SetLeft(ListeningBars, _row.Trail.X);
-        Canvas.SetTop(ListeningBars, 0);
-        Canvas.SetLeft(ThinkingDots, _row.Trail.X);
-        Canvas.SetTop(ThinkingDots, 0);
-        foreach (var dot in _thinkingDots)
-        {
-            Canvas.SetTop(dot, cy - FaceIndicators.DotSize / 2);
-        }
-        foreach (var bar in _listeningBars)
-        {
-            Canvas.SetTop(bar, cy - bar.Height / 2);
-        }
-        Canvas.SetLeft(PauseBars, _row.Trail.X);
-        Canvas.SetTop(PauseBars, cy - 5);
+        Canvas.SetLeft(SpeakingBars, _row.Trail.X);
+        Canvas.SetTop(SpeakingBars, 0);
         Canvas.SetLeft(RecordDot, _row.Lead.X);
         Canvas.SetTop(RecordDot, cy - 3.5);
         Canvas.SetLeft(StopSquare, _row.Trail.X);
@@ -1249,6 +1423,14 @@ public partial class NotchWindow : Window
         SetWindowLongPtr(_handle, GwlExstyle, new IntPtr(style | WsExNoActivate | WsExToolWindow));
         var source = HwndSource.FromHwnd(_handle);
         source?.AddHook(EmergencyWindowProc);
+        // The notch is a small see-through window that stays on screen all day. Drawn on the graphics card it kept
+        // ~35 MB of driver memory from launch plus ~35-50 MB more once the face had come out; drawn in software it
+        // costs neither, with the same frame rate and CPU (measured 2026-11-12, docs/DECISIONS.md). Only this window:
+        // the panel and the annotation overlay keep the graphics card.
+        if (source?.CompositionTarget is { } target)
+        {
+            target.RenderMode = RenderMode.SoftwareOnly;
+        }
         RegisterMissingHotkeys();
         // One combined, truthful hint (two separate SetStatus calls used to overwrite each other); App refines it with the hold-to-talk result.
         if (new ShortcutStatus(EmergencyStopRegistered, OpenShortcutRegistered, HoldToTalk: true, PauseAllRegistered).NotchMessage is { } shortcutHint)
@@ -1270,34 +1452,42 @@ public partial class NotchWindow : Window
     {
         MediaBrush body;
         MediaBrush eyes;
-        if (SystemParameters.HighContrast)
+        MediaBrush? rim;
+        var highContrast = SystemParameters.HighContrast;
+        if (highContrast)
         {
             body = MediaSystemColors.WindowBrush;
             eyes = MediaSystemColors.WindowTextBrush;
+            rim = MediaSystemColors.WindowTextBrush;
         }
         else
         {
-            body = ToBrush(_appearance.BodyColor, MediaBrushes.Black);
-            eyes = ToBrush(_appearance.EyeColor, MediaBrushes.White);
+            // Living ink: the untouched default draws ink + cream; colours the user picked are kept. The blot stays ink in
+            // both Windows themes; a dark desktop only adds the very quiet light rim so the drop keeps an edge.
+            var palette = LivingInkPalette.Resolve(_appearance);
+            body = ToBrush(palette.BodyColor, MediaBrushes.Black);
+            eyes = ToBrush(palette.EyeColor, MediaBrushes.White);
+            rim = LivingInkPalette.RimFor(_darkTheme) is { } r ? ToBrush(r, MediaBrushes.Transparent) : null;
         }
+        _bodyBrush = body;
+        _alertBrush = highContrast ? MediaSystemColors.HighlightBrush : ToBrush(LivingInkPalette.Alert, MediaBrushes.DarkRed);
         BodyPath.Fill = body;
+        BodyPath.Stroke = rim;
+        BodyPath.StrokeThickness = rim is null ? 0 : 1;
+        foreach (var loose in _blooms.Concat(_thinkDots).Concat(_splatters).Cast<Shape>().Append(_drip))
+        {
+            loose.Fill = body;
+            loose.Stroke = rim;
+            loose.StrokeThickness = rim is null ? 0 : 1;
+        }
         LeftWhite.Fill = RightWhite.Fill = eyes;
-        LeftGlint.Fill = RightGlint.Fill = eyes;
+        LeftGlint.Fill = RightGlint.Fill = highContrast ? eyes : MediaBrushes.White;
         LeftHappy.Stroke = RightHappy.Stroke = eyes;
-        // Studio ".pupil{background:var(--body)}": pupils take the body colour.
-        var pupil = SystemParameters.HighContrast ? MediaSystemColors.WindowBrush : body;
-        LeftPupil.Fill = RightPupil.Fill = pupil;
-        foreach (var bar in _listeningBars)
+        LeftPupil.Fill = RightPupil.Fill = body;
+        LeftLid.Fill = RightLid.Fill = body;
+        foreach (var bar in _speakingBars)
         {
             bar.Fill = eyes;
-        }
-        foreach (var dot in _thinkingDots)
-        {
-            dot.Fill = eyes;
-        }
-        foreach (var child in PauseBars.Children.OfType<Rectangle>())
-        {
-            child.Fill = eyes;
         }
         Caption.Foreground = eyes;
         StopSquareInner.Background = eyes;
@@ -1307,9 +1497,40 @@ public partial class NotchWindow : Window
         NudgeBackButton.Foreground = body;
         NudgeBreakButton.Background = WithAlpha(eyes, 0.14);
         NudgeBreakButton.Foreground = eyes;
-        ActiveDisclosure.Background = SystemParameters.HighContrast ? MediaSystemColors.WindowBrush : MediaBrushes.White;
-        ActiveDisclosure.BorderBrush = SystemParameters.HighContrast ? MediaSystemColors.ActiveBorderBrush : MediaBrushes.Black;
-        ActiveDisclosureText.Foreground = SystemParameters.HighContrast ? MediaSystemColors.WindowTextBrush : MediaBrushes.Black;
+        ActiveDisclosure.Background = highContrast ? MediaSystemColors.WindowBrush : MediaBrushes.White;
+        ActiveDisclosure.BorderBrush = highContrast ? MediaSystemColors.ActiveBorderBrush : MediaBrushes.Black;
+        ActiveDisclosureText.Foreground = highContrast ? MediaSystemColors.WindowTextBrush : MediaBrushes.Black;
+    }
+
+    /// <summary>Windows "Choose your app mode": dark when HKCU ...\Themes\Personalize AppsUseLightTheme is 0.</summary>
+    private static bool ReadDarkTheme()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("AppsUseLightTheme") is int light && light == 0;
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private void SystemEvents_OnUserPreferenceChanged(object? sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category is not (Microsoft.Win32.UserPreferenceCategory.General or Microsoft.Win32.UserPreferenceCategory.Color))
+        {
+            return;
+        }
+        Dispatcher.BeginInvoke(() =>
+        {
+            var dark = ReadDarkTheme();
+            if (dark != _darkTheme)
+            {
+                _darkTheme = dark;
+                ApplyAppearance();
+            }
+        });
     }
 
     private void SystemParameters_OnStaticPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -1322,6 +1543,12 @@ public partial class NotchWindow : Window
         {
             _reducedMotion = ComputeReducedMotion();
             _motion.ReducedMotion = _reducedMotion;
+            if (_reducedMotion)
+            {
+                // Animation effects turned off mid-sequence: jump to the end pose.
+                _wake.Cancel();
+                _celebrate.Cancel();
+            }
         }
     }
 
