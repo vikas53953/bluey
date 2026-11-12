@@ -23,8 +23,8 @@ two response paths handle non-caller cancellation explicitly.
 After integrating the separate builder's provider changes, root ran the full
 Release suite: 157 passed, one unchanged host-dependent fixture skip. Oracle
 revision 10 verified 33 frozen files unchanged; diff check passed. TRX evidence:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_12_52_54_net10.0.trx` and
-`TestResults/vikasmit_VIKASMIT_2026-11-07_12_52_55_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_12_52_54_net10.0.trx` and
+`TestResults/<user>_<machine>_2026-11-07_12_52_55_net10.0.trx`.
 
 ## Final assembled review
 

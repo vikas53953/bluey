@@ -21,7 +21,7 @@ scripts/build.ps1 -Action test -Project tests/Boo.Core.Tests/Boo.Core.Tests.cspr
 
 Result: **PASS** — 11 passed, 0 failed, 0 skipped.
 
-TRX: `TestResults/vikasmit_VIKASMIT_2026-11-07_13_17_58_net10.0.trx`
+TRX: `TestResults/<user>_<machine>_2026-11-07_13_17_58_net10.0.trx`
 
 Core Release build:
 

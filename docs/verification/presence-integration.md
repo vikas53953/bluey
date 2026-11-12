@@ -16,8 +16,8 @@ Root verification after integration:
 
 - Full Release tests: **239 passed, 1 existing reparse-fixture skip**.
 - Core: 144 passed, 1 skipped; integration: 95 passed.
-- TRX: `TestResults/vikasmit_VIKASMIT_2026-11-07_19_22_47_net10.0.trx` and
-  `TestResults/vikasmit_VIKASMIT_2026-11-07_19_22_49_net10.0.trx`.
+- TRX: `TestResults/<user>_<machine>_2026-11-07_19_22_47_net10.0.trx` and
+  `TestResults/<user>_<machine>_2026-11-07_19_22_49_net10.0.trx`.
 - Release app build: zero warnings/errors.
 - Oracle: revision 15, 41 files verified unchanged.
 - `git diff --check`: passed.
