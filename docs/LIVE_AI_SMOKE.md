@@ -53,12 +53,15 @@ desktop. Decided by Vikas on 12 Nov 2026 (`docs/DECISIONS.md`). Three things enf
 - its first step refuses any runner that is not GitHub-hosted;
 - `scripts/ci/check_runners.py` (run by `windows-ci` on every push) fails if any workflow names a self-hosted runner.
 
-Evidence screenshots show **Boo's own windows only**, never the whole desktop (`BOO_CAPTURE_SCOPE=boo-windows`).
-The same harness, run on anyone's own PC (for example a local UI or demo run), also falls back to Boo's windows only;
-it takes whole-desktop pictures only on a GitHub VM.
+Evidence screenshots show **Boo's own windows only**, never the whole desktop (`BOO_CAPTURE_SCOPE=boo-windows`). Each
+Boo window is drawn from its own content (`PrintWindow`), not copied from the screen, so nothing behind or on top of it
+can appear. Files are named `<step>.boo-<n>.png`; a step in the workflow fails the run if any screenshot has another
+name. The same harness, run on anyone's own PC (for example a local UI or demo run), also draws Boo's windows only, and
+refuses rectangle screenshots; it copies the whole desktop only on a GitHub VM.
 
 Earlier versions of this page offered "your own PC as a self-hosted runner". That option is gone. No self-hosted
-runner was ever registered on the repo (checked 12 Nov 2026: 0 runners).
+runner is registered on the repo (checked 12 Nov 2026: 0 runners). **Keep it at 0**: a registered runner is the one
+thing a workflow edit on some branch could still reach.
 
 ## 3. Run it
 
@@ -74,6 +77,7 @@ From a terminal instead: `gh workflow run live-ai-smoke.yml --ref <branch> -f te
 | You see | It means |
 | --- | --- |
 | `preflight` red: **"Live AI smoke FAILED CLOSED: Repository secret BOO_LIVE_OPENAI_KEY is missing"** | No key added yet (step 1). Nothing else ran. This is never counted as a pass. |
+| `smoke` red at **"Screenshots are Boo windows only"** | A screenshot was copied from the screen instead of drawn from a Boo window, or none was written. The log lists every file with its size. Fix the capture code; never loosen the step. |
 | `smoke` red at **"Refuse unless this is GitHub's own VM"** | Someone changed `runs-on` to a machine that is not GitHub's. Put it back to `windows-latest`. |
 | `smoke` red only at an **Upload** step, with "Artifact storage quota has been hit" | The test itself ran (check the "Real AI round trip" step), but GitHub's storage for evidence is full, so the run stays red: no evidence, no green. Wait for storage to free up and run again. |
 | `smoke` red at **"Refuse if any AI host is redirected"** | The machine's hosts file points an AI address at a fake server. Remove that line and run again. |

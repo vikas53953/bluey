@@ -180,50 +180,118 @@ public class BooAppFixture : IDisposable
     }
 
     /// <summary>
-    /// Whole-desktop screenshots are allowed only on a GitHub-hosted runner (a throwaway VM) and never when the run asks
-    /// for Boo's windows only (<c>BOO_CAPTURE_SCOPE=boo-windows</c>, which the live AI smoke always sets). Anywhere else
-    /// (the owner's or a developer's own PC, a self-hosted runner) only Boo's own windows are captured, so a test run can
-    /// never photograph someone's real screen.
+    /// Whole-desktop and rectangle screenshots are allowed only on a GitHub-hosted runner (a throwaway VM), and the whole
+    /// desktop never when the run asks for Boo's windows only (any non-empty <c>BOO_CAPTURE_SCOPE</c>; the live AI smoke
+    /// always sets it). Anywhere else (the owner's or a developer's own PC, a self-hosted runner) only Boo's own windows
+    /// are captured, so a test run can never photograph someone's real screen.
     /// </summary>
-    public static bool FullDesktopCaptureAllowed() =>
-        string.Equals(Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT"), "github-hosted", StringComparison.Ordinal)
-        && !string.Equals(Environment.GetEnvironmentVariable("BOO_CAPTURE_SCOPE"), "boo-windows", StringComparison.OrdinalIgnoreCase);
+    public static bool OnGitHubHostedRunner() =>
+        string.Equals(Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT"), "github-hosted", StringComparison.Ordinal);
 
-    /// <summary>Saves each visible top-level window of the Boo process (name.png, name-1.png, ...); nothing else.</summary>
+    public static bool FullDesktopCaptureAllowed() =>
+        OnGitHubHostedRunner() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("BOO_CAPTURE_SCOPE"));
+
+    private static void RequireGitHubHostedRunnerForRectangle()
+    {
+        if (!OnGitHubHostedRunner())
+        {
+            throw new InvalidOperationException(
+                "Rectangle screenshots copy whatever is on the real screen, so they run only on a GitHub-hosted runner " +
+                "(RUNNER_ENVIRONMENT=github-hosted). Run this suite in CI or a VM, never on a personal PC.");
+        }
+    }
+
+    /// <summary>
+    /// Renders each visible top-level Boo window's OWN content (PrintWindow, not a copy of screen pixels, so nothing
+    /// behind or on top of it can appear) to name.boo-0.png, name.boo-1.png, ... Nothing is written at
+    /// <paramref name="path"/>, so a test that reads pixels from it by screen position fails instead of reading a crop.
+    /// Boo's transparent full-screen explanation overlay therefore shows only its own marks, never the desktop beneath.
+    /// </summary>
     private void CaptureBooWindows(string path)
     {
+        var directory = Path.GetDirectoryName(path)!;
+        var stem = Path.GetFileNameWithoutExtension(path);
+        var notes = new List<string>();
         var saved = 0;
         var windows = App.HasExited ? Array.Empty<Window>() : App.GetAllTopLevelWindows(Automation);
         foreach (var window in windows)
         {
-            var target = saved == 0
-                ? path
-                : Path.Combine(Path.GetDirectoryName(path)!, Path.GetFileNameWithoutExtension(path) + "-" + saved + ".png");
             try
             {
-                var bounds = window.BoundingRectangle;
-                if (bounds.Width <= 0 || bounds.Height <= 0 || window.IsOffscreen)
+                var title = SafeWindowTitle(window);
+                var hwnd = window.Properties.NativeWindowHandle.ValueOrDefault;
+                if (hwnd == IntPtr.Zero || window.IsOffscreen || !CaptureNative.GetWindowRect(hwnd, out var rect)
+                    || rect.Width <= 0 || rect.Height <= 0)
                 {
                     continue;
                 }
-                using var image = Capture.Element(window);
-                image.ToFile(target);
+                using var bitmap = new Bitmap(rect.Width, rect.Height);
+                using (var graphics = Graphics.FromImage(bitmap))
+                {
+                    var hdc = graphics.GetHdc();
+                    try
+                    {
+                        if (!CaptureNative.PrintWindow(hwnd, hdc, CaptureNative.PwRenderFullContent))
+                        {
+                            notes.Add($"PrintWindow failed for '{title}'");
+                            continue;
+                        }
+                    }
+                    finally
+                    {
+                        graphics.ReleaseHdc(hdc);
+                    }
+                }
+                bitmap.Save(Path.Combine(directory, $"{stem}.boo-{saved}.png"), System.Drawing.Imaging.ImageFormat.Png);
+                notes.Add($"boo-{saved}: '{title}' {rect.Width} x {rect.Height}");
                 saved++;
             }
             catch (Exception ex)
             {
-                File.WriteAllText(Path.ChangeExtension(target, ".error.txt"), ex.ToString());
+                notes.Add("error: " + ex.Message);
             }
         }
-        if (saved == 0)
+        notes.Insert(0, saved == 0
+            ? "No Boo window captured. The full desktop is captured only on a GitHub-hosted runner without BOO_CAPTURE_SCOPE."
+            : $"Boo windows only ({saved}); the full desktop is captured only on a GitHub-hosted runner without BOO_CAPTURE_SCOPE.");
+        File.WriteAllLines(Path.Combine(directory, stem + ".capture.txt"), notes);
+    }
+
+    private static string SafeWindowTitle(Window window)
+    {
+        try
         {
-            File.WriteAllText(Path.ChangeExtension(path, ".no-window.txt"),
-                "No visible Boo window to capture. The full desktop is captured only on a GitHub-hosted runner.");
+            return window.Title ?? string.Empty;
         }
+        catch (Exception)
+        {
+            return string.Empty;
+        }
+    }
+
+    private static class CaptureNative
+    {
+        public const uint PwRenderFullContent = 2;
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        public struct NativeRect
+        {
+            public int Left, Top, Right, Bottom;
+            public readonly int Width => Right - Left;
+            public readonly int Height => Bottom - Top;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
+
     }
 
     public string CaptureRectangle(string name, Rectangle rectangle)
     {
+        RequireGitHubHostedRunnerForRectangle();
         var path = Path.Combine(ArtifactsDirectory, Sanitize(name) + ".png");
         Capture.Rectangle(rectangle).ToFile(path);
         return path;

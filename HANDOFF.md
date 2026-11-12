@@ -159,9 +159,10 @@ screenshot a key; logs record lengths only.
 6. **Evidence table in the PR.** Every check or feature is marked **mock** / **live** / **manual** / **UNVERIFIED**,
    with a run link. No run link = UNVERIFIED. End with one line: `QA PASS — <full head SHA>` or `QA FAIL — <SHA>`.
 7. **Never capture the owner's real screen.** Screenshots only of a test window, a VM or CI runner, or Boo's own
-   offscreen renders. Enforced in code: the FlaUI fixtures take whole-desktop screenshots only on a GitHub-hosted
-   runner and never in the live smoke (`BOO_CAPTURE_SCOPE=boo-windows`); anywhere else they save Boo's own windows only.
-   No workflow may use a self-hosted runner (`scripts/ci/check_runners.py`).
+   offscreen renders. Enforced in code (PR #18): the FlaUI fixtures copy the whole desktop only on a GitHub-hosted
+   runner and never in the live smoke (`BOO_CAPTURE_SCOPE=boo-windows`); anywhere else they draw Boo's own windows
+   from their own content (`PrintWindow`, files `*.boo-<n>.png`) and refuse rectangle screenshots. No workflow may use
+   a self-hosted runner (`scripts/ci/check_runners.py`), and the repo must keep 0 registered runners.
 8. **Honest red.** If evidence cannot be uploaded (for example the artifact quota), the job stays red. Never add
    `continue-on-error` to uploads or tests to get a green.
 9. **Secrets:** names only. Never print a key, write one to disk logs, or put one in a screenshot.
@@ -185,7 +186,7 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 | [#15](https://github.com/vikas53953/bluey/pull/15) | `ci/artifact-retention-7d` → `lane/face` | **open** | `retention-days: 7` on every upload. **QA FAIL (blocked: artifact storage)** at `8836c7e`. |
 | [#16](https://github.com/vikas53953/bluey/pull/16) | `docs/project-handoff` → `lane/face` | **open** | This handoff (HANDOFF.md, docs/DECISIONS.md, CONTRIBUTING.md). Docs only. |
 | [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **open** | `docs/plans/agent-trust-plan.md`: the 3-phase agent-trust plan. Vikas approved its order on 12 Nov, 10:02 PM IST. Docs only. |
-| live-smoke-off-desktop PR | `fix/live-smoke-off-desktop` → `lane/face` | **open** | Step 2 of that plan: live smoke on GitHub's VM only, Boo-window screenshots only, runner check in windows-ci. Oracle revision 20 (3 harness files). |
+| [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **open** | Step 2 of that plan: live smoke on GitHub's VM only, Boo-window screenshots only, runner check in windows-ci. Oracle revision 20 (3 harness files). |
 | [#11](https://github.com/vikas53953/bluey/pull/11) | `ci/real-gates` → `lane/face` | merged 12 Nov (`db0a339`) | demo-ci made a blocking gate; manual `live-ai-smoke` that fails closed. |
 | [#10](https://github.com/vikas53953/bluey/pull/10) | `fix/ci-frozen-tests-and-sf006` → `lane/face` | merged 12 Nov (`f244e47`) | Oracle and no-vacuous-pass gate in CI; SF-006 runs; `ScopedFiles` refuses names Windows would rewrite. |
 | [#9](https://github.com/vikas53953/bluey/pull/9), [#8](https://github.com/vikas53953/bluey/pull/8), [#7](https://github.com/vikas53953/bluey/pull/7) | lanes → `lane/face` | merged 8 Nov | Perf budgets; Velopack installer + opt-in updates; security hardening. |
@@ -222,11 +223,11 @@ choice.** Mark them that way, not as BLOCKED and not as green.
      (`tests/Boo.Demo.Tests/DemoTests.cs:228`).
    - Whether this is a timing race in the test or the app setting the state after showing the button is not proven.
    - The test is frozen, so a fix needs its own reviewed PR.
-5. **Merge order.** PR #14 and the live-smoke-off-desktop PR **both** take oracle revision 20 (both add
+5. **Merge order.** PR #14 and PR #18 **both** take oracle revision 20 (both add
    `test-oracle-history/revision-19.json`), and PR #12 will need its own oracle revision. Whichever merges second must
-   re-run `--extend` / `--rebaseline` on top. PRs #13, #14, #15 and the live-smoke-off-desktop PR all edit
+   re-run `--extend` / `--rebaseline` on top. PRs #13, #14, #15 and PR #18 all edit
    `live-ai-smoke.yml`, and #13 and #15 both edit `demo-ci.yml`. PR #13 still passes `-f runner=...` in its docs and
-   journeys; it must drop that after the live-smoke-off-desktop PR merges. HANDOFF.md and docs/DECISIONS.md are
+   journeys; it must drop that after PR #18 merges. HANDOFF.md and docs/DECISIONS.md are
    added by #16 and also by later PRs that copy #16's text and append to it; whichever merges second resolves the
    overlap by keeping both additions.
 6. Residuals listed in [docs/STATUS.md](docs/STATUS.md) ("Known residuals") still apply unless a later PR says
@@ -251,7 +252,7 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 From `docs/plans/agent-trust-plan.md` (PR #17). Steps run strictly in this order:
 
 1. Storage fix: PR #15 merges first.
-2. Close the screen-capture risk: the live-smoke-off-desktop PR.
+2. Close the screen-capture risk: PR #18.
 3. Phase 1 (deterministic checks), as the small PRs listed in the plan, one at a time. **Not opened until #15 and the
    screen-risk PR are merged into `lane/face`.**
 4. Merge PR #13 (verify-boo).

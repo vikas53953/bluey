@@ -38,7 +38,9 @@ jobs:
       # Never the owner's PC: every job must run on one literal GitHub-hosted label (no self-hosted, no expressions),
       # because the UI/demo/live tests take screenshots and the live smoke sends one to a real AI.
       - name: GitHub-hosted runners only
-        run: python -I scripts/ci/check_runners.py
+        run: |
+          python -I scripts/ci/check_runners.py --self-test
+          python -I scripts/ci/check_runners.py
 
       - uses: actions/setup-dotnet@v4
         with:

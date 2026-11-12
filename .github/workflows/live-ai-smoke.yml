@@ -92,7 +92,7 @@ jobs:
         shell: pwsh
         run: |
           if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
-            "::error title=Live AI smoke refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)'). Use runs-on: windows-latest."
+            "::error title=Live AI smoke refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)'). Set this job's runner back to windows-latest."
             exit 1
           }
           "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
@@ -167,25 +167,27 @@ jobs:
         run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/live-evidence/trx -SourceDirectory tools/Boo.LiveSmoke
 
       # Proof in the log (readable even when artifact upload fails) that every screenshot is a Boo window, not the
-      # whole desktop: each PNG's pixel size next to the runner's screen size. A whole-desktop shot fails the run.
-      - name: Screenshot sizes (Boo windows only, never the desktop)
+      # whole desktop. Every PNG must come from the Boo-window renderer (BooAppFixture.CaptureBooWindows writes only
+      # <name>.boo-<n>.png, drawn with PrintWindow from the window's own content, never screen pixels). Any other PNG
+      # means a screen copy happened, and fails the run. Sizes and window titles are printed for the reviewer.
+      - name: Screenshots are Boo windows only (never the desktop)
         if: always()
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Drawing, System.Windows.Forms
-          $screen = [System.Windows.Forms.SystemInformation]::VirtualScreen
-          "Runner screen: $($screen.Width) x $($screen.Height)"
+          foreach ($m in [System.Windows.Forms.Screen]::AllScreens) { "Runner monitor: $($m.Bounds.Width) x $($m.Bounds.Height)" }
           $shots = @(Get-ChildItem artifacts/live-evidence -Recurse -Filter *.png -ErrorAction SilentlyContinue)
-          if ($shots.Count -eq 0) { 'no screenshots were written'; exit 0 }
-          $desktop = 0
+          if ($shots.Count -eq 0) { "::error title=Live AI smoke::no screenshots were written, so there is no visual evidence"; exit 1 }
+          $bad = 0
           foreach ($s in $shots) {
             $img = [System.Drawing.Image]::FromFile($s.FullName)
-            $full = $img.Width -ge $screen.Width -and $img.Height -ge $screen.Height
-            "{0}: {1} x {2}{3}" -f $s.Name, $img.Width, $img.Height, $(if ($full) { '  <-- WHOLE DESKTOP' } else { '' })
-            if ($full) { $desktop++ }
+            $ok = $s.Name -match '\.boo-\d+\.png$'
+            "{0}: {1} x {2}{3}" -f $s.Name, $img.Width, $img.Height, $(if ($ok) { '' } else { '  <-- NOT FROM THE BOO-WINDOW RENDERER' })
+            if (-not $ok) { $bad++ }
             $img.Dispose()
           }
-          if ($desktop -gt 0) { "::error title=Live AI smoke::$desktop screenshot(s) cover the whole desktop; only Boo's windows may be captured"; exit 1 }
+          Get-ChildItem artifacts/live-evidence -Recurse -Filter *.capture.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          if ($bad -gt 0) { "::error title=Live AI smoke::$bad screenshot(s) were copied from the screen; only Boo's own windows may be captured"; exit 1 }
 
       # Belt and braces: no evidence file may contain a key. A hit deletes the file before upload and fails the run.
       - name: Key leak scan of the evidence

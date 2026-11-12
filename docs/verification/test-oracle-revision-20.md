@@ -1,31 +1,42 @@
 # Test-oracle revision 20: reviewed rebaseline (2026-11-12)
 
-Branch `fix/live-smoke-off-desktop`. Reason: Vikas's decision of 12 Nov 2026, 10:02 PM IST: the live AI smoke must
-never run on his PC, and test screenshots must be of Boo's own windows, never the whole desktop.
+Branch `fix/live-smoke-off-desktop` (PR #18). Reason: Vikas's decision of 12 Nov 2026, 10:02 PM IST: the live AI smoke
+must never run on his PC, and test screenshots must be of Boo's own windows, never the whole desktop.
 
 ## Changed frozen files (exactly 3, all test **harness** files, no test file)
 
-| File | What changed | Decision |
+`tests/Boo.Demo.Tests/BooAppFixture.cs`, `tests/Boo.Ui.Tests/BooAppFixture.cs`, `tests/Boo.Perf.Tests/PerfAppFixture.cs`
+get the same change:
+
+| Method | Before | After |
 | --- | --- | --- |
-| `tests/Boo.Demo.Tests/BooAppFixture.cs` | `CaptureScreen` takes the whole desktop only when `FullDesktopCaptureAllowed()` is true: `RUNNER_ENVIRONMENT=github-hosted` and `BOO_CAPTURE_SCOPE` is not `boo-windows`. Otherwise new `CaptureBooWindows` saves each visible top-level Boo window (`name.png`, `name-1.png`, ...), or writes `name.no-window.txt` if none is visible. | ACCEPT |
-| `tests/Boo.Ui.Tests/BooAppFixture.cs` | Same change, same code. | ACCEPT |
-| `tests/Boo.Perf.Tests/PerfAppFixture.cs` | Same change (keeps its `using var image` disposal). | ACCEPT |
+| `CaptureScreen(name)` | always `Capture.Screen()` (the whole desktop) | Whole desktop only when `FullDesktopCaptureAllowed()`: `RUNNER_ENVIRONMENT=github-hosted` **and** `BOO_CAPTURE_SCOPE` empty. Otherwise `CaptureBooWindows`: each visible top-level Boo window is drawn from **its own content** with `PrintWindow(PW_RENDERFULLCONTENT)` (not copied from the screen) to `name.boo-0.png`, `name.boo-1.png`, ..., plus `name.capture.txt` listing what was captured. **Nothing is written at `name.png`** in that mode. |
+| `CaptureRectangle(name, rect)` | `Capture.Rectangle(rect)` anywhere | Throws unless `RUNNER_ENVIRONMENT=github-hosted`: a rectangle copies whatever is on the real screen there. |
+
+Decision: ACCEPT.
 
 ## Why this does not weaken any test
 
 - No `[Fact]`/`[Theory]`, assertion, timeout or `Skip` changed. Test attribute counts are unchanged.
-- In CI (`windows-ci`, `demo-ci`, both on `windows-latest`, so `RUNNER_ENVIRONMENT=github-hosted`) and without
-  `BOO_CAPTURE_SCOPE`, the code path is exactly the old one: `Capture.Screen()`.
-- `CaptureScreen` was already evidence only: every caller ignores the image, and the method already swallowed
-  capture errors into `.error.txt`. No test reads pixels from a `CaptureScreen` image. Tests that check pixels use
-  `CaptureRectangle` (unchanged) on a rectangle around a Boo element.
-- Behaviour changes only off GitHub's VMs (for example a local run on the owner's PC) and in the live smoke, which sets
-  `BOO_CAPTURE_SCOPE=boo-windows`: those now get Boo's windows instead of the whole desktop.
+- In CI (`windows-ci`, `demo-ci` on `windows-latest`, so `RUNNER_ENVIRONMENT=github-hosted`, and no
+  `BOO_CAPTURE_SCOPE`) both methods run exactly the old code (`Capture.Screen()`, `Capture.Rectangle(rect)`).
+- **One test reads pixels from a `CaptureScreen` file:** `DemoTests` step 1 passes the `01-explain-ring-fullscreen`
+  path to `ProbeRing`, which reads it by screen coordinates. On CI it is unchanged. Off CI no file is written at that
+  path, so the probe fails honestly instead of reading a crop with the wrong origin. Pixel tests that use
+  `CaptureRectangle` (Demo nudge/happy, Ui notch box, Perf notch bounds) now fail off CI with a plain message. That is
+  intended: the UI, demo and perf suites run only on GitHub's VMs (docs/DECISIONS.md, "Never capture the owner's real
+  screen").
+- The live smoke (`tools/Boo.LiveSmoke`) sets `BOO_CAPTURE_SCOPE=boo-windows` itself and never uses
+  `CaptureRectangle`, so all its evidence comes from `CaptureBooWindows` on any machine.
 
-## Known limit
+## Review history
 
-`Capture.Element` copies the screen pixels inside a Boo window's rectangle. If another window overlapped Boo at that
-moment, its pixels inside that rectangle would appear. `CaptureRectangle` is unchanged and can still capture any
-rectangle a test names (today always one around a Boo element). Both are far narrower than the whole desktop.
+The first version of this revision (commit `8112020`) captured Boo windows with `Capture.Element`, which copies
+screen pixels inside the window's rectangle. The independent review found that Boo's transparent, full-screen
+"screen explanation" overlay (`src/Boo.App/AnnotationWindow.xaml.cs`) is a top-level Boo window, so that capture would
+have been a whole-display picture. It also found the note's claim "no test reads pixels from CaptureScreen" was false
+(see above). Both are fixed here: `PrintWindow` draws only the window's own content, so the overlay shows only its
+marks, and the claim is corrected. The workflow `live-ai-smoke.yml` fails the run if any evidence PNG did not come
+from this renderer (`*.boo-<n>.png`).
 
 Added to the oracle: none. Removed: none.
