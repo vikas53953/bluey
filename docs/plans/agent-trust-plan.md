@@ -12,7 +12,7 @@ Written 12 Nov 2026 on `lane/face` at `f244e47`. Source idea: poteto's AIE talk 
 > `Thread.Sleep` 27 times and `Environment.GetEnvironmentVariable` 11 times; non-doc comment lines about 395–400,
 > `///` 1,399, XAML/csproj comments 18; the `TODO(talk lane)` is now at `NotchWindow.xaml.cs:126`. PR 1.1 measures
 > the baseline again on its own head, so these numbers only change targets, not the plan. Also changed since
-> `f244e47`: the repo is **public** (13 Nov) and CI uploads work again (section 1.6).
+> `f244e47`: the repo is **public** (by 13 Nov) and CI uploads work again (section 1.6).
 
 ## The idea in one picture
 
@@ -100,11 +100,11 @@ removed in cleanup C10 (2.8).
 | 2 Lint / types | Nullable on, warnings are errors, `AnalysisLevel=latest` | `Directory.Build.props` | No banned APIs, no threading analyzers, no comment policy, no style enforcement. |
 | 2 Tests | Frozen-test oracle: every file under `tests/`, the acceptance notes and `Contracts.cs` hash to `docs/verification/test-oracle.json` (revision 19, 139 files, 18 history links intact) | `scripts/test_oracle.py`, `windows-ci` step "Frozen-test oracle" | Only covers `tests/`; `tools/` is not frozen. |
 | 2 Tests | No-vacuous-pass gate: no empty test file, no test project without tests, no `Skip =`; every `.trx` must show tests ran and none skipped | `scripts/test_gate.py` (static + trx), `scripts/ci/assert-tests-ran.ps1` | `test_gate.py static` only scans `tests/`, not `tools/Boo.LiveSmoke` / `tools/Boo.VerifyLive` (the trx check does cover them in `live-ai-smoke`). |
-| 3 Runtime | UI smoke + perf budgets on the published `Boo.exe` (FlaUI) | `windows-ci` | Skipped at `f244e47` (storage quota); running again since 12 Nov (see 1.6). |
+| 3 Runtime | UI smoke + perf budgets on the published `Boo.exe` (FlaUI) | `windows-ci` | Skipped at `f244e47` (storage quota); running again since 13 Nov (see 1.6). |
 | 3 Runtime | 4 end-to-end demos on the published `Boo.exe` against a mock OpenAI (blocking) | `demo-ci`, `tools/Boo.QaMockAi`, `tests/Boo.Demo.Tests` | No video. |
 | 3 Runtime | Live real-key round trip, fails closed when the key is missing; keys masked twice; evidence scanned for keys before upload | `live-ai-smoke.yml` (manual `workflow_dispatch`) | Manual only; not a required check. |
 | 3 Runtime | Anti-mock guard: refuses to run if any AI host is pinned in `hosts` or resolves to loopback | `live-ai-smoke.yml` step "Refuse if any AI host is redirected"; PR #14 (open) widens it to every private/LAN address and moves it into `tools/Boo.LiveSmoke/RealAiHostGuard.cs` | PR #14 not merged. |
-| 3 Runtime | Notch face gallery: every face state rendered offscreen to PNG | `Boo.exe --notch-gallery`, `windows-ci` | Skipped at `f244e47`; running again since 12 Nov (1.6). |
+| 3 Runtime | Notch face gallery: every face state rendered offscreen to PNG | `Boo.exe --notch-gallery`, `windows-ci` | Skipped at `f244e47`; running again since 13 Nov (1.6). |
 | Process | Branch protection on `lane/face` and `main`: required checks `demos` and `build-test-publish`, strict (branch must be up to date) | GitHub settings | No required reviews, admins not enforced, no rulesets. |
 | Process | Separate reviewer, evidence table with live / mock / manual / UNVERIFIED labels | Vikas's pipeline; PR bodies | Lives only in prompts and PR habits. Nothing fails if the table is missing. |
 | Process | verify-boo skill: 7 live journeys (j0–j6) on the real `Boo.exe`, a feature map of 68 features, a prove-it rule, a map drift checker | PR #13 (open, `test/verify-boo-skill`): `.claude/skills/verify-boo/`, `tools/Boo.VerifyLive/`, `docs/FEATURE_MAP.md`, `AGENTS.md` | Not merged; j3 (screen explain) failed 2 of 3 live runs; not a required check. |
@@ -164,7 +164,7 @@ Each row is a rule that today is only written in a prompt or a PR habit. Phase 1
 | App (UI) → network directly | **3**: `MainWindow.xaml.cs:65` field `HttpClient? _http`, created at `:1624` and `:2123`. Network calls should go through Providers. |
 | Windows → WPF UI | 0 uses of `System.Windows.Controls`/`Shapes`; `NativeCaptureDevice.cs` uses `System.Windows.Media(.Imaging)` (bitmaps) and 2 files use `System.Windows.Automation` (UI Automation). Both fit a "Windows integration" layer. |
 
-### 1.6 CI health (red at `f244e47`, green again since 12 Nov)
+### 1.6 CI health (red at `f244e47`, green again since 13 Nov)
 
 - **Update 13 Nov:** the repo is now public and uploads work again. `windows-ci` run 43287422701 and `demo-ci` run
   43287422696 on `lane/face` `8474556` passed every step, including the upload, notch gallery, UI smoke and perf
@@ -653,7 +653,7 @@ table. Formal and property PRs each include a **red proof** (the checker catches
   for demo videos alone (half that if decision 6 drops the paired runs) — **this only fits once the
   `boo-win-x64` uploads are fixed** (they are ~84 MB each today).
 - Live journeys: 10–14 min on `windows-latest` per run (from PR #13's runs), which bills as 20–28 min on a
-  private repo (the repo is public since 13 Nov, where GitHub's standard hosted runners are free), plus OpenAI usage per run. At one live run per PR head, 20 PRs a month ≈ 400–560 billed minutes.
+  private repo (the repo is public by 13 Nov, where GitHub's standard hosted runners are free), plus OpenAI usage per run. At one live run per PR head, 20 PRs a month ≈ 400–560 billed minutes.
 
 **Done when:**
 - TLC proves all `INV-*` and `LIVE-*` on every change to the model or reducer;
@@ -750,7 +750,7 @@ Published as a weekly table in `docs/quality/trust-metrics.md` and as a visual p
 PR goes through the same pipeline (separate reviewer, evidence table, live real-key journeys with video, no skips)
 plus guardrails 1–7.
 
-**CI cost:** (billed minutes apply only if the repo is private; it is public since 13 Nov) nightly 30 min on `windows-latest` = 60 billed min/day ≈ 1,800 billed min/month (90% of GitHub
+**CI cost:** (billed minutes apply only if the repo is private; it is public by 13 Nov) nightly 30 min on `windows-latest` = 60 billed min/day ≈ 1,800 billed min/month (90% of GitHub
 Free's 2,000 included minutes on its own, if the account is on Free; the plan was not checked), so nightly may need
 to be weekly, about 240 billed min/month; a release
 run 60 min = 120 billed min. Storage: only failing runs upload (repro + video, about 10–30 MB each), 7-day
@@ -766,7 +766,7 @@ retention. OpenAI: capped live turns per run.
 
 ## 5. Recommended order
 
-1. **Keep storage healthy** (merge PR #15). Since 13 Nov the repo is public and the UI/perf layer runs again; on
+1. **Keep storage healthy** (merge PR #15). By 13 Nov the repo is public and the UI/perf layer runs again; on
    12 Nov every CI result was red for the wrong reason.
 2. **Stop the real-screen risk** (PR 1.8: live smoke default to `windows-latest`, capture guard in tools).
    Small, and it closes a privacy gap today.
