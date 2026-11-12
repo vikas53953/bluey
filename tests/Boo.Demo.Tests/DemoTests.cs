@@ -236,8 +236,9 @@ public sealed class DemoTests : IClassFixture<BooAppFixture>
             // The pills appear once the nudge caption has finished typing, so wait for the button instead of assuming it.
             AutomationElement? FindBack() => notchWindow.FindFirstDescendant(cf => cf.ByAutomationId("NudgeBackButton"))
                 ?? notchWindow.FindFirstDescendant(cf => cf.ByName("Back to it"));
-            BooAppFixture.WaitUntil(() => FindBack() is not null, UiTimeout);
-            var back = FindBack();
+            // Keep the element the wait found: looking it up a second time could miss it if the 6 s nudge ends in between.
+            AutomationElement? back = null;
+            BooAppFixture.WaitUntil(() => (back = FindBack()) is not null, UiTimeout);
             Assert.NotNull(back);
             back!.AsButton().Invoke();
 

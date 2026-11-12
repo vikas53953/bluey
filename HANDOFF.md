@@ -212,7 +212,7 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    ([43240958545](https://github.com/vikas53953/bluey/actions/runs/43240958545),
    [43296734862](https://github.com/vikas53953/bluey/actions/runs/43296734862)). Judged a test race, not an app bug:
    the test sampled `Capture`, then found "Back to it" after the flip to `Nudge`, and never re-read the state. The fix
-   re-reads the state after the button search (oracle revision 22; record in
+   re-reads the state after the button search (oracle revisions 22–23; record in
    `docs/verification/test-oracle-revision-22.md`).
 4. **Flaky perf budget: `revealFramesPerSecond >= 20`.** On GitHub's shared Windows VMs the notch's reveal frame rate
    swings widely on the same code: 44 windows-ci runs between 19:00 and 20:10 UTC on 12 Nov measured 8 to ~74 fps (28 of
