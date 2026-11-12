@@ -21,8 +21,8 @@ and independently reran the complete Release suite after cleanup:
 - Oracle: revision 13, 36 files verified unchanged.
 
 Canonical TRX files:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_14_28_14_net10.0.trx` and
-`TestResults/vikasmit_VIKASMIT_2026-11-07_14_28_16_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_14_28_14_net10.0.trx` and
+`TestResults/<user>_<machine>_2026-11-07_14_28_16_net10.0.trx`.
 
 The project-wide format check still exits 2 on untouched Core whitespace,
 including frozen Contracts.cs. See `artifacts/format-control-observation.log`.
