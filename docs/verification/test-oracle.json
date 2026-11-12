@@ -1,5 +1,5 @@
 {
-  "revision": 22,
+  "revision": 24,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -87,7 +87,7 @@
     "tests/Boo.Core.Tests/VoiceCommandTests.cs": "13decf186040e3e49ec0280e9afa5cc08f87ed1e3a062e48d77e0cdc3eedf0b4",
     "tests/Boo.Demo.Tests/Boo.Demo.Tests.csproj": "f3fad7e22de0b6b19a8b5bb208a3a6dcb4d76db4befa792f289ef188ed955d7b",
     "tests/Boo.Demo.Tests/BooAppFixture.cs": "3674257f2b56f26ae5c1fb537e3d7498cd633d23b466988c7c45e91e06ec2179",
-    "tests/Boo.Demo.Tests/DemoTests.cs": "aa8454f63744ddaebd591eda97f922daddbb6b109fcf1fbd86f0a0430b3afeef",
+    "tests/Boo.Demo.Tests/DemoTests.cs": "dcb58a575f973cd6d58f97af7612b97f6b1c4b0ab7c22f0c1b32f37e04611dac",
     "tests/Boo.Demo.Tests/OrderedSteps.cs": "306e9963f703f5d3110060f5a03f66272dfda4959eba07c238be328da40776e2",
     "tests/Boo.Demo.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Integration.Tests/AppearanceReadFailureTests.cs": "71a6aa267746f1f5124cde57204258a4d6c62351d620e963b30eeec95c585a70",
@@ -147,11 +147,11 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-21.json",
-  "previousManifestSha256": "15c262d0143b640937a0de965b08b3edb791e8b6b47b597d5a1182f68b87cb64",
-  "revisionReason": "Revision 22 (13 Nov 2026; written as revision 20 on PR #18, renumbered after PR #12 took 20 and PR #14 took 21). Vikas decision 12 Nov 2026 10:02 PM IST: CaptureScreen takes the whole desktop only on a GitHub-hosted runner with BOO_CAPTURE_SCOPE unset, otherwise renders Boo windows with PrintWindow; CaptureRectangle only on GitHub-hosted runners. Harness files only, no test changed. See docs/verification/test-oracle-revision-22.md",
+  "previousManifest": "docs/verification/test-oracle-history/revision-23.json",
+  "previousManifestSha256": "cb082fe330b55aa5b72a3fa6e3ffeec7baafe1bef68449f135e4554d7fd0ed0b",
+  "revisionReason": "Revision 24 (13 Nov 2026; written as revision 20 on PR #18, renumbered after PR #12 took 20, PR #14 took 21 and PR #22 took 22-23). Vikas decision 12 Nov 2026 10:02 PM IST: CaptureScreen takes the whole desktop only on a GitHub-hosted runner with BOO_CAPTURE_SCOPE unset, otherwise renders Boo windows with PrintWindow; CaptureRectangle only on GitHub-hosted runners. Harness files only, no test changed. See docs/verification/test-oracle-revision-24.md",
   "addedFiles": [],
-  "revisionCommit": "eec75f38f7e4d8e46a0f1404e74aafbd83020753",
+  "revisionCommit": "b590f927eb89708c9b4d5e6625aa370873af739c",
   "changedFiles": [
     "tests/Boo.Demo.Tests/BooAppFixture.cs",
     "tests/Boo.Perf.Tests/PerfAppFixture.cs",
