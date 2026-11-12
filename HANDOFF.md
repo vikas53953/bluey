@@ -178,7 +178,7 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 PRs into `lane/face` must be **up to date** with it to merge, so every merge makes the others BEHIND. Sync by merging
 `origin/lane/face` into the branch (no force push), then re-run CI and one live smoke on the new head.
 
-| PR | Branch → base | State (13 Nov, ~01:30 IST) | Notes |
+| PR | Branch → base | State (13 Nov, ~02:00 IST) | Notes |
 | --- | --- | --- | --- |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
 | [#16](https://github.com/vikas53953/bluey/pull/16) | `docs/project-handoff` → `lane/face` | **open** | This handoff (HANDOFF.md, docs/DECISIONS.md, CONTRIBUTING.md). Merged with the PR #12 session notes and decision records. |
@@ -214,8 +214,8 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    the notch's reported state still read `Capture` (`DemoTests.cs:228`). The cause isn't proven. The test is frozen, so
    a fix needs its own reviewed PR.
 4. **Flaky perf budget: `revealFramesPerSecond >= 20`.** On GitHub's shared Windows VMs the notch's reveal frame rate
-   swings widely on the same code: 18 windows-ci runs between 19:00 and 20:10 UTC on 12 Nov measured 8 to 70 fps (most
-   40–55). One docs-only run failed at 8 fps ([43296723546](https://github.com/vikas53953/bluey/actions/runs/43296723546))
+   swings widely on the same code: 44 windows-ci runs between 19:00 and 20:10 UTC on 12 Nov measured 8 to ~74 fps (28 of
+   them 40–55). One docs-only run failed at 8 fps ([43296723546](https://github.com/vikas53953/bluey/actions/runs/43296723546))
    while its twin passed at 41 fps; another got 20.99. Since PR #12 the notch draws in software, so it may be more
    sensitive to VM load. Not fixed; a budget or measurement change needs its own reviewed PR.
 5. **Living ink notes** (from PR #12's reviews, low): built-in fallback face is still B (`NotchSpec.Default`); the
@@ -224,10 +224,9 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    and live runs only. Not measured: software-drawing CPU on 4K / 200 % or high-refresh screens, memory after the
    panel has been opened, and repeat hovers (~0.7 MB each, same on the old build).
 6. **SF-006 symlink cases** fail on a dev PC without Windows Developer Mode, same on unchanged `lane/face` (never skipped); they pass in CI.
-7. **Merge order / oracle revisions.** `lane/face` is at oracle revision 21 (PR #14). PR #18 also made its own revision
-   21, so it must re-sync and re-run `--extend` / `--rebaseline` on top (revision 22).
-   PRs #13, #14, #15 and #18 all edit `live-ai-smoke.yml`; #13, #15 and #18 edit `demo-ci.yml`; #14, #15 and #18 edit
-   `windows-ci.yml` (#20 and #21, stacked on #18, carry #18's edits).
+7. **Merge order / oracle revisions.** `lane/face` is at oracle revision 21 (PR #14). PR #18 has already re-synced and
+   sits at revision 22 on top of it. Still-open PRs that edit the same workflows: #13 and #18 (plus #20 and #21, stacked
+   on #18) edit `live-ai-smoke.yml`; #13 and #18 edit `demo-ci.yml`; #18 edits `windows-ci.yml`.
 8. The notch memory guard (`NotchDrawingMemoryTests`) has now run in CI: windows-ci on `8474556`
    ([43287434389](https://github.com/vikas53953/bluey/actions/runs/43287434389)) passed UI smoke, perf budgets and the gate.
 9. Residuals listed in [docs/STATUS.md](docs/STATUS.md) ("Known residuals") still apply unless a later PR says
