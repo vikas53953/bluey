@@ -1,5 +1,5 @@
 {
-  "revision": 20,
+  "revision": 21,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -34,8 +34,8 @@
     "tests/Boo.Core.Tests/CubicBezierEaseTests.cs": "0d5cb06f82b7b7abae2f6f4e88aee9e44b47190ab60b3806de83fa64bbea4b3d",
     "tests/Boo.Core.Tests/FaceMomentScheduleTests.cs": "7b63e12eb45e361febe64540a2b8a337f9c2df05bb9204ecb69a8859fe057b19",
     "tests/Boo.Core.Tests/FaceMomentsTests.cs": "5c385ad56ad0561db9aadec7a0516cb16064bd6feff99ea4ebc33fe835bca90e",
-    "tests/Boo.Core.Tests/FaceMotionTests.cs": "78d9b9e2b9c49b0eb880ae6f6a910932ab4636a8a1b08a21ce68230705cb0c7a",
-    "tests/Boo.Core.Tests/FaceSpecTests.cs": "874f7b63e2ec7f1ce2f6d5d0c103f5b60b624f4bfab48212f2c7d985b316ac12",
+    "tests/Boo.Core.Tests/FaceMotionTests.cs": "99f3b33de80ce3e51ae6e9a067cf6e1b2ecd21b0a1be08f824d329f61b2ec2b3",
+    "tests/Boo.Core.Tests/FaceSpecTests.cs": "4f5361b09edd47bd919e7d90e694226d3b4502b4d6c2b6ee13effc44191808b0",
     "tests/Boo.Core.Tests/FaceStateResolverTests.cs": "dace23c2524f70f224bd98a73794196763f035fec2519514d86805c9aaca85a1",
     "tests/Boo.Core.Tests/FileUndoJournalTests.cs": "3377594b781b196649da8fa51b2211b9d204f2aa1f9b5c5e8f144b6a6eb2f85d",
     "tests/Boo.Core.Tests/FileWriteBoundaryTests.cs": "5f97310d31f64a1a64f8989c4a2c15a4238b1d8303c5bfe325eb222e108a72ee",
@@ -52,11 +52,12 @@
     "tests/Boo.Core.Tests/GitHubAccessTokenTests.cs": "373ff26777df706f676add1ec3e29c251e5cf19ba0c04aaf5f594d87e919fba7",
     "tests/Boo.Core.Tests/HoldToTalkControllerTests.cs": "9ac8596b87076a9e2bf10ff792c7679d68bfa999d0861f0d7a658ae6d73ac373",
     "tests/Boo.Core.Tests/LatencyRecorderTests.cs": "ba7d15dea5ecaf5a1c79170e20139692e7d09c4fee5922db885a121f31fbf98c",
+    "tests/Boo.Core.Tests/LivingInkTests.cs": "861b50528f635eb8422603f45003d2002223b1f5fae0879e4912cd83ecc0938b",
     "tests/Boo.Core.Tests/MicrophoneFailureTests.cs": "027d428923ff56007e3c2fc97ee45c4d3208ac50a2aedc7a8bde5c2cd98b27c6",
     "tests/Boo.Core.Tests/MonitorLayoutTests.cs": "7840894e2c3548bf07dc2b3a5e2b9760eb44a63613e63d6f98823c0d767ae7b4",
     "tests/Boo.Core.Tests/NotchAppearanceTests.cs": "b6c7dde2aeced5c8e067e32ac697592bf9ba7eceb5ee5de488bfe69a9cafd092",
-    "tests/Boo.Core.Tests/NotchFaceGeometryTests.cs": "05e749f4d7b8008c2c68267607bde3193a51be81eb60856aac4adcd98162a16d",
-    "tests/Boo.Core.Tests/NotchLayoutTests.cs": "256458dd3de2df3e3fd6ff3dce920b3116650771b5806329036fc4eed8e87c3f",
+    "tests/Boo.Core.Tests/NotchFaceGeometryTests.cs": "16d87b6bd7380910490cfa6513663bc83096c2a79d4151556a4afbea89a3f9f0",
+    "tests/Boo.Core.Tests/NotchLayoutTests.cs": "08b9fb2bd60bac708093c203b0fe7b28e0b0da57062601fbacf2bb7391915c0c",
     "tests/Boo.Core.Tests/OcrNudgeTargetMatcherTests.cs": "16fda5c38efedac9b863cb0b45ef1dd68115ead6ce3be5230e2e92bcf1974236",
     "tests/Boo.Core.Tests/ParityMotionTests.cs": "a25acc807a997524b2b37310a0aab58567de114b484b7c829e3e2356f5dcf745",
     "tests/Boo.Core.Tests/PauseAllShortcutTests.cs": "65696aecc08b8d3b044f60c1bf34c5fc4bed2022ce5b9cdc4de31bcba4bd1f40",
@@ -115,6 +116,7 @@
     "tests/Boo.Perf.Tests/Boo.Perf.Tests.csproj": "ef2df8fde46266721d7affba05ca8d59d083a5949b509d163956e347a6d13168",
     "tests/Boo.Perf.Tests/BooPerfBudgetTests.cs": "ce2fccccd4c53f15f44e5bee159236db5f238a3a6815ad7eecd6434ad0ab5757",
     "tests/Boo.Perf.Tests/DiagSnapshot.cs": "cbb9c990e3b576a955cafe14826a0bad8347ad5e20107e249a2bd88373b2ece9",
+    "tests/Boo.Perf.Tests/NotchDrawingMemoryTests.cs": "a1b56be64e4f0c950cd98d01545822cdb13e97b5bf8c08422443ca0057b7dcd7",
     "tests/Boo.Perf.Tests/PerfAppFixture.cs": "96e9661505f2be9ff063cf4549cc7e36dc10e3a312600d371883012c5081b501",
     "tests/Boo.Perf.Tests/PerfBudgets.cs": "16d9943706daa07e7fb3c9769b40bbcc14b2dc8a47301a4d05d096f0d24ed7b2",
     "tests/Boo.Perf.Tests/budgets.json": "2263e65000ba2ad3fe55dcb51c5e1e6539db8c28399d1ecd4b047e78726e7527",
@@ -145,14 +147,14 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-19.json",
-  "previousManifestSha256": "8d37156ab9eaedf25d842c0437c934274b1bc1f8b98b1884ade81c0b553bddde",
-  "revisionReason": "Add tests/Boo.LiveGuard.Tests: behaviour tests for the live-AI anti-mock guard (every local, private, LAN, link-local, site-local, NAT64/6to4 and fake-IP range rejected, including hostnames that resolve to one; proxies rejected; a real public API host passes). New files only.",
+  "previousManifest": "docs/verification/test-oracle-history/revision-20.json",
+  "previousManifestSha256": "0f66ab7d0f287427db1c26508618e547495891b4298981642be617436c2758b1",
+  "revisionReason": "Add tests/Boo.LiveGuard.Tests (PR #14): behaviour tests for the live-AI anti-mock guard. Re-frozen on top of lane/face revision 20 (Living ink) after syncing; new files only.",
   "addedFiles": [
     "tests/Boo.LiveGuard.Tests/Boo.LiveGuard.Tests.csproj",
     "tests/Boo.LiveGuard.Tests/RealAiHostGuardTests.cs"
   ],
-  "revisionCommit": "c447a2e1af731074b993368f947828242a95d11a",
+  "revisionCommit": "1e70b8aaa1c95dba64782a0c24cba498115d35c1",
   "changedFiles": [],
   "removedFiles": []
 }

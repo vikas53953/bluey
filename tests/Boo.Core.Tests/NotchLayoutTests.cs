@@ -28,7 +28,7 @@ public sealed class NotchLayoutTests
     [MemberData(nameof(ScaledSizes))]
     public void Each_state_size_is_spec_times_scale_and_centred_at_top(NotchFaceState state, double scale, double width, double height)
     {
-        var face = FaceSpecFixture.Load().Face;
+        var face = FaceSpecFixture.LoadFaceB().Face;
         var screen = new RectD(0, 0, 1920 * scale, 1080 * scale);
 
         var bounds = NotchLayout.Bounds(face, state, screen, scale);
@@ -42,7 +42,7 @@ public sealed class NotchLayoutTests
     [Fact]
     public void Face_B_literal_sizes_at_100_percent()
     {
-        var face = FaceSpecFixture.Load().Face;
+        var face = FaceSpecFixture.LoadFaceB().Face;
 
         Assert.Equal(new RectD(918, 0, 84, 36), NotchLayout.Bounds(face, NotchFaceState.Idle, Primary1080, 1));
         Assert.Equal(new RectD(874, 0, 172, 36), NotchLayout.Bounds(face, NotchFaceState.Listening, Primary1080, 1));
@@ -54,7 +54,7 @@ public sealed class NotchLayoutTests
     [Fact]
     public void Sideways_growth_keeps_centre_and_height()
     {
-        var face = FaceSpecFixture.Load().Face;
+        var face = FaceSpecFixture.LoadFaceB().Face;
         var idle = NotchLayout.Bounds(face, NotchFaceState.Idle, Primary1080, 1);
 
         foreach (var state in new[] { NotchFaceState.Listening, NotchFaceState.Thinking, NotchFaceState.Capture, NotchFaceState.Paused, NotchFaceState.Happy })
@@ -70,7 +70,7 @@ public sealed class NotchLayoutTests
     [Fact]
     public void Secondary_monitor_offsets_are_respected()
     {
-        var face = FaceSpecFixture.Load().Face;
+        var face = FaceSpecFixture.LoadFaceB().Face;
         var right = new RectD(1920, 0, 2560, 1440);
         var left = new RectD(-2560, -360, 2560, 1440);
 
@@ -111,7 +111,7 @@ public sealed class NotchLayoutTests
     [Fact]
     public void Invalid_scale_throws()
     {
-        var face = FaceSpecFixture.Load().Face;
+        var face = FaceSpecFixture.LoadFaceB().Face;
 
         Assert.Throws<ArgumentOutOfRangeException>(() => NotchLayout.Bounds(face, NotchFaceState.Idle, Primary1080, 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => NotchLayout.Bounds(face, NotchFaceState.Idle, Primary1080, double.NaN));
