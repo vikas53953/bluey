@@ -206,6 +206,14 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 
 ### Known issues
 
+0. **A PR can change the gates that judge it** (found by the independent reviews of PRs #20 and #21, 13 Nov 2026).
+   A `pull_request` run uses the PR's own workflow files, so a PR could make `live-ai-smoke` (or any check) pass
+   without doing its job. The ratchet (PR #21) also compares against the base branch's own copy, which closes it
+   there; for workflow files only a GitHub setting can: a `CODEOWNERS` file covering `.github/workflows/**`,
+   `scripts/ci/**`, `scripts/quality/**` and `docs/quality/**`, plus "Require review from Code Owners" on
+   `lane/face` and `main`. **Decision pending with Vikas.** Until then the verifying bot treats any PR touching
+   those paths as needing Vikas's review.
+
 1. **GitHub Actions artifact storage quota.** Earlier on 12 Nov there were 677 artifacts (22.45 GB). Every upload
    failed with `Failed to CreateArtifact: Artifact storage quota has been hit`, so every run went red. In windows-ci the
    failed app upload also **skips** the gallery, UI smoke and perf steps.

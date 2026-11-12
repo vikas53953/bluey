@@ -11,8 +11,19 @@ buttons work, but not that Boo can talk to the real AI. This test is the missing
 `live-ai-smoke`, is a **required check** on `lane/face` and `main`: a PR cannot merge unless a real round trip
 passed on its newest commit (Vikas, 12 Nov 2026, 11:20 PM IST). A newer push to the same PR cancels the older run.
 
-**What it costs:** one paid AI request per run (a screenshot and a short answer), plus about 10–14 minutes of a
-Windows VM, which GitHub bills at 2× for a private repo (about 20–28 billed minutes per PR push).
+**What it costs:** one small paid AI request per run (a screenshot and a short answer), so one per PR push plus any
+manual runs. A run cancelled by a newer push may already have spent its request. GitHub's standard runners are free
+because the repository is public (since 13 Nov 2026); each run takes about 10–14 minutes of a Windows VM.
+
+**Known limits:**
+- A PR from a fork, or opened by Dependabot, gets no access to the key, so its live run fails by design. Re-push the
+  change from a branch in this repository.
+- Changing a PR's base branch (for example retargeting a stacked PR) does not start a new run; the earlier result on
+  the same commit still counts. Branch protection requires the branch to be up to date, which usually forces a new
+  commit and so a fresh run.
+- A pull request runs **its own copy** of this workflow, so a PR could change the check itself. Only a GitHub setting
+  closes that (see HANDOFF.md, known issues); until then the verifying bot must treat any PR that touches
+  `.github/workflows/` or `scripts/` as needing Vikas's eyes.
 
 **Why a separate final job:** GitHub counts a *skipped* required job as passing. When the key check fails, the
 Windows job is skipped, so it cannot be the required check itself. The final `live-ai-smoke` job always runs and is
