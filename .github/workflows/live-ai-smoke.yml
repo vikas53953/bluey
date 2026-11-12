@@ -179,25 +179,29 @@ jobs:
           $images = '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tif', '.tiff', '.webp'
           $shots = @(Get-ChildItem artifacts/live-evidence -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $images -contains $_.Extension.ToLowerInvariant() })
           if ($shots.Count -eq 0) { "::error title=Live AI smoke::no screenshots were written, so there is no visual evidence"; exit 1 }
-          $bad = 0
+          # Every image must come from the Boo-window renderer and be readable. A single window may legitimately render as
+          # one colour (the retracted notch is fully transparent), but each capture moment (<step>.boo-*.png) must have
+          # at least one window with real content, or the renderer is broken and there is no visual evidence.
+          $bad = 0; $moments = @{}
           foreach ($s in $shots) {
-            $ok = $s.Name -match '\.boo-\d+\.png$'
+            $ok = $s.Name -match '^(?<step>.+)\.boo-\d+\.png$'
             $note = if ($ok) { '' } else { '  <-- NOT FROM THE BOO-WINDOW RENDERER' }
             try {
               $img = [System.Drawing.Bitmap]::FromFile($s.FullName)
-              # A blank render (PrintWindow failing quietly) is not evidence: sample every 4th pixel for a second colour.
               $first = $img.GetPixel(0, 0).ToArgb(); $varied = $false
               for ($y = 0; $y -lt $img.Height -and -not $varied; $y += 4) {
                 for ($x = 0; $x -lt $img.Width; $x += 4) { if ($img.GetPixel($x, $y).ToArgb() -ne $first) { $varied = $true; break } }
               }
-              if (-not $varied) { $ok = $false; $note += '  <-- ONE COLOUR (blank render)' }
+              if (-not $varied) { $note += '  (one colour)' }
               "{0}: {1} x {2}{3}" -f $s.Name, $img.Width, $img.Height, $note
               $img.Dispose()
+              if ($ok) { $step = $Matches['step']; if (-not $moments.ContainsKey($step)) { $moments[$step] = $false }; if ($varied) { $moments[$step] = $true } }
             } catch { $ok = $false; "{0}: unreadable ({1})" -f $s.Name, $_.Exception.Message }
             if (-not $ok) { $bad++ }
           }
+          foreach ($step in $moments.Keys) { if (-not $moments[$step]) { "$step <-- EVERY WINDOW BLANK (renderer produced no content)"; $bad++ } }
           Get-ChildItem artifacts/live-evidence -Recurse -Filter *.capture.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
-          if ($bad -gt 0) { "::error title=Live AI smoke::$bad screenshot(s) were copied from the screen, blank or unreadable; only real renders of Boo's own windows count"; exit 1 }
+          if ($bad -gt 0) { "::error title=Live AI smoke::$bad screenshot problem(s): copied from the screen, unreadable, or a capture with no real Boo window content"; exit 1 }
 
       # Belt and braces: no evidence file may contain a key. A hit deletes the file before upload and fails the run.
       - name: Key leak scan of the evidence
