@@ -138,8 +138,9 @@ screenshot a key; logs record lengths only.
   - force pushes and branch deletion blocked;
   - no required approvals (Vikas is the only reviewer); admins not enforced (Vikas can override).
   - `live-ai-smoke` is **not** a required check: it only runs by hand, so it would block every merge.
-- **Merging, tagging and releasing stay with Vikas.** Agents never merge, tag, release, or push to `lane/face` or
-  `main`.
+- **Merging, tagging and releasing stay with Vikas**, and agents never merge, tag, release, or push to `lane/face` or
+  `main`. Proposed in PR #18 (not merged yet): since 13 Nov 12:15 AM IST the verifying bot (Grok Bot) merges PRs once
+  every gate passes; tags and releases stay with Vikas either way.
 
 ## 5. Vikas's pipeline (rules every agent follows)
 
@@ -179,7 +180,7 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 
 | PR | Branch → base | State (13 Nov, ~01:30 IST) | Notes |
 | --- | --- | --- | --- |
-| [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so PR #3 shows BEHIND `main`. |
+| [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
 | [#15](https://github.com/vikas53953/bluey/pull/15) | `ci/artifact-retention-7d` → `lane/face` | **open**, QA PASS at `5dcece5` | `retention-days: 7` on every upload. |
 | [#14](https://github.com/vikas53953/bluey/pull/14) | `fix/anti-mock-lan-ips` → `lane/face` | **open**, synced at `d52dbbe` | The anti-mock guard rejects every local, private and LAN address, plus proxies (99 tests). Freezes its tests as oracle **revision 21** on top of Living ink's revision 20. |
 | [#16](https://github.com/vikas53953/bluey/pull/16) | `docs/project-handoff` → `lane/face` | **open** | This handoff (HANDOFF.md, docs/DECISIONS.md, CONTRIBUTING.md). Merged with the PR #12 session notes and decision records. |
@@ -187,9 +188,9 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open** | `verify-boo` skill: live journeys j0–j6, `docs/FEATURE_MAP.md`, prove-it rule. Since `1c4b2d1` it also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks). |
 | [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **open** | 3-phase agent trust plan (`docs/plans/agent-trust-plan.md`). |
 | [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **open** | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option. |
-| [#20](https://github.com/vikas53953/bluey/pull/20), [#21](https://github.com/vikas53953/bluey/pull/21) | stacked on #18 | **open** | Live smoke as a required check on every PR; a ratchet of known-bad code patterns. |
-| [#12](https://github.com/vikas53953/bluey/pull/12) | `feat/living-ink` → `lane/face` | merged 12 Nov (`8474556`) | Living ink notch. Oracle revision 20 (face tests load face B by name; `docs/verification/test-oracle-revision-20.md`). The ~17 MB memory finding was fixed by drawing the notch in software (decision `D-2026-11-12-notch-software-drawing`). |
-| — | `lane/face`, `main` | direct commits 13 Nov | MIT LICENSE (`9729a14` on lane/face, `ecea48b` on main), with Vikas's approval while Actions was blocked. |
+| [#20](https://github.com/vikas53953/bluey/pull/20) → #18's branch, [#21](https://github.com/vikas53953/bluey/pull/21) → #20's branch | stacked | **open** | Live smoke as a required check on every PR; a ratchet of known-bad code patterns. |
+| [#12](https://github.com/vikas53953/bluey/pull/12) | `feat/living-ink` → `lane/face` | merged 13 Nov 00:40 IST (`8474556`) | Living ink notch. Oracle revision 20 (face tests load face B by name; `docs/verification/test-oracle-revision-20.md`). The ~17 MB memory finding was fixed by drawing the notch in software (decision `D-2026-11-12-notch-software-drawing`). |
+| — | `lane/face`, `main` | direct commits 13 Nov 00:11 IST | MIT LICENSE (`9729a14` on lane/face, `ecea48b` on main), with Vikas's approval while Actions was blocked. |
 | [#11](https://github.com/vikas53953/bluey/pull/11) | `ci/real-gates` → `lane/face` | merged 12 Nov (`db0a339`) | demo-ci made a blocking gate; manual `live-ai-smoke` that fails closed. |
 | [#10](https://github.com/vikas53953/bluey/pull/10) | `fix/ci-frozen-tests-and-sf006` → `lane/face` | merged 12 Nov (`f244e47`) | Oracle and no-vacuous-pass gate in CI; SF-006 runs; `ScopedFiles` refuses names Windows would rewrite. |
 | [#9](https://github.com/vikas53953/bluey/pull/9), [#8](https://github.com/vikas53953/bluey/pull/8), [#7](https://github.com/vikas53953/bluey/pull/7) | lanes → `lane/face` | merged 8 Nov | Perf budgets; Velopack installer + opt-in updates; security hardening. |
@@ -202,7 +203,7 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 
 1. **Live-smoke queue.** `live-ai-smoke` has `concurrency: group: live-ai-smoke` (no cancel-in-progress). GitHub keeps
    only ONE waiting run per group, so a new dispatch cancels an older *waiting* run before it starts (no AI request is
-   made). Dispatch only when no live run is waiting. Live runs cost real money (OpenAI cap $10/month): one per PR head.
+   made). Dispatch only when no live run is waiting. Live runs cost real money; keep to one per PR head (the Grok Bot pipeline note of 13 Nov, 12:45 AM IST, gives the OpenAI cap as $10/month; the cap itself is UNVERIFIED in the repo).
 2. **Anti-mock guard** on `lane/face` still only rejects loopback until PR #14 merges. Even with #14: a planted trusted
    root certificate, or a mock on the PC's own public-looking address, is not detected.
 3. **Flaky demo: `Step4_Focus_NudgeThenBackToIt_EndsHappy`.** On docs-only commit `1e5c754`, all 5 demo tests passed in
@@ -212,13 +213,18 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    a fix needs its own reviewed PR.
 4. **Living ink notes** (from PR #12's reviews, low): built-in fallback face is still B (`NotchSpec.Default`); the
    dark-desktop rim follows the Windows app mode, not the wallpaper; pure black/white custom colours draw as ink/cream;
-   the wake-up's first beats are faint on dark desktops; window-level wake-up/celebrate rules are covered by the gallery
+   the wake-up's first beats are faint on dark desktops and the eyes are not drawn in its "eyes shut" beat; window-level wake-up/celebrate rules are covered by the gallery
    and live runs only. Not measured: software-drawing CPU on 4K / 200 % or high-refresh screens, memory after the
    panel has been opened, and repeat hovers (~0.7 MB each, same on the old build).
-5. **SF-006 symlink cases** fail on a dev PC without Windows Developer Mode (never skipped); they pass in CI.
-6. Residuals listed in [docs/STATUS.md](docs/STATUS.md) ("Known residuals") still apply unless a later PR says
+5. **SF-006 symlink cases** fail on a dev PC without Windows Developer Mode, same on unchanged `lane/face` (never skipped); they pass in CI.
+6. **Merge order / oracle revisions.** PR #14 (`d52dbbe`) and PR #18 (`eec75f3`) both set the oracle to revision 21 on
+   top of revision 20; whichever merges second must re-sync and re-run `--extend` / `--rebaseline` (revision 22).
+   PRs #13, #14, #15 and #18 all edit `live-ai-smoke.yml`; #13 and #15 both edit `demo-ci.yml`.
+7. The notch memory guard (`NotchDrawingMemoryTests`) has now run in CI: windows-ci on `8474556`
+   ([43287434389](https://github.com/vikas53953/bluey/actions/runs/43287434389)) passed UI smoke, perf budgets and the gate.
+8. Residuals listed in [docs/STATUS.md](docs/STATUS.md) ("Known residuals") still apply unless a later PR says
    otherwise.
-7. Resolved 13 Nov: the artifact storage quota and the Actions budget block. The repo went public, so standard runners
+9. Resolved 13 Nov: the artifact storage quota and the Actions budget block. The repo went public, so standard runners
    are free. On 12 Nov the 8 Nov app copies (168 artifacts, 15.93 GB) were deleted, and uploads work again.
 
 ### UNVERIFIED (not proven on `lane/face`)
