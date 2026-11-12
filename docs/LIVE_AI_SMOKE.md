@@ -17,6 +17,8 @@ you press the button.
 | `.github/workflows/live-ai-smoke.yml` | The button on GitHub: checks the key, builds Boo, runs the test, uploads the evidence. |
 | `tools/Boo.LiveSmoke/LiveRoundTripTests.cs` | The test itself: starts Boo, asks one question, waits for the real answer. |
 | `tests/Boo.Demo.Tests/BooAppFixture.cs` | The existing demo harness (start Boo in a clean temp folder, take screenshots). Reused as is, not changed. |
+| `tools/Boo.LiveSmoke/LiveAppFixture.cs` | Reads the key (fails closed), seeds it into Boo's own protected key file, turns speech off. Shared with the live journeys. |
+| `tools/Boo.VerifyLive/LiveJourneyTests.cs` | Optional (**journeys** box): the seven live user journeys of the verify-boo skill. See section 5. |
 | `scripts/ci/assert-tests-ran.ps1` | Refuses a "green" where no test actually ran. |
 
 ---
@@ -86,6 +88,8 @@ up to a day before GitHub gives up. Cancel it and run again with **windows-lates
 
 From a terminal instead: `gh workflow run live-ai-smoke.yml --ref <branch> -f text_provider=openai -f runner=windows-latest`
 
+Tick **journeys** (or add `-f journeys=true`) to also run the full live user journeys (section 5).
+
 ## 4. Read the result
 
 | You see | It means |
@@ -97,3 +101,23 @@ From a terminal instead: `gh workflow run live-ai-smoke.yml --ref <branch> -f te
 
 The evidence (screenshots, the answer text, test results) is attached to the run as **live-ai-evidence** — open the
 run, scroll to **Artifacts**.
+
+## 5. The live user journeys (journeys = true)
+
+Ticking **journeys** adds a second step on the same machine, with the same key and the same evidence folder (so the
+key scan covers it too). It drives Boo like a user through seven steps, in order, on one Boo:
+
+| Step | What it proves | Pass means |
+| --- | --- | --- |
+| j0 | The notch wakes on **Ctrl+Alt+B** | The full window opens from the hotkey |
+| j1 | The notch wakes on **hover** | Mouse at the top-centre strip shows the face within 1.5 s; it hides again after the mouse leaves |
+| j2 | **Typed chat** | "What is the capital of France?" gets a real answer containing "Paris" |
+| j3 | **Screen explain** with pointer and ring | Boo says "Screen explanation is shown" and a new ring appears on a known test window |
+| j4 | **Research** with sources | At least one real "Open source ..." link appears (not the mock's) |
+| j5 | **Apply / Undo** with permission | A file appears in the Task folder only after **Approve**; an approved **undo** removes it |
+| j6 | A **25-minute focus session** | On Boo's Developer Mode clock (4x): about 6.5 real minutes, happy face, "Session complete", a "25 min ... Completed" history row |
+
+Extra cost: about 45 paid requests (most are small focus checks during j6). Extra time: about 15 minutes. The
+journeys have their own test gate ("every live journey ran and passed"); screenshots are `j*.png` in the
+**live-ai-evidence** artifact under `journeys/`. What this does **not** prove: voice, a real-time 25 minutes, pointer
+accuracy at other display scalings, second monitors. Those stay manual (runbook). Full list: `docs/FEATURE_MAP.md`.

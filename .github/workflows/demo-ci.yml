@@ -43,13 +43,14 @@ jobs:
           dotnet restore Boo.sln
           dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
 
-      # tools/Boo.LiveSmoke is only RUN by live-ai-smoke.yml (manual, needs a key); compiling it here on every push keeps
-      # it from silently breaking when the shared demo harness changes.
-      - name: Build mock AI server, demo tests and the live smoke test (compile only)
+      # tools/Boo.LiveSmoke and tools/Boo.VerifyLive are only RUN by live-ai-smoke.yml (manual, needs a key); compiling
+      # them here on every push keeps them from silently breaking when the shared demo harness changes.
+      - name: Build mock AI server, demo tests and the live tests (compile only)
         run: |
           dotnet build tools/Boo.QaMockAi -c Release
           dotnet build tests/Boo.Demo.Tests -c Release
           dotnet build tools/Boo.LiveSmoke -c Release
+          dotnet build tools/Boo.VerifyLive -c Release
 
       # Runner-only redirect: api.openai.com -> loopback, trust the mock's self-signed certificate, then run the demos in
       # the SAME step so the mock process is guaranteed to outlive the probe (a process started in an earlier step is not
