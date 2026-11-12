@@ -142,6 +142,24 @@ public static class ActionPolicy
 
 public static class ScopedFiles
 {
+    // Characters Windows does not allow in a file or folder name (':' is refused earlier with its own message).
+    private static readonly char[] WindowsForbiddenNameCharacters =
+        [.. Enumerable.Range(0, 32).Select(code => (char)code), '"', '<', '>', '|', '*', '?'];
+
+    // DOS device names. Windows maps them to a device in any folder and with any extension.
+    private static readonly HashSet<string> WindowsDeviceNames = new(
+        new[] { "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$" }
+            .Concat(new[] { "COM", "LPT" }.SelectMany(port =>
+                "0123456789¹²³".Select(digit => port + digit))),
+        StringComparer.OrdinalIgnoreCase);
+
+    private static bool IsWindowsDeviceName(string segment)
+    {
+        var dot = segment.IndexOf('.', StringComparison.Ordinal);
+        var stem = (dot >= 0 ? segment[..dot] : segment).TrimEnd(' ');
+        return WindowsDeviceNames.Contains(stem);
+    }
+
     public static string Resolve(string root, string relativePath)
     {
         if (string.IsNullOrWhiteSpace(root))
@@ -163,6 +181,28 @@ public static class ScopedFiles
         if (segments.Length == 0 || segments.Any(segment => segment is "." or ".."))
         {
             throw new ArgumentException("Traversal and empty file paths are not allowed.", nameof(relativePath));
+        }
+
+        // Windows rewrites some names when it opens them, so the file it opens would not be the one
+        // the approval card names: trailing dots and spaces are dropped ("notes." opens "notes"),
+        // DOS device names open a device ("nul.txt"), and wildcards and control characters are not
+        // file names at all. Refuse every such segment, whatever platform the check runs on.
+        foreach (var segment in segments)
+        {
+            if (segment.EndsWith('.') || segment.EndsWith(' '))
+            {
+                throw new ArgumentException("A file or folder name may not end with a dot or a space; Windows would open a different name.", nameof(relativePath));
+            }
+
+            if (segment.IndexOfAny(WindowsForbiddenNameCharacters) >= 0)
+            {
+                throw new ArgumentException("The file path contains a character Windows does not allow in a name.", nameof(relativePath));
+            }
+
+            if (IsWindowsDeviceName(segment))
+            {
+                throw new ArgumentException("The file path names a Windows device, not a file.", nameof(relativePath));
+            }
         }
 
         var rootFull = Path.GetFullPath(root);
@@ -191,6 +231,14 @@ public static class ScopedFiles
         if (candidate.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Length < rootPrefix.Length)
         {
             throw new ArgumentException("The file path resolves to the selected root itself.", nameof(relativePath));
+        }
+
+        // Backstop for the whole class: after normalisation the path must name exactly the
+        // requested segments. Any other rewrite the checks above missed is refused here.
+        var requested = rootPrefix + string.Join(Path.DirectorySeparatorChar, segments);
+        if (!string.Equals(candidate, requested, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("The file path would open a different name than the one requested.", nameof(relativePath));
         }
 
         // Walk every existing component.  This catches directory junctions,
