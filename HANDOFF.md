@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #19 merged**, with `lane/face` at `b765f0f`.
+Status last updated: **13 Nov 2026, after PR #22 merged**, with `lane/face` at `af241fa`.
 
 ---
 
@@ -178,14 +178,15 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 PRs into `lane/face` must be **up to date** with it to merge, so every merge makes the others BEHIND. Sync by merging
 `origin/lane/face` into the branch (no force push), then re-run CI and one live smoke on the new head.
 
-| PR | Branch → base | State (13 Nov, after PR #19) | Notes |
+| PR | Branch → base | State (13 Nov, after PR #22) | Notes |
 | --- | --- | --- | --- |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
-| [#19](https://github.com/vikas53953/bluey/pull/19) | `docs/scrub-local-paths` → `lane/face` | merged 13 Nov (`b765f0f`) | Replaces the owner's Windows username and home paths in old docs (and in files that arrived later, e.g. the Living ink evidence notes) with `%USERPROFILE%` / `<user>_<machine>`. Old commits keep the old text (no history rewrite). |
-| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open**, synced with `b765f0f`; the QA verdict for the current head is in the PR description | `verify-boo` skill (`.claude/skills/verify-boo`), live journeys j0–j6 (`tools/Boo.VerifyLive`), `docs/FEATURE_MAP.md`, prove-it rule (AGENTS.md, CLAUDE.md), `journeys` input on `live-ai-smoke` (default runner `windows-latest`). Also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks). Previous QA PASS at `60930b9` (live [43309593215](https://github.com/vikas53953/bluey/actions/runs/43309593215): round trip + 7/7 journeys; fresh reviewer REVIEW PASS at `de9492f`). |
+| [#22](https://github.com/vikas53953/bluey/pull/22) | `fix/demo-step4-state-race` → `lane/face` | merged 13 Nov (`af241fa`) | Demo Step 4 test race fix: re-read the notch state after the button search; oracle revisions 22–23 (`docs/verification/test-oracle-revision-22.md`). |
+| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open**, synced with `af241fa`; the QA verdict for the current head is in the PR description | `verify-boo` skill (`.claude/skills/verify-boo`), live journeys j0–j6 (`tools/Boo.VerifyLive`), `docs/FEATURE_MAP.md`, prove-it rule (AGENTS.md, CLAUDE.md), `journeys` input on `live-ai-smoke` (default runner `windows-latest`). Also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks). Previous QA PASS at `e86a107` (live [43314004618](https://github.com/vikas53953/bluey/actions/runs/43314004618): round trip + 7/7 journeys; fresh reviewer REVIEW PASS at `de9492f`). |
 | [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **open** | 3-phase agent trust plan (`docs/plans/agent-trust-plan.md`). |
 | [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **open** | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option. |
 | [#20](https://github.com/vikas53953/bluey/pull/20) → #18's branch, [#21](https://github.com/vikas53953/bluey/pull/21) → #20's branch | stacked | **open** | Live smoke as a required check on every PR; a ratchet of known-bad code patterns. |
+| [#19](https://github.com/vikas53953/bluey/pull/19) | `docs/scrub-local-paths` → `lane/face` | merged 13 Nov 03:17 IST (`b765f0f`) | Replaces the owner's Windows username and home paths in old docs (and in files that arrived later, e.g. the Living ink evidence notes) with `%USERPROFILE%` / `<user>_<machine>`. Old commits keep the old text (no history rewrite). |
 | [#16](https://github.com/vikas53953/bluey/pull/16) | `docs/project-handoff` → `lane/face` | merged 13 Nov 02:46 IST (`e0fb7b3`) | This handoff (HANDOFF.md, docs/DECISIONS.md, CONTRIBUTING.md). Merged with the PR #12 session notes and decision records. |
 | [#15](https://github.com/vikas53953/bluey/pull/15) | `ci/artifact-retention-7d` → `lane/face` | merged 13 Nov 01:40 IST (`95e9718`) | `retention-days: 7` on every upload. |
 | [#14](https://github.com/vikas53953/bluey/pull/14) | `fix/anti-mock-lan-ips` → `lane/face` | merged 13 Nov 01:16 IST (`d0dfd0e`) | The anti-mock guard rejects every local, private and LAN address, plus proxies (99 tests). Its tests are frozen as oracle **revision 21** (on top of Living ink's revision 20). |
@@ -207,12 +208,13 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 2. **Anti-mock guard** (PR #14, merged): rejects loopback, private/LAN, link-local, unique-local, CGNAT and fake-IP
    addresses and proxies. Still not detected: a planted trusted root certificate, or a mock on the PC's own
    public-looking address.
-3. **Flaky demo: `Step4_Focus_NudgeThenBackToIt_EndsHappy`.** Seen again on docs-only `3593ba3`
-   ([43296734862](https://github.com/vikas53953/bluey/actions/runs/43296734862)). On docs-only commit `1e5c754`, all 5 demo tests passed in
-   [43240969060](https://github.com/vikas53953/bluey/actions/runs/43240969060) but Step 4 failed in
-   [43240958545](https://github.com/vikas53953/bluey/actions/runs/43240958545): the "Back to it" button appeared while
-   the notch's reported state still read `Capture` (`DemoTests.cs:228`). The cause isn't proven. The test is frozen, so
-   a fix needs its own reviewed PR.
+3. **Demo Step 4 race (fixed by PR #22, merged 13 Nov, `af241fa`).**
+   `Step4_Focus_NudgeThenBackToIt_EndsHappy` failed twice on docs-only commits
+   ([43240958545](https://github.com/vikas53953/bluey/actions/runs/43240958545),
+   [43296734862](https://github.com/vikas53953/bluey/actions/runs/43296734862)). Judged a test race, not an app bug:
+   the test sampled `Capture`, then found "Back to it" after the flip to `Nudge`, and never re-read the state. The fix
+   re-reads the state after the button search (oracle revisions 22–23; record in
+   `docs/verification/test-oracle-revision-22.md`).
 4. **Flaky perf budget: `revealFramesPerSecond >= 20`.** On GitHub's shared Windows VMs the notch's reveal frame rate
    swings widely on the same code: 44 windows-ci runs between 19:00 and 20:10 UTC on 12 Nov measured 8 to ~74 fps (28 of
    them 40–55). One docs-only run failed at 8 fps ([43296723546](https://github.com/vikas53953/bluey/actions/runs/43296723546))
@@ -224,8 +226,8 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    and live runs only. Not measured: software-drawing CPU on 4K / 200 % or high-refresh screens, memory after the
    panel has been opened, and repeat hovers (~0.7 MB each, same on the old build).
 6. **SF-006 symlink cases** fail on a dev PC without Windows Developer Mode, same on unchanged `lane/face` (never skipped); they pass in CI.
-7. **Merge order / oracle revisions.** `lane/face` is at oracle revision 21 (PR #14). PR #18 has already re-synced and
-   sits at revision 22 on top of it. Still-open PRs that edit the same workflows: #13 and #18 edit `live-ai-smoke.yml` and
+7. **Merge order / oracle revisions.** `lane/face` is at oracle revision 23 (PR #22, after PR #14's 21). PR #18
+   (its own revision 22) must re-sync and re-freeze on top. Still-open PRs that edit the same workflows: #13 and #18 edit `live-ai-smoke.yml` and
    `demo-ci.yml`; #18 also edits `windows-ci.yml`. #20 and #21, stacked on #18, carry #18's edits; #20 also edits
    `live-ai-smoke.yml` and #21 adds `quality-gates.yml`.
 8. The notch memory guard (`NotchDrawingMemoryTests`) has now run in CI: windows-ci on `8474556`
@@ -245,9 +247,9 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 - **Voice** (OpenAI Realtime, hold-to-talk) as a live round trip on `lane/face`. PR #12's builder reports one live
   voice turn on `feat/living-ink`; not re-verified independently.
 - **Pointer + ring with a real model, beyond PR #13's one target.** Once PR #13 merges, its live journey j3 proves the
-  ring runs through a known button's edges and the pointer lands on it (passed on `de9492f`, `7c5af8d` and `60930b9`), on
-  one 1024x768 VM screen. Still UNVERIFIED: other targets, other DPI or multiple monitors, and **Windows animation effects
-  off**: Boo then hides the pointer by design, and the journeys run with animations switched on.
+  ring runs through a known button's edges and the pointer lands on it (passed on `de9492f`, `7c5af8d`, `60930b9` and
+  `e86a107`), on one 1024x768 VM screen. Still UNVERIFIED: other targets, other DPI or multiple monitors, and **Windows
+  animation effects off**: Boo then hides the pointer by design, and the journeys run with animations switched on.
 - **A manual run by Vikas on his PC**: the three demos and a real 25-minute focus session
   ([docs/MORNING_CHECKLIST.md](docs/MORNING_CHECKLIST.md)). Delivery is not accepted until this is done.
 - Installer install / Start-menu / uninstall / real update round trip on a PC; the SmartScreen prompt.
