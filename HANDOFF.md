@@ -195,8 +195,10 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 1. **GitHub Actions artifact storage quota.** Earlier on 12 Nov there were 677 artifacts (22.45 GB). Every upload
    failed with `Failed to CreateArtifact: Artifact storage quota has been hit`, so every run went red. In windows-ci the
    failed app upload also **skips** the gallery, UI smoke and perf steps.
-   - Around 14:21–14:26 UTC on 12 Nov, with Vikas's approval, the 168 app/installer copies from 8 Nov (15.93 GB) were
-     deleted. All evidence was kept.
+   - About 14:21–14:27 UTC on 12 Nov, with Vikas's approval, the 168 app/installer copies from 8 Nov (15.93 GB) were
+     deleted. All evidence was kept. The time comes from the verify-boo agent thread's log; the API can't show deleted
+     artifacts. The PR #3 comment posted at 14:41 UTC (6826687928) quoted 677 / 22.45 GB from a measurement taken
+     before the deletion, which makes those figures stale. A later comment on PR #3 corrects them.
    - At 15:08 UTC: 509 artifacts, 6.52 GB. A run at 14:51 UTC still hit the quota, because GitHub recalculates usage
      every 6–12 h.
    - **Next step:** after the recount, re-run the checks on PRs #3, #13, #14, #15 and #16. PR #15 stops this recurring.
@@ -207,8 +209,9 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 3. **Anti-mock guard** in `live-ai-smoke`: on `lane/face` it only rejects loopback (`127.x`, `0.x`, `::1`, `::`), so a
    mock on a LAN address would pass. **Fixed in PR #14 (not merged).** Still not covered even with #14: a planted
    trusted root certificate, or a mock on the PC's own public-looking address.
-4. **Flaky demo: `Step4_Focus_NudgeThenBackToIt_EndsHappy`.** On the same commit (`1e5c754`, docs only), demo-ci
-   passed in [43240969060](https://github.com/vikas53953/bluey/actions/runs/43240969060) but failed in
+4. **Flaky demo: `Step4_Focus_NudgeThenBackToIt_EndsHappy`.** On the same commit (`1e5c754`, docs only), all 5 demo
+   tests passed in [43240969060](https://github.com/vikas53953/bluey/actions/runs/43240969060) (run red only at the
+   upload), but Step 4 failed in
    [43240958545](https://github.com/vikas53953/bluey/actions/runs/43240958545).
    - In the failing run the mock's nudge arrived and the "Back to it" button appeared, but the notch's reported state
      still read `Capture`: `states=…>Hidden>Capture`. `Assert.Contains("Nudge", seen)` then failed
