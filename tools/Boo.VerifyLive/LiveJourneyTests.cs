@@ -132,6 +132,14 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
     {
         Evidence("j3-explain", () =>
         {
+            // Boo skips the pointer on purpose when Windows "Animation effects" are off (AnnotationWindow.StartSequence,
+            // reduced motion). GitHub's Windows VMs run with them off; most users have them on. Turn them on for this
+            // step only, for this session only (never saved to the profile), and put the original value back after.
+            using var animations = WindowsAnimations.EnsureOn();
+            _boo.WriteObservation("j3-animations", $"animationEffectsBefore={animations.WasOn} on={WindowsAnimations.IsOn()}");
+            Assert.True(WindowsAnimations.IsOn(), "TEST SETUP: Windows animation effects could not be turned on, so Boo would not show its pointer by design. Nothing about Boo was checked.");
+            Thread.Sleep(500); // let Boo receive the settings-change broadcast
+
             var panel = _boo.EnsurePanel();
             EnsureDisplaySelected(panel);
             s_target ??= TargetWindow.Show(TargetBounds());
@@ -558,6 +566,52 @@ internal static class DpiSetup
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+}
+
+/// <summary>
+/// Windows "Animation effects" (SPI_GET/SETCLIENTAREAANIMATION, which WPF reads as SystemParameters.ClientAreaAnimation).
+/// Turned on for the current session only (no SPIF_UPDATEINIFILE, so nothing is written to the user's profile) and
+/// restored on Dispose.
+/// </summary>
+internal sealed class WindowsAnimations : IDisposable
+{
+    private const uint GetClientAreaAnimation = 0x1042;
+    private const uint SetClientAreaAnimation = 0x1043;
+    private const uint SendChange = 0x02;
+
+    private WindowsAnimations(bool wasOn) => WasOn = wasOn;
+
+    public bool WasOn { get; }
+
+    public static bool IsOn()
+    {
+        var on = false;
+        return SystemParametersInfo(GetClientAreaAnimation, 0, ref on, 0) && on;
+    }
+
+    public static WindowsAnimations EnsureOn()
+    {
+        var wasOn = IsOn();
+        if (!wasOn) Set(true);
+        return new WindowsAnimations(wasOn);
+    }
+
+    public void Dispose()
+    {
+        if (!WasOn) Set(false);
+    }
+
+    private static void Set(bool on) => SystemParametersInfo(SetClientAreaAnimation, 0, new IntPtr(on ? 1 : 0), SendChange);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SystemParametersInfo(uint action, uint param, ref bool value, uint winIni);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SystemParametersInfo(uint action, uint param, IntPtr value, uint winIni);
 }
 
 /// <summary>
