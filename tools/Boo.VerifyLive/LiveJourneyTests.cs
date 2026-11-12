@@ -144,13 +144,15 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             // and bring the target forward, so the screenshots show the target and whatever Boo draws on it.
             Find(panel, "SendButton").AsButton().Invoke();
             Find(panel, "CloseButton").AsButton().Invoke();
-            BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, UiTimeout);
+            // The panel uses the ring's peach as its accent colour: it must really be gone before any pixel is judged.
+            Assert.True(BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, UiTimeout), "TEST SETUP: Boo's panel did not hide.");
             BringTargetForward("j3");
             var beforePath = _boo.CaptureScreen("j3-before-ring");
             AssertTargetVisible(beforePath, targetRect, "j3-before-ring.png");
 
-            // The ring colour is AnnotationWindow.MarkColor (243,181,155). Only pixels that CHANGED since the shot above and
-            // match it count, so peach pixels already on screen cannot fake a ring. Poll: the answer takes a few seconds.
+            // Only pixels that CHANGED since the shot above count, so colours already on screen cannot fake anything.
+            // Ring = AnnotationWindow.MarkColor (243,181,155); pointer = AnnotationWindow.PointerColor (0x42,0x54,0xD6), shown
+            // at its landing point for the whole 10 s hold. Poll: the answer takes a few seconds.
             var search = Inflate(windowRect, 160);
             var centre = Point.Empty;
             var pixels = 0;
@@ -158,16 +160,21 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             var found = BooAppFixture.WaitUntil(() =>
             {
                 afterPath = _boo.CaptureScreen("j3-explain-ring");
-                return RingProbe.FindNewRing(beforePath, afterPath, search, out centre, out pixels);
+                return ColourProbe.FindNew(beforePath, afterPath, search, ColourProbe.Ring, 12, out centre, out pixels);
             }, TimeSpan.FromSeconds(90));
+            var pointer = Point.Empty;
+            var pointerPixels = 0;
+            var pointerFound = false;
             if (found)
             {
                 Thread.Sleep(900); // let the ring finish drawing, then keep the clearest shot
                 afterPath = _boo.CaptureScreen("j3-explain-ring");
-                RingProbe.FindNewRing(beforePath, afterPath, search, out centre, out pixels);
+                ColourProbe.FindNew(beforePath, afterPath, search, ColourProbe.Ring, 12, out centre, out pixels);
+                pointerFound = ColourProbe.FindNew(beforePath, afterPath, search, ColourProbe.Pointer, 15, out pointer, out pointerPixels);
             }
             var onButton = Inflate(targetRect, 60).Contains(centre);
             var onWindow = Inflate(windowRect, 20).Contains(centre);
+            var pointerOnButton = Inflate(targetRect, 60).Contains(pointer);
 
             BooAppFixture.PressOpenShortcut();
             panel = _boo.WaitForPanel(UiTimeout);
@@ -176,11 +183,14 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             _boo.CaptureScreen("j3-explain-panel");
             _boo.WriteObservation("j3-explain",
                 $"detail='{detail}' ringFound={found} ringPixels={pixels} ringCentre={centre} button={targetRect} window={windowRect} " +
-                $"onButton={onButton} onWindow={onWindow}\nreply='{Shorten(reply, 600)}'\nstatus='{StatusText(panel)}'");
+                $"onButton={onButton} onWindow={onWindow} pointerFound={pointerFound} pointerPixels={pointerPixels} pointerCentre={pointer} pointerOnButton={pointerOnButton}\n" +
+                $"reply='{Shorten(reply, 600)}'\nstatus='{StatusText(panel)}'");
 
             Assert.StartsWith("Screen explanation is shown", detail, StringComparison.Ordinal);
             Assert.True(found, $"No new ring-coloured pixels near the target window {windowRect} (search {search}). See j3-explain-ring.png.");
-            Assert.True(onWindow, $"The ring centre {centre} is not on the target window {windowRect}.");
+            Assert.True(onButton, $"The ring centre {centre} is not on the 'Send report' button {targetRect} (60 px margin). See j3-explain-ring.png.");
+            Assert.True(pointerFound, $"No pointer-coloured pixels appeared with the ring (search {search}). See j3-explain-ring.png.");
+            Assert.True(pointerOnButton, $"The pointer {pointer} did not land on the 'Send report' button {targetRect} (60 px margin).");
         });
     }
 
@@ -204,6 +214,17 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             Thread.Sleep(1500); // let the remaining links render
             links = SourceLinkNames(panel);
             var sourceStatus = NameOfId(panel, "SourceStatusText");
+            // Scroll the links into view so the screenshot shows them, not only the UI Automation read.
+            try
+            {
+                panel.FindAllDescendants().LastOrDefault(e => BooAppFixture.SafeName(e).StartsWith("Open source ", StringComparison.Ordinal))
+                    ?.Patterns.ScrollItem.PatternOrDefault?.ScrollIntoView();
+                Thread.Sleep(500);
+            }
+            catch (Exception ex)
+            {
+                _output.WriteLine($"Could not scroll the source links into view: {ex.Message}");
+            }
             _boo.CaptureScreen("j4-research-sources");
             _boo.WriteObservation("j4-research", $"links({links.Count})={string.Join(" | ", links)}\nsourceStatus='{sourceStatus}'\nlastReply='{Shorten(BooRows(panel).LastOrDefault(), 600)}'");
             Assert.DoesNotContain("No sources were returned", sourceStatus, StringComparison.OrdinalIgnoreCase);
@@ -283,7 +304,7 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
                     $"Focus did not start: '{NameOfId(panel, "FocusStatus")}'");
                 _boo.CaptureScreen("j6-focus-running");
                 Find(panel, "CloseButton").AsButton().Invoke();
-                BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, UiTimeout);
+                Assert.True(BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, UiTimeout), "TEST SETUP: Boo's panel did not hide.");
 
                 // The user now works in the on-task window: keep it in front for the whole session (re-raised whenever
                 // something else takes the foreground) and photograph the screen now and then as proof of what Boo saw.
@@ -322,6 +343,9 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
                 _boo.CaptureScreen("j6-focus-happy");
                 if (_boo.FindNotch() is { } n) _boo.CaptureRectangle("j6-focus-happy-notch", Inflate(n.BoundingRectangle, 80));
 
+                // The session is over: close the target so the final screenshot shows Boo's status and history row.
+                s_target?.Dispose();
+                s_target = null;
                 BooAppFixture.PressOpenShortcut();
                 panel = _boo.WaitForPanel(UiTimeout);
                 var complete = BooAppFixture.WaitUntil(() => NameOfId(panel, "FocusStatus").StartsWith("Session complete", StringComparison.Ordinal), UiTimeout);
@@ -529,7 +553,8 @@ internal static class DpiSetup
 /// </summary>
 internal sealed class TargetWindow : IDisposable
 {
-    public static readonly Color ButtonColor = Color.FromArgb(0, 90, 200);
+    // Green, far from both Boo colours (pointer blue 66,84,214 and ring peach 243,181,155), so neither can be mistaken for it.
+    public static readonly Color ButtonColor = Color.FromArgb(0, 128, 64);
 
     private readonly System.Windows.Forms.Form _form;
     private readonly System.Windows.Forms.Button _button;
@@ -635,10 +660,16 @@ internal sealed class TargetWindow : IDisposable
     }
 }
 
-/// <summary>Finds Boo's ring (AnnotationWindow.MarkColor, RGB 243,181,155) in a screenshot by comparing it with an earlier one.</summary>
-internal static class RingProbe
+/// <summary>
+/// Finds pixels of one of Boo's annotation colours that are NEW in a screenshot compared with an earlier one, and their
+/// centre. Ring = AnnotationWindow.MarkColor; Pointer = AnnotationWindow.PointerColor.
+/// </summary>
+internal static class ColourProbe
 {
-    public static bool FindNewRing(string beforePath, string afterPath, Rectangle search, out Point centre, out int pixels)
+    public static readonly Color Ring = Color.FromArgb(243, 181, 155);
+    public static readonly Color Pointer = Color.FromArgb(0x42, 0x54, 0xD6);
+
+    public static bool FindNew(string beforePath, string afterPath, Rectangle search, Color colour, int minPixels, out Point centre, out int pixels)
     {
         centre = Point.Empty;
         pixels = 0;
@@ -655,17 +686,18 @@ internal static class RingProbe
         {
             for (var x = x0; x <= x1; x++)
             {
-                var c = after.GetPixel(x, y);
-                if (!IsMark(c) || IsMark(before.GetPixel(x, y))) continue;
+                if (!Near(after.GetPixel(x, y), colour) || Near(before.GetPixel(x, y), colour)) continue;
                 sumX += x;
                 sumY += y;
                 pixels++;
             }
         }
-        if (pixels < 12) return false; // a 3 px ring stroke yields hundreds of pixels; a few hits are noise.
+        // A 3 px ring stroke yields hundreds of pixels and the pointer's fill dozens; a handful of hits is noise.
+        if (pixels < minPixels) return false;
         centre = new Point((int)(sumX / pixels) + origin.X, (int)(sumY / pixels) + origin.Y);
         return true;
     }
 
-    private static bool IsMark(Color c) => Math.Abs(c.R - 243) <= 18 && Math.Abs(c.G - 181) <= 18 && Math.Abs(c.B - 155) <= 18;
+    private static bool Near(Color c, Color target) =>
+        Math.Abs(c.R - target.R) <= 18 && Math.Abs(c.G - target.G) <= 18 && Math.Abs(c.B - target.B) <= 18;
 }

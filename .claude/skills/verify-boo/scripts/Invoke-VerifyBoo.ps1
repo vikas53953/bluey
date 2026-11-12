@@ -35,7 +35,10 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 Set-Location $repo
 $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')
 if (-not $OutDir) { $OutDir = Join-Path $repo "artifacts\verify\$stamp" }
+# A reused folder would mix old screenshots and test results into this run's evidence and gates.
+if ((Test-Path $OutDir) -and (Get-ChildItem $OutDir -Force | Select-Object -First 1)) { throw "Evidence folder '$OutDir' is not empty. Use a new -OutDir." }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+$OutDir = (Resolve-Path $OutDir).Path
 $results = [System.Collections.Generic.List[object]]::new()
 function Say($text) { Write-Host "[verify-boo] $text" }
 
@@ -49,9 +52,35 @@ $sha = (git rev-parse HEAD).Trim()
 $dirty = [bool](git status --porcelain)
 Say "commit $sha$(if ($dirty) { ' (with uncommitted changes)' })"
 
+# --- live preconditions first, so a missing key is reported in seconds, not after a long publish --------------
+$liveBlocked = $null
+if ($Suite -in 'live', 'all') {
+  $keyVar = "BOO_LIVE_$($Provider.ToUpperInvariant())_KEY"
+  $key = [Environment]::GetEnvironmentVariable($keyVar)
+  $hostName = @{ openai = 'api.openai.com'; anthropic = 'api.anthropic.com'; gemini = 'generativelanguage.googleapis.com' }[$Provider]
+  $ips = @(try { [System.Net.Dns]::GetHostAddresses($hostName) | ForEach-Object { $_.ToString() } } catch { })
+  if ([string]::IsNullOrWhiteSpace($key)) {
+    $liveBlocked = "$keyVar is not set, so no real AI round trip can run (use the live-ai-smoke workflow, or set the variable in this shell only)"
+  } elseif ($ips.Count -eq 0 -or ($ips | Where-Object { $_ -match '^(127\.|0\.|::1$)' })) {
+    $liveBlocked = "$hostName resolves to '$($ips -join ', ')': not a real, reachable provider (a mock redirect would be a false green)"
+  } else {
+    Say "$keyVar is present ($($key.Trim().Length) characters); $hostName -> $($ips -join ', ')"
+  }
+  if ($liveBlocked) { Say "live suites BLOCKED: $liveBlocked" }
+}
+$needApp = ($Suite -in 'ui', 'all') -or -not $liveBlocked
+
 # --- the app under test: the published Boo.exe -------------------------------------------------------------------
-if ($Exe) {
+$exeNote = "published from this checkout ($sha)"
+if (-not $needApp) {
+  $Exe = '(none)'
+  $exeNote = 'not published: no suite could run'
+} elseif ($Exe) {
   $Exe = (Resolve-Path $Exe).Path
+  if ((Split-Path $Exe -Leaf) -ne 'Boo.exe') { throw "-Exe must point at a published Boo.exe, not '$Exe'." }
+  $item = Get-Item $Exe
+  # A given exe may come from any commit: say so instead of stamping it with this checkout's SHA.
+  $exeNote = "given with -Exe; file version $($item.VersionInfo.FileVersion), product version $($item.VersionInfo.ProductVersion), written $($item.LastWriteTimeUtc.ToString('u')). Its commit is NOT proven to be $sha."
 } else {
   $publish = Join-Path $repo 'artifacts\verify\app'
   Say "publishing Boo to $publish"
@@ -92,16 +121,9 @@ if ($Suite -in 'ui', 'all') {
 }
 
 if ($Suite -in 'live', 'all') {
-  $keyVar = "BOO_LIVE_$($Provider.ToUpperInvariant())_KEY"
-  $key = [Environment]::GetEnvironmentVariable($keyVar)
-  $hostName = @{ openai = 'api.openai.com'; anthropic = 'api.anthropic.com'; gemini = 'generativelanguage.googleapis.com' }[$Provider]
-  $ips = @(try { [System.Net.Dns]::GetHostAddresses($hostName) | ForEach-Object { $_.ToString() } } catch { })
-  if ([string]::IsNullOrWhiteSpace($key)) {
-    foreach ($n in 'live-smoke', 'live-journeys') { $results.Add([pscustomobject]@{ Suite = $n; Project = '-'; Result = 'BLOCKED'; Why = "$keyVar is not set, so no real AI round trip can run (use the live-ai-smoke workflow, or set the variable in this shell only)" }) }
-  } elseif ($ips.Count -eq 0 -or ($ips | Where-Object { $_ -match '^(127\.|0\.|::1$)' })) {
-    foreach ($n in 'live-smoke', 'live-journeys') { $results.Add([pscustomobject]@{ Suite = $n; Project = '-'; Result = 'BLOCKED'; Why = "$hostName resolves to '$($ips -join ', ')': not a real, reachable provider (a mock redirect would be a false green)" }) }
+  if ($liveBlocked) {
+    foreach ($n in 'live-smoke', 'live-journeys') { $results.Add([pscustomobject]@{ Suite = $n; Project = '-'; Result = 'BLOCKED'; Why = $liveBlocked }) }
   } else {
-    Say "$keyVar is present ($($key.Trim().Length) characters); $hostName -> $($ips -join ', ')"
     $live = @{ BOO_LIVE_TEXT_PROVIDER = $Provider }
     Invoke-Suite 'live-smoke' 'tools/Boo.LiveSmoke' $live
     Invoke-Suite 'live-journeys' 'tools/Boo.VerifyLive' $live
@@ -123,7 +145,7 @@ $shots = Get-ChildItem $OutDir -Recurse -Filter *.png | Sort-Object FullName
 $lines = @(
   "# verify-boo run $stamp (UTC)", '',
   "- Commit: ``$sha``$(if ($dirty) { ' (uncommitted changes present: not a clean proof)' })",
-  "- App under test: ``$Exe``",
+  "- App under test: ``$Exe`` ($exeNote)",
   "- Machine: $env:COMPUTERNAME, $([Environment]::OSVersion.VersionString)", '',
   '| Suite | Project | Result | Why |', '| --- | --- | --- | --- |'
 ) + ($results | ForEach-Object { "| $($_.Suite) | ``$($_.Project)`` | **$($_.Result)** | $($_.Why) |" }) + @(

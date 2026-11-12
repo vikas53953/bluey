@@ -4,8 +4,9 @@
 
 .DESCRIPTION
   Fails (exit 1) when the map has drifted:
-    - a row has no ID, no feature or no "How verified" label from the allowed set
-      (automated live, automated mock, manual, UNVERIFIED);
+    - a row has no ID, no feature, or a "How verified" value that is not made only of the allowed labels
+      (automated live, automated mock, manual, UNVERIFIED; exact case; parts joined by "+"; notes in brackets);
+    - a row says "automated live" but cites no test method that drives the real Boo.exe;
     - a row cites a file that does not exist, or `file.cs::Method` where the method is not in that file;
     - a row claims "automated live" or "automated mock" but cites no test, workflow or script as proof;
     - a [Fact]/[Theory] in a live user-journey project (tools/Boo.VerifyLive, tools/Boo.LiveSmoke) or a native UI suite
@@ -37,8 +38,12 @@ foreach ($line in Get-Content $MapPath -Encoding UTF8) {
   $feature = $cells[1]; $how = $cells[2]; $proof = ($cells[3..($cells.Count - 1)] -join '|')
   if ($ids.ContainsKey($id)) { $problems.Add("$id is used twice") } else { $ids[$id] = $true }
   if (-not $feature) { $problems.Add("$id has no feature text") }
-  $found = @($labels | Where-Object { $how -match [regex]::Escape($_) })
-  if ($found.Count -eq 0) { $problems.Add("$id 'How verified' is '$how'; it must contain one of: $($labels -join ', ')") }
+  # Strict: drop "(notes)", split on "+", and every part must be exactly one label (case-sensitive). "probably
+  # automated live" or "not manual, unverified-ish" are rejected, not matched loosely.
+  $parts = @((($how -replace '\([^)]*\)', '') -split '\+') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  $found = @($parts | Where-Object { $labels -ccontains $_ })
+  if ($parts.Count -eq 0 -or $found.Count -ne $parts.Count) { $problems.Add("$id 'How verified' is '$how'; each '+'-separated part must be exactly one of: $($labels -join ', ')") }
+  $liveCited = $false
 
   $refs = [regex]::Matches($proof, '`([^`]+)`') | ForEach-Object { $_.Groups[1].Value }
   $hasProof = $false
@@ -54,13 +59,19 @@ foreach ($line in Get-Content $MapPath -Encoding UTF8) {
         $code = Get-Content $file -Raw
         if ($code -notmatch "\b$([regex]::Escape($method))\s*\(") { $problems.Add("$id cites ${relFile}::$method, but no such method is in that file") }
         [void] $cited.Add("${relFile}::$method")
+        if ($relFile -match '^(tools/Boo\.VerifyLive|tools/Boo\.LiveSmoke|tests/Boo\.Ui\.Tests|tests/Boo\.Perf\.Tests)/') { $liveCited = $true }
       }
     } elseif ($ref -match 'gh workflow run|Boo\.exe --notch-gallery|text_provider=|SpeechEnabled|BOO_LIVE_') {
       $hasProof = $true
     }
   }
   if ($proof -match 'windows-ci|demo-ci|live-ai-smoke|release\.yml|live smoke|live journeys') { $hasProof = $true }
-  if (($how -match 'automated (live|mock)') -and -not $hasProof) { $problems.Add("$id claims '$how' but cites no test, workflow or script") }
+  if (($how -cmatch 'automated (live|mock)') -and -not $hasProof) { $problems.Add("$id claims '$how' but cites no test, workflow or script") }
+  # "automated live" must name a test method that drives the real Boo.exe (live journeys, live smoke, ui smoke, perf).
+  # demo-ci (mock AI) and unit tests never make a row live.
+  if (($parts -ccontains 'automated live') -and -not $liveCited) {
+    $problems.Add("$id claims 'automated live' but cites no file.cs::Method from tools/Boo.VerifyLive, tools/Boo.LiveSmoke, tests/Boo.Ui.Tests or tests/Boo.Perf.Tests")
+  }
 }
 
 if ($rows -eq 0) { $problems.Add("no map rows found in $MapPath") }

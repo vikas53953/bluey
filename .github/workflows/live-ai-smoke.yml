@@ -164,7 +164,7 @@ jobs:
       # verify-boo skill: the live user journeys on the same runner, same key, same evidence folder (so the key leak scan
       # below covers them too). Runs after the round trip even if it failed, so one run shows every live feature.
       - name: Live user journeys (verify-boo skill, FlaUI against published Boo.exe)
-        if: ${{ always() && inputs.journeys }}
+        if: ${{ !cancelled() && inputs.journeys }}
         timeout-minutes: 25
         shell: pwsh
         env:
@@ -184,7 +184,7 @@ jobs:
           exit $testExit
 
       - name: Test gate (every live journey ran and passed)
-        if: ${{ always() && inputs.journeys }}
+        if: ${{ !cancelled() && inputs.journeys }}
         shell: pwsh
         run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/live-evidence/journeys/trx -SourceDirectory tools/Boo.VerifyLive
 
