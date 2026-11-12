@@ -1,25 +1,41 @@
 # Boo quality rules
 
 Every check added by Phase 1 of the [agent-trust plan](../plans/agent-trust-plan.md) has an id here. A failing check
-prints **What / Why / Fix / Rule** and links to its anchor below. The "Do NOT" line names the tempting wrong fix.
+prints **What / Why / Fix / Do NOT / Rule** and links to its anchor below. The "Do NOT" line names the tempting wrong
+fix, because that is what an agent reaches for next.
 
-How the ratchet works: [`scripts/quality/ratchet.py`](../../scripts/quality/ratchet.py) counts each pattern in
-`src/`, per project, and compares with [`baseline.json`](baseline.json). A count that goes **up** fails (new problem).
-A count that goes **down** also fails until you run `python -I scripts/quality/ratchet.py --lower` and commit the
-lower baseline, so every gain is locked in. `--lower` refuses to raise any number. `--list <RULE>` prints every hit.
-The workflow is [`quality-gates.yml`](../../.github/workflows/quality-gates.yml) (Linux, about a minute, no uploads).
+## How the ratchet works
 
-Counts are text-level (strings blanked, comments separated). The compiler-exact versions (banned APIs, analyzers) come
-in later Phase 1 PRs.
+[`scripts/quality/ratchet.py`](../../scripts/quality/ratchet.py) reads every `src/**/*.cs` with a small C# lexer
+(strings, `$"{...}"` interpolation holes, verbatim and raw strings, char literals, line and block comments), counts
+each pattern below **per project, every match on a line**, and compares with [`baseline.json`](baseline.json):
 
-| Rule | Pattern | Baseline (12 Nov 2026) |
+- a count that goes **up** fails (new problem);
+- a count that goes **down** also fails until you run `python -I scripts/quality/ratchet.py --lower` and commit the
+  lower baseline, so every gain is locked in; `--lower` refuses to raise any number;
+- `--list <RULE>` prints every hit; `--self-test` checks 48 snippets with exact expected counts, that clean code stays
+  quiet, and the pass/fail logic itself (equal passes, rise fails, fall fails until lowered).
+
+**A PR cannot loosen its own gate.** On a pull request, the workflow
+[`quality-gates.yml`](../../.github/workflows/quality-gates.yml) (job `quality`, Linux, about a minute, no uploads)
+also runs the **base branch's** `ratchet.py` with the **base branch's** `baseline.json`, both read from git rather than
+from the PR, and fails on any rise. Raising a number in the PR's `baseline.json`, or weakening a pattern in the PR's
+`ratchet.py`, therefore changes nothing. (The workflow file itself is the remaining hole: see HANDOFF.md, known
+issues, item 0.)
+
+A ratchet counts, it does not track identity: removing one hit and adding another of the same rule in the same project
+keeps the count equal and passes. That is accepted; the compiler-exact checks in later Phase 1 PRs close it per rule.
+
+## Rules (baseline 13 Nov 2026, IST)
+
+| Rule | Pattern | Baseline |
 | --- | --- | --- |
 | [BOO-ASYNC-001](#boo-async-001) | `Thread.Sleep` | 0 |
-| [BOO-ASYNC-002](#boo-async-002) | blocking wait on async work | 0 |
-| [BOO-ASYNC-003](#boo-async-003) | `async void` | 7 |
-| [BOO-UI-001](#boo-ui-001) | `Dispatcher.Invoke` | 2 |
-| [BOO-UI-002](#boo-ui-002) | `Dispatcher.BeginInvoke` | 13 |
-| [BOO-TIME-001](#boo-time-001) | `DateTime(Offset).Now/UtcNow` | 14 |
+| [BOO-ASYNC-002](#boo-async-002) | blocking wait on async work | 1 |
+| [BOO-ASYNC-003](#boo-async-003) | `async void`, `+= async` event lambdas | 7 |
+| [BOO-UI-001](#boo-ui-001) | `Dispatcher.Invoke` (any dispatcher variable) | 2 |
+| [BOO-UI-002](#boo-ui-002) | `Dispatcher.BeginInvoke` (any dispatcher variable) | 14 |
+| [BOO-TIME-001](#boo-time-001) | `DateTime(Offset).Now/UtcNow/Today` | 14 |
 | [BOO-TIME-002](#boo-time-002) | `Task.Delay` | 1 |
 | [BOO-TIME-003](#boo-time-003) | `new DispatcherTimer` | 8 |
 | [BOO-RT-001](#boo-rt-001) | `GC.Collect` | 0 |
@@ -28,68 +44,84 @@ in later Phase 1 PRs.
 | [BOO-ERR-001](#boo-err-001) | broad `catch` with an empty body | 24 |
 | [BOO-ERR-002](#boo-err-002) | broad `catch` that handles and carries on | 73 |
 | [BOO-STATE-001](#boo-state-001) | mutable static state | 2 |
-| [BOO-CMT-001](#boo-cmt-001) | comment lines that are not `///` | 374 |
+| [BOO-CMT-001](#boo-cmt-001) | comment lines that are not `///` (allowed tags excepted) | 374 |
 | [BOO-CMT-002](#boo-cmt-002) | `TODO`/`FIXME`/`HACK`/`XXX` without `(#issue)` | 1 |
+| **total** | | **527** |
 
 ## BOO-ASYNC-001
-**Thread.Sleep.** A sleep hides a race instead of fixing it. **Fix:** await the thing you wait for (`Task`,
-`TaskCompletionSource`, `SemaphoreSlim.WaitAsync`) or inject `TimeProvider`. **Do NOT** make the sleep longer.
+**Thread.Sleep** (also `Thread .Sleep`, fully qualified, a method group, and bare `Sleep(` after
+`using static System.Threading.Thread`). A sleep hides a race instead of fixing it. **Fix:** await the thing you wait
+for (`Task`, `TaskCompletionSource`, `SemaphoreSlim.WaitAsync`) or inject `TimeProvider`. **Do NOT** make the sleep longer.
 
 ## BOO-ASYNC-002
-**Blocking wait on async work** (`Task.WaitAll/WaitAny`, `.GetAwaiter().GetResult()`, `task.Wait()`). Blocking from
-the WPF UI thread deadlocks. **Fix:** make the caller async and await. **Do NOT** wrap it in `Task.Run` to hide it.
+**Blocking wait on async work:** `Task.WaitAll/WaitAny`, `.GetAwaiter().GetResult()`, and `.Wait(` / `.Result` on a
+variable whose name contains `task`. Blocking from the WPF UI thread deadlocks. **Fix:** make the caller async and
+await. **Do NOT** wrap it in `Task.Run` to hide the block.
 
 ## BOO-ASYNC-003
-**async void.** Its exceptions cannot be caught by the caller and can end the app. **Fix:** return `Task`; a WPF event
-handler becomes a one-liner that hands an async `Func<Task>` to one shared helper that awaits it and reports errors.
-**Do NOT** add a catch-everything block.
+**async void** methods and `+= async (...) =>` event handlers. Their exceptions cannot be caught by the caller and can
+end the app. **Fix:** return `Task`; a WPF event handler becomes a one-liner that hands an async `Func<Task>` to one
+shared helper that awaits it and reports errors. **Do NOT** add a catch-everything block.
 
 ## BOO-UI-001
-**Dispatcher.Invoke.** A synchronous cross-thread call deadlocks when the UI thread is itself waiting. **Fix:**
-`await Dispatcher.InvokeAsync(...)`.
+**Dispatcher.Invoke** on any dispatcher variable. A synchronous cross-thread call deadlocks when the UI thread is itself
+waiting. **Fix:** `await Dispatcher.InvokeAsync(...)`. **Do NOT** add a timeout to "unstick" it.
 
 ## BOO-UI-002
-**Dispatcher.BeginInvoke.** Fire and forget: exceptions are lost and the order is a guess. **Fix:**
-`Dispatcher.InvokeAsync` and observe the result. **Do NOT** add a delay to "fix" ordering.
+**Dispatcher.BeginInvoke** on any dispatcher variable. Fire and forget: exceptions are lost and the order is a guess.
+**Fix:** `Dispatcher.InvokeAsync` and observe the result. **Do NOT** add a delay to "fix" ordering.
 
 ## BOO-TIME-001
 **Hidden clock.** Time-based behaviour (focus sessions, nudges, update checks) cannot be tested with a fake clock.
-**Fix:** take a `TimeProvider` (tests pass a fake) and call `GetUtcNow()` / `GetLocalNow()`.
+**Fix:** take a `TimeProvider` (tests pass a fake) and call `GetUtcNow()` / `GetLocalNow()`. **Do NOT** wrap the clock in
+a static helper; that is the same hidden clock.
 
 ## BOO-TIME-002
 **Task.Delay.** A delay used to let things settle hides a race. **Fix:** wait for the real signal; for a real timeout,
-use the `TimeProvider` overload.
+use the `TimeProvider` overload. **Do NOT** make the delay longer.
 
 ## BOO-TIME-003
-**new DispatcherTimer.** Timers are a common fix for ordering bugs and cannot be tested without a fake clock. Counted
-so new ones are visible. **Fix:** prefer an event or an awaited signal; keep real periodic timers in one owner class.
+**new DispatcherTimer** (also `DispatcherTimer t = new(...)` and fully qualified). Timers are a common fix for ordering
+bugs and cannot be tested without a fake clock. Counted so new ones are visible. **Fix:** prefer an event or an awaited
+signal; keep real periodic timers in one owner class. **Do NOT** add a timer to wait for something to finish.
 
 ## BOO-RT-001
-**GC.Collect.** Hides a leak. **Fix:** find what holds the memory and dispose it.
+**GC.Collect.** Hides a leak. **Fix:** find what holds the memory and dispose it. **Do NOT** call it "just in case".
 
 ## BOO-RT-002
 **Environment.GetEnvironmentVariable.** Hidden switches (for example `BOO_QA_CAPTURABLE`) change privacy behaviour.
-**Fix:** read environment variables in one place and pass the value in.
+**Fix:** read environment variables in one place and pass the value in. **Do NOT** add another reader.
 
 ## BOO-SAFE-003
 **Process.Start.** Launching a program is permissioned. **Fix:** go through the `ActionPolicy` gate (`DesktopTools`).
+**Do NOT** call `Process.Start` directly.
 
 ## BOO-ERR-001
-**Broad catch, empty body.** The failure vanishes. **Fix:** catch the specific exception you expect and handle it, or
-let it propagate. **Do NOT** widen the catch.
+**Broad catch, empty body** (`catch`, `catch (Exception)`, `catch (global::System.Exception)`). The failure vanishes.
+**Fix:** catch the specific exception you expect and handle it, or let it propagate. **Do NOT** widen the catch.
 
 ## BOO-ERR-002
-**Broad catch that carries on.** It also catches the bugs you did not expect. **Fix:** narrow the type, or add a
-`when (...)` filter for the exceptions you really expect.
+**Broad catch that carries on** (no `throw` in the body). It also catches the bugs you did not expect. **Fix:** narrow
+the type, or add a `when (...)` filter for the exceptions you really expect. **Do NOT** log and continue as a habit.
 
 ## BOO-STATE-001
-**Mutable static state.** Leaks between tests and windows, hides ordering bugs. **Fix:** an instance member owned by
-one object, or `readonly`.
+**Mutable static state** (static field, or static property with a setter). Leaks between tests and windows, hides
+ordering bugs. **Fix:** an instance member owned by one object, or `readonly`. **Do NOT** add a lock around it as the fix.
 
 ## BOO-CMT-001
-**Comment that is not `///`.** Agents use comments to justify workarounds, and rules written in comments are not
-checked. **Fix:** fix the cause instead of explaining it; if it states a rule, write a test and tag it
-`// INVARIANT: ... see Test.Name`; API docs use `///`. (The full allow-list check on new lines comes in PR 1.6.)
+**Comment that is not `///`** (`////` counts). Agents use comments to justify workarounds, and rules written in comments
+are not checked. Not counted: `// INVARIANT: ... see TestClass.TestName`, `// SECURITY: ... see TestClass.TestName`, and
+`// TODO(#123): ...` lines. **Fix:** fix the cause instead of explaining it; if it states a rule, write the test and use
+the INVARIANT tag; API docs use `///`. **Do NOT** reword the comment to dodge the count.
 
 ## BOO-CMT-002
-**Untracked TODO.** **Fix:** open a GitHub issue and write `TODO(#123): ...`.
+**Untracked TODO / FIXME / HACK / XXX** in any comment, `///` included. **Fix:** open a GitHub issue and write
+`TODO(#123): ...`. **Do NOT** delete the note and keep the debt.
+
+## Known gaps (the text-level ratchet does not see these; later Phase 1 PRs make them exact)
+
+- `.Wait()` / `.Result` on a task variable whose name does not contain "task"; an instance `process.Start()`.
+- A broad catch whose body has an unreachable `throw` counts as "rethrows".
+- A static field declared over two lines, or with a tuple type plus `=>` initializer.
+- `///` comments written inside a method body count as documentation.
+- Identity: a swap (one removed, one added, same rule and project) passes, as explained above.

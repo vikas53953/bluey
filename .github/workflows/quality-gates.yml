@@ -33,3 +33,19 @@ jobs:
 
       - name: Ratchet (no known-bad pattern may go up)
         run: python -I scripts/quality/ratchet.py
+
+      # A PR could raise its own baseline.json or weaken its own ratchet.py. So on a pull request the BASE branch's
+      # ratchet and baseline (read from git, not from the PR) also judge the PR's code; only rises fail here.
+      - name: Ratchet judged by the base branch's own copy (a PR cannot loosen its own gate)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          if git cat-file -e FETCH_HEAD:scripts/quality/ratchet.py 2>/dev/null; then
+            git show FETCH_HEAD:scripts/quality/ratchet.py > "$RUNNER_TEMP/base_ratchet.py"
+            git show FETCH_HEAD:docs/quality/baseline.json > "$RUNNER_TEMP/base_baseline.json"
+            python -I "$RUNNER_TEMP/base_ratchet.py" --root "$GITHUB_WORKSPACE" --baseline "$RUNNER_TEMP/base_baseline.json" --rise-only
+          else
+            echo "The base branch ($BASE_REF) has no ratchet yet: this PR introduces it, so there is no older gate to apply."
+          fi

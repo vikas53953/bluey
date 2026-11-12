@@ -281,10 +281,11 @@ From `docs/plans/agent-trust-plan.md` (PR #17). Steps run strictly in this order
 ### Quality ratchet (Phase 1, PR 1.1)
 
 `.github/workflows/quality-gates.yml` (job `quality`, Linux, about a minute, no uploads) runs
-`scripts/quality/ratchet.py`: today's count of 16 known-bad patterns in `src/` (525 hits on 13 Nov 2026, per project,
-in `docs/quality/baseline.json`) may only go **down**. A count that rises fails with what / why / fix / rule; a count
-that falls fails until `--lower` writes the new baseline, so every gain is locked in. A `--self-test` proves each rule
-fires on a planted sample. Rules and fixes: `docs/quality/RULES.md`. To be made a required check after it merges.
+`scripts/quality/ratchet.py`: today's count of 16 known-bad patterns in `src/` (527 hits, 13 Nov 2026, per project, in
+`docs/quality/baseline.json`) may only go **down**. A rise fails with what / why / fix / do-not / rule; a fall fails
+until `--lower` writes the new baseline. On a pull request the **base branch's own** ratchet and baseline also judge
+the code, so a PR cannot raise its own numbers. `--self-test` checks 48 snippets with exact counts and the pass/fail
+logic. Rules, fixes and known gaps: `docs/quality/RULES.md`. To be made a required check after it merges.
 
 ### Next phase
 

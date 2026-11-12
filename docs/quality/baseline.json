@@ -9,7 +9,7 @@
     },
     "BOO-ASYNC-002": {
       "Boo.App": 0,
-      "Boo.Core": 0,
+      "Boo.Core": 1,
       "Boo.Providers": 0,
       "Boo.Storage": 0,
       "Boo.Windows": 0
@@ -106,7 +106,7 @@
       "Boo.Windows": 0
     },
     "BOO-UI-002": {
-      "Boo.App": 13,
+      "Boo.App": 14,
       "Boo.Core": 0,
       "Boo.Providers": 0,
       "Boo.Storage": 0,
