@@ -56,9 +56,14 @@ jobs:
       - name: Provider tests
         run: dotnet test tests/Boo.Providers.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/providers
 
+      # The live-AI anti-mock guard (tools/Boo.LiveSmoke/RealAiHostGuard.cs): every local/private/LAN range is rejected,
+      # including hostnames that resolve to one, and a real public API host (api.openai.com, real DNS) passes. No key.
+      - name: Live-AI guard tests
+        run: dotnet test tests/Boo.LiveGuard.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/liveguard
+
       # Each project must have produced results with tests that ran, and none skipped or not executed.
-      - name: Test gate (unit, integration, provider results)
-        run: python -I scripts/test_gate.py trx artifacts/test-results/core artifacts/test-results/integration artifacts/test-results/providers
+      - name: Test gate (unit, integration, provider and live-guard results)
+        run: python -I scripts/test_gate.py trx artifacts/test-results/core artifacts/test-results/integration artifacts/test-results/providers artifacts/test-results/liveguard
 
       - name: Publish app
         run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
@@ -66,6 +71,7 @@ jobs:
       - name: Upload published app
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: boo-win-x64
           path: artifacts/ci
 
@@ -138,6 +144,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: ui-smoke-screenshots
           path: artifacts/ui-smoke
           if-no-files-found: warn
@@ -161,6 +168,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: perf-results
           path: artifacts/ui-smoke/perf
           if-no-files-found: warn
@@ -169,5 +177,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: test-results
           path: artifacts/test-results

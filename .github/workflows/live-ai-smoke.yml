@@ -108,6 +108,11 @@ jobs:
 
       # A leftover hosts-file redirect (the demo-ci mock trick) would send Boo to a fake server and turn this into a
       # false green. Refuse to run unless every provider host resolves to a real, non-loopback address.
+      # This step is the early, coarse check (hosts-file pins and loopback). The full check runs inside the test before
+      # Boo starts: tools/Boo.LiveSmoke/RealAiHostGuard.cs rejects loopback, private/LAN, link-local, site-local,
+      # unique-local, CGNAT, fake-IP and NAT64/6to4 addresses (also IPv6-wrapped), hostnames that resolve to one, and any
+      # proxy in the way. It does not check for a planted trusted root certificate. Its behaviour tests run in
+      # windows-ci (tests/Boo.LiveGuard.Tests).
       - name: Refuse if any AI host is redirected (no mock may answer)
         shell: pwsh
         run: |
@@ -183,4 +188,4 @@ jobs:
           name: live-ai-evidence
           path: artifacts/live-evidence
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
