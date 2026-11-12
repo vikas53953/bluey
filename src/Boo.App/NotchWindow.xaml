@@ -8,8 +8,8 @@
         AutomationProperties.HelpText="Boo's notch. Keyboard: Ctrl+Alt+B opens Boo's window, hold Ctrl+Alt+Space to talk, Ctrl+Alt+S or Ctrl+Alt+F12 pauses everything."
         MouseEnter="NotchWindow_OnMouseEnter" MouseLeave="NotchWindow_OnMouseLeave">
     <!--
-        Face lane (U1/U2). Everything visible here is built from docs/design/boo-notch-spec.json
-        (embedded resource, chosen face). Fully transparent pixels are click-through at the OS level,
+        Face lane (U1/U2), Living ink look (2026-11-12). Sizes come from docs/design/boo-notch-spec.json
+        (embedded resource, chosen face D); shapes, moods and motion from Boo.Core LivingInk. Fully transparent pixels are click-through at the OS level,
         so the window can stay at its maximum size: only the hover strip (alpha 1/255), the pocket
         and the disclosure catch the pointer. No text is drawn on the collapsed notch.
     -->
@@ -29,49 +29,51 @@
                 </TransformGroup>
             </Canvas.RenderTransform>
 
-            <Path x:Name="BodyPath" Fill="#000000" />
+            <!-- Living ink: the blot (vector path, morphs between moods) and loose ink (blooms, drip, rising dots, splatters). -->
+            <Canvas x:Name="InkLayer" IsHitTestVisible="False" />
+            <Path x:Name="BodyPath" Fill="#0C0A09" />
 
             <!-- Face parts are positioned in body coordinates; FaceLayer's Canvas.Left = body left. -->
             <Canvas x:Name="FaceLayer" IsHitTestVisible="False">
                 <Canvas x:Name="LeftEye">
-                    <!-- Studio order: scaleY(openness) about the eye centre, then translate (gaze drift, bounce). -->
+                    <!-- Eye squash (mood scale) about the eye centre, then translate (gaze drift, bounce). Clip = eye shape. -->
                     <Canvas.RenderTransform>
                         <TransformGroup>
                             <ScaleTransform x:Name="LeftBlink" ScaleX="1" ScaleY="1" />
                             <TranslateTransform x:Name="LeftShift" X="0" Y="0" />
                         </TransformGroup>
                     </Canvas.RenderTransform>
-                    <Rectangle x:Name="LeftWhite" Fill="#FFFFFF" />
-                    <Ellipse x:Name="LeftPupil" Fill="#000000" />
-                    <Ellipse x:Name="LeftGlint" Fill="#FFFFFF" />
-                    <Path x:Name="LeftHappy" Stroke="#FFFFFF" StrokeThickness="3"
-                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed" />
+                    <Path x:Name="LeftWhite" Fill="#F7F4EE" />
+                    <Ellipse x:Name="LeftPupil" Fill="#0C0A09" />
+                    <Ellipse x:Name="LeftGlint" Fill="#FFFFFF" Opacity="0.85" />
+                    <Rectangle x:Name="LeftLid" Fill="#0C0A09" Height="0" />
                 </Canvas>
+                <Path x:Name="LeftHappy" Stroke="#F7F4EE" StrokeThickness="3"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed" />
                 <Canvas x:Name="RightEye">
-                    <!-- Studio order: scaleY(openness) about the eye centre, then translate (gaze drift, bounce). -->
                     <Canvas.RenderTransform>
                         <TransformGroup>
                             <ScaleTransform x:Name="RightBlink" ScaleX="1" ScaleY="1" />
                             <TranslateTransform x:Name="RightShift" X="0" Y="0" />
                         </TransformGroup>
                     </Canvas.RenderTransform>
-                    <Rectangle x:Name="RightWhite" Fill="#FFFFFF" />
-                    <Ellipse x:Name="RightPupil" Fill="#000000" />
-                    <Ellipse x:Name="RightGlint" Fill="#FFFFFF" />
-                    <Path x:Name="RightHappy" Stroke="#FFFFFF" StrokeThickness="3"
-                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed" />
+                    <Path x:Name="RightWhite" Fill="#F7F4EE" />
+                    <Ellipse x:Name="RightPupil" Fill="#0C0A09" />
+                    <Ellipse x:Name="RightGlint" Fill="#FFFFFF" Opacity="0.85" />
+                    <Rectangle x:Name="RightLid" Fill="#0C0A09" Height="0" />
                 </Canvas>
+                <Path x:Name="RightHappy" Stroke="#F7F4EE" StrokeThickness="3"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed" />
 
                 <!-- State indicators (no text). Built and positioned in code inside the indicator slot. -->
-                <Canvas x:Name="ListeningBars" Visibility="Collapsed" />
-                <Canvas x:Name="ThinkingDots" Visibility="Collapsed" />
+                <!-- Speaking: four cream ink bars on the right, timed with the voice level. -->
+                <Canvas x:Name="SpeakingBars" Visibility="Collapsed" />
                 <Ellipse x:Name="RecordRing" Fill="#E5484D" Visibility="Collapsed" />
                 <Ellipse x:Name="RecordDot" Fill="#E5484D" Visibility="Collapsed" />
                 <Border x:Name="StopSquare" Width="18" Height="18" CornerRadius="5" Visibility="Collapsed">
                     <Border x:Name="StopSquareInner" Width="7" Height="7" CornerRadius="1.5"
                             HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
-                <Canvas x:Name="PauseBars" Visibility="Collapsed" />
 
                 <!-- Caption (responding / nudge only): typed in, Nunito 13/18, never on the collapsed notch. -->
                 <TextBlock x:Name="Caption" Visibility="Collapsed" FontFamily="{StaticResource BooFont}"
