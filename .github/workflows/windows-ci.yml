@@ -39,6 +39,7 @@ jobs:
       # because the UI/demo/live tests take screenshots and the live smoke sends one to a real AI.
       - name: GitHub-hosted runners only
         run: |
+          python -m pip install --disable-pip-version-check --quiet pyyaml==6.0.2
           python -I scripts/ci/check_runners.py --self-test
           python -I scripts/ci/check_runners.py
 

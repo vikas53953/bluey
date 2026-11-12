@@ -90,9 +90,10 @@ artifacts\ci\Boo.exe                      # then Ctrl+Alt+B
 artifacts\ci\Boo.exe --notch-gallery <dir> # renders every face state to PNG, offscreen, then exits
 ```
 
-**Warning: the UI, perf and demo suites take FULL-SCREEN screenshots** (`Capture.Screen()` in
-`tests/Boo.Ui.Tests/BooAppFixture.cs`). Never run them on the owner's real desktop. Run them in CI, a VM or Windows
-Sandbox. To see Boo on the owner's PC, use `--notch-gallery` or capture only Boo's own window.
+**Warning: run the UI, perf and demo suites only in CI or a VM**, never on the owner's real desktop. Since PR #18
+their fixtures copy the whole desktop (`Capture.Screen()`) only on a GitHub-hosted runner; anywhere else they draw
+Boo's own windows only, and their rectangle screenshots refuse to run, so those tests fail by design on a personal PC.
+To see Boo on the owner's PC, use `--notch-gallery`.
 
 Known local snag: the SF-006 symlink tests in Boo.Core.Tests fail on purpose (they never skip) when the PC cannot
 create symbolic links. Turn on Windows Developer Mode or run elevated.

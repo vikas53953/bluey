@@ -51,7 +51,9 @@ desktop. Decided by Vikas on 12 Nov 2026 (`docs/DECISIONS.md`). Three things enf
 
 - the workflow has no runner choice and always asks for `windows-latest`;
 - its first step refuses any runner that is not GitHub-hosted;
-- `scripts/ci/check_runners.py` (run by `windows-ci` on every push) fails if any workflow names a self-hosted runner.
+- `scripts/ci/check_runners.py` (run by `windows-ci` on every push) fails unless every job in every workflow runs on
+  one GitHub-hosted label. It checks twice: what a real YAML parser (PyYAML 6.0.2) reads, and strict plain-text rules
+  (one plain ASCII document, `jobs:` last, no multi-line quoted strings), so a YAML trick fails instead of slipping by.
 
 Evidence screenshots show **Boo's own windows only**, never the whole desktop (`BOO_CAPTURE_SCOPE=boo-windows`). Each
 Boo window is drawn from its own content (`PrintWindow`), not copied from the screen, so nothing behind or on top of it
