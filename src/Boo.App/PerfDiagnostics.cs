@@ -10,13 +10,14 @@ namespace Boo.App;
 /// environment variable <c>BOO_PERF_DIAG</c> names a file, a low-priority timer rewrites that file every
 /// <see cref="Interval"/> with a JSON snapshot of in-process counters nothing outside the process can read:
 /// GC collections per generation, total allocated bytes, heap size, plus the notch render-loop state
-/// (frames rendered, whether the CompositionTarget.Rendering subscription is live, face state, pacer skips).
+/// (frames rendered, whether the CompositionTarget.Rendering subscription is live, face state, pacer skips) and how
+/// Windows draws the notch ("SoftwareOnly" or "Default"; added 2026-11-12, readers that do not know it ignore it).
 /// Unset (every normal launch) nothing is created: no timer, no file, no allocations.
 /// Schema (version 1), all numbers cumulative since process start:
 /// <code>
 /// { "schema": 1, "writtenAtUtc": "...", "uptimeMs": 1234, "gen0": 3, "gen1": 1, "gen2": 0,
 ///   "allocatedBytes": 12345678, "heapBytes": 2345678, "workingSetBytes": 98765432,
-///   "notchFrames": 0, "notchRendering": false, "faceState": "Hidden", "pacerSkipped": 0 }
+///   "notchFrames": 0, "notchRendering": false, "faceState": "Hidden", "pacerSkipped": 0, "notchRenderMode": "SoftwareOnly" }
 /// </code>
 /// </summary>
 internal sealed class PerfDiagnostics
@@ -87,7 +88,8 @@ internal sealed class PerfDiagnostics
             _notch.RenderedFrames,
             _notch.IsRenderLoopActive,
             _notch.FaceState.ToString(),
-            _notch.PacerSkippedFrames);
+            _notch.PacerSkippedFrames,
+            _notch.RenderModeName);
         try
         {
             File.WriteAllText(_tempPath, JsonSerializer.Serialize(snapshot, JsonOptions));
@@ -116,5 +118,6 @@ internal sealed class PerfDiagnostics
         long NotchFrames,
         bool NotchRendering,
         string FaceState,
-        long PacerSkipped);
+        long PacerSkipped,
+        string NotchRenderMode);
 }

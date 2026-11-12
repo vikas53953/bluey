@@ -23,7 +23,7 @@ because the repository is public (since 13 Nov 2026); each run takes about 10–
   commit and so a fresh run.
 - A pull request runs **its own copy** of this workflow, so a PR could change the check itself. Only a GitHub setting
   closes that (see HANDOFF.md, known issues); until then the verifying bot must treat any PR that touches
-  `.github/workflows/` or `scripts/` as needing Vikas's eyes.
+  `.github/workflows/`, `scripts/ci/`, `scripts/quality/` or `docs/quality/` as needing Vikas's eyes.
 
 **Why a separate final job:** GitHub counts a *skipped* required job as passing. When the key check fails, the
 Windows job is skipped, so it cannot be the required check itself. The final `live-ai-smoke` job always runs and is

@@ -132,7 +132,7 @@ public sealed class FaceMotionMoodTests
 // ---------------------------------------------------------------------------------------------------------------
 public sealed class FaceMotionRowLayoutTests
 {
-    private static readonly NotchFaceSpec B = FaceSpecFixture.Load().Face;
+    private static readonly NotchFaceSpec B = FaceSpecFixture.LoadFaceB().Face;
     private static readonly NotchFaceSpec C = FaceSpecFixture.Load().GetFace("C");
     private const double Tol = 1e-9;
 
@@ -463,7 +463,7 @@ public sealed class FaceMotionIndicatorTests
 // ---------------------------------------------------------------------------------------------------------------
 public sealed class FaceMotionBehaviourTests
 {
-    private static readonly NotchSpec Spec = FaceSpecFixture.Load();
+    private static readonly NotchSpec Spec = FaceSpecFixture.LoadFaceB();
     private const double GazeX = 3.5; // face B gazeX / gazeY
 
     private static FaceMotion New(int seed = 42, bool reduced = false) => new(Spec, new Random(seed)) { ReducedMotion = reduced };
