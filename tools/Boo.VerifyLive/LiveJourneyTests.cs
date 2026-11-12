@@ -134,25 +134,46 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
         {
             var panel = _boo.EnsurePanel();
             EnsureDisplaySelected(panel);
-            s_target ??= TargetWindow.Show(PlaceTargetAwayFrom(panel.BoundingRectangle));
-            Thread.Sleep(800);
+            s_target ??= TargetWindow.Show(TargetBounds());
             var targetRect = s_target.ButtonScreenRectangle();
             var windowRect = s_target.ScreenRectangle();
-            var beforePath = _boo.CaptureScreen("j3-before-ask");
-
             var before = BooRows(panel).Count;
-            Ask(panel, "Explain the window titled 'Boo live target' and point at its big 'Send report' button.");
-            var detail = _boo.WaitFor(() => NonEmpty(NameOfId(panel, "AnnotationDetail")), AnswerTimeout, "the screen-explanation outcome line");
-            Thread.Sleep(1800); // Fly (<=620 ms) + land (120 ms) + ring (620 ms) + margin, inside the 10 s hold.
-            var afterPath = _boo.CaptureScreen("j3-explain-ring");
-            var reply = BooRows(panel).Skip(before).LastOrDefault() ?? string.Empty;
+            SetText(panel, "InputBox", "Explain the window titled 'Boo live target' and point at its big 'Send report' button.");
 
-            // The ring colour is AnnotationWindow.MarkColor (243,181,155). Only pixels that CHANGED between the two shots
-            // and match it count, so peach pixels that were already on screen cannot fake a ring.
+            // Send, then get out of the way like a user would: hide Boo's panel (on a small screen it covers everything)
+            // and bring the target forward, so the screenshots show the target and whatever Boo draws on it.
+            Find(panel, "SendButton").AsButton().Invoke();
+            Find(panel, "CloseButton").AsButton().Invoke();
+            BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, UiTimeout);
+            BringTargetForward("j3");
+            var beforePath = _boo.CaptureScreen("j3-before-ring");
+            AssertTargetVisible(beforePath, targetRect, "j3-before-ring.png");
+
+            // The ring colour is AnnotationWindow.MarkColor (243,181,155). Only pixels that CHANGED since the shot above and
+            // match it count, so peach pixels already on screen cannot fake a ring. Poll: the answer takes a few seconds.
             var search = Inflate(windowRect, 160);
-            var found = RingProbe.FindNewRing(beforePath, afterPath, search, out var centre, out var pixels);
+            var centre = Point.Empty;
+            var pixels = 0;
+            var afterPath = beforePath;
+            var found = BooAppFixture.WaitUntil(() =>
+            {
+                afterPath = _boo.CaptureScreen("j3-explain-ring");
+                return RingProbe.FindNewRing(beforePath, afterPath, search, out centre, out pixels);
+            }, TimeSpan.FromSeconds(90));
+            if (found)
+            {
+                Thread.Sleep(900); // let the ring finish drawing, then keep the clearest shot
+                afterPath = _boo.CaptureScreen("j3-explain-ring");
+                RingProbe.FindNewRing(beforePath, afterPath, search, out centre, out pixels);
+            }
             var onButton = Inflate(targetRect, 60).Contains(centre);
             var onWindow = Inflate(windowRect, 20).Contains(centre);
+
+            BooAppFixture.PressOpenShortcut();
+            panel = _boo.WaitForPanel(UiTimeout);
+            var detail = _boo.WaitFor(() => NonEmpty(NameOfId(panel, "AnnotationDetail")), AnswerTimeout, "the screen-explanation outcome line");
+            var reply = BooRows(panel).Skip(before).LastOrDefault() ?? string.Empty;
+            _boo.CaptureScreen("j3-explain-panel");
             _boo.WriteObservation("j3-explain",
                 $"detail='{detail}' ringFound={found} ringPixels={pixels} ringCentre={centre} button={targetRect} window={windowRect} " +
                 $"onButton={onButton} onWindow={onWindow}\nreply='{Shorten(reply, 600)}'\nstatus='{StatusText(panel)}'");
@@ -248,7 +269,7 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             {
                 var panel = _boo.EnsurePanel();
                 EnsureDisplaySelected(panel);
-                s_target ??= TargetWindow.Show(PlaceTargetAwayFrom(panel.BoundingRectangle));
+                s_target ??= TargetWindow.Show(TargetBounds());
 
                 // Developer Mode is Boo's existing test clock: 4x focus time, a check every 10 real seconds. A 25-minute
                 // session therefore takes 375 real seconds. A 25-minute session on the real-time clock stays a manual check.
@@ -262,6 +283,14 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
                     $"Focus did not start: '{NameOfId(panel, "FocusStatus")}'");
                 _boo.CaptureScreen("j6-focus-running");
                 Find(panel, "CloseButton").AsButton().Invoke();
+                BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, UiTimeout);
+
+                // The user now works in the on-task window: keep it in front for the whole session (re-raised whenever
+                // something else takes the foreground) and photograph the screen now and then as proof of what Boo saw.
+                BringTargetForward("j6");
+                AssertTargetVisible(_boo.CaptureScreen("j6-on-task-0"), s_target.ButtonScreenRectangle(), "j6-on-task-0.png");
+                var lastRaise = Stopwatch.StartNew();
+                var shots = 0;
 
                 var states = new List<string>();
                 var nudges = 0;
@@ -274,8 +303,18 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
                     if (notch.FindFirstDescendant(cf => cf.ByAutomationId("NudgeBackButton")) is { } back && Visible(back) is not null)
                     {
                         nudges++;
-                        _boo.CaptureScreen($"j6-nudge-{nudges}");
+                        if (nudges <= 3) _boo.CaptureScreen($"j6-nudge-{nudges}");
                         back.AsButton().Invoke();
+                    }
+                    if (lastRaise.Elapsed > TimeSpan.FromSeconds(5) && s_target is { } t && !t.IsForeground())
+                    {
+                        t.BringToFront(_boo.Automation);
+                        lastRaise.Restart();
+                    }
+                    if (shots < 3 && clock.Elapsed > TimeSpan.FromSeconds(100 * (shots + 1)))
+                    {
+                        shots++;
+                        _boo.CaptureScreen($"j6-on-task-{shots}");
                     }
                     return state == "Happy";
                 }, TimeSpan.FromMinutes(9));
@@ -302,6 +341,12 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
                 // 25 focus-minutes at 4x is 375 real seconds; allow for check round trips and UI polling.
                 Assert.InRange(realSeconds, 330, 540);
                 Assert.True(historyRow is not null, "Session history shows no completed 25 min row.");
+                // The screen showed only the on-task window ("Q4 firewall migration plan") the whole time, so Boo's real
+                // focus checks must have judged at least part of the session on task.
+                var score = System.Text.RegularExpressions.Regex.Match(history, @"(\d+)% focused");
+                Assert.True(score.Success, $"Session history has no focus estimate: '{history}'");
+                Assert.True(int.Parse(score.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) > 0,
+                    $"Boo judged a session spent entirely in the on-task window as '{score.Value}' and nudged {nudges} times. See j6-on-task-*.png.");
             }
             finally
             {
@@ -384,15 +429,36 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
         }
     }
 
-    /// <summary>Puts the target window on the half of the primary screen that the Boo panel does not cover.</summary>
-    private static Rectangle PlaceTargetAwayFrom(Rectangle panel)
+    /// <summary>The on-task target window: middle of the primary screen, below the notch.</summary>
+    private static Rectangle TargetBounds()
     {
         var screen = System.Windows.Forms.Screen.PrimaryScreen?.Bounds ?? new Rectangle(0, 0, 1920, 1080);
-        var width = Math.Min(760, screen.Width * 2 / 5);
+        var width = Math.Min(760, screen.Width / 2);
         var height = Math.Min(520, screen.Height / 2);
-        var panelCentre = panel.Left + panel.Width / 2;
-        var left = panelCentre > screen.Left + screen.Width / 2 ? screen.Left + 40 : screen.Right - width - 40;
-        return new Rectangle(left, screen.Top + screen.Height / 4, width, height);
+        return new Rectangle(screen.Left + (screen.Width - width) / 2, screen.Top + screen.Height / 4, width, height);
+    }
+
+    private void BringTargetForward(string step)
+    {
+        s_target!.BringToFront(_boo.Automation);
+        Thread.Sleep(700);
+        _output.WriteLine($"{step}: target foreground={s_target!.IsForeground()}");
+    }
+
+    /// <summary>
+    /// Fails with a setup message (not a verdict on Boo) when the target's blue button is not on screen, so a covered
+    /// target can never pass or fail a check about what Boo saw or drew.
+    /// </summary>
+    private static void AssertTargetVisible(string screenshot, Rectangle button, string shotName)
+    {
+        using var bitmap = new Bitmap(screenshot);
+        var origin = System.Windows.Forms.SystemInformation.VirtualScreen.Location;
+        var x = Math.Clamp(button.Left + button.Width / 8 - origin.X, 0, bitmap.Width - 1);
+        var y = Math.Clamp(button.Top + button.Height / 8 - origin.Y, 0, bitmap.Height - 1);
+        var c = bitmap.GetPixel(x, y);
+        var blue = TargetWindow.ButtonColor;
+        Assert.True(Math.Abs(c.R - blue.R) <= 30 && Math.Abs(c.G - blue.G) <= 30 && Math.Abs(c.B - blue.B) <= 30,
+            $"TEST SETUP: the target window is not visible on screen (pixel {c} at the button in {shotName}). Nothing about Boo was checked.");
     }
 
     private static Rectangle Inflate(Rectangle r, int by) => new(r.Left - by, r.Top - by, r.Width + 2 * by, r.Height + 2 * by);
@@ -463,6 +529,8 @@ internal static class DpiSetup
 /// </summary>
 internal sealed class TargetWindow : IDisposable
 {
+    public static readonly Color ButtonColor = Color.FromArgb(0, 90, 200);
+
     private readonly System.Windows.Forms.Form _form;
     private readonly System.Windows.Forms.Button _button;
     private readonly Thread _thread;
@@ -495,7 +563,8 @@ internal sealed class TargetWindow : IDisposable
             {
                 Text = "Send report",
                 Font = new Font("Segoe UI", 20, FontStyle.Bold),
-                BackColor = Color.FromArgb(0, 90, 200),
+                BackColor = ButtonColor,
+                FlatStyle = System.Windows.Forms.FlatStyle.Flat,
                 ForeColor = Color.White,
                 Width = bounds.Width / 2,
                 Height = bounds.Height / 4,
@@ -516,7 +585,35 @@ internal sealed class TargetWindow : IDisposable
         }
         _form = form!;
         _button = button!;
+        Handle = (IntPtr)_form.Invoke(() => _form.Handle);
     }
+
+    public IntPtr Handle { get; }
+
+    public bool IsForeground() => GetForegroundWindow() == Handle;
+
+    /// <summary>Topmost and foreground, the way a user clicking into it would leave it.</summary>
+    public void BringToFront(FlaUI.UIA3.UIA3Automation automation)
+    {
+        SetWindowPos(Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040); // HWND_TOPMOST; NOSIZE | NOMOVE | SHOWWINDOW
+        try
+        {
+            automation.FromHandle(Handle).AsWindow().SetForeground();
+        }
+        catch (Exception)
+        {
+            // Topmost alone still keeps it in view; AssertTargetVisible checks the result.
+        }
+    }
+
+    [DllImport("user32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
 
     public static TargetWindow Show(Rectangle bounds) => new(bounds);
 

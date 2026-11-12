@@ -64,7 +64,7 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 
 | # | Feature | How verified | Proof |
 | --- | --- | --- | --- |
-| E1 | **Screen explain**: one capture of the chosen display, a real answer, the pointer flies and a **ring** is drawn on the target | automated live + automated mock | `tools/Boo.VerifyLive/LiveJourneyTests.cs::J3_ScreenExplain_PointerAndRingLandOnTheTarget` (real model; the ring must appear, as new ring-coloured pixels, on a known target window); `tests/Boo.Demo.Tests/DemoTests.cs::Step1_Explain_DrawsPointerRingAtExpectedCoordinate` (mock; ring at a scripted coordinate, 40 px tolerance) |
+| E1 | **Screen explain**: one capture of the chosen display, a real answer, the pointer flies and a **ring** is drawn on the target | automated live + automated mock | `tools/Boo.VerifyLive/LiveJourneyTests.cs::J3_ScreenExplain_PointerAndRingLandOnTheTarget` (real model; Boo's panel is hidden and a known target window brought forward, then the ring must appear on it as new ring-coloured pixels); `tests/Boo.Demo.Tests/DemoTests.cs::Step1_Explain_DrawsPointerRingAtExpectedCoordinate` (mock; ring at a scripted coordinate, 40 px tolerance) |
 | E2 | Marks are only drawn when they validate against the frame | automated mock | `tests/Boo.Core.Tests/AnnotationTests.cs`; `tests/Boo.Core.Tests/PointerAnnotationSequencerTests.cs`; `tests/Boo.Core.Tests/PointerFlightPlannerTests.cs` |
 | E3 | Pointer lands exactly on the item at 125 % / 150 % scaling and on a second monitor | manual | runbook 4.2; `docs/verification/2026-11-08-pointer-native-checklist.md` |
 | E4 | Marks disappear on scroll, resize or window switch | manual | runbook 4.3 |
@@ -93,7 +93,7 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 
 | # | Feature | How verified | Proof |
 | --- | --- | --- | --- |
-| F1 | **25-minute focus session** runs to "Session complete", happy face, history row "25 min ... Completed" | automated live (Developer Mode clock) + manual (real-time clock) | `tools/Boo.VerifyLive/LiveJourneyTests.cs::J6_FocusSession_25Minutes_OnTheDeveloperModeClock` (25 focus-minutes on Boo's existing 4x Developer Mode clock = about 375 real seconds, real AI focus checks every 10 s); the plain 25 real minutes is runbook 11.1 to 11.4 |
+| F1 | **25-minute focus session** runs to "Session complete", happy face, history row "25 min ... Completed" | automated live (Developer Mode clock) + manual (real-time clock) | `tools/Boo.VerifyLive/LiveJourneyTests.cs::J6_FocusSession_25Minutes_OnTheDeveloperModeClock` (25 focus-minutes on Boo's existing 4x Developer Mode clock = about 375 real seconds, real AI focus checks every 10 s, the on-task window kept in front; the history must show a focus estimate above 0%); the plain 25 real minutes is runbook 11.1 to 11.4 |
 | F2 | Start, Pause, Resume, End update status and history | automated live | `tests/Boo.Ui.Tests/BooSmokeTests.Hardening.cs::FocusSession_StartPauseResumeEnd_UpdatesStatusAndHistory` |
 | F3 | Off-task nudge on the notch, "Back to it", happy face at the end | automated mock + manual | `tests/Boo.Demo.Tests/DemoTests.cs::Step4_Focus_NudgeThenBackToIt_EndsHappy` (mock answers off-task on purpose); runbook 10.2 to 10.4. The live journey records nudges but does not force one. |
 | F4 | Nudge policy (two off-task checks 2 to 4 min apart, at most one nudge per 2 min) | automated mock | `tests/Boo.Core.Tests/FocusPolicyTests.cs`; `tests/Boo.Core.Tests/FocusSessionControllerTests.cs` |
