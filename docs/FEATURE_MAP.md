@@ -45,6 +45,7 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | N9 | Notch placement across monitors, DPI, top taskbar, unplugged monitor | automated mock + manual | `tests/Boo.Core.Tests/MonitorLayoutTests.cs`; `tests/Boo.Core.Tests/NotchLayoutTests.cs`; `docs/verification/2026-11-08-face-native-checklist.md` |
 | N10 | Appearance: body and eye colours, offset; 3:1 contrast rule; reset | automated live | `tests/Boo.Ui.Tests/BooSmokeTests.cs::Appearance_SaveRejectReset_PersistsTruthfully` |
 | N11 | One copy at a time (a second Boo.exe exits) | manual | runbook 0.1 |
+| N12 | Living ink notch (PR #12): ink-blot pocket, cream eyes, moods (listen / think / speak / sleep / alert / happy) that morph shape, hover timings unchanged, reduced motion jumps to the end pose, a quiet rim in Windows dark mode | automated mock + manual | `tests/Boo.Core.Tests/LivingInkTests.cs`; `windows-ci` step "Notch face gallery"; look and feel on a real PC is manual (`docs/verification/2026-11-08-face-native-checklist.md`) |
 
 ### Talking and typing
 
@@ -137,3 +138,4 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | X5 | Narrator, High contrast, text size, animations off | manual | `docs/verification/2026-11-08-accessibility-native-checklist.md` |
 | X6 | Window survives small resize and maximize / restore | automated live | `tests/Boo.Ui.Tests/BooSmokeTests.Hardening.cs::Panel_SurvivesSmallResizeAndMaximizeRestore` |
 | X7 | Idle memory, CPU and render-loop budgets | automated live | `tests/Boo.Perf.Tests/BooPerfBudgetTests.cs::Idle_startup_memory_cpu_and_render_loop_stay_within_budget` |
+| X8 | The always-on notch draws in software, and one hover-and-retract stays within its memory budget | automated live | `tests/Boo.Perf.Tests/NotchDrawingMemoryTests.cs::Notch_draws_in_software_and_one_hover_stays_within_memory_budget` (windows-ci perf step) |
