@@ -14,6 +14,9 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/Boo.Core/Boo.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
     <Using Include="Xunit" />
     <Compile Include="../../tools/Boo.LiveSmoke/RealAiHostGuard.cs" Link="Guard/RealAiHostGuard.cs" />
   </ItemGroup>

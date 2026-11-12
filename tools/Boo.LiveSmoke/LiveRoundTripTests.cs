@@ -104,9 +104,17 @@ public sealed class LiveAppFixture : BooAppFixture
 
     private static void Seed(string dataDirectory)
     {
-        // Anti-mock guard, before Boo starts: every AI host must resolve only to public internet addresses. Loopback,
-        // LAN/private, link-local, unique-local, CGNAT or IPv6-wrapped forms of them fail the run closed.
-        RealAiHostGuard.EnsureRealProviderHosts();
+        // Anti-mock guard, before Boo starts: every AI host must resolve only to public internet addresses and no proxy
+        // may sit in between. Loopback, LAN/private, link-local, unique-local, CGNAT, IPv6-wrapped forms of them or a
+        // proxy fail the run closed. What it accepted goes into the evidence (the workflow prints every .txt there).
+        var accepted = RealAiHostGuard.EnsureRealProviderHosts();
+        var evidence = Environment.GetEnvironmentVariable("BOO_UI_ARTIFACTS");
+        if (!string.IsNullOrWhiteSpace(evidence))
+        {
+            Directory.CreateDirectory(evidence);
+            File.WriteAllLines(Path.Combine(evidence, "live-00-anti-mock-guard.txt"),
+                new[] { "anti-mock guard ran before Boo started: no proxy, every AI host public" }.Concat(accepted));
+        }
 
         new CredentialStore(Path.Combine(dataDirectory, AiProviders.CredentialFileName(Config.TextProvider))).Save(Config.Key);
         new SettingsStore(Path.Combine(dataDirectory, "settings.json"))

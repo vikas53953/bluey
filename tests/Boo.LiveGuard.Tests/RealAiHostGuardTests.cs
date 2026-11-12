@@ -42,6 +42,17 @@ public sealed class RealAiHostGuardTests
     [InlineData("fe80::1", "fe80::/10")]
     [InlineData("fe80::1%12", "fe80::/10")]
     [InlineData("febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "fe80::/10")]
+    [InlineData("fec0::", "site-local")]
+    [InlineData("fec0::1", "site-local")]
+    [InlineData("feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "site-local")]
+    [InlineData("198.18.0.0", "198.18.0.0/15")]
+    [InlineData("198.18.0.21", "198.18.0.0/15")]
+    [InlineData("198.19.255.255", "198.18.0.0/15")]
+    [InlineData("64:ff9b::a00:5", "NAT64")]                 // 10.0.0.5 behind NAT64
+    [InlineData("64:ff9b::7f00:1", "NAT64")]                // 127.0.0.1 behind NAT64
+    [InlineData("64:ff9b:1::1", "local NAT64")]
+    [InlineData("2002:c0a8:101::1", "6to4")]                // 192.168.1.1 inside 6to4
+    [InlineData("2002:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "6to4")]
     [InlineData("224.0.0.1", "multicast")]
     [InlineData("255.255.255.255", "broadcast")]
     [InlineData("ff02::1", "multicast")]
@@ -93,7 +104,11 @@ public sealed class RealAiHostGuardTests
     [InlineData("fbff:ffff:ffff:ffff:ffff:ffff:ffff:ffff")] // just below fc00::/7
     [InlineData("fe00::")]                   // just above fc00::/7
     [InlineData("fe7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff")] // just below fe80::/10
-    [InlineData("fec0::")]                   // just above fe80::/10
+    [InlineData("198.17.255.255")]           // just below 198.18/15
+    [InlineData("198.20.0.0")]               // just above 198.18/15
+    [InlineData("2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff")] // just below 2002::/16
+    [InlineData("2003::1")]                  // just above 2002::/16
+    [InlineData("64:ff9a:ffff:ffff:ffff:ffff:ffff:ffff")]   // just below 64:ff9b::/96
     [InlineData("::ffff:8.8.8.8")]           // a public address wrapped in IPv6 is still public
     public void Public_internet_address_passes(string address)
     {
@@ -166,22 +181,80 @@ public sealed class RealAiHostGuardTests
     }
 
     [Fact]
+    public void Provider_hosts_come_from_Boos_own_provider_list()
+    {
+        var fromBoo = Enum.GetValues<Boo.Core.AiProvider>().Select(p => Boo.Core.AiProviders.Origin(p).Host);
+
+        Assert.Equal(fromBoo, RealAiHostGuard.ProviderHosts);
+    }
+
+    [Fact]
     public void Guard_fails_closed_naming_the_host_and_range_when_a_provider_host_is_redirected_to_the_LAN()
     {
         var error = Assert.Throws<InvalidOperationException>(() => RealAiHostGuard.EnsureRealProviderHosts(
-            host => host == "api.openai.com" ? new[] { IPAddress.Parse("192.168.1.20") } : new[] { IPAddress.Parse("8.8.8.8") }));
+            host => host == "api.openai.com" ? new[] { IPAddress.Parse("192.168.1.20") } : new[] { IPAddress.Parse("8.8.8.8") },
+            environment: _ => null,
+            useSystemProxy: false));
 
         Assert.StartsWith("LIVE SMOKE FAILED CLOSED", error.Message);
         Assert.Contains("api.openai.com resolves to 192.168.1.20 is private LAN 192.168.0.0/16", error.Message);
     }
 
     [Fact]
-    public void Guard_passes_when_every_provider_host_resolves_to_public_addresses()
+    public void Guard_passes_and_reports_what_it_accepted_when_every_provider_host_is_public_and_no_proxy_is_set()
     {
-        RealAiHostGuard.EnsureRealProviderHosts(_ => [IPAddress.Parse("162.159.140.245"), IPAddress.Parse("2606:4700:7::f3")]);
+        var accepted = RealAiHostGuard.EnsureRealProviderHosts(
+            _ => [IPAddress.Parse("162.159.140.245"), IPAddress.Parse("2606:4700:7::f3")],
+            environment: _ => null,
+            useSystemProxy: false);
+
+        Assert.Equal(3, accepted.Count);
+        Assert.All(accepted, line => Assert.EndsWith("162.159.140.245, 2606:4700:7::f3 (all public)", line));
     }
 
-    // ---- the real thing: a real public API host, resolved through real DNS, passes ----
+    // ---- a proxy between Boo and the provider is a mock in disguise ----
+
+    [Theory]
+    [InlineData("HTTPS_PROXY")]
+    [InlineData("HTTP_PROXY")]
+    [InlineData("ALL_PROXY")]
+    public void Proxy_environment_variable_is_rejected(string variable)
+    {
+        var problems = RealAiHostGuard.ProxyProblems(
+            ["api.openai.com"], name => name == variable ? "http://127.0.0.1:8080" : null, defaultProxy: null);
+
+        Assert.Equal($"proxy variable {variable} is set", Assert.Single(problems));
+    }
+
+    [Fact]
+    public void Default_HTTP_proxy_that_would_carry_provider_requests_is_rejected()
+    {
+        var problems = RealAiHostGuard.ProxyProblems(
+            ["api.openai.com"], _ => null, new WebProxy("http://192.168.1.5:3128"));
+
+        Assert.Equal("requests to api.openai.com would go through proxy 192.168.1.5:3128", Assert.Single(problems));
+    }
+
+    [Fact]
+    public void Proxy_that_bypasses_the_provider_hosts_is_not_a_problem()
+    {
+        var proxy = new WebProxy("http://192.168.1.5:3128", BypassOnLocal: false, BypassList: [@"api\.openai\.com"]);
+
+        Assert.Empty(RealAiHostGuard.ProxyProblems(["api.openai.com"], _ => null, proxy));
+    }
+
+    [Fact]
+    public void Guard_fails_closed_when_a_proxy_variable_is_set_even_if_DNS_is_public()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() => RealAiHostGuard.EnsureRealProviderHosts(
+            _ => [IPAddress.Parse("162.159.140.245")],
+            environment: name => name == "HTTPS_PROXY" ? "http://10.0.0.2:8080" : null,
+            useSystemProxy: false));
+
+        Assert.Contains("proxy variable HTTPS_PROXY is set", error.Message);
+    }
+
+    // ---- the real thing: real public API hosts, real DNS, this machine's real proxy settings ----
 
     [Fact]
     public void Real_public_API_host_resolved_through_real_DNS_passes()
@@ -192,5 +265,15 @@ public sealed class RealAiHostGuardTests
         var problems = RealAiHostGuard.Problems(["api.openai.com"], Dns.GetHostAddresses);
 
         Assert.Empty(problems);
+    }
+
+    [Fact]
+    public void Guard_with_its_real_defaults_passes_on_a_clean_machine()
+    {
+        // No fakes: Dns.GetHostAddresses, the process environment and HttpClient.DefaultProxy, exactly as the live run.
+        var accepted = RealAiHostGuard.EnsureRealProviderHosts();
+
+        Assert.Equal(RealAiHostGuard.ProviderHosts.Count, accepted.Count);
+        Assert.Contains(accepted, line => line.StartsWith("api.openai.com -> ", StringComparison.Ordinal));
     }
 }

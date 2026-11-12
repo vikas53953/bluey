@@ -110,8 +110,8 @@
     "tests/Boo.Integration.Tests/SessionRecoveryTests.cs": "604ff4bb833ce2be64718fc82650417dca2091517d4d33a71359fd5fd9d62e36",
     "tests/Boo.Integration.Tests/StoragePrivacyTests.cs": "dd188faa6dd2e0e92b039971fef54aadcbf37176d43ca0ec71ee2363d3982811",
     "tests/Boo.Integration.Tests/VoiceToolProtocolTests.cs": "c95200c7c8ae01709e3f2f2aa5a8a5b223b831c86da47a874fe31e1e07f3bb72",
-    "tests/Boo.LiveGuard.Tests/Boo.LiveGuard.Tests.csproj": "d3e603b8be62c068ce9a72d30223ada335aec3176d5c808117a0c8d9112c1473",
-    "tests/Boo.LiveGuard.Tests/RealAiHostGuardTests.cs": "2ac00c0fdbc026422a3419e1dc61bedc627eabbe5a02e2b1fbe374d1c58699d9",
+    "tests/Boo.LiveGuard.Tests/Boo.LiveGuard.Tests.csproj": "60db626ed4d77856c6f35ffb5cf2000827e486d016f505e55733f5fbcb52e981",
+    "tests/Boo.LiveGuard.Tests/RealAiHostGuardTests.cs": "0f5a1b2b02d692058bcc5637d9667a45eafd36048bd91ffbc72f2dbe2af1b536",
     "tests/Boo.Perf.Tests/Boo.Perf.Tests.csproj": "ef2df8fde46266721d7affba05ca8d59d083a5949b509d163956e347a6d13168",
     "tests/Boo.Perf.Tests/BooPerfBudgetTests.cs": "ce2fccccd4c53f15f44e5bee159236db5f238a3a6815ad7eecd6434ad0ab5757",
     "tests/Boo.Perf.Tests/DiagSnapshot.cs": "cbb9c990e3b576a955cafe14826a0bad8347ad5e20107e249a2bd88373b2ece9",
@@ -147,12 +147,12 @@
   },
   "previousManifest": "docs/verification/test-oracle-history/revision-19.json",
   "previousManifestSha256": "8d37156ab9eaedf25d842c0437c934274b1bc1f8b98b1884ade81c0b553bddde",
-  "revisionReason": "Add tests/Boo.LiveGuard.Tests: behaviour tests for the live-AI anti-mock guard (every local, private and LAN range rejected, including hostnames that resolve to one; a real public API host passes). New files only.",
+  "revisionReason": "Add tests/Boo.LiveGuard.Tests: behaviour tests for the live-AI anti-mock guard (every local, private, LAN, link-local, site-local, NAT64/6to4 and fake-IP range rejected, including hostnames that resolve to one; proxies rejected; a real public API host passes). New files only.",
   "addedFiles": [
     "tests/Boo.LiveGuard.Tests/Boo.LiveGuard.Tests.csproj",
     "tests/Boo.LiveGuard.Tests/RealAiHostGuardTests.cs"
   ],
-  "revisionCommit": "f244e47928ca95de7d903e4d8f188930a33665da",
+  "revisionCommit": "c447a2e1af731074b993368f947828242a95d11a",
   "changedFiles": [],
   "removedFiles": []
 }
