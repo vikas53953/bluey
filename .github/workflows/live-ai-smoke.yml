@@ -2,8 +2,12 @@ name: live-ai-smoke
 
 # ONE real AI round trip against the published Boo.exe (no mock): typed question -> screen capture -> real provider ->
 # answer row in Boo's transcript. Manual only (workflow_dispatch): it spends real money and needs a real key, so it
-# never runs on push or pull_request. How to add the key, register a self-hosted runner and run it:
-# docs/LIVE_AI_SMOKE.md.
+# never runs on push or pull_request. How to add the key and run it: docs/LIVE_AI_SMOKE.md.
+#
+# RUNS ONLY ON GITHUB'S OWN WINDOWS VM (windows-latest), never on the owner's PC: the test drives the mouse and
+# keyboard, and Boo sends a picture of the screen to the AI. A step refuses any runner that is not GitHub-hosted, and
+# scripts/ci/check_runners.py (windows-ci) fails any workflow that names a self-hosted runner. Evidence screenshots are
+# of Boo's own windows only (BOO_CAPTURE_SCOPE=boo-windows), never the whole desktop.
 #
 # FAILS CLOSED: if the key for the chosen text provider is missing or malformed, the `preflight` job goes red with a
 # plain message and the smoke job never starts. A missing key is never a skip and never a green.
@@ -19,11 +23,6 @@ on:
         type: choice
         options: [openai, anthropic, gemini]
         default: openai
-      runner:
-        description: "self-hosted = your own Windows PC registered as a runner (see docs). windows-latest = GitHub's VM fallback"
-        type: choice
-        options: [self-hosted, windows-latest]
-        default: self-hosted
       model:
         description: Optional model id override for the chosen provider (blank = Boo's default)
         type: string
@@ -38,7 +37,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Runs on a cheap Linux VM so a missing secret fails in seconds, even when no self-hosted runner is online.
+  # Runs on a cheap Linux VM so a missing secret fails in seconds, before the Windows VM starts.
   preflight:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -80,13 +79,24 @@ jobs:
 
   smoke:
     needs: preflight
-    # Preferred: your own Windows PC (labels self-hosted + windows). Fallback: GitHub's windows-latest VM.
-    runs-on: ${{ inputs.runner == 'windows-latest' && 'windows-latest' || fromJSON('["self-hosted","windows"]') }}
+    # GitHub's own Windows VM only. Never the owner's PC (see the header).
+    runs-on: windows-latest
     timeout-minutes: 30
     env:
       DOTNET_NOLOGO: "1"
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      # Evidence screenshots show Boo's own windows only, never the whole desktop (BooAppFixture.CaptureScreen).
+      BOO_CAPTURE_SCOPE: boo-windows
     steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=Live AI smoke refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)'). Set this job's runner back to windows-latest."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -160,6 +170,43 @@ jobs:
         if: always()
         shell: pwsh
         run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/live-evidence/trx -SourceDirectory tools/Boo.LiveSmoke
+
+      # Proof in the log (readable even when artifact upload fails) that every screenshot is a Boo window, not the
+      # whole desktop. Every PNG must come from the Boo-window renderer (BooAppFixture.CaptureBooWindows writes only
+      # <name>.boo-<n>.png, drawn with PrintWindow from the window's own content, never screen pixels). Any other PNG
+      # means a screen copy happened, and fails the run. Sizes and window titles are printed for the reviewer.
+      - name: Screenshots are Boo windows only (never the desktop)
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing, System.Windows.Forms
+          foreach ($m in [System.Windows.Forms.Screen]::AllScreens) { "Runner monitor: $($m.Bounds.Width) x $($m.Bounds.Height)" }
+          $images = '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tif', '.tiff', '.webp'
+          $shots = @(Get-ChildItem artifacts/live-evidence -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $images -contains $_.Extension.ToLowerInvariant() })
+          if ($shots.Count -eq 0) { "::error title=Live AI smoke::no screenshots were written, so there is no visual evidence"; exit 1 }
+          # Every image must come from the Boo-window renderer and be readable. A single window may legitimately render as
+          # one colour (the retracted notch is fully transparent), but each capture moment (<step>.boo-*.png) must have
+          # at least one window with real content, or the renderer is broken and there is no visual evidence.
+          $bad = 0; $moments = @{}
+          foreach ($s in $shots) {
+            $ok = $s.Name -match '^(?<step>.+)\.boo-\d+\.png$'
+            $note = if ($ok) { '' } else { '  <-- NOT FROM THE BOO-WINDOW RENDERER' }
+            try {
+              $img = [System.Drawing.Bitmap]::FromFile($s.FullName)
+              $first = $img.GetPixel(0, 0).ToArgb(); $varied = $false
+              for ($y = 0; $y -lt $img.Height -and -not $varied; $y += 4) {
+                for ($x = 0; $x -lt $img.Width; $x += 4) { if ($img.GetPixel($x, $y).ToArgb() -ne $first) { $varied = $true; break } }
+              }
+              if (-not $varied) { $note += '  (one colour)' }
+              "{0}: {1} x {2}{3}" -f $s.Name, $img.Width, $img.Height, $note
+              $img.Dispose()
+              if ($ok) { $step = $Matches['step']; if (-not $moments.ContainsKey($step)) { $moments[$step] = $false }; if ($varied) { $moments[$step] = $true } }
+            } catch { $ok = $false; "{0}: unreadable ({1})" -f $s.Name, $_.Exception.Message }
+            if (-not $ok) { $bad++ }
+          }
+          foreach ($step in $moments.Keys) { if (-not $moments[$step]) { "$step <-- EVERY WINDOW BLANK (renderer produced no content)"; $bad++ } }
+          Get-ChildItem artifacts/live-evidence -Recurse -Filter *.capture.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          if ($bad -gt 0) { "::error title=Live AI smoke::$bad screenshot problem(s): copied from the screen, unreadable, or a capture with no real Boo window content"; exit 1 }
 
       # Belt and braces: no evidence file may contain a key. A hit deletes the file before upload and fails the run.
       - name: Key leak scan of the evidence

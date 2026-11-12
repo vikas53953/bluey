@@ -16,8 +16,9 @@ you press the button.
 | --- | --- |
 | `.github/workflows/live-ai-smoke.yml` | The button on GitHub: checks the key, builds Boo, runs the test, uploads the evidence. |
 | `tools/Boo.LiveSmoke/LiveRoundTripTests.cs` | The test itself: starts Boo, asks one question, waits for the real answer. |
-| `tests/Boo.Demo.Tests/BooAppFixture.cs` | The existing demo harness (start Boo in a clean temp folder, take screenshots). Reused as is, not changed. |
+| `tests/Boo.Demo.Tests/BooAppFixture.cs` | The existing demo harness (start Boo in a clean temp folder, take screenshots). Linked in, not copied. Its screenshots are of Boo's own windows only unless it runs on a GitHub VM (and never for this test). |
 | `scripts/ci/assert-tests-ran.ps1` | Refuses a "green" where no test actually ran. |
+| `scripts/ci/check_runners.py` | Fails `windows-ci` if any workflow could run on a machine that is not GitHub's own VM. |
 
 ---
 
@@ -35,62 +36,55 @@ You can delete it any time and the test will simply go red again.
 
 **How the key is protected:** GitHub hides secret values in every log. The run hides them a second time, never
 prints them (only their length), and never types them into Boo's window. Before upload it scans every **text**
-evidence file — a text file containing a key is deleted and the run goes red. It **cannot** read text inside
-screenshots: if a key (or anything private) is visible on your screen while the test runs, it ends up in the
-screenshot sent to the AI and in the uploaded evidence. On your own PC, close such windows first.
+evidence file — a text file containing a key is deleted and the run goes red. It cannot read text inside
+screenshots, which is one more reason the test runs only on GitHub's empty test machine (section 2).
 
 **Only the chosen provider's key is used.** Boo is started with only that one key and with speech turned off, and the
 test checks the answer came through Boo's screen-help path. So a run with `anthropic` really tests Claude, not
 OpenAI.
 
-## 2. Pick where it runs
+## 2. Where it runs: GitHub's own Windows machine, never your PC
 
-The test needs a real Windows desktop, because it clicks Boo's real window.
+The test needs a Windows desktop, because it clicks Boo's real window, and Boo sends a picture of that screen to the
+AI. So it runs **only** on GitHub's own throwaway Windows machine (`windows-latest`), whose screen is an empty test
+desktop. Decided by Vikas on 12 Nov 2026 (`docs/DECISIONS.md`). Three things enforce it:
 
-### Option A (preferred): your own PC as a "self-hosted runner"
+- the workflow has no runner choice and always asks for `windows-latest`;
+- its first step refuses any runner that is not GitHub-hosted;
+- `scripts/ci/check_runners.py` (run by `windows-ci` on every push) fails unless every job in every workflow runs on
+  one GitHub-hosted label. It checks twice: the raw YAML node tree (PyYAML 6.0.2, plain keys only, no anchors, tags
+  or duplicates) and strict plain-text rules (one plain ASCII document, `jobs:` last, no multi-line quoted strings,
+  2-space indentation). Four independent reviews tried to trick it; every trick they found is now in its self-test.
+  It is a guard, not the guarantee: the guarantee is that the repo has no registered self-hosted runner (keep it 0).
 
-A runner is a small GitHub program on your PC that picks up jobs from this repo.
+Evidence screenshots show **Boo's own windows only**, never the whole desktop (`BOO_CAPTURE_SCOPE=boo-windows`). Each
+Boo window is drawn from its own content (`PrintWindow`), not copied from the screen, so nothing behind or on top of it
+can appear. `demo-ci` proves it on every push with `tools/Boo.CaptureProof`: Boo's transparent explanation overlay is
+opened over a magenta decoy window, and the window-only screenshots must contain the overlay and zero magenta pixels. Files are named `<step>.boo-<n>.png`; a step in the workflow fails the run if any screenshot has another
+name. The same harness, run on anyone's own PC (for example a local UI or demo run), also draws Boo's windows only, and
+refuses rectangle screenshots; it copies the whole desktop only on a GitHub VM.
 
-1. Install PowerShell 7 and Git if you do not have them: `winget install Microsoft.PowerShell` and
-   `winget install Git.Git`.
-2. On GitHub: repo → **Settings** → **Actions** → **Runners** → **New self-hosted runner** → **Windows** / **x64**.
-3. Follow the commands GitHub shows (download, then `config.cmd --url ... --token ...`).
-   - When it asks for **labels**, press Enter — `self-hosted` and `Windows` are added automatically, which is what
-     the workflow looks for.
-   - When it asks **"Would you like to run the runner as service?"**, answer **N**. A Windows service runs with no
-     desktop, so it cannot see or click Boo's window and the test would fail.
-4. Start it when you want to run the test: open a terminal in the runner folder and run `run.cmd`. Leave it open.
-   Stop it with Ctrl+C when done.
-
-While the test runs (about 5–10 minutes, most of it building Boo):
-
-- **Quit your own Boo first.** Boo only allows one copy; the test stops with a clear message if Boo is already open.
-- **Do not use the mouse or keyboard**, and do not lock the screen.
-- **The screenshot sent to the AI is of your real screen**, and screenshots are uploaded as evidence. Close anything
-  private first.
-
-### Option B (fallback): GitHub's own Windows machine
-
-Choose **windows-latest** in the runner box when you start the run. Nothing to install, and the screen it sends is
-an empty test desktop. Use this when your PC is off or you do not want to set up a runner.
-
-If you pick **self-hosted** but no runner is online, the job just waits in the queue ("Waiting for a runner") — for
-up to a day before GitHub gives up. Cancel it and run again with **windows-latest**.
+Earlier versions of this page offered "your own PC as a self-hosted runner". That option is gone. No self-hosted
+runner is registered on the repo (checked 12 Nov 2026: 0 runners). **Keep it at 0**: a registered runner is the one
+thing a workflow edit on some branch could still reach.
 
 ## 3. Run it
 
 1. On GitHub: **Actions** tab → **live-ai-smoke** (left list) → **Run workflow**.
-2. Choose the branch, the **text provider** (`openai` unless you added another key), and the **runner**.
+2. Choose the branch and the **text provider** (`openai` unless you added another key).
 3. Leave **model** empty unless you want to try a specific model id.
 4. Press **Run workflow**.
 
-From a terminal instead: `gh workflow run live-ai-smoke.yml --ref <branch> -f text_provider=openai -f runner=windows-latest`
+From a terminal instead: `gh workflow run live-ai-smoke.yml --ref <branch> -f text_provider=openai`
 
 ## 4. Read the result
 
 | You see | It means |
 | --- | --- |
 | `preflight` red: **"Live AI smoke FAILED CLOSED: Repository secret BOO_LIVE_OPENAI_KEY is missing"** | No key added yet (step 1). Nothing else ran. This is never counted as a pass. |
+| `smoke` red at **"Screenshots are Boo windows only"** | A screenshot was copied from the screen instead of drawn from a Boo window, or none was written. The log lists every file with its size. Fix the capture code; never loosen the step. |
+| `smoke` red at **"Refuse unless this is GitHub's own VM"** | Someone changed `runs-on` to a machine that is not GitHub's. Put it back to `windows-latest`. |
+| `smoke` red only at an **Upload** step, with "Artifact storage quota has been hit" | The test itself ran (check the "Real AI round trip" step), but GitHub's storage for evidence is full, so the run stays red: no evidence, no green. Wait for storage to free up and run again. |
 | `smoke` red at **"Refuse if any AI host is redirected"** | The machine's hosts file points an AI address at a fake server. Remove that line and run again. |
 | `smoke` red at **"Real AI round trip"** with **"an AI host points at a local, private or LAN address, or a proxy is in the way"** | An AI address resolves to this PC, the local network (10.x, 172.16–31.x, 192.168.x), a link-local, site-local or private IPv6 address, a 100.64.x overlay, a 198.18.x fake-IP proxy or an IPv6 translation of one; or a proxy (HTTPS_PROXY, HTTP_PROXY, ALL_PROXY or the Windows proxy setting) would carry the request. Either way a fake server could answer. The message names the host and the range or proxy. Fix the DNS, VPN, proxy or hosts setting and run again. Boo was never started. (On a green run the log shows the addresses the guard accepted, under `live-00-anti-mock-guard.txt`.) |
 | `smoke` red at **"Real AI round trip"** (any other message) | Boo did not get a real answer through the chosen provider. The log and `live-01-round-trip.txt` show Boo's own message (for example "OpenAI rejected the API key" or "quota is used up"). |
