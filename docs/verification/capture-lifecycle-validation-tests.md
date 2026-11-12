@@ -37,4 +37,4 @@ Passed!  - Failed:     0, Passed:     9, Skipped:     0, Total:     9, Duration:
 ```
 
 Raw test results:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_11_41_43_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_11_41_43_net10.0.trx`.

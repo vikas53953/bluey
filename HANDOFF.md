@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **12 Nov 2026**, with `lane/face` at `f244e47928ca95de7d903e4d8f188930a33665da`.
+Status last updated: **13 Nov 2026, ~05:30 IST** (PR #20 sync), with `lane/face` at `00a1fc2` (PR #18).
 
 ---
 
@@ -90,10 +90,11 @@ artifacts\ci\Boo.exe                      # then Ctrl+Alt+B
 artifacts\ci\Boo.exe --notch-gallery <dir> # renders every face state to PNG, offscreen, then exits
 ```
 
-**Warning: run the UI, perf and demo suites only in CI or a VM**, never on the owner's real desktop. Since PR #18
-their fixtures copy the whole desktop (`Capture.Screen()`) only on a GitHub-hosted runner; anywhere else they draw
-Boo's own windows only, and their rectangle screenshots refuse to run, so those tests fail by design on a personal PC.
-To see Boo on the owner's PC, use `--notch-gallery`.
+**Warning: run the UI, perf and demo suites only in CI or a VM.** Since PR #18 their fixtures copy the whole desktop
+only on a GitHub-hosted runner; anywhere else they draw Boo's own windows only and refuse rectangle screenshots, so
+those tests fail by design on a personal PC. Before PR #18 they took FULL-SCREEN screenshots (`Capture.Screen()` in
+`tests/Boo.Ui.Tests/BooAppFixture.cs`). Never run them on the owner's real desktop. Run them in CI, a VM or Windows
+Sandbox. To see Boo on the owner's PC, use `--notch-gallery` or capture only Boo's own window.
 
 Known local snag: the SF-006 symlink tests in Boo.Core.Tests fail on purpose (they never skip) when the PC cannot
 create symbolic links. Turn on Windows Developer Mode or run elevated.
@@ -105,12 +106,12 @@ create symbolic links. Turn on Windows Developer Mode or run elevated.
 | `windows-ci.yml` | every push and PR (and manual) | `build-test-publish` | oracle + static gate → build → Core / Integration / Providers tests (+ trx gate) → publish → notch gallery → UI smoke (FlaUI) → perf budgets | no |
 | `demo-ci.yml` | every push and PR (and manual) | `demos` | setup + the 4 demos (5 tests), end to end, against `Boo.QaMockAi` (hosts-file entry + a self-signed root certificate on the runner) | **no: mock** |
 | `release.yml` | push to `main`, `v*` tags, PRs (and manual) | `package`, `github-release` | Core / Integration / Providers tests, then Velopack installer + portable ZIP; a `v*` tag publishes a GitHub Release | no |
-| `live-ai-smoke.yml` | **every pull request** + manual, **GitHub's `windows-latest` VM only** | `preflight`, `smoke`, **`live-ai-smoke` (required)** | one real round trip: typed question → screenshot → real provider → answer in Boo. Fails closed without a key. Refuses any non-GitHub runner; evidence screenshots are Boo's windows only. | **yes** |
+| `live-ai-smoke.yml` | **every pull request** + manual (`workflow_dispatch`), **GitHub's `windows-latest` VM only** | `preflight`, `smoke`, **`live-ai-smoke` (required, PR #20)** | one real round trip: typed question → screenshot → real provider → answer in Boo. Fails closed without a key. Refuses any non-GitHub runner; evidence screenshots are Boo's windows only (PR #18). | **yes** |
 
 Run the live smoke: GitHub → Actions → live-ai-smoke → Run workflow, `text_provider=openai`, and an optional `model`
 override (blank = Boo's default). There is no runner choice: it always runs on GitHub's `windows-latest` VM, never on
-a personal PC (`scripts/ci/check_runners.py` in windows-ci fails any workflow that names a self-hosted runner). Or:
-`gh workflow run live-ai-smoke.yml --ref <branch> -f text_provider=openai`.
+a personal PC (`scripts/ci/check_runners.py` in windows-ci fails any workflow that could run elsewhere; the repo keeps
+0 registered self-hosted runners). Or: `gh workflow run live-ai-smoke.yml --ref <branch> -f text_provider=openai`.
 Full guide: [docs/LIVE_AI_SMOKE.md](docs/LIVE_AI_SMOKE.md).
 
 ### Required secrets (names only — never put values anywhere)
@@ -131,21 +132,20 @@ screenshot a key; logs record lengths only.
 - **`main`** receives `lane/face` through **PR #3** only. This is a convention: protection does not require a PR.
 - `claude/project-thread-*` and `lane/pointer` are old lane branches; their content is already in `lane/face`.
   (`claude/project-thread-549bgh` was squash-merged as PR #4 `384241a`, so its own commit SHAs are not in lane/face.)
-- A PR must be **up to date** with its base to merge. PRs #12 and #13 are based on `db0a339` and are 4 commits
-  behind `lane/face` (12 Nov).
+- A PR must be **up to date** with its base to merge. After every merge into `lane/face`, the other open PRs show
+  BEHIND and need a sync (see section 7).
 - Branch protection, set 12 Nov on **both `lane/face` and `main`** (read back from the API):
   - required checks: **`demos`** (demo-ci) and **`build-test-publish`** (windows-ci), both from GitHub Actions;
   - branch must be up to date before merging;
   - force pushes and branch deletion blocked;
   - no required approvals (Vikas is the only reviewer); admins not enforced (Vikas can override).
-  - `live-ai-smoke` becomes a **required** check once the PR adding the `pull_request` trigger merges (Vikas,
-    12 Nov 2026, 11:20 PM IST). It is the workflow's final job, which is green only if the key check and the real
-    round trip both succeeded (a skipped job would otherwise count as passing).
-- **Merging:** since 12 Nov 2026, 11:20 PM IST, PR #18, PR #17 and every agent-trust Phase 1/2/3 PR may be merged
-  without asking Vikas **once every gate passes** (all required checks green on the head, a real-key
-  `live-ai-smoke` pass on the head, a fresh reviewer's PASS, the evidence table, no skips). Since 13 Nov 2026,
-  12:15 AM IST the verifying bot (Grok Bot) does the merge, never the agent that built the PR. Any other PR still needs
-  him. **Tagging and releasing stay with Vikas.** Agents never push directly to `lane/face` or `main`.
+  - `live-ai-smoke` is **not yet** a required check. PR #20 makes it run on every pull request with a final always-run
+    job `live-ai-smoke` that is green only if the key check and the real round trip both succeeded (GitHub counts a
+    skipped required job as passing). After PR #20 merges, the context `live-ai-smoke` (GitHub Actions) is added to
+    `lane/face` protection (Grok Bot, 13 Nov: only tightens the gate).
+- **Merging, tagging and releasing stay with Vikas**, and agents never merge, tag, release, or push to `lane/face` or
+  `main`. Exception, recorded by PR #18: since 13 Nov 12:15 AM IST the verifying bot (Grok Bot) merges PR #17, PR #18 and the
+  agent-trust Phase 1–3 PRs once every gate passes; tags and releases stay with Vikas either way.
 
 ## 5. Vikas's pipeline (rules every agent follows)
 
@@ -165,13 +165,11 @@ screenshot a key; logs record lengths only.
 6. **Evidence table in the PR.** Every check or feature is marked **mock** / **live** / **manual** / **UNVERIFIED**,
    with a run link. No run link = UNVERIFIED. End with one line: `QA PASS — <full head SHA>` or `QA FAIL — <SHA>`.
 7. **Never capture the owner's real screen.** Screenshots only of a test window, a VM or CI runner, or Boo's own
-   offscreen renders. Enforced in code (PR #18): the FlaUI fixtures copy the whole desktop only on a GitHub-hosted
+   offscreen renders. Enforced in code since PR #18: the FlaUI fixtures copy the whole desktop only on a GitHub-hosted
    runner and never in the live smoke (`BOO_CAPTURE_SCOPE=boo-windows`); anywhere else they draw Boo's own windows
-   from their own content (`PrintWindow`, files `*.boo-<n>.png`) and refuse rectangle screenshots. No workflow may use
-   a self-hosted runner (`scripts/ci/check_runners.py`), and the repo must keep 0 registered runners. Side effect,
-   intended: the UI, demo and perf suites now refuse to run on a personal PC (rectangle screenshots throw), so run
-   them only through CI. A capture with the explanation overlay open is tested by `tools/Boo.CaptureProof` in demo-ci (overlay over a magenta
-   decoy; zero decoy pixels allowed).
+   from their own content (`PrintWindow`, files `*.boo-<n>.png`) and refuse rectangle screenshots. demo-ci proves it
+   with the explanation overlay open over a magenta decoy (`tools/Boo.CaptureProof`, zero decoy pixels). No workflow
+   may use a self-hosted runner (`scripts/ci/check_runners.py`).
 8. **Honest red.** If evidence cannot be uploaded (for example the artifact quota), the job stays red. Never add
    `continue-on-error` to uploads or tests to get a green.
 9. **Secrets:** names only. Never print a key, write one to disk logs, or put one in a screenshot.
@@ -186,70 +184,77 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 
 ### Pull requests
 
-| PR | Branch → base | State | Notes |
+PRs into `lane/face` must be **up to date** with it to merge, so every merge makes the others BEHIND. Sync by merging
+`origin/lane/face` into the branch (no force push), then re-run CI and one live smoke on the new head.
+
+| PR | Branch → base | State (13 Nov, after PR #19) | Notes |
 | --- | --- | --- | --- |
-| [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open** | The integration PR. Latest QA: **QA FAIL (blocked: artifact storage)** at `f244e47` ([comment](https://github.com/vikas53953/bluey/pull/3#issuecomment-6826687928)). On the PR's own runs, Core 1719, Integration 148, Providers 115 and demos 5/5 passed. A manual real-key live run on `lane/face` ([43228924705](https://github.com/vikas53953/bluey/actions/runs/43228924705)): the test passed 1/1, and the run is red only at the evidence upload. UI smoke (15/15) and perf passed only on the same code via a since-deleted temp branch ([43230781809](https://github.com/vikas53953/bluey/actions/runs/43230781809)), because the PR's own runs skipped them. The required checks are red because uploads fail. |
-| [#12](https://github.com/vikas53953/bluey/pull/12) | `feat/living-ink` → `lane/face` | **merged 13 Nov** (`8474556`) | Living ink notch (ink-blot pocket, cream eyes, wake-up, celebrate, light/dark). Independent review: **PASS WITH ISSUES** at the older head `88214af` ([verdict](https://github.com/vikas53953/bluey/pull/12#issuecomment-6820951829)). The head is now `736f4af` (rebased; not re-reviewed). Open: about 17 MB more memory after the face is first shown. Branch is 4 commits behind `lane/face`. **It edits 4 test files that are now frozen** (`FaceSpecTests`, `FaceMotionTests`, `NotchLayoutTests`, `NotchFaceGeometryTests`, frozen by PR #10), so it needs a reviewed `--rebaseline` (plus `--extend` for `LivingInkTests.cs`) before CI can pass. |
-| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open** | `verify-boo` skill (live user journeys j0–j6 on the real `Boo.exe`), `docs/FEATURE_MAP.md` (68 features), `AGENTS.md` / `CLAUDE.md` prove-it rule. Own verdict: **QA FAIL** at `381055b`: CI red (storage), and j3 screen-explain failed 2 of 3 live runs. Branch is 4 commits behind `lane/face`. |
-| [#14](https://github.com/vikas53953/bluey/pull/14) | `fix/anti-mock-lan-ips` → `lane/face` | **open** | The anti-mock guard rejects every local, private and LAN address, plus proxies (99 tests). Two fresh reviews: the code meets the requirement. **QA FAIL (blocked: artifact storage)** at `1e70b8a` ([evidence](https://github.com/vikas53953/bluey/pull/14#issuecomment-6826668854)). Real-key live run ([43238744459](https://github.com/vikas53953/bluey/actions/runs/43238744459)): the test passed 1/1, and the run is red only at the evidence upload. Moves the oracle to revision 20 and edits `Boo.sln`. |
-| [#15](https://github.com/vikas53953/bluey/pull/15) | `ci/artifact-retention-7d` → `lane/face` | **open** | `retention-days: 7` on every upload. **QA FAIL (blocked: artifact storage)** at `8836c7e`. |
-| [#16](https://github.com/vikas53953/bluey/pull/16) | `docs/project-handoff` → `lane/face` | **open** | This handoff (HANDOFF.md, docs/DECISIONS.md, CONTRIBUTING.md). Docs only. |
-| [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **open** | `docs/plans/agent-trust-plan.md`: the 3-phase agent-trust plan. Vikas approved its order on 12 Nov, 10:02 PM IST. Docs only. |
-| [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **open** | Step 2 of that plan: live smoke on GitHub's VM only, Boo-window screenshots only, runner check in windows-ci. Oracle revision 21 (3 harness files). |
+| [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
+| [#22](https://github.com/vikas53953/bluey/pull/22) | `fix/demo-step4-state-race` → `lane/face` | **merged 13 Nov** (`af241fa`) | Demo Step 4 test race fix: re-read the notch state after the button search; oracle revisions 22–23 (`docs/verification/test-oracle-revision-22.md`). |
+| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open** | `verify-boo` skill: live journeys j0–j6, `docs/FEATURE_MAP.md`, prove-it rule. Since `1c4b2d1` it also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks). |
+| [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **open** | 3-phase agent trust plan (`docs/plans/agent-trust-plan.md`). |
+| [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **merged 13 Nov** (`00a1fc2`) | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option; runner check in windows-ci; overlay capture proof in demo-ci; oracle revision 24 (3 capture fixtures). Latest completed QA: **QA PASS at `b590f92`** (live [43313942831](https://github.com/vikas53953/bluey/actions/runs/43313942831), windows-ci [43313897620](https://github.com/vikas53953/bluey/actions/runs/43313897620), demo-ci [43313897674](https://github.com/vikas53953/bluey/actions/runs/43313897674)); the head after this sync is re-QA'd in the PR body. |
+| [#20](https://github.com/vikas53953/bluey/pull/20) | `ci/live-smoke-required` → `lane/face` (retargeted 13 Nov after #18 merged) | **open** | Live smoke on every pull request with a final required `live-ai-smoke` job; per-PR concurrency; docs on cost, fork/Dependabot PRs and the gate-edit hole. Latest completed QA: none yet on lane/face base (stacked QA PASS at `ed7ed61`). |
+| [#21](https://github.com/vikas53953/bluey/pull/21) → #20's branch | stacked | **open** | A ratchet of known-bad code patterns (`quality-gates.yml`). |
+| [#19](https://github.com/vikas53953/bluey/pull/19) | `docs/scrub-local-paths` → `lane/face` | merged 13 Nov 03:17 IST (`b765f0f`) | Replaces the owner's Windows username and home paths in old docs (and in files that arrived later, e.g. the Living ink evidence notes) with `%USERPROFILE%` / `<user>_<machine>`. Old commits keep the old text (no history rewrite). |
+| [#16](https://github.com/vikas53953/bluey/pull/16) | `docs/project-handoff` → `lane/face` | merged 13 Nov 02:46 IST (`e0fb7b3`) | This handoff (HANDOFF.md, docs/DECISIONS.md, CONTRIBUTING.md). Merged with the PR #12 session notes and decision records. |
+| [#15](https://github.com/vikas53953/bluey/pull/15) | `ci/artifact-retention-7d` → `lane/face` | merged 13 Nov 01:40 IST (`95e9718`) | `retention-days: 7` on every upload. |
+| [#14](https://github.com/vikas53953/bluey/pull/14) | `fix/anti-mock-lan-ips` → `lane/face` | merged 13 Nov 01:16 IST (`d0dfd0e`) | The anti-mock guard rejects every local, private and LAN address, plus proxies (99 tests). Its tests are frozen as oracle **revision 21** (on top of Living ink's revision 20). |
+| [#12](https://github.com/vikas53953/bluey/pull/12) | `feat/living-ink` → `lane/face` | merged 13 Nov 00:40 IST (`8474556`) | Living ink notch. Oracle revision 20 (face tests load face B by name; `docs/verification/test-oracle-revision-20.md`). The ~17 MB memory finding was fixed by drawing the notch in software (decision `D-2026-11-12-notch-software-drawing`). |
+| — | `lane/face`, `main` | direct commits 13 Nov 00:11 IST | MIT LICENSE (`9729a14` on lane/face, `ecea48b` on main), with Vikas's approval while Actions was blocked. |
 | [#11](https://github.com/vikas53953/bluey/pull/11) | `ci/real-gates` → `lane/face` | merged 12 Nov (`db0a339`) | demo-ci made a blocking gate; manual `live-ai-smoke` that fails closed. |
 | [#10](https://github.com/vikas53953/bluey/pull/10) | `fix/ci-frozen-tests-and-sf006` → `lane/face` | merged 12 Nov (`f244e47`) | Oracle and no-vacuous-pass gate in CI; SF-006 runs; `ScopedFiles` refuses names Windows would rewrite. |
 | [#9](https://github.com/vikas53953/bluey/pull/9), [#8](https://github.com/vikas53953/bluey/pull/8), [#7](https://github.com/vikas53953/bluey/pull/7) | lanes → `lane/face` | merged 8 Nov | Perf budgets; Velopack installer + opt-in updates; security hardening. |
-| [#4](https://github.com/vikas53953/bluey/pull/4) | → `main` | merged 8 Nov (`384241a`) | FlaUI UI smoke in windows-ci. This is the current head of `main`. |
+| [#4](https://github.com/vikas53953/bluey/pull/4) | → `main` | merged 8 Nov (`384241a`) | FlaUI UI smoke in windows-ci. |
 | [#1](https://github.com/vikas53953/bluey/pull/1), [#2](https://github.com/vikas53953/bluey/pull/2), [#5](https://github.com/vikas53953/bluey/pull/5), [#6](https://github.com/vikas53953/bluey/pull/6) | lanes → `main` | closed 12 Nov | **Superseded**: all their commits are already in `lane/face`. |
 
-`main` has nothing that `lane/face` lacks (checked 12 Nov: `git log origin/lane/face..origin/main` is empty).
+Each PR's latest evidence table and verdict is in its own latest QA comment. This table only tracks state.
 
 ### Known issues
 
-0. **A PR can change the gates that judge it** (found by the independent reviews of PRs #20 and #21, 13 Nov 2026).
-   A `pull_request` run uses the PR's own workflow files, so a PR could make `live-ai-smoke` (or any check) pass
-   without doing its job. The ratchet (PR #21) also compares against the base branch's own copy, which closes it
-   there; for workflow files only a GitHub setting can: a `CODEOWNERS` file covering `.github/workflows/**`,
-   `scripts/ci/**`, `scripts/quality/**` and `docs/quality/**`, plus "Require review from Code Owners" on
-   `lane/face` and `main`. **Decision pending with Vikas.** Until then the verifying bot treats any PR touching
-   those paths as needing Vikas's review.
+0. **A PR can change the gates that judge it** (independent reviews of PRs #20 and #21, 13 Nov 2026). A
+   `pull_request` run uses the PR's own workflow files, so a PR could make `live-ai-smoke` (or any check) pass without
+   doing its job. Only a GitHub setting closes it: a `CODEOWNERS` file covering `.github/workflows/**`, `scripts/ci/**`,
+   `scripts/quality/**`, `scripts/test_*.py`, `docs/quality/**` and `docs/verification/test-oracle*` (with
+   `test-oracle-history/**`), plus "Require review from Code Owners" on `lane/face` and `main`. **Decision pending with
+   Vikas.** Until then the verifying bot treats any PR touching those paths as needing Vikas's review.
 
-1. **GitHub Actions artifact storage quota.** Earlier on 12 Nov there were 677 artifacts (22.45 GB). Every upload
-   failed with `Failed to CreateArtifact: Artifact storage quota has been hit`, so every run went red. In windows-ci the
-   failed app upload also **skips** the gallery, UI smoke and perf steps.
-   - About 14:21–14:27 UTC on 12 Nov, with Vikas's approval, the 168 app/installer copies from 8 Nov (15.93 GB) were
-     deleted. All evidence was kept. The time comes from the verify-boo agent thread's log; the API can't show deleted
-     artifacts. The PR #3 comment posted at 14:41 UTC (6826687928) quoted 677 / 22.45 GB from a measurement taken
-     before the deletion, which makes those figures stale. A later comment on PR #3 corrects them.
-   - At 15:08 UTC: 509 artifacts, 6.52 GB. A run at 14:51 UTC still hit the quota, because GitHub recalculates usage
-     every 6–12 h.
-   - **Next step:** after the recount, re-run the checks on PRs #3, #13, #14, #15 and #16. PR #15 stops this recurring.
-2. **Living ink memory** (PR #12): after the face is first shown, about 17 MB more memory than `lane/face`.
-   - The review's A/B perf runs measured working set 222/220 MB vs 205/203 MB, and private bytes 142/140 MB vs
-     122/124 MB.
-   - Cause not proven: suspected per-frame geometry rebuilds in `NotchWindow.xaml.cs`. No perf budget covers it.
-3. **Anti-mock guard** in `live-ai-smoke`: on `lane/face` it only rejects loopback (`127.x`, `0.x`, `::1`, `::`), so a
-   mock on a LAN address would pass. **Fixed in PR #14 (not merged).** Still not covered even with #14: a planted
-   trusted root certificate, or a mock on the PC's own public-looking address.
-4. **Flaky demo: `Step4_Focus_NudgeThenBackToIt_EndsHappy`.** On the same commit (`1e5c754`, docs only), all 5 demo
-   tests passed in [43240969060](https://github.com/vikas53953/bluey/actions/runs/43240969060) (run red only at the
-   upload), but Step 4 failed in
-   [43240958545](https://github.com/vikas53953/bluey/actions/runs/43240958545).
-   - In the failing run the mock's nudge arrived and the "Back to it" button appeared, but the notch's reported state
-     still read `Capture`: `states=…>Hidden>Capture`. `Assert.Contains("Nudge", seen)` then failed
-     (`tests/Boo.Demo.Tests/DemoTests.cs:228`).
-   - Whether this is a timing race in the test or the app setting the state after showing the button is not proven.
-   - The test is frozen, so a fix needs its own reviewed PR.
-5. **Merge order.** PR #12 (merged 13 Nov) took oracle revision 20; PR #18 now takes **revision 21** on top of it
-   (its 3 capture fixtures). PR #14 also claimed revision 20 and must re-run its oracle step on top. Earlier note: PR #14 and PR #18 **both** took oracle revision 20 (both add
-   `test-oracle-history/revision-19.json`), and PR #12 will need its own oracle revision. Whichever merges second must
-   re-run `--extend` / `--rebaseline` on top. PRs #13, #14, #15 and PR #18 all edit
-   `live-ai-smoke.yml`, and #13 and #15 both edit `demo-ci.yml`. PR #13 still passes `-f runner=...` in its docs and
-   journeys; it must drop that after PR #18 merges. HANDOFF.md and docs/DECISIONS.md are
-   added by #16 and also by later PRs that copy #16's text and append to it; whichever merges second resolves the
-   overlap by keeping both additions.
-6. Residuals listed in [docs/STATUS.md](docs/STATUS.md) ("Known residuals") still apply unless a later PR says
+1. **Live-smoke queue.** Before PR #20: one global queue (`concurrency: group: live-ai-smoke`, no cancel-in-progress),
+   where a new dispatch cancels an older *waiting* run. With PR #20: one queue per PR (or ref), and a newer push to the
+   same PR cancels the older run, which may already have spent its AI request. Dispatch only when no live run is waiting. Live runs cost real money; keep to one per PR head (the Grok Bot pipeline note of 13 Nov, 12:45 AM IST, gives the OpenAI cap as $10/month; the cap itself is UNVERIFIED in the repo).
+2. **Anti-mock guard** (PR #14, merged): rejects loopback, private/LAN, link-local, unique-local, CGNAT and fake-IP
+   addresses and proxies. Still not detected: a planted trusted root certificate, or a mock on the PC's own
+   public-looking address.
+3. **Demo Step 4 race (fix in PR #22, not merged).**
+   `Step4_Focus_NudgeThenBackToIt_EndsHappy` failed twice on docs-only commits
+   ([43240958545](https://github.com/vikas53953/bluey/actions/runs/43240958545),
+   [43296734862](https://github.com/vikas53953/bluey/actions/runs/43296734862)). Judged a test race, not an app bug:
+   the test sampled `Capture`, then found "Back to it" after the flip to `Nudge`, and never re-read the state. The fix
+   re-reads the state after the button search (oracle revisions 22–23; record in
+   `docs/verification/test-oracle-revision-22.md`).
+4. **Flaky perf budget: `revealFramesPerSecond >= 20`.** On GitHub's shared Windows VMs the notch's reveal frame rate
+   swings widely on the same code: 44 windows-ci runs between 19:00 and 20:10 UTC on 12 Nov measured 8 to ~74 fps (28 of
+   them 40–55). One docs-only run failed at 8 fps ([43296723546](https://github.com/vikas53953/bluey/actions/runs/43296723546))
+   while its twin passed at 41 fps; another got 20.99. Since PR #12 the notch draws in software, so it may be more
+   sensitive to VM load. Not fixed; a budget or measurement change needs its own reviewed PR.
+5. **Living ink notes** (from PR #12's reviews, low): built-in fallback face is still B (`NotchSpec.Default`); the
+   dark-desktop rim follows the Windows app mode, not the wallpaper; pure black/white custom colours draw as ink/cream;
+   the wake-up's first beats are faint on dark desktops and the eyes are not drawn in its "eyes shut" beat; window-level wake-up/celebrate rules are covered by the gallery
+   and live runs only. Not measured: software-drawing CPU on 4K / 200 % or high-refresh screens, memory after the
+   panel has been opened, and repeat hovers (~0.7 MB each, same on the old build).
+6. **SF-006 symlink cases** fail on a dev PC without Windows Developer Mode, same on unchanged `lane/face` (never skipped); they pass in CI.
+7. **Merge order / oracle revisions.** `lane/face` is at oracle revision 23 (PR #22, merged `af241fa`, took 22–23 on
+   top of PR #14's 21). PR #18 has re-synced and re-frozen its 3 capture fixtures on top as **revision 24**. PR #13 still
+   passes `-f runner=...` (a runner input this workflow no longer has) in its skill, feature map and live-smoke docs and
+   its workflow copy; it must drop that when it next syncs after PR #18 merges. Still-open PRs that edit the same workflows: #13 and #18 edit `live-ai-smoke.yml` and
+   `demo-ci.yml`; #18 also edits `windows-ci.yml`. #20 and #21, stacked on #18, carry #18's edits; #20 also edits
+   `live-ai-smoke.yml` and #21 adds `quality-gates.yml`.
+8. The notch memory guard (`NotchDrawingMemoryTests`) has now run in CI: windows-ci on `8474556`
+   ([43287434389](https://github.com/vikas53953/bluey/actions/runs/43287434389)) passed UI smoke, perf budgets and the gate.
+9. Residuals listed in [docs/STATUS.md](docs/STATUS.md) ("Known residuals") still apply unless a later PR says
    otherwise.
+10. Resolved 13 Nov: the artifact storage quota and the Actions budget block. The repo went public, so standard runners
+   are free. On 12 Nov the 8 Nov app copies (168 artifacts, 15.93 GB) were deleted, and uploads work again.
 
 ### UNVERIFIED (not proven on `lane/face`)
 
@@ -261,23 +266,8 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 - **A manual run by Vikas on his PC**: the three demos and a real 25-minute focus session
   ([docs/MORNING_CHECKLIST.md](docs/MORNING_CHECKLIST.md)). Delivery is not accepted until this is done.
 - Installer install / Start-menu / uninstall / real update round trip on a PC; the SmartScreen prompt.
-- The release path: portable ZIP, checksum and the `github-release` job. They have been skipped on every run since
-  storage filled.
+- The `github-release` job (needs a `v*` tag; the portable ZIP and installer upload again since 13 Nov).
 - Hover timing, DPI and multi-monitor behaviour by hand (native checklists in `docs/verification/2026-11-08-*`).
-
-### Agent-trust plan (approved order, 12 Nov 2026, 10:02 PM IST)
-
-From `docs/plans/agent-trust-plan.md` (PR #17). Steps run strictly in this order:
-
-1. Storage fix: PR #15 merges first.
-2. Close the screen-capture risk: PR #18.
-3. Phase 1 (deterministic checks), as the small PRs listed in the plan, one at a time. Since 13 Nov 2026, 12:15 AM IST
-   (Grok Bot, for Vikas) they may be opened **stacked on PR #18** before it merges; the first one makes `live-ai-smoke`
-   a required check on every PR, the next is the quality ratchet (PR 1.1). PR #15 is still open but no longer blocks:
-   the repo is public, so standard runners are free and uploads work again.
-4. Merge PR #13 (verify-boo).
-5. Phase 2 and 6. Phase 3: **do not start** without Vikas's explicit go after Phase 1. Phase 2 also needs a monthly
-   OpenAI spend cap set by Vikas (GitHub minutes are free since the repo went public).
 
 ### Next phase
 
@@ -289,46 +279,6 @@ Packaging for real use. What exists and what is missing:
 | Code signing | none: the build is **unsigned** (README: SmartScreen "More info > Run anyway") | Certificate choice and signing step: not started |
 | Start with Windows | HKCU Run entry, off by default; UI smoke `StartWithWindows_Checkbox_WritesAndRemovesRunValue` passes on the VM | Boo actually starting after a real sign-in |
 | Auto-update | Opt-in GitHub Releases check (24 h, DPAPI-protected read token, explicit Install and restart) | A real update round trip from one tagged release to the next |
-
-### PR #12: Living ink notch (`feat/living-ink` → `lane/face`), 2026-11-12
-
-**State (13 Nov 2026): merged into `lane/face`** (merge commit `8474556`). Text below is the PR's own handoff
-as written before the merge; the storage notes are out of date (the repo is public and uploads work since 13 Nov).
-Original state line: open, not merged. Rebased onto `lane/face` after #10 and #11 merged. Head SHA, CI and live-smoke results
-are in the PR's latest QA comment.
-
-**Done in this session**
-- Found and fixed the ~17 MB post-hover memory finding from the first review. Cause: Windows drawing the always-on
-  notch on the graphics card. Fix: the notch alone draws in software. Evidence and numbers: `docs/DECISIONS.md`
-  (D-2026-11-12-notch-software-drawing).
-- New guard test `tests/Boo.Perf.Tests/NotchDrawingMemoryTests.cs` (seen failing before the fix, passing after).
-- `BOO_PERF_DIAG` now also reports `notchRenderMode`.
-- Oracle revision 20: four face tests now load face B by name (same assertions), two new test files frozen
-  (`docs/verification/test-oracle-revision-20.md`). Before this, PR #12 failed the frozen-test gate that #10 added.
-
-**Known, not caused by this PR**
-- `ScopedFilesTests.Reparse_point_escapes_are_rejected` (FileSymlink, DirectorySymlink) fails on the dev PC because
-  Windows refuses to create symbolic links without Developer Mode. Same failure on unchanged `lane/face`. CI runs it.
-- GitHub artifact storage is full, so every workflow goes red at its upload step. For `live-ai-smoke`, `demo-ci` and
-  `release` the real work runs first and passes (read the step, not the run's colour). For `windows-ci` it is worse:
-  "Upload published app" fails before the gallery, UI smoke and perf steps, so those are **skipped**. On this PR head
-  they have only been run on the dev PC (UI smoke 15/15, perf 2/2, reviewer 2/2), never in CI. Re-run windows-ci
-  once storage frees up (old artifacts deleted or GitHub's 6-12 h recount) before merging.
-
-**Not measured yet (from the second review)**
-- CPU of software drawing on a 4K / 200 % or high-refresh screen (cost grows with the notch's pixel count).
-- Memory after the panel has been opened (the panel still uses the graphics card).
-- Repeat hovers add ~0.7 MB each in software, same on lane/face; the guard test does one hover only.
-
-**Still open from the first review (low)**
-- Built-in fallback face is still B (`NotchSpec.Default`).
-- Dark-desktop rim follows the Windows app mode, not the wallpaper.
-- Exact `#000000`/`#FFFFFF` colour choice is drawn as ink/cream.
-- Wake-up first beats faint on dark desktops; eyes not drawn in the "eyes shut" beat.
-- Window-level wake-up/celebrate rules not unit-tested (gallery and live runs only).
-
-**Next**
-- Vikas reviews the QA page, then decides whether to merge #12 into `lane/face`. Agents never merge.
 
 ## 8. Where to look next
 

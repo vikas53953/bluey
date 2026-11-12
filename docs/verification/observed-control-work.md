@@ -28,7 +28,7 @@ No live API or GUI work is part of the automated test-author packets.
 
 Root independently repeated the corrected Core suite before implementation:
 24 failures, all at the intentional factory scaffold. Canonical TRX:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_14_05_21_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_14_05_21_net10.0.trx`.
 The test-author fixture correction happened before freezing; no builder changed
 an expected result. Provider tests are being reviewed separately and are not
 yet part of this Core test checkpoint.

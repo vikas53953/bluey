@@ -1,5 +1,5 @@
 {
-  "revision": 21,
+  "revision": 24,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -87,7 +87,7 @@
     "tests/Boo.Core.Tests/VoiceCommandTests.cs": "13decf186040e3e49ec0280e9afa5cc08f87ed1e3a062e48d77e0cdc3eedf0b4",
     "tests/Boo.Demo.Tests/Boo.Demo.Tests.csproj": "f3fad7e22de0b6b19a8b5bb208a3a6dcb4d76db4befa792f289ef188ed955d7b",
     "tests/Boo.Demo.Tests/BooAppFixture.cs": "3674257f2b56f26ae5c1fb537e3d7498cd633d23b466988c7c45e91e06ec2179",
-    "tests/Boo.Demo.Tests/DemoTests.cs": "aa8454f63744ddaebd591eda97f922daddbb6b109fcf1fbd86f0a0430b3afeef",
+    "tests/Boo.Demo.Tests/DemoTests.cs": "dcb58a575f973cd6d58f97af7612b97f6b1c4b0ab7c22f0c1b32f37e04611dac",
     "tests/Boo.Demo.Tests/OrderedSteps.cs": "306e9963f703f5d3110060f5a03f66272dfda4959eba07c238be328da40776e2",
     "tests/Boo.Demo.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Integration.Tests/AppearanceReadFailureTests.cs": "71a6aa267746f1f5124cde57204258a4d6c62351d620e963b30eeec95c585a70",
@@ -111,6 +111,8 @@
     "tests/Boo.Integration.Tests/SessionRecoveryTests.cs": "604ff4bb833ce2be64718fc82650417dca2091517d4d33a71359fd5fd9d62e36",
     "tests/Boo.Integration.Tests/StoragePrivacyTests.cs": "dd188faa6dd2e0e92b039971fef54aadcbf37176d43ca0ec71ee2363d3982811",
     "tests/Boo.Integration.Tests/VoiceToolProtocolTests.cs": "c95200c7c8ae01709e3f2f2aa5a8a5b223b831c86da47a874fe31e1e07f3bb72",
+    "tests/Boo.LiveGuard.Tests/Boo.LiveGuard.Tests.csproj": "60db626ed4d77856c6f35ffb5cf2000827e486d016f505e55733f5fbcb52e981",
+    "tests/Boo.LiveGuard.Tests/RealAiHostGuardTests.cs": "0f5a1b2b02d692058bcc5637d9667a45eafd36048bd91ffbc72f2dbe2af1b536",
     "tests/Boo.Perf.Tests/Boo.Perf.Tests.csproj": "ef2df8fde46266721d7affba05ca8d59d083a5949b509d163956e347a6d13168",
     "tests/Boo.Perf.Tests/BooPerfBudgetTests.cs": "ce2fccccd4c53f15f44e5bee159236db5f238a3a6815ad7eecd6434ad0ab5757",
     "tests/Boo.Perf.Tests/DiagSnapshot.cs": "cbb9c990e3b576a955cafe14826a0bad8347ad5e20107e249a2bd88373b2ece9",
@@ -145,11 +147,11 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-20.json",
-  "previousManifestSha256": "0f66ab7d0f287427db1c26508618e547495891b4298981642be617436c2758b1",
-  "revisionReason": "Revision 21 (13 Nov 2026; written as revision 20 on PR #18 before PR #12 took that number). Vikas decision 12 Nov 2026 10:02 PM IST: CaptureScreen takes the whole desktop only on a GitHub-hosted runner with BOO_CAPTURE_SCOPE unset, otherwise renders Boo windows with PrintWindow; CaptureRectangle only on GitHub-hosted runners. Harness files only, no test changed. See docs/verification/test-oracle-revision-21.md",
+  "previousManifest": "docs/verification/test-oracle-history/revision-23.json",
+  "previousManifestSha256": "cb082fe330b55aa5b72a3fa6e3ffeec7baafe1bef68449f135e4554d7fd0ed0b",
+  "revisionReason": "Revision 24 (13 Nov 2026; written as revision 20 on PR #18, renumbered after PR #12 took 20, PR #14 took 21 and PR #22 took 22-23). Vikas decision 12 Nov 2026 10:02 PM IST: CaptureScreen takes the whole desktop only on a GitHub-hosted runner with BOO_CAPTURE_SCOPE unset, otherwise renders Boo windows with PrintWindow; CaptureRectangle only on GitHub-hosted runners. Harness files only, no test changed. See docs/verification/test-oracle-revision-24.md",
   "addedFiles": [],
-  "revisionCommit": "b8f63c803f0024f49eee9d29c2d0bf53fdde6536",
+  "revisionCommit": "b590f927eb89708c9b4d5e6625aa370873af739c",
   "changedFiles": [
     "tests/Boo.Demo.Tests/BooAppFixture.cs",
     "tests/Boo.Perf.Tests/PerfAppFixture.cs",
