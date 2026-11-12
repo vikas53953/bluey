@@ -8,9 +8,11 @@ One entry per decision: what was decided, why, the evidence, and what would make
 (`HwndSource.CompositionTarget.RenderMode = SoftwareOnly`, set in `OnSourceInitialized`). Only the notch: the panel
 and the annotation overlay still draw on the graphics card.
 
-**Why.** PR #12 review found the Living ink build held ~17 MB more memory than lane/face after one hover. The cause
-was not the face's code. It was the graphics-card drawing path for the notch, which is a small see-through window
-that stays on screen all day. Measured on the dev PC (Windows 11, graphics card present), official perf test,
+**Why.** PR #12 review found the Living ink build held ~17 MB more memory than lane/face after one hover. That gap
+exists only on the graphics-card drawing path for the notch, a small see-through window that stays on screen all day.
+The second reviewer applied the same fix to plain lane/face: in software both builds land within ~2 MB of each other
+(73-77 MB after hover). Why Living ink costs more on the card path was not found; with the card path gone it no
+longer matters for the notch. Measured on the dev PC (Windows 11, graphics card present), official perf test,
 private memory:
 
 | Build | Idle (never hovered) | After one hover |
@@ -31,9 +33,14 @@ differences only where the drifting pupils sit).
 Side effect: the frozen perf budgets `idlePrivateBytesMb <= 80` and `idleWorkingSetMb <= 160`, which failed on this
 PC for every build, now pass (60 MB, 128–130 MB).
 
+Not measured: CPU on a 4K / 200 % or high-refresh screen (software cost grows with pixels), and memory after the
+panel has been opened (the panel keeps the graphics card).
+
 **Guard.** `tests/Boo.Perf.Tests/NotchDrawingMemoryTests.cs`: the running notch must report `SoftwareOnly` through
 `BOO_PERF_DIAG` (field `notchRenderMode`), and one hover may add at most 30 MB of private memory. The mode check
 matters most: CI's virtual machine has no graphics card, so there memory alone cannot tell the two modes apart.
+On the old builds the test fails: +30.6 to +46.6 MB pre-fix Living ink, +34 to +36 MB lane/face, mode not reported.
+It has not run in CI yet (see HANDOFF.md, artifact storage).
 
 **Revisit if.** The notch ever needs effects that are slow in software (blur, drop shadows, large bitmaps), or a
 PC shows the face below ~30 fps. Measure again with the perf suite on a real PC before changing it.

@@ -19,8 +19,16 @@ are in the PR's latest QA comment.
 **Known, not caused by this PR**
 - `ScopedFilesTests.Reparse_point_escapes_are_rejected` (FileSymlink, DirectorySymlink) fails on the dev PC because
   Windows refuses to create symbolic links without Developer Mode. Same failure on unchanged `lane/face`. CI runs it.
-- GitHub artifact storage is full, so `live-ai-smoke` runs go red at the "Upload live evidence" step even when the
-  AI round trip passes. Read the "Real AI round trip" step, not the run's overall colour, until storage frees up.
+- GitHub artifact storage is full, so every workflow goes red at its upload step. For `live-ai-smoke`, `demo-ci` and
+  `release` the real work runs first and passes (read the step, not the run's colour). For `windows-ci` it is worse:
+  "Upload published app" fails before the gallery, UI smoke and perf steps, so those are **skipped**. On this PR head
+  they have only been run on the dev PC (UI smoke 15/15, perf 2/2, reviewer 2/2), never in CI. Re-run windows-ci
+  once storage frees up (old artifacts deleted or GitHub's 6-12 h recount) before merging.
+
+**Not measured yet (from the second review)**
+- CPU of software drawing on a 4K / 200 % or high-refresh screen (cost grows with the notch's pixel count).
+- Memory after the panel has been opened (the panel still uses the graphics card).
+- Repeat hovers add ~0.7 MB each in software, same on lane/face; the guard test does one hover only.
 
 **Still open from the first review (low)**
 - Built-in fallback face is still B (`NotchSpec.Default`).
