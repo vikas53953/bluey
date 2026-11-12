@@ -1,0 +1,186 @@
+name: live-ai-smoke
+
+# ONE real AI round trip against the published Boo.exe (no mock): typed question -> screen capture -> real provider ->
+# answer row in Boo's transcript. Manual only (workflow_dispatch): it spends real money and needs a real key, so it
+# never runs on push or pull_request. How to add the key, register a self-hosted runner and run it:
+# docs/LIVE_AI_SMOKE.md.
+#
+# FAILS CLOSED: if the key for the chosen text provider is missing or malformed, the `preflight` job goes red with a
+# plain message and the smoke job never starts. A missing key is never a skip and never a green.
+# Keys: only ever read from repository secrets into environment variables; never echoed (GitHub masks secret values,
+# and the run masks them again explicitly); never typed into Boo's UI (the test seeds Boo's own DPAPI key file), so
+# they cannot appear in a screenshot. A final scan refuses to upload any evidence file that contains a key.
+
+on:
+  workflow_dispatch:
+    inputs:
+      text_provider:
+        description: Which AI answers Boo's typed question (needs the matching BOO_LIVE_*_KEY secret)
+        type: choice
+        options: [openai, anthropic, gemini]
+        default: openai
+      runner:
+        description: "self-hosted = your own Windows PC registered as a runner (see docs). windows-latest = GitHub's VM fallback"
+        type: choice
+        options: [self-hosted, windows-latest]
+        default: self-hosted
+      model:
+        description: Optional model id override for the chosen provider (blank = Boo's default)
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-ai-smoke
+  cancel-in-progress: false
+
+jobs:
+  # Runs on a cheap Linux VM so a missing secret fails in seconds, even when no self-hosted runner is online.
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require the key for the chosen provider (fail closed)
+        shell: bash
+        env:
+          PROVIDER: ${{ inputs.text_provider }}
+          MODEL: ${{ inputs.model }}
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
+          GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
+        run: |
+          case "$PROVIDER" in
+            openai)    NAME=BOO_LIVE_OPENAI_KEY;    VALUE="$OPENAI_KEY" ;;
+            anthropic) NAME=BOO_LIVE_ANTHROPIC_KEY; VALUE="$ANTHROPIC_KEY" ;;
+            gemini)    NAME=BOO_LIVE_GEMINI_KEY;    VALUE="$GEMINI_KEY" ;;
+            *) echo "::error title=Live AI smoke FAILED CLOSED::Unknown text provider '$PROVIDER'."; exit 1 ;;
+          esac
+          TRIMMED="$(printf '%s' "$VALUE" | tr -d '[:space:]')"
+          if [ -z "$TRIMMED" ]; then
+            echo "::error title=Live AI smoke FAILED CLOSED::Repository secret $NAME is missing or empty, so no real AI round trip can run. Add it under Settings > Secrets and variables > Actions (docs/LIVE_AI_SMOKE.md). This run is NOT a pass."
+            exit 1
+          fi
+          if [ "$TRIMMED" != "$VALUE" ]; then
+            echo "::error title=Live AI smoke FAILED CLOSED::Repository secret $NAME contains spaces or line breaks. Paste the key again without them."
+            exit 1
+          fi
+          if [ "${#VALUE}" -lt 20 ]; then
+            echo "::error title=Live AI smoke FAILED CLOSED::Repository secret $NAME is too short (${#VALUE} characters) to be a real key."
+            exit 1
+          fi
+          if [ -n "$MODEL" ] && ! printf '%s' "$MODEL" | grep -Eq '^[A-Za-z0-9._:-]{1,128}$'; then
+            echo "::error title=Live AI smoke FAILED CLOSED::Model override '$MODEL' is not a valid model id."
+            exit 1
+          fi
+          # Lengths only, never values.
+          echo "Text provider: $PROVIDER. Secret $NAME is present (${#VALUE} characters)."
+
+  smoke:
+    needs: preflight
+    # Preferred: your own Windows PC (labels self-hosted + windows). Fallback: GitHub's windows-latest VM.
+    runs-on: ${{ inputs.runner == 'windows-latest' && 'windows-latest' || fromJSON('["self-hosted","windows"]') }}
+    timeout-minutes: 30
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: true
+
+      - name: Mask keys (again) and start with an empty evidence folder
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
+          GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
+        run: |
+          foreach ($v in @($env:OPENAI_KEY, $env:ANTHROPIC_KEY, $env:GEMINI_KEY)) {
+            if (-not [string]::IsNullOrWhiteSpace($v)) { Write-Output "::add-mask::$($v.Trim())" }
+          }
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts\live-evidence'
+          if (Test-Path $evidence) { Remove-Item $evidence -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+
+      # A leftover hosts-file redirect (the demo-ci mock trick) would send Boo to a fake server and turn this into a
+      # false green. Refuse to run unless every provider host resolves to a real, non-loopback address.
+      - name: Refuse if any AI host is redirected (no mock may answer)
+        shell: pwsh
+        run: |
+          $hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
+          $bad = @()
+          foreach ($h in 'api.openai.com', 'api.anthropic.com', 'generativelanguage.googleapis.com') {
+            $line = Get-Content $hostsFile -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch '^\s*#' -and $_ -match "(^|\s)$([regex]::Escape($h))(\s|$)" }
+            if ($line) { $bad += "$h is pinned in the hosts file: $line" }
+            $ips = @(Resolve-DnsName $h -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress } | Select-Object -ExpandProperty IPAddress)
+            if ($ips.Count -eq 0) { $bad += "$h does not resolve (no internet?)" }
+            foreach ($ip in $ips) { if ($ip -match '^(127\.|0\.|::1$|::$)') { $bad += "$h resolves to loopback $ip" } }
+            "$h -> $($ips -join ', ')"
+          }
+          if ($bad) { $bad | ForEach-Object { "::error title=Live AI smoke FAILED CLOSED::$_" }; exit 1 }
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Publish Boo and build the live smoke test
+        run: |
+          dotnet restore Boo.sln
+          dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/live
+          dotnet build tools/Boo.LiveSmoke -c Release
+
+      - name: Real AI round trip (FlaUI against published Boo.exe)
+        timeout-minutes: 15
+        shell: pwsh
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\live-evidence
+          BOO_LIVE_TEXT_PROVIDER: ${{ inputs.text_provider }}
+          BOO_LIVE_MODEL: ${{ inputs.model }}
+          BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          BOO_LIVE_ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
+          BOO_LIVE_GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
+        run: |
+          & dotnet test tools/Boo.LiveSmoke -c Release --no-build --logger trx --logger "console;verbosity=normal" --results-directory artifacts/live-evidence/trx
+          $testExit = $LASTEXITCODE
+          '----- observations -----'
+          Get-ChildItem artifacts/live-evidence -Filter *.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          exit $testExit
+
+      - name: Test gate (the live test ran and passed)
+        if: always()
+        shell: pwsh
+        run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/live-evidence/trx -SourceDirectory tools/Boo.LiveSmoke
+
+      # Belt and braces: no evidence file may contain a key. A hit deletes the file before upload and fails the run.
+      - name: Key leak scan of the evidence
+        if: always()
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
+          GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
+        run: |
+          $keys = @($env:OPENAI_KEY, $env:ANTHROPIC_KEY, $env:GEMINI_KEY) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Trim() }
+          $leaks = 0
+          Get-ChildItem artifacts/live-evidence -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+            $text = [System.IO.File]::ReadAllText($_.FullName)
+            foreach ($k in $keys) {
+              if ($text.Contains($k)) { "::error::a key was found in $($_.Name); the file was deleted and will not be uploaded"; Remove-Item $_.FullName -Force; $leaks++; break }
+            }
+          }
+          if ($leaks -gt 0) { exit 1 }
+          'no key found in any evidence file'
+
+      - name: Upload live evidence (screenshots, observations, test results)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-ai-evidence
+          path: artifacts/live-evidence
+          if-no-files-found: warn
+          retention-days: 14

@@ -8,8 +8,11 @@ name: demo-ci
 #   2. edit -> Apply -> Undo on a copy of tests/fixtures/native/Boo.QaWorkspace
 #   3. research with three source links
 #   4. Developer Mode focus session -> nudge -> Back to it -> happy face
-# This job is evidence-gathering and is marked continue-on-error until it has been seen green, so it never blocks
-# the windows-ci gate. Nothing here touches the app's official-origin guard; the redirect lives only on the runner.
+# BLOCKING GATE (since ci/real-gates): no continue-on-error. A failed demo, a demo that did not run, or a demo that
+# was skipped fails this job and the `demos` check on the PR. It went 9/9 green from 47b6d9f on (same-commit push and
+# PR runs always agreed), so it is deterministic enough to block. Mark it required in branch protection.
+# What it does NOT prove: the real AI. Answers come from the mock; see live-ai-smoke.yml for the real round trip.
+# Nothing here touches the app's official-origin guard; the redirect lives only on the runner.
 
 on:
   push:
@@ -22,7 +25,6 @@ permissions:
 jobs:
   demos:
     runs-on: windows-latest
-    continue-on-error: true
     timeout-minutes: 40
     env:
       DOTNET_NOLOGO: "1"
@@ -41,10 +43,13 @@ jobs:
           dotnet restore Boo.sln
           dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
 
-      - name: Build mock AI server and demo tests
+      # tools/Boo.LiveSmoke is only RUN by live-ai-smoke.yml (manual, needs a key); compiling it here on every push keeps
+      # it from silently breaking when the shared demo harness changes.
+      - name: Build mock AI server, demo tests and the live smoke test (compile only)
         run: |
           dotnet build tools/Boo.QaMockAi -c Release
           dotnet build tests/Boo.Demo.Tests -c Release
+          dotnet build tools/Boo.LiveSmoke -c Release
 
       # Runner-only redirect: api.openai.com -> loopback, trust the mock's self-signed certificate, then run the demos in
       # the SAME step so the mock process is guaranteed to outlive the probe (a process started in an earlier step is not
@@ -96,6 +101,13 @@ jobs:
           Get-ChildItem $evidence -Filter *.txt | Where-Object { $_.Name -notlike 'mock-*' } | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName | Select-Object -First 20 }
           try { Stop-Process -Id $mock.Id -Force -ErrorAction SilentlyContinue } catch { }
           exit $testExit
+
+      # No vacuous green: every [Fact] declared in tests/Boo.Demo.Tests must have run and passed (not skipped, not
+      # filtered away, not undiscovered). Runs even if the step above failed, so the log says exactly what broke.
+      - name: Test gate (every demo ran and passed)
+        if: always()
+        shell: pwsh
+        run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/demo-evidence/trx -SourceDirectory tests/Boo.Demo.Tests
 
       - name: Contact sheet in the job log (for reviewers without artifact access)
         if: always()
