@@ -262,11 +262,13 @@ From `docs/plans/agent-trust-plan.md` (PR #17). Steps run strictly in this order
 
 1. Storage fix: PR #15 merges first.
 2. Close the screen-capture risk: PR #18.
-3. Phase 1 (deterministic checks), as the small PRs listed in the plan, one at a time. **Not opened until #15 and the
-   screen-risk PR are merged into `lane/face`.**
+3. Phase 1 (deterministic checks), as the small PRs listed in the plan, one at a time. Since 13 Nov 2026, 12:15 AM IST
+   (Grok Bot, for Vikas) they may be opened **stacked on PR #18** before it merges; the first one makes `live-ai-smoke`
+   a required check on every PR, the next is the quality ratchet (PR 1.1). PR #15 is still open but no longer blocks:
+   the repo is public, so standard runners are free and uploads work again.
 4. Merge PR #13 (verify-boo).
 5. Phase 2 and 6. Phase 3: **do not start** without Vikas's explicit go after Phase 1. Phase 2 also needs a monthly
-   GitHub budget and an OpenAI spend cap set by Vikas.
+   OpenAI spend cap set by Vikas (GitHub minutes are free since the repo went public).
 
 ### Next phase
 
