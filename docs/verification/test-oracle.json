@@ -1,5 +1,5 @@
 {
-  "revision": 20,
+  "revision": 21,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -111,6 +111,8 @@
     "tests/Boo.Integration.Tests/SessionRecoveryTests.cs": "604ff4bb833ce2be64718fc82650417dca2091517d4d33a71359fd5fd9d62e36",
     "tests/Boo.Integration.Tests/StoragePrivacyTests.cs": "dd188faa6dd2e0e92b039971fef54aadcbf37176d43ca0ec71ee2363d3982811",
     "tests/Boo.Integration.Tests/VoiceToolProtocolTests.cs": "c95200c7c8ae01709e3f2f2aa5a8a5b223b831c86da47a874fe31e1e07f3bb72",
+    "tests/Boo.LiveGuard.Tests/Boo.LiveGuard.Tests.csproj": "60db626ed4d77856c6f35ffb5cf2000827e486d016f505e55733f5fbcb52e981",
+    "tests/Boo.LiveGuard.Tests/RealAiHostGuardTests.cs": "0f5a1b2b02d692058bcc5637d9667a45eafd36048bd91ffbc72f2dbe2af1b536",
     "tests/Boo.Perf.Tests/Boo.Perf.Tests.csproj": "ef2df8fde46266721d7affba05ca8d59d083a5949b509d163956e347a6d13168",
     "tests/Boo.Perf.Tests/BooPerfBudgetTests.cs": "ce2fccccd4c53f15f44e5bee159236db5f238a3a6815ad7eecd6434ad0ab5757",
     "tests/Boo.Perf.Tests/DiagSnapshot.cs": "cbb9c990e3b576a955cafe14826a0bad8347ad5e20107e249a2bd88373b2ece9",
@@ -145,19 +147,14 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-19.json",
-  "previousManifestSha256": "8d37156ab9eaedf25d842c0437c934274b1bc1f8b98b1884ade81c0b553bddde",
-  "revisionReason": "Reviewed rebaseline, see docs/verification/test-oracle-revision-20.md: shipped notch spec now chooses face D (Living ink); face B tests load the shipped spec with face B selected (same assertions), the shipped-face test asserts D; freeze LivingInkTests and the new NotchDrawingMemoryTests. No test removed, no Skip, no assertion loosened.",
+  "previousManifest": "docs/verification/test-oracle-history/revision-20.json",
+  "previousManifestSha256": "0f66ab7d0f287427db1c26508618e547495891b4298981642be617436c2758b1",
+  "revisionReason": "Add tests/Boo.LiveGuard.Tests (PR #14): behaviour tests for the live-AI anti-mock guard. Re-frozen on top of lane/face revision 20 (Living ink) after syncing; new files only.",
   "addedFiles": [
-    "tests/Boo.Core.Tests/LivingInkTests.cs",
-    "tests/Boo.Perf.Tests/NotchDrawingMemoryTests.cs"
+    "tests/Boo.LiveGuard.Tests/Boo.LiveGuard.Tests.csproj",
+    "tests/Boo.LiveGuard.Tests/RealAiHostGuardTests.cs"
   ],
-  "revisionCommit": "a4e28e9e669ab1e06eddff0a740b613aabfcee41",
-  "changedFiles": [
-    "tests/Boo.Core.Tests/FaceMotionTests.cs",
-    "tests/Boo.Core.Tests/FaceSpecTests.cs",
-    "tests/Boo.Core.Tests/NotchFaceGeometryTests.cs",
-    "tests/Boo.Core.Tests/NotchLayoutTests.cs"
-  ],
+  "revisionCommit": "1e70b8aaa1c95dba64782a0c24cba498115d35c1",
+  "changedFiles": [],
   "removedFiles": []
 }
