@@ -17,6 +17,10 @@ internal static class FaceSpecFixture
 
     public static NotchSpec Load() { using var s = Open(); return NotchSpec.Load(s); }
 
+    /// <summary>The shipped spec with face B (Button eyes) in use: B's numbers are still pinned by the B tests below,
+    /// now that the shipped spec chooses face D (Living ink, 2026-11-12).</summary>
+    public static NotchSpec LoadFaceB() => Load().WithChosenFace("B");
+
     public static Stream Mutated(Action<JsonNode> mutate)
     {
         var node = JsonNode.Parse(Json)!;
@@ -48,21 +52,22 @@ public sealed class FaceSpecTests
     };
 
     [Fact]
-    public void Shipped_spec_chooses_face_B_button_eyes()
+    public void Shipped_spec_chooses_face_D_living_ink()
     {
         var spec = FaceSpecFixture.Load();
 
-        Assert.Equal("B", spec.ChosenFaceKey);
-        Assert.Equal("B", spec.Face.Key);
-        Assert.Equal("Button eyes", spec.Face.Name);
-        Assert.Equal(new[] { "A", "B", "C" }, spec.FaceKeys.OrderBy(k => k, StringComparer.Ordinal));
+        Assert.Equal("D", spec.ChosenFaceKey);
+        Assert.Equal("D", spec.Face.Key);
+        Assert.Equal("Living ink", spec.Face.Name);
+        Assert.Equal("ink", spec.Face.Eye.Kind);
+        Assert.Equal(new[] { "A", "B", "C", "D" }, spec.FaceKeys.OrderBy(k => k, StringComparer.Ordinal));
     }
 
     [Theory]
     [MemberData(nameof(FaceBSizes))]
     public void Face_B_size_per_state_matches_spec(NotchFaceState state, double width, double height)
     {
-        var spec = FaceSpecFixture.Load();
+        var spec = FaceSpecFixture.LoadFaceB();
 
         Assert.Equal(new SizeD(width, height), spec.Face.SizeFor(state));
         Assert.Equal(new SizeD(width, height), spec.Face.Sizes[state]);
@@ -71,7 +76,7 @@ public sealed class FaceSpecTests
     [Fact]
     public void Face_B_defines_a_size_for_every_state()
     {
-        var spec = FaceSpecFixture.Load();
+        var spec = FaceSpecFixture.LoadFaceB();
 
         foreach (var state in Enum.GetValues<NotchFaceState>())
             Assert.True(spec.Face.Sizes.ContainsKey(state), $"missing size for {state}");
@@ -80,7 +85,7 @@ public sealed class FaceSpecTests
     [Fact]
     public void Face_B_eye_parameters_match_spec()
     {
-        var eye = FaceSpecFixture.Load().Face.Eye;
+        var eye = FaceSpecFixture.LoadFaceB().Face.Eye;
 
         Assert.Equal("button", eye.Kind);
         Assert.Equal(16, eye.Width);
@@ -95,7 +100,7 @@ public sealed class FaceSpecTests
     [Fact]
     public void Face_B_shape_is_pocket_with_10px_shoulders_growing_sideways()
     {
-        var shape = FaceSpecFixture.Load().Face.Shape;
+        var shape = FaceSpecFixture.LoadFaceB().Face.Shape;
 
         Assert.Equal(10, shape.Shoulder);
         Assert.Equal(18, shape.BottomRadius);
@@ -134,7 +139,7 @@ public sealed class FaceSpecTests
         Assert.Equal(new SizeD(104, 48), c.SizeFor(NotchFaceState.Listening));
 
         // Original is unchanged.
-        Assert.Equal("B", spec.ChosenFaceKey);
+        Assert.Equal("D", spec.ChosenFaceKey);
     }
 
     [Fact]
@@ -222,7 +227,8 @@ public sealed class FaceSpecTests
     [Fact]
     public void Default_equals_shipped_face_B()
     {
-        var shipped = FaceSpecFixture.Load();
+        // The built-in fallback (spec file missing or broken) is still face B; compare it with the shipped face B.
+        var shipped = FaceSpecFixture.LoadFaceB();
         var fallback = NotchSpec.Default;
 
         Assert.Equal("B", fallback.ChosenFaceKey);

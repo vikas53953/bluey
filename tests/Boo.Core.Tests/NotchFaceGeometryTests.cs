@@ -5,7 +5,7 @@ namespace Boo.Core.Tests;
 // Builder-added tests (face lane); not part of the frozen set.
 public sealed class NotchFaceGeometryTests
 {
-    private static NotchSpec Spec() => FaceSpecFixture.Load();
+    private static NotchSpec Spec() => FaceSpecFixture.LoadFaceB();
 
     [Fact]
     public void Idle_eyes_are_centred_7px_apart()
