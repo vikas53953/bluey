@@ -167,6 +167,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: boo-installer-win-x64
           path: artifacts/installer
           if-no-files-found: error
@@ -190,6 +191,7 @@ jobs:
       - name: Upload portable ZIP
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: boo-portable-win-x64
           path: |
             artifacts/${{ steps.meta.outputs.zip_name }}
