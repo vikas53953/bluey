@@ -63,7 +63,7 @@ Official Windows reference: https://www.heyclicky.com/for-windows
 
 The official page calls the top-of-screen surface a notch and describes voice help, screen drawing, and agents.
 
-Found local installation at `C:\Users\vikasmit\AppData\Local\HeyClickyApp\HeyClicky.exe`. Launched it for the user-authorized layout inspection. The returned window belongs to `HeyClickyApp\current\HeyClicky.exe`, title `HeyClicky`.
+Found local installation at `%USERPROFILE%\AppData\Local\HeyClickyApp\HeyClicky.exe`. Launched it for the user-authorized layout inspection. The returned window belongs to `HeyClickyApp\current\HeyClicky.exe`, title `HeyClicky`.
 
 **Observation gap:** screenshot capture reported the window as minimized. Activation followed by fresh window lookup still returned the same capture error. Stopped after the documented retry. Exact installed geometry, hover behavior, and expanded layout remain unverified. No HeyClicky conversation, API key, account record, or private history was read. No settings were changed.
 

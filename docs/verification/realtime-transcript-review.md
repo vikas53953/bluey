@@ -35,7 +35,7 @@ authorization behavior.
 Root verification after these changes: full Release suite 144 passed, one
 unchanged host-dependent reparse-fixture skip; Release build zero warnings and
 errors; oracle revision 9 verified 32 unchanged frozen files; diff check clean.
-Final suite evidence is in `TestResults/vikasmit_VIKASMIT_2026-11-07_12_37_42_net10.0.trx`
+Final suite evidence is in `TestResults/<user>_<machine>_2026-11-07_12_37_42_net10.0.trx`
 and the adjacent `[1].trx` integration result.
 
 This is deterministic/source evidence. Native transcript row behavior, a

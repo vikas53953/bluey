@@ -5,7 +5,7 @@ This additive oracle was authored in the capture worktree before the
 
 ## Test source
 
-- Worktree: `C:\Users\vikasmit\.codex\worktrees\boo-capture-geometry\blue--fo`
+- Worktree: `%USERPROFILE%\.codex\worktrees\boo-capture-geometry\blue--fo`
 - Test: `tests/Boo.Core.Tests/GeometryRegressionTests.cs`
 - Production seam under test: `src/Boo.Core/AnnotationValidator.cs`
 - Command:
@@ -26,7 +26,7 @@ Run date: 2026-11-07 (Asia/Calcutta)
 | Total | 2 |
 
 The command exited with code `1`. The test receipt is:
-`C:\Users\vikasmit\.codex\worktrees\boo-capture-geometry\blue--fo\TestResults\vikasmit_VIKASMIT_2026-11-07_10_10_12_net10.0.trx`.
+`%USERPROFILE%\.codex\worktrees\boo-capture-geometry\blue--fo\TestResults\<user>_<machine>_2026-11-07_10_10_12_net10.0.trx`.
 
 ### Failed cases
 

@@ -27,13 +27,13 @@ The independent pre-build focused run was genuine provider RED: 10 failures
 and 1 legacy compatibility pass. After implementation:
 
 ```text
-Pre-build TRX: TestResults/vikasmit_VIKASMIT_2026-11-07_14_13_52_net10.0.trx
+Pre-build TRX: TestResults/<user>_<machine>_2026-11-07_14_13_52_net10.0.trx
 ```
 
 ```text
 ./scripts/build.ps1 -Action test -Configuration Release -Project tests/Boo.Integration.Tests/Boo.Integration.Tests.csproj -Filter FullyQualifiedName~ControlObservationProviderTests
 Passed: 11, Failed: 0, Skipped: 0
-TRX: TestResults/vikasmit_VIKASMIT_2026-11-07_14_15_38_net10.0.trx
+TRX: TestResults/<user>_<machine>_2026-11-07_14_15_38_net10.0.trx
 ```
 
 The full Release integration suite also passed:
@@ -41,7 +41,7 @@ The full Release integration suite also passed:
 ```text
 ./scripts/build.ps1 -Action test -Project tests/Boo.Integration.Tests/Boo.Integration.Tests.csproj -Configuration Release
 Passed: 88, Failed: 0, Skipped: 0
-TRX: TestResults/vikasmit_VIKASMIT_2026-11-07_14_15_54_net10.0.trx
+TRX: TestResults/<user>_<machine>_2026-11-07_14_15_54_net10.0.trx
 ```
 
 The repository oracle passed:
@@ -66,6 +66,6 @@ Root inspected and integrated the source, clarified that observed bounds are
 physical desktop pixels and coordinate-only clicks retain their existing
 proposal fields, then reran the complete integration suite: 88 passed,
 0 failed. Canonical TRX:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_14_18_34_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_14_18_34_net10.0.trx`.
 Oracle revision 13 remained unchanged. These results are local transport tests,
 not live provider or native desktop proof.

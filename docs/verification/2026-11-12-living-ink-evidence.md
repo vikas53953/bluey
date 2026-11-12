@@ -1,6 +1,6 @@
 # Living ink — builder evidence (12 Nov 2026)
 
-Branch `feat/living-ink` (from `lane/face` a3bdf20). Brief: `C:\Users\vikasmit\bluey-design-assets\living-ink\LIVING_INK_SPEC.md` (outside the repo).
+Branch `feat/living-ink` (from `lane/face` a3bdf20). Brief: `%USERPROFILE%\bluey-design-assets\living-ink\LIVING_INK_SPEC.md` (outside the repo).
 This page is the **builder's** record. The verdict belongs to the separate reviewer (see the PR).
 
 ## What changed (one line each)
