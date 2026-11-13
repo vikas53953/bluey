@@ -251,9 +251,10 @@ jobs:
           if ($bad -gt 0) { "::error title=Live AI smoke::$bad screenshot problem(s): copied from the screen, unreadable, or a capture with no real Boo window content"; exit 1 }
 
       # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
-      # (or a real secret) is deleted and the job fails; any other failure empties the upload path (fail closed).
-      # Generated from scripts/quality/key_scan.py step_run(); --check-workflows rejects any edit.
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
       - name: Key scan before upload (live evidence)
+        id: keyscan_artifacts_live_evidence
         if: ${{ !cancelled() }}
         shell: pwsh
         env:
@@ -263,13 +264,14 @@ jobs:
         run: |
           $rc = 98
           try { python -I scripts/quality/key_scan.py --preflight --secret-env ANTHROPIC_KEY --secret-env GEMINI_KEY --secret-env OPENAI_KEY --delete artifacts/live-evidence; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
           if ($rc -eq 0) { exit 0 }
           if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/live-evidence' -Recurse -Force -ErrorAction SilentlyContinue }
           if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/live-evidence')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
           exit 1
 
       - name: Upload live evidence (screenshots, observations, test results)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.keyscan_artifacts_live_evidence.outputs.safe == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: live-ai-evidence

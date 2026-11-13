@@ -6,15 +6,18 @@
       name. Exit 10 on a hit (the hit files are deleted). FAILS CLOSED: if anything else goes wrong (self-test,
       workflow check, crash, unreadable folder, read-only file, wildcard path), every file under PATH is deleted and
       the exit code is 3; the PowerShell wrapper also empties PATH on any exit code other than 0 and 10 (including
-      Python failing to start), so an upload after it has nothing unscanned to send.
+      Python failing to start). Above all, the upload step runs ONLY when its scan step reported `safe=true`, which
+      the wrapper writes only after exit 0, or exit 10 with every hit deleted; any other outcome skips the upload.
       --secret-env NAME   also look for the exact value of environment variable NAME (a real secret the job holds),
                           plain, UTF-16 (LE/BE), URL-encoded and base64 (standard and URL-safe, any alignment).
                           Unset or empty variables are skipped.
   python -I scripts/quality/key_scan.py --diff BASE
       Scan the lines added by `git diff BASE...HEAD` (text, binary and UTF-16 files). Prints file:line, never the match.
   python -I scripts/quality/key_scan.py --check-workflows
-      Every step in .github/workflows that uses an `upload` action must come right after a key-scan step whose run
-      block is exactly `step_run(path)` for the same single, literal path, with the same `if:`, and no other keys.
+      Every step in .github/workflows that uses an `upload` action must come right after (same job) a key-scan step
+      with `id: scan_id(path)` whose run block is exactly `step_run(path)` for the same single, literal path (letters,
+      digits, `._/-` only), and the upload's `if:` must require that step's `safe` output. No `working-directory` or
+      `defaults:` anywhere in such a workflow.
   python -I scripts/quality/key_scan.py --self-test
       Prove every pattern on fakes built at run time (no key-shaped text is stored in this file), every failure path,
       that clean files pass, and that no value is ever printed.
@@ -48,18 +51,19 @@ WORKFLOWS = root / '.github' / 'workflows'
 RULE = 'BOO-SAFE-002'
 RULES_DOC = 'docs/quality/RULES.md#boo-safe-002'
 EXIT_HIT, EXIT_FAIL_CLOSED = 10, 3
-UPLOAD_IFS = ('', '${{ !cancelled() }}')     # never `always()`: a cancelled scan must not be followed by an upload
 GLOB = re.compile(r'[*?\[\]!{}]')
+SAFE_PATH = re.compile(r'^[A-Za-z0-9._/-]+$')
 
-# Plain `sk-` keeps a word edge (so `risk-...` is not a key); every other prefix is distinctive and is found anywhere,
-# also glued to other bytes in a binary. The edge also accepts an escaped control character written as text (`\n`).
+# `sk-` forms keep a word edge (so `risk-...`, `flask-admin-...` are not keys) and `AIza` must not sit inside base64
+# text; every other prefix is distinctive and is found anywhere, also glued to other bytes in a binary. The edge also
+# accepts an escaped control character written as text (`\n`).
 _EDGE = rb'(?:(?<![A-Za-z0-9_])|(?<=\\[ntr0]))'
 SHAPES = [
     ('OpenAI/Anthropic API key',
-     rb'(?:sk-(?:proj|svcacct|admin|ant-[a-z]+\d*)-[A-Za-z0-9_-]{20,}|' + _EDGE + rb'sk-[A-Za-z0-9_-]{20,})'),
+     _EDGE + rb'sk-(?:(?:proj|svcacct|admin|ant-[a-z]+\d*)-)?[A-Za-z0-9_-]{20,}'),
     ('GitHub token', rb'(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}'),
     ('GitHub fine-grained token', rb'github_pat_[A-Za-z0-9_]{60,}'),
-    ('Google API key', rb'AIza[0-9A-Za-z_-]{35}'),
+    ('Google API key', rb'(?:(?<![A-Za-z0-9+/])|(?<=\\[ntr0]))AIza[0-9A-Za-z_-]{35}'),   # not inside base64 text
     ('AWS access key id', rb'(?:AKIA|ASIA)[0-9A-Z]{16}(?![0-9A-Z])'),
     ('private key block', rb'-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----'),
     ('Slack token', rb'xox[abprs]-[A-Za-z0-9-]{10,}'),
@@ -190,8 +194,12 @@ def files_under(path):
     if p.is_file():
         yield p
         return
+    if not p.exists():
+        return
     seen = set()
-    for top, dirs, files in os.walk(p, followlinks=True):
+    def fail(error):
+        raise error
+    for top, dirs, files in os.walk(p, followlinks=True, onerror=fail):
         real = os.path.realpath(top)
         if real in seen:
             dirs[:] = []
@@ -279,13 +287,25 @@ def scan(path, secret_envs=(), delete=False, out=print, oracle=None):
 
 # ---------------------------------------------------------------- the one allowed scan step
 
+def scan_id(path):
+    """The step id of the scan for one upload path (the upload's `if:` reads its `safe` output)."""
+    return 'keyscan_' + re.sub(r'[^A-Za-z0-9]+', '_', path).strip('_').lower()
+
+
+def upload_if(path, cancelled_guard):
+    cond = f"steps.{scan_id(path)}.outputs.safe == 'true'"
+    return '${{ ' + ('!cancelled() && ' if cancelled_guard else '') + cond + ' }}'
+
+
 def step_run(path, secret_envs=()):
-    """The exact `run:` block of a scan step for one upload path. --check-workflows accepts nothing else."""
+    """The exact `run:` block of a scan step for one upload path. --check-workflows accepts nothing else. It writes
+    `safe=true` (the only thing that lets the upload run) after exit 0, or exit 10 with every hit deleted."""
     extra = ''.join(f' --secret-env {name}' for name in secret_envs)
     return '\n'.join([
         '$rc = 98',
         f'try {{ python -I scripts/quality/key_scan.py --preflight{extra} --delete {path}; $rc = $LASTEXITCODE }} '
         'catch { $rc = 99 }',
+        f"if ($rc -eq 0 -or $rc -eq {EXIT_HIT}) {{ Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }}",
         'if ($rc -eq 0) { exit 0 }',
         f"if ($rc -ne {EXIT_HIT}) {{ Remove-Item -LiteralPath '{path}' -Recurse -Force -ErrorAction SilentlyContinue }}",
         f"if ($rc -ne {EXIT_HIT} -and (Test-Path -LiteralPath '{path}')) "
@@ -295,13 +315,17 @@ def step_run(path, secret_envs=()):
 
 
 def _parse_steps(text):
-    """Steps of every job as dicts of their top-level keys. Block scalars keep their exact text; nested mappings
-    (`with:`, `env:`) become dicts of their keys. Anything this reader does not understand makes the check fail."""
+    """Steps of every job as dicts of their top-level keys, each with '_job' (the job it belongs to). Block scalars keep
+    their exact text; nested mappings (`with:`, `env:`) become dicts of their keys. Anything this reader does not
+    understand makes the check fail."""
     lines = text.splitlines()
-    steps, i = [], 0
+    steps, i, job = [], 0, None
     while i < len(lines):
+        jm = re.match(r'^  ([A-Za-z_][\w-]*):\s*$', lines[i])
+        if jm and any(l.strip() == 'jobs:' for l in lines[:i]):
+            job = jm.group(1)
         m = re.match(r'^(\s*)- (\S.*)$', lines[i])
-        if not m or not re.match(r'^[A-Za-z][\w-]*:', m.group(2)):
+        if not m or not re.match(r'^["\']?[A-Za-z][\w-]*["\']?:', m.group(2)):
             i += 1
             continue
         indent = len(m.group(1)) + 2
@@ -310,10 +334,10 @@ def _parse_steps(text):
         while i < len(lines) and (not lines[i].strip() or len(lines[i]) - len(lines[i].lstrip()) >= indent):
             body.append(lines[i])
             i += 1
-        step, j = {}, 0
+        step, j = {'_job': job}, 0
         while j < len(body):
             line = body[j]
-            km = re.match(r'^ {%d}([A-Za-z][\w-]*):\s*(.*)$' % indent, line)
+            km = re.match(r'^ {%d}["\']?([A-Za-z][\w-]*)["\']?:\s*(.*)$' % indent, line)
             j += 1
             if not km:
                 continue
@@ -330,7 +354,7 @@ def _parse_steps(text):
             elif not value and child:
                 sub = {}
                 for c in child:
-                    cm = re.match(r'^\s*([A-Za-z][\w-]*):\s*(.*)$', c)
+                    cm = re.match(r'^\s*["\']?([A-Za-z][\w-]*)["\']?:\s*(.*)$', c)
                     if cm:
                         sub[cm.group(1)] = cm.group(2).strip()
                     elif c.strip():
@@ -346,7 +370,9 @@ def check_workflows(folder=None, out=print):
     folder = folder or WORKFLOWS
     problems, uploads = [], 0
     for wf in sorted(pathlib.Path(folder).glob('*.y*ml')):
-        steps = _parse_steps(wf.read_text(encoding='utf-8'))
+        text = wf.read_text(encoding='utf-8')
+        steps = _parse_steps(text)
+        scanned = False
         for i, s in enumerate(steps):
             uses = str(s.get('uses', ''))
             if 'upload' not in uses.lower():
@@ -354,25 +380,33 @@ def check_workflows(folder=None, out=print):
             uploads += 1
             if wf.name == 'release.yml':
                 continue                                   # documented gap (RULES.md): release uploads not scanned yet
+            scanned = True
             name = s.get('name', uses)
             path = str(s.get('with', {}).get('path', '')) if isinstance(s.get('with'), dict) else ''
-            cond = s.get('if', '')
             prev = steps[i - 1] if i else {}
-            if not path or path in ('|', '|-', '>', '>-') or GLOB.search(path) or ' ' in path or path.startswith(('"', "'")):
-                problems.append(f'{wf.name}: "{name}" must upload one literal path (no list, wildcard or quotes)')
+            if not SAFE_PATH.match(path) or GLOB.search(path):
+                problems.append(f'{wf.name}: "{name}" must upload one literal path of letters, digits and ._/- only')
                 continue
-            if cond not in UPLOAD_IFS:
-                problems.append(f'{wf.name}: "{name}" has if: {cond}; use no if or `${{{{ !cancelled() }}}}`')
+            if prev.get('_job') != s.get('_job'):
+                problems.append(f'{wf.name}: "{name}" must come right after its key-scan step in the same job')
+                continue
             secret_envs = sorted(prev.get('env', {})) if isinstance(prev.get('env'), dict) else []
-            expected = step_run(path, secret_envs)
-            extra_keys = set(prev) - {'name', 'if', 'shell', 'env', 'run'}
-            if prev.get('run') != expected or prev.get('shell') != 'pwsh' or extra_keys:
-                problems.append(f'{wf.name}: "{name}" must come right after a key-scan step whose run block is exactly '
-                                f'key_scan.step_run({path!r}) with shell: pwsh and no other keys'
+            extra_keys = set(prev) - {'_job', 'name', 'id', 'if', 'shell', 'env', 'run'}
+            if (prev.get('run') != step_run(path, secret_envs) or prev.get('shell') != 'pwsh'
+                    or prev.get('id') != scan_id(path) or extra_keys):
+                problems.append(f'{wf.name}: "{name}" must come right after a key-scan step with id: {scan_id(path)}, '
+                                f'shell: pwsh and a run block exactly key_scan.step_run({path!r}), no other keys'
                                 + (f' (found keys: {", ".join(sorted(extra_keys))})' if extra_keys else ''))
-            elif prev.get('if', '') != cond:
-                problems.append(f'{wf.name}: "{name}" has if: {cond or "(none)"} but its scan has '
-                                f'if: {prev.get("if") or "(none)"}')
+                continue
+            allowed = {upload_if(path, False): '', upload_if(path, True): '${{ !cancelled() }}'}
+            cond = s.get('if', '')
+            if cond not in allowed:
+                problems.append(f'{wf.name}: "{name}" must have if: {upload_if(path, True)} (or without the '
+                                '!cancelled() guard) so it runs only after its scan reported safe')
+            elif prev.get('if', '') != allowed.get(cond):
+                problems.append(f'{wf.name}: "{name}": its scan step must have if: {allowed.get(cond) or "(none)"}')
+        if scanned and re.search(r'^\s*(working-directory|defaults)\s*:', text, re.M):
+            problems.append(f'{wf.name}: no working-directory or defaults: in a workflow with scanned uploads')
     for p in problems:
         out(f'::error::{RULE} workflow check: {p}')
     if problems:
@@ -384,19 +418,46 @@ def check_workflows(folder=None, out=print):
 
 # ---------------------------------------------------------------- PR diff
 
+def _unquote(name):
+    """git C-quotes a path holding `"`, `\\`, control characters (and non-ASCII unless core.quotePath=false)."""
+    if not (name.startswith(b'"') and name.endswith(b'"')):
+        return name
+    out, body, i = bytearray(), name[1:-1], 0
+    simple = {ord('n'): 10, ord('t'): 9, ord('r'): 13, ord('a'): 7, ord('b'): 8, ord('f'): 12, ord('v'): 11}
+    while i < len(body):
+        c = body[i]
+        if c == 0x5c and i + 1 < len(body):
+            n = body[i + 1]
+            if 0x30 <= n <= 0x37 and i + 3 < len(body) + 1:
+                out.append(int(body[i + 1:i + 4], 8))
+                i += 4
+                continue
+            out.append(simple.get(n, n))
+            i += 2
+            continue
+        out.append(c)
+        i += 1
+    return bytes(out)
+
+
 def scan_diff(base, out=print, cwd=None, oracle=None):
     allowed = FrozenTests(oracle)
-    diff = subprocess.run(['git', '-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--text',
-                           '-U0', f'{base}...HEAD'], capture_output=True, cwd=cwd or root)
-    if diff.returncode != 0:
+    diff = subprocess.run(['git', '-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv',
+                           '--text', '-U0', f'{base}...HEAD'], capture_output=True, cwd=cwd or root)
+    names = subprocess.run(['git', 'diff', '--name-only', '--diff-filter=ACR', '-z', f'{base}...HEAD'],
+                           capture_output=True, cwd=cwd or root)
+    if diff.returncode != 0 or names.returncode != 0:
         out(f'::error::{RULE} could not read the diff against {base}')
         return EXIT_FAIL_CLOSED
     file, line_no, in_hunk, hits = None, 0, False, []
+    for name in filter(None, names.stdout.split(b'\0')):          # a key in an added or renamed file NAME
+        for _, label, _, _, length in scan_bytes(name, allowed, ()):
+            hits.append((name.decode('utf-8', errors='replace'), 0, label, length))
     for raw in diff.stdout.split(b'\n'):
         if raw.startswith(b'diff --git '):
             file, in_hunk = None, False
         elif not in_hunk and raw.startswith(b'+++ '):
-            name = raw[4:].rstrip(b'\t')
+            name = _unquote(raw[4:].rstrip(b'\t'))
             file = name[2:].decode('utf-8', errors='replace') if name.startswith(b'b/') else None
         elif raw.startswith(b'@@'):
             m = re.search(rb'\+(\d+)', raw)
@@ -406,8 +467,9 @@ def scan_diff(base, out=print, cwd=None, oracle=None):
                 hits.append((file, line_no, label, length))
             line_no += 1
     for file, line_no, label, length in hits:
-        out(f'::error file={safe(file)},line={line_no}::{RULE} key-shaped text: {label} ({length} chars) added at '
-            f'{safe(file)}:{line_no}. The value is not shown.')
+        where = f'{safe(file)}:{line_no}' if line_no else f'{safe(file)} (in the file name)'
+        out(f'::error file={safe(file)},line={line_no or 1}::{RULE} key-shaped text: {label} ({length} chars) added '
+            f'at {where}. The value is not shown.')
     if hits:
         what, why, fix, dont = HELP['key-shaped text']
         out(f'What: {what}\nWhy: {why}\nFix: {fix}\n{dont}\nRule: {RULES_DOC}')
@@ -481,8 +543,8 @@ def self_test(out=print):
                 elif form == 'escaped-newline':
                     (case / 'out.json').write_text('{"log": "first\\n' + fake + '\\tsecond"}', encoding='utf-8')
                 elif form == 'glued':
-                    if label in ('OpenAI/Anthropic API key', 'bearer token', 'AWS access key id'):
-                        continue                    # plain sk- / bearer / AKIA need an edge by design
+                    if label in ('OpenAI/Anthropic API key', 'bearer token', 'Google API key'):
+                        continue                    # sk- / bearer / AIza keep a leading edge by design
                     (case / 'blob.bin').write_bytes(b'\x01Qz' + fake.encode() + b'\x02')
                 elif form == 'utf16-even':
                     (case / 'app.dll').write_bytes(b'MZ\x90\0' + fake.encode('utf-16-le') + b'\0' * 8 + b'x' * 400)
@@ -604,34 +666,81 @@ def self_test(out=print):
             proc = cli('--delete', bad)
             check(f'a wildcard or list path is refused ({bad})', proc.returncode == EXIT_FAIL_CLOSED)
 
-        # workflow check: the scan step must be exactly step_run(path) right before the upload, same if:
-        def wf_text(scan_lines, upload_if='${{ !cancelled() }}', path='out/x', uses='actions/upload-artifact@v4'):
-            run_block = '\n'.join('          ' + line for line in step_run('out/x').splitlines())
+        # workflow check: the scan step (id + exact run) right before the upload in the same job, upload gated on safe
+        def wf_text(variant='', path='out/x', uses='actions/upload-artifact@v4', guard=True, scan_path='out/x'):
+            run_block = '\n'.join('          ' + line for line in step_run(scan_path).splitlines())
             scan = ('      - name: Key scan before upload (x)\n'
-                    + ('        if: ${{ !cancelled() }}\n' if 'no-if' not in scan_lines else '')
-                    + ('        working-directory: sub\n' if 'workdir' in scan_lines else '')
+                    + ('        id: ' + scan_id(scan_path) + '\n' if variant != 'no-id' else '')
+                    + ('        if: ${{ !cancelled() }}\n' if guard and variant != 'scan-no-if' else '')
+                    + ('        working-directory: sub\n' if variant == 'workdir' else '')
                     + '        shell: pwsh\n        run: |\n'
-                    + (run_block.replace(' --delete', '') if 'no-delete' in scan_lines else run_block) + '\n')
-            if 'no-scan' in scan_lines:
+                    + (run_block.replace(' --delete', '') if variant == 'no-delete' else run_block) + '\n')
+            cond = upload_if(scan_path, guard)
+            if variant == 'upload-not-gated':
+                cond = '${{ !cancelled() }}'
+            upload = (f'      - name: Upload x\n        if: {cond}\n        uses: {uses}\n'
+                      f'        with:\n          name: x\n          path: {path}\n')
+            head = 'jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n'
+            if variant == 'no-scan':
                 scan = ''
-            return ('jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n' + scan
-                    + f'      - name: Upload x\n' + (f'        if: {upload_if}\n' if upload_if else '')
-                    + f'        uses: {uses}\n        with:\n          name: x\n          path: {path}\n')
+            if variant == 'other-job':
+                return head + scan + '  b:\n    runs-on: ubuntu-latest\n    steps:\n' + upload
+            if variant == 'defaults':
+                head = 'jobs:\n  a:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        shell: pwsh\n    steps:\n'
+            return head + scan + upload
         wf = tmp / 'wf'
         wf.mkdir()
-        (wf / 'a.yml').write_text(wf_text(''), encoding='utf-8')
+        (wf / 'a.yml').write_text(wf_text(), encoding='utf-8')
         check('workflow check passes the generated scan step', check_workflows(wf, out=quiet) == 0)
+        (wf / 'a.yml').write_text(wf_text(guard=False), encoding='utf-8')
+        check('workflow check passes the generated scan step without the cancelled guard',
+              check_workflows(wf, out=quiet) == 0)
         for name, text in (('no scan step', wf_text('no-scan')),
                            ('scan without --delete', wf_text('no-delete')),
                            ('scan with working-directory', wf_text('workdir')),
-                           ('different if', wf_text('no-if')),
-                           ('upload with always()', wf_text('', upload_if='always()')),
-                           ('wrong path', wf_text('', path='out/y')),
-                           ('wildcard path', wf_text('', path='out/**/*.log')),
-                           ('multi-line path', wf_text('', path='|\n            out/x\n            out/y')),
-                           ('another upload action unscanned', wf_text('no-scan', uses='actions/upload-pages-artifact@v3'))):
+                           ('workflow defaults', wf_text('defaults')),
+                           ('scan without its id', wf_text('no-id')),
+                           ('upload not gated on the scan result', wf_text('upload-not-gated')),
+                           ('scan if differs from upload', wf_text('scan-no-if')),
+                           ('scan in another job', wf_text('other-job')),
+                           ('wrong path', wf_text(path='out/y')),
+                           ('wildcard path', wf_text(path='out/**/*.log')),
+                           ('quote in path', wf_text(path="out/x'y")),
+                           ('quote in path, scan generated for it', wf_text(path="out/x'y", scan_path="out/x'y")),
+                           ('dollar in path, scan generated for it', wf_text(path='out/$x', scan_path='out/$x')),
+                           ('multi-line path', wf_text(path='|\n            out/x\n            out/y')),
+                           ('another upload action unscanned', wf_text('no-scan', uses='actions/upload-pages-artifact@v3')),
+                           ('quoted uses key', wf_text('no-scan').replace('        uses:', '        "uses":'))):
             (wf / 'a.yml').write_text(text, encoding='utf-8')
             check(f'workflow check fails: {name}', check_workflows(wf, out=quiet) == 1)
+
+        # a folder that cannot be listed fails closed (not skipped)
+        case = tmp / 'unlistable'
+        (case / 'sub').mkdir(parents=True)
+        (case / 'a.log').write_text('fine', encoding='utf-8')
+        real_scandir = os.scandir
+        def deny(path='.'):
+            if str(path).endswith('sub'):
+                raise PermissionError(13, 'denied', str(path))
+            return real_scandir(path)
+        os.scandir = deny
+        try:
+            check('a folder that cannot be listed is an error, not skipped', run(case)[0] == -1)
+        finally:
+            os.scandir = real_scandir
+
+        # a key-named file that cannot be deleted: fail closed, and its name is never printed
+        if os.name == 'nt':
+            case = tmp / 'heldkey'
+            case.mkdir()
+            held = case / (fakes['GitHub token'] + '.log')
+            held.write_text('x', encoding='utf-8')
+            with open(held, 'rb'):
+                proc = cli('--delete', case)
+            printed = proc.stdout + proc.stderr
+            check('an undeletable hit fails closed (exit 3)', proc.returncode == EXIT_FAIL_CLOSED)
+            check('the name of an undeletable key-named file is never printed',
+                  fakes['GitHub token'].encode() not in printed and fakes['GitHub token'][4:30].encode() not in printed)
 
         # PR diff: added keys fail at file:line (no value): plain, non-ASCII name, a "++" line, binary, UTF-16
         g = tmp / 'git'
@@ -648,6 +757,10 @@ def self_test(out=print):
         (g / 'plus.txt').write_text('++ header-looking line\n' + fakes['Slack token'] + '\n', encoding='utf-8')
         (g / 'blob.bin').write_bytes(b'\0\x01' + fakes['Tailscale key'].encode() + b'\0')
         (g / 'wide.txt').write_bytes(fakes['GitHub token'].encode('utf-16-le'))
+        if os.name != 'nt':
+            (g / 'q"uote.txt').write_text(fakes['Google API key'] + '\n', encoding='utf-8')
+        (g / 'back\\slash.txt').write_text(fakes['Google API key'] + '\n', encoding='utf-8') if os.name != 'nt' else None
+        (g / (fakes['JSON Web Token'] + '.txt')).write_text('innocent\n', encoding='utf-8')
         git('add', '.')
         git('commit', '-q', '-m', 'pr')
         lines = []
@@ -658,7 +771,9 @@ def self_test(out=print):
         check('PR diff: a line starting with ++ does not hide the next one', 'plus.txt:2' in text)
         check('PR diff: binary file is scanned', 'blob.bin' in text)
         check('PR diff: UTF-16 file is scanned', 'wide.txt' in text)
+        check('PR diff: a key in an added file NAME fails', '(in the file name)' in text)
         check('PR diff never prints a value', not any(f.split()[-1] in text for f in fakes.values()))
+        check('git C-quoted names are decoded', _unquote(b'"q\\"uote\\tx\\303\\244.txt"') == 'q"uote\tx\u00e4.txt'.encode())
         check('PR diff against a missing base fails closed',
               scan_diff('no-such-base', out=quiet, cwd=g) == EXIT_FAIL_CLOSED)
 
@@ -712,7 +827,8 @@ def main(argv):
             raise RuntimeError('the key scan could not prove itself')
         return scan(paths[0], secret_envs, delete)
     except BaseException as e:                       # fail closed on anything: crash, unreadable path, bad encoding
-        print(f'::error::{RULE} key scan failed ({type(e).__name__}: {e}); failing closed')
+        code = getattr(e, 'errno', None)            # never the exception text: it can hold a path with a key
+        print(f'::error::{RULE} key scan failed ({type(e).__name__}{f" errno {code}" if code else ""}); failing closed')
         if delete:
             for p in paths:
                 if not GLOB.search(p):
