@@ -14,7 +14,7 @@ Written 12 Nov 2026 on `lane/face` at `f244e47`. Source idea: poteto's AIE talk 
 > the baseline again on its own head, so these numbers only change targets, not the plan. Also changed since
 > `f244e47`: the repo is **public** (by 13 Nov) and CI uploads work again (section 1.6).
 
-> **Progress, 13 Nov 2026 (`lane/face` at `1c82af8`).** Vikas approved the order in section 5 on 12 Nov, 10:02 PM IST
+> **Progress, 13 Nov 2026 (`lane/face` at `13e5484`).** Vikas approved the order in section 5 on 12 Nov, 10:02 PM IST
 > (`docs/DECISIONS.md`). Done so far, each with full QA (separate reviewer, a real-key live run, evidence table):
 > - **Step 1, storage:** PR #15 (7-day artifact retention) merged; the repo went public, so CI runs and uploads again.
 > - **Step 2, screen-capture risk:** PR #18 merged (`00a1fc2`). The live smoke runs only on GitHub's VM; test screenshots
@@ -24,6 +24,8 @@ Written 12 Nov 2026 on `lane/face` at `f244e47`. Source idea: poteto's AIE talk 
 >   is a **required check** on `lane/face` (pinned to GitHub Actions). The `main` step waits until `lane/face` reaches `main`.
 > - **Phase 1, PR 1.1 (ratchet):** PR #21 merged (`1c82af8`). 16 patterns, 554 hits on `lane/face`, may only go down;
 >   the base branch's own ratchet judges every PR. Its job `quality` is **not yet a required check** on any branch.
+> - **Step 4, verify-boo:** PR #13 merged (`13e5484`). The verify-boo skill, the live journeys in `tools/Boo.VerifyLive`
+>   and `docs/FEATURE_MAP.md` now exist on `lane/face`; the journeys are not a required check (option H below is open).
 > - **PRs 1.8 and 1.9 are largely done by PR #18:** the live smoke runs only on GitHub's VM (no runner choice, a refuse
 >   step), `scripts/ci/check_runners.py` fails any workflow that could run elsewhere, and the 3 frozen fixtures were
 >   re-frozen with window-only capture (oracle revision 24 by now). Not done from 1.8: the `CaptureGuard.cs` file name
@@ -125,7 +127,7 @@ removed in cleanup C10 (2.8).
 | 3 Runtime | Notch face gallery: every face state rendered offscreen to PNG | `Boo.exe --notch-gallery`, `windows-ci` | Skipped at `f244e47`; running again since 13 Nov (1.6). |
 | Process | Branch protection on `lane/face` and `main`: required checks `demos` and `build-test-publish`, strict (branch must be up to date) | GitHub settings | No required reviews, admins not enforced, no rulesets. *(Since 13 Nov `lane/face` also requires `live-ai-smoke`; see Progress.)* |
 | Process | Separate reviewer, evidence table with live / mock / manual / UNVERIFIED labels | Vikas's pipeline; PR bodies | Lives only in prompts and PR habits. Nothing fails if the table is missing. |
-| Process | verify-boo skill: 7 live journeys (j0–j6) on the real `Boo.exe`, a feature map of 68 features, a prove-it rule, a map drift checker | PR #13 (open, `test/verify-boo-skill`): `.claude/skills/verify-boo/`, `tools/Boo.VerifyLive/`, `docs/FEATURE_MAP.md`, `AGENTS.md` | Not merged; j3 (screen explain) failed 2 of 3 live runs; not a required check. |
+| Process | verify-boo skill: 7 live journeys (j0–j6) on the real `Boo.exe`, a feature map of 68 features, a prove-it rule, a map drift checker | PR #13 (open, `test/verify-boo-skill`): `.claude/skills/verify-boo/`, `tools/Boo.VerifyLive/`, `docs/FEATURE_MAP.md`, `AGENTS.md` | Not merged; j3 (screen explain) failed 2 of 3 live runs; not a required check. *(PR #13 merged 13 Nov, `13e5484`; see Progress.)* |
 | 4 Prose | `AGENTS.md` / `CLAUDE.md` rules (PR #13), the standing orders in Vikas's own Claude settings | prompts | See 1.4: most of these can become code. |
 
 ### 1.4 Prose rules that should become code checks
@@ -789,7 +791,8 @@ retention. OpenAI: capped live turns per run.
 2. **Stop the real-screen risk** (PR 1.8: live smoke default to `windows-latest`, capture guard in tools).
    Small, and it closes a privacy gap today.
 3. **Phase 1 gates 1.1 → 1.7, 1.10–1.12**, then cleanups C1–C5 (they unblock Phase 2).
-4. **Fix j3 and merge PR #13** (verify-boo), so the feature map and live journeys exist on `lane/face`.
+4. **Fix j3 and merge PR #13** (verify-boo), so the feature map and live journeys exist on `lane/face`. *(Done: merged
+   13 Nov, `13e5484`.)*
 5. **Phase 2** in the order of 3.3; video (2.8) can go early because it helps every review.
 6. **Phase 3** only after Phase 2's `live-journeys` check has been required and stable for 2 weeks.
 
