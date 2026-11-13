@@ -2,11 +2,7 @@ using Boo.Core;
 
 namespace Boo.App;
 
-/// <summary>
-/// Stop (Ctrl+Alt+F12, Ctrl+Alt+S, the Stop button, the tray, a right-click on the notch): one <see cref="StopAll"/>
-/// that ends every request, voice turn, overlay and pending action, pauses a running focus session, and leaves no
-/// "Boo is working" status line behind (issue #71).
-/// </summary>
+/// <summary>Stop: the one action behind Ctrl+Alt+F12, Ctrl+Alt+S, the Stop button, the tray and the notch.</summary>
 public partial class MainWindow
 {
     private const string StoppedStatusMessage = "Stopped. Nothing is running now; ask again when you are ready.";
@@ -14,9 +10,9 @@ public partial class MainWindow
     private string? _busyStatusText;
 
     /// <summary>
-    /// Stops everything. A cancelled request no longer writes its own message (it is not current any more), so this
-    /// replaces a "Boo is working" status line that is still showing with a plain "Stopped" line; an error or a newer
-    /// message stays (issue #71).
+    /// Ends every request, voice turn, overlay and pending action and pauses a running focus session. If the status line
+    /// still shows a "working" message from <see cref="ShowBusyStatus"/>, it becomes <see cref="StoppedStatusMessage"/>;
+    /// any other status text is left as it is.
     /// </summary>
     public void StopAll()
     {
@@ -74,10 +70,8 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// Every status line that says Boo is still working goes through here, so <see cref="StopAll"/> can tell it is
-    /// stale and replace it (issue #71: after Stop the line kept saying "Thinking about the selected context…").
-    /// Writes nothing once the request it belongs to is no longer current: a continuation that resumes after Stop (or
-    /// after a newer request) must not put a "working" line back.
+    /// Shows a "working" status for the request of <paramref name="generation"/>, or does nothing if that request is no
+    /// longer current. Every status that says Boo is still working must be set through this method.
     /// </summary>
     private void ShowBusyStatus(string text, long generation)
     {
