@@ -1,5 +1,5 @@
 {
-  "revision": 26,
+  "revision": 27,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -62,6 +62,7 @@
     "tests/Boo.Core.Tests/NotchFaceGeometryTests.cs": "16d87b6bd7380910490cfa6513663bc83096c2a79d4151556a4afbea89a3f9f0",
     "tests/Boo.Core.Tests/NotchLayoutTests.cs": "08b9fb2bd60bac708093c203b0fe7b28e0b0da57062601fbacf2bb7391915c0c",
     "tests/Boo.Core.Tests/OcrNudgeTargetMatcherTests.cs": "16fda5c38efedac9b863cb0b45ef1dd68115ead6ce3be5230e2e92bcf1974236",
+    "tests/Boo.Core.Tests/OpenUrlInvisibleCharacterTests.cs": "adab134f36113c2759f0d5ec72ef3b086339c1b80836f04647c9ef97b8cfa942",
     "tests/Boo.Core.Tests/ParityMotionTests.cs": "a25acc807a997524b2b37310a0aab58567de114b484b7c829e3e2356f5dcf745",
     "tests/Boo.Core.Tests/PauseAllShortcutTests.cs": "65696aecc08b8d3b044f60c1bf34c5fc4bed2022ce5b9cdc4de31bcba4bd1f40",
     "tests/Boo.Core.Tests/PerfBudgetTests.cs": "ec87531510aa5563bc8aabd155f9a9558fc2005f2110057f6459f8002d813795",
@@ -151,13 +152,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-25.json",
-  "previousManifestSha256": "e6347b90077bb84eb87fd4325673ed4694a7a0acb298dfe06c5f47dfb496fb75",
-  "revisionReason": "PR #47: additive oracle extension for mutation-driven tests, per Vikas's 13 Nov order; only RealtimeVoiceConfigurationTests.cs added, every existing hash unchanged, no rebaseline",
+  "previousManifest": "docs/verification/test-oracle-history/revision-26.json",
+  "previousManifestSha256": "69154fcbea6b8fc535687ebb386d66ff494f4c999ae4b5b2958871a6217ba0be",
+  "revisionReason": "Kill mutant M1: open_url invisible-character guard (PR #3 mutation review 13 Nov)",
   "addedFiles": [
-    "tests/Boo.Integration.Tests/RealtimeVoiceConfigurationTests.cs"
+    "tests/Boo.Core.Tests/OpenUrlInvisibleCharacterTests.cs"
   ],
-  "revisionCommit": "ff1269514cd1112861d7f3ddfcdb9ed402dc3f51",
+  "revisionCommit": "b7e3e806aa5c1d60283684704a860aebd9c1467a",
   "changedFiles": [],
   "removedFiles": []
 }
