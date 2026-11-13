@@ -1,0 +1,170 @@
+name: app-explorer
+
+# Boo APP EXPLORER (tools/Boo.Explorer): drives the published Boo.exe like a user with FlaUI to FIND bugs. Scripted
+# journeys from .claude/skills/verify-boo/journeys.md, then bounded, seeded variations: wrong-order clicks, rapid
+# hover / hotkey toggles, typing during a pending reply, settings saved mid-chat, wrong key, no network (firewall),
+# kill-and-relaunch mid-reply. A red run here means "the explorer found something": read explorer-findings in the log
+# and the -FAILED screenshots; it is not a merge gate.
+#
+# Manual only: workflow_dispatch (once this file is on the default branch; GitHub cannot dispatch a workflow that only
+# exists on a branch), or adding the label `run-app-explorer` to a pull request (one run per label add; nothing runs
+# on a plain push). RUNS ONLY ON GITHUB'S OWN WINDOWS VM (windows-latest), never a personal PC: it
+# drives the mouse and keyboard, and Boo sends a picture of the screen to the AI. Screenshots are Boo's own windows only.
+#
+# MONEY: real OpenAI on the cheapest chat model (gpt-6-luna), HARD CAP 20 billed requests per run, enforced in code
+# (ExplorerLedger refuses the 21st). No retries anywhere (Boo has none; the explorer never re-asks; xunit does not
+# rerun). The planned run uses 11. explorer-ledger.txt lists every billed and unbilled (401 / blocked) request.
+# The key is only read from the repository secret, seeded through Boo's own DPAPI file, never typed or printed.
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: Seed for the guided random variations (same seed = same hover / hotkey timings)
+        type: string
+        required: false
+        default: '5353'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-explorer-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  explore:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-app-explorer'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      BOO_CAPTURE_SCOPE: boo-windows
+      BOO_LIVE_TEXT_PROVIDER: openai
+      BOO_LIVE_MODEL: gpt-6-luna
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=App explorer refused::This job runs only on a GitHub-hosted runner (runner environment: '$($env:RUNNER_ENVIRONMENT)')."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: true
+
+      - name: Require the OpenAI key (fail closed), mask it, empty evidence folder
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:OPENAI_KEY)) {
+            "::error title=App explorer BLOCKED::Repository secret BOO_LIVE_OPENAI_KEY is missing, so the real-key part cannot run. This run is NOT a pass."
+            exit 1
+          }
+          Write-Output "::add-mask::$($env:OPENAI_KEY.Trim())"
+          "OpenAI key present ($($env:OPENAI_KEY.Trim().Length) characters)."
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts\explorer-evidence'
+          if (Test-Path $evidence) { Remove-Item $evidence -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+
+      - name: The cheap model exists (free check, before any paid call)
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          try {
+            $null = Invoke-RestMethod -Method Get -Uri "https://api.openai.com/v1/models/$($env:BOO_LIVE_MODEL)" -Headers @{ Authorization = "Bearer $($env:OPENAI_KEY.Trim())" } -TimeoutSec 30
+            "OpenAI model available: $env:BOO_LIVE_MODEL"
+          } catch {
+            "::error title=App explorer BLOCKED::OpenAI model '$env:BOO_LIVE_MODEL' is not available to this key (HTTP $($_.Exception.Response.StatusCode.value__))."
+            exit 1
+          }
+
+      - name: Refuse if any AI host is redirected (no mock may answer)
+        shell: pwsh
+        run: |
+          $hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
+          $line = Get-Content $hostsFile -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch '^\s*#' -and $_ -match 'api\.openai\.com' }
+          if ($line) { "::error title=App explorer FAILED CLOSED::api.openai.com is pinned in the hosts file: $line"; exit 1 }
+          $ips = @(Resolve-DnsName api.openai.com -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress } | Select-Object -ExpandProperty IPAddress)
+          if ($ips.Count -eq 0 -or ($ips | Where-Object { $_ -match '^(127\.|0\.|::1$)' })) { "::error title=App explorer FAILED CLOSED::api.openai.com resolves to '$($ips -join ', ')'"; exit 1 }
+          "api.openai.com -> $($ips -join ', ')"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Publish Boo and build the explorer
+        run: |
+          dotnet restore Boo.sln
+          dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/live
+          dotnet build tools/Boo.Explorer -c Release
+
+      - name: Explore Boo (FlaUI against the published Boo.exe; no key, wrong key, no network, real key)
+        timeout-minutes: 40
+        shell: pwsh
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\explorer-evidence
+          BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          BOO_EXPLORER_SEED: ${{ inputs.seed || '5353' }}
+        run: |
+          & dotnet test tools/Boo.Explorer -c Release --no-build --logger trx --logger "console;verbosity=normal" --results-directory artifacts/explorer-evidence/trx
+          $testExit = $LASTEXITCODE
+          '----- explorer findings (every *-FAILED.txt) -----'
+          Get-ChildItem artifacts/explorer-evidence -Filter *-FAILED.txt -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName | Select-Object -First 40 }
+          '----- observations -----'
+          Get-ChildItem artifacts/explorer-evidence -Filter *.txt -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike '*-FAILED.txt' -and $_.Name -notlike '*.capture.txt' } | Sort-Object Name | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          exit $testExit
+
+      - name: Firewall rule removed (no-network launch cleaned up)
+        if: always()
+        shell: pwsh
+        run: |
+          netsh advfirewall firewall delete rule name="Boo explorer: no network for Boo.exe" | Out-Null
+          'firewall rule cleanup done'
+
+      - name: Test gate (the explorer ran; no empty or skipped run)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/explorer-evidence/trx -SourceDirectory tools/Boo.Explorer
+
+      - name: Key scan before upload (explorer evidence)
+        id: keyscan_artifacts_explorer_evidence
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --secret-env OPENAI_KEY --delete artifacts/explorer-evidence; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/explorer-evidence' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/explorer-evidence')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload explorer evidence (screenshots, observations, ledger, test results)
+        if: ${{ !cancelled() && steps.keyscan_artifacts_explorer_evidence.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: explorer-evidence
+          path: artifacts/explorer-evidence
+          if-no-files-found: warn
+          retention-days: 14
