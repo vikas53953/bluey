@@ -730,7 +730,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void SendButton_OnClick(object sender, RoutedEventArgs e)
+    private void SendButton_OnClick(object sender, RoutedEventArgs e) => UiAction.Run(SendAsync);
+
+    private async Task SendAsync()
     {
         var text = InputBox.Text.Trim();
         if (text.Length == 0)
@@ -851,63 +853,6 @@ public partial class MainWindow : Window
             if (!handedToRealtime && IsCurrent(lease.Generation))
             {
                 SetFace(_faceInputs with { Thinking = false });
-            }
-        }
-    }
-
-    private async void TalkButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_listening)
-        {
-            StopListening();
-            return;
-        }
-
-        var lease = BeginRequest();
-        try
-        {
-            var realtime = EnsureRealtime();
-            await realtime.ConnectAsync(lease.Token);
-            if (!IsCurrent(lease.Generation))
-            {
-                return;
-            }
-            _realtimeConnected = true;
-            _voiceTaskAuthorized = false;
-            var uploads = new AudioUploadQueue(realtime.SendAudioAsync, lease.Token);
-            _audioUploads = uploads;
-            uploads.Failed += message => PostAudioFailure(message, lease.Generation, uploads);
-            _audio?.Dispose();
-            _audio = CreateAudio(uploads, lease.Generation);
-            if (!_audio.TryStart(_settings.MicrophoneDevice, out var micFailure))
-            {
-                StopListening();
-                ListeningStatus.Text = "Microphone unavailable. You can still type a request.";
-                StatusText.Text = micFailure;
-                return;
-            }
-            _listening = true;
-            _onMicrophoneActivity(true);
-            TalkButton.Content = "Stop talk";
-            ListeningStatus.Text = "Listening… press Stop talk or the global Stop to interrupt.";
-            StatusText.Text = "Microphone active by explicit request.";
-        }
-        catch (OperationCanceledException)
-        {
-            if (IsCurrent(lease.Generation))
-            {
-                StopListening();
-                _onMicrophoneActivity(false);
-                ListeningStatus.Text = "Listening stopped.";
-            }
-        }
-        catch (Exception ex)
-        {
-            if (IsCurrent(lease.Generation))
-            {
-                StopListening();
-                ListeningStatus.Text = "Microphone unavailable. You can still type a request.";
-                StatusText.Text = SanitizedError(ex, "Microphone or realtime setup failed.");
             }
         }
     }
@@ -1167,7 +1112,9 @@ public partial class MainWindow : Window
         }));
     }
 
-    private async void ApproveButton_OnClick(object sender, RoutedEventArgs e)
+    private void ApproveButton_OnClick(object sender, RoutedEventArgs e) => UiAction.Run(ApproveAsync);
+
+    private async Task ApproveAsync()
     {
         if (_approvalInFlight || _pendingPreview is not { CanApprove: true } preview
             || _pendingAction is null || _pendingAuthority is null)
@@ -2143,7 +2090,7 @@ public partial class MainWindow : Window
         _realtimeTranscript.Reset();
         _realtimeTranscriptRows.Clear();
         var generation = _generation;
-        realtime.Received += value => Realtime_OnReceived(realtime, generation, value);
+        realtime.Received += value => UiAction.Run(() => Realtime_OnReceivedAsync(realtime, generation, value));
         AttachVoiceCommands(realtime);
         _realtime = realtime;
         return _realtime;
@@ -2232,7 +2179,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void Realtime_OnReceived(RealtimeClient source, long generation, RealtimeEvent realtimeEvent)
+    private async Task Realtime_OnReceivedAsync(RealtimeClient source, long generation, RealtimeEvent realtimeEvent)
     {
         if (!ReferenceEquals(_realtime, source) || !IsCurrent(generation)
             || !_realtimeConnected || _requestLease is null || _requestLease.Generation != _realtimeGeneration
