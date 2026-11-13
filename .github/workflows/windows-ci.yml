@@ -69,9 +69,13 @@ jobs:
       - name: Live-AI guard tests
         run: dotnet test tests/Boo.LiveGuard.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/liveguard
 
+      # Architecture rules BOO-ARCH-001..006 (docs/quality/RULES.md) over the compiled src assemblies. No app, no key.
+      - name: Architecture tests
+        run: dotnet test tests/Boo.Architecture.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/architecture
+
       # Each project must have produced results with tests that ran, and none skipped or not executed.
-      - name: Test gate (unit, integration, provider and live-guard results)
-        run: python -I scripts/test_gate.py trx artifacts/test-results/core artifacts/test-results/integration artifacts/test-results/providers artifacts/test-results/liveguard
+      - name: Test gate (unit, integration, provider, live-guard and architecture results)
+        run: python -I scripts/test_gate.py trx artifacts/test-results/core artifacts/test-results/integration artifacts/test-results/providers artifacts/test-results/liveguard artifacts/test-results/architecture
 
       - name: Publish app
         run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
