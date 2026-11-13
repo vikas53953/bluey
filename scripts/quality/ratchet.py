@@ -76,9 +76,14 @@ def lex(text):
                 i = end
                 continue
             if c == '#' and not stop_at_brace and at_line_start(i):
-                # Preprocessor directive (#region, #if, #error ...): its text is not code and holds no strings.
+                # Preprocessor directive (#region, #if, #error ...): its text is not code and holds no strings. A `//`
+                # on it is a real comment (counted like any other), except on #region/#endregion, whose text is a name.
                 end = text.find('\n', i)
                 end = n if end < 0 else end
+                line = text[i:end]
+                slash = line.find('//')
+                if slash >= 0 and not re.match(r'#\s*(end)?region\b', line):
+                    comments.append((line_of(i), line[slash:], 'line', False))
                 blank(i, end)
                 i = end
                 continue
@@ -348,7 +353,10 @@ RULES = [
                                                     ('var s = $"{ new { A = 1 }.A + " GC.Collect() "}";', 0),
                                                     ('var s = $"{(x ? 0 : GC.Collect())}";', 1),
                                                     ('#region @"\n GC.Collect();\n var q = "x";', 1),
-                                                    ('var s = @"a""\n GC.Collect(); b";', 0)]),
+                                                    ('var s = @"a""\n GC.Collect(); b";', 0),
+                                                    ('// GC.Collect();', 0),
+                                                    ('var s = $"{F(x):it\'s}"; GC.Collect();', 1),
+                                                    ('var s = $"{global::System.GC.Collect()}";', 1)]),
     Rule('BOO-RT-002', 'Environment.GetEnvironmentVariable',
          'Hidden switches (for example BOO_QA_CAPTURABLE) change privacy behaviour and must be auditable.',
          'Read environment variables in one place and pass the value in.', 'Do NOT add another reader.',
@@ -389,12 +397,15 @@ RULES = [
           ('// INVARIANT: no reference', 1),
           ('Go(); // INVARIANT: undo restores bytes, see UndoJournalTests.Roundtrip', 1),
           ('// TODO(#12): tracked', 0),
+          ('#pragma warning disable CS0168 // agent workaround, flaky', 1),
+          ('#region // a name, not a comment', 0),
           ('Go(); // TODO(#12): tracked', 1),
           ('var u = "http://a//b /* x */";', 0), ('var r = """\n // not a comment\n """;', 0)]),
     Rule('BOO-CMT-002', 'TODO / FIXME / HACK / XXX without an issue link',
          'Untracked debt is invisible.', 'Open a GitHub issue and write TODO(#123): ...', 'Do NOT delete the note '
          'and keep the debt.', untracked_todos,
-         [('// TODO: fix later', 1), ('/* FIXME */', 1), ('// TODO(#12): tracked', 0), ('/// HACK in a doc', 1)]),
+         [('// TODO: fix later', 1), ('/* FIXME */', 1), ('// TODO(#12): tracked', 0), ('/// HACK in a doc', 1),
+          ('#endif // HACK', 1)]),
 ]
 RULES_BY_ID = {rule.id: rule for rule in RULES}
 
@@ -441,23 +452,12 @@ def compare(result, baseline, rise_only=False):
     now = counts(result)
     rose, fell = [], []
     scanned = {project for by_project in now.values() for project in by_project}
-    baselined = {project for by_project in baseline.values() for project in by_project}
-    if rise_only and scanned != baselined:
-        # The PR moved, renamed or removed a project. The base branch's gate still holds the line, on per-rule totals:
-        # nothing may rise in total; the PR's own check makes the PR write the new per-project baseline.
-        for rule in RULES:
-            allowed = sum(baseline.get(rule.id, {}).values())
-            count = sum(now[rule.id].values())
-            if rule.id in baseline and count > allowed:
-                rose.append(f'{rule.id}  all projects: {allowed} -> {count} (projects changed, judged on totals)\n'
-                            f'  What:  {rule.what}\n  Fix:   {rule.fix}\n  Rule:  {RULES_DOC}#{rule.id.lower()}')
-        return rose, []
     for rule_id, by_project in baseline.items():
         for project, allowed in by_project.items():
             if allowed and project not in scanned:
                 rose.append(f'{rule_id}  {project}: baselined at {allowed}, but the project is no longer scanned (moved, '
-                            f'renamed or its .csproj removed). Restore it under src/, or write the new baseline with '
-                            f'--lower in the PR that moves it.')
+                            f'renamed or its .csproj removed). Restore it under src/. A real rename needs the owner to override '
+                            f'this check once (see docs/quality/RULES.md, Renames).')
     for rule in RULES:
         if rule.id not in baseline:
             if not rise_only:
@@ -550,11 +550,15 @@ def self_test():
             code.write_text('class A { void M() { } }', encoding='utf-8')
             (tree / 'src' / 'P').rename(tree / 'src' / 'Q')
             steps += [('renamed project fails the PR\'s own check', check(tree, baseline_path), 1),
-                      ('renamed project, same total: rise-only passes', check(tree, baseline_path, rise_only=True), 0)]
-            (tree / 'src' / 'Q' / 'A.cs').write_text('class A { void M() { Thread.Sleep(1); Thread.Sleep(2); Thread.Sleep(3); } }',
-                                                    encoding='utf-8')
-            steps += [('renamed project, higher total: rise-only fails', check(tree, baseline_path, rise_only=True), 1)]
+                      ('renamed project fails the base check too', check(tree, baseline_path, rise_only=True), 1)]
             (tree / 'src' / 'Q').rename(tree / 'src' / 'P')
+            (tree / 'src' / 'Dummy').mkdir()
+            (tree / 'src' / 'Dummy' / 'Dummy.csproj').write_text('<Project/>', encoding='utf-8')
+            steps += [('an extra empty project changes nothing', check(tree, baseline_path, rise_only=True), 0)]
+            (tree / 'src' / 'P' / 'Sub' / 'bin').mkdir(parents=True)
+            (tree / 'src' / 'P' / 'Sub' / 'bin' / 'N.cs').write_text('class N { void M() { Thread.Sleep(8); Thread.Sleep(9); } }', encoding='utf-8')
+            steps += [('a nested bin/ folder is scanned', check(tree, baseline_path, rise_only=True), 1)]
+            (tree / 'src' / 'P' / 'Sub' / 'bin' / 'N.cs').unlink()
             code.write_text('class A { void M() { } }', encoding='utf-8')
             steps += [('check fall fails until lowered', check(tree, baseline_path), 1),
                       ('rise-only accepts a fall', check(tree, baseline_path, rise_only=True), 0),
@@ -563,6 +567,13 @@ def self_test():
             sys.stdout.close()
             sys.stdout = quiet
         failures += [f'logic: {name} returned {got}, expected {want}' for name, got, want in steps if got != want]
+        (tree / 'tests' / 'T').mkdir(parents=True)
+        (tree / 'tests' / 'T' / 'UndoJournalTests.cs').write_text(
+            'public class UndoJournalTests { [Fact] public void Roundtrip() { } }', encoding='utf-8')
+        load_tests(tree)
+        tagged = Source('class C {\n  // INVARIANT: undo restores bytes, see UndoJournalTests.Roundtrip\n}\n')
+        if comment_lines(tagged):
+            failures.append('logic: load_tests did not register a real test class under tests/')
     if failures:
         print('SELF-TEST FAILED:\n  ' + '\n  '.join(failures))
         return 1

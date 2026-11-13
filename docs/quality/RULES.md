@@ -15,9 +15,11 @@ each pattern below **per project, every match on a line**, and compares with [`b
   lower baseline, so every gain is locked in; `--lower` refuses to raise any number;
 - `--list <RULE>` prints every hit; `--self-test` checks 83 snippets with exact expected counts (including tricky
   strings, interpolation format clauses and `#` directive lines that could hide code), that clean code stays quiet,
-  and the pass/fail logic itself (equal passes, rise fails, fall fails until lowered, a vanished or renamed project).
-  Each lexer rule has at least one snippet whose count changes if that rule breaks (checked by switching each rule off
-  in a scratch copy: 17 of 17 caught, 13 Nov 2026).
+  and the pass/fail logic itself (equal passes, rise fails, fall fails until lowered, a vanished or renamed project,
+  an extra empty project, a nested `bin/`, the test loader). Each lexer rule has a snippet whose count changes if that
+  rule breaks: string, verbatim `""`, `\` escapes, char literals, `{{`, hole brace and bracket depth, format clauses,
+  `::`, raw strings, line and block comments, `#` directive lines, and the comment exemptions (checked by switching
+  each off in a scratch copy, 13 Nov 2026).
 
 **A PR cannot loosen its own gate.** On a pull request, the workflow
 [`quality-gates.yml`](../../.github/workflows/quality-gates.yml) (job `quality`, Linux, about a minute, no uploads)
@@ -137,6 +139,12 @@ the INVARIANT tag; API docs use `///`. **Do NOT** reword the comment to dodge th
 - Scope: only `src/<Project>/` folders that hold a `.csproj` are scanned; only the project's own top-level `bin/` and
   `obj/` are skipped (a nested `Sub/bin/` is scanned, as the build compiles it); files compiled in from outside `src/`
   (`<Compile Include="../..">`) are not scanned.
-- Renames: a baselined project that disappears fails the PR's own check, so the PR that moves or renames a project
-  writes the new per-project baseline with `--lower`. The base branch's check then compares **per-rule totals** across
-  all projects (nothing may rise in total), so a legitimate rename can pass without an admin override.
+- Renames: a baselined project that disappears fails both the PR's own check and the base branch's check, on purpose:
+  a judged-on-totals mode would let a PR swap hits between projects or drop a project from the scan. A real rename is
+  rare; it needs the owner to override the check once, with the reason in the PR. An extra project with no hits
+  changes nothing.
+- Disabled `#if` blocks: the compiler skips their text, but the ratchet reads it, so an unmatched quote or `/*` inside a
+  disabled block can hide or invent a later hit (none in `src/` today).
+- Exemption tags: `// INVARIANT: ... see NameTests.Method` is exempt when any file under `tests/` declares
+  `class NameTests` and contains `Method(`. The barrier against a fake test is review: `tests/` is the frozen oracle, so
+  a new test file needs a visible `scripts/test_oracle.py --extend` revision that the reviewer must check.
