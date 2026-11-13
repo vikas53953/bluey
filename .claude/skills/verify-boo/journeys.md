@@ -115,6 +115,12 @@ today, `tools/Boo.LiveSmoke/LiveAppFixture.cs:123`); "speech on" is Boo's defaul
 | j5 | Apply then Undo | speech off; chat model; Boo's file root | Ask Boo to write a named file; read the card; click `Approve proposed action`; type "undo"; approve the `Undo:` card | face as j2 for each typed turn; the approval card is a **panel** state, not a face (map §2) | file written only after Approve; undo removes it | A1, A5, A6, A8, U1, U3, `INV-APPLY-1` | `j5-apply-undo.txt`, `j5-*.png` |
 | j6 | 25-minute focus on the Developer Mode clock | Developer Mode on; focus model `gpt-6-luna` | Start focus, 25 min; let it run to the end (about 375 real seconds) | repeated `Hidden` → `Capture` → `Idle` → `Hidden` (one per check) → `Happy` about 2.5 s → `Idle` → `Hidden` | session ends `Completed`; history entry | Fo1, Fo5, Fo7, Fo8, F14, F15, F18, R9, R11 | `j6-focus-face-timeline.txt` (PR #48), `j6-focus.txt`, `j6-focus-*.png` |
 
+**Reading the expected faces.** The notch shows one face at a time, the highest of: `Capture` > `Listening` >
+`Responding` > `Thinking` > `Nudge` > `Happy` > `Paused` > `Hover` > `Idle` > `Hidden`
+(`src/Boo.Core/NotchFace.cs`, `FaceStateResolver`). Every expected sequence below follows that order: while a
+higher face is on, a lower one (for example `Hover` while `Paused`) does not show. A journey that seems to expect
+otherwise is a mistake in this list; report it, do not count it as a Boo failure.
+
 ### New journeys
 
 #### j7 — Hover edge timings (no AI, real clock)
@@ -123,7 +129,7 @@ today, `tools/Boo.LiveSmoke/LiveAppFixture.cs:123`); "speech on" is Boo's defaul
 | --- | --- |
 | Preconditions | none; reduced motion **off** (with reduced motion on, the reveal is shown at once, `INV-PRIV-1` row of the map) |
 | Steps | a) Hover top centre, leave **during** the 240 ms reveal (about 100 ms in). b) Hover, leave, re-enter after about 400 ms (inside the 900 ms delay). c) Hover, leave, re-enter after about 950 ms (inside the 160 ms retract). d) Start a focus session so `Paused` pins the notch (Pause it), hover, then leave. |
-| Expected faces | a) `Hover` → `Idle` → `Hidden`; the `Idle` tail starts only after the reveal would have finished (R4). b) `Hover` → `Idle` → `Hover` with no `Hidden` between (R7). c) `Hover` → `Idle` → `Hover` with no `Hidden` reading, because the face reads `Idle` until the phase is Hidden (F2); the notch slides back from where it was (R8). d) `Paused` → `Hover` → `Paused`, never `Idle`/`Hidden` while paused (R10). |
+| Expected faces | a) `Hover` → `Idle` → `Hidden`. `Idle` shows as soon as the pointer leaves (the notch is still sliding in); what R4 delays is the 900 ms countdown, which starts only when the 240 ms slide-in ends, so `Idle` lasts until about 240 + 900 ms after the hover began, then the 160 ms retract ends in `Hidden` (R4). b) `Hover` → `Idle` → `Hover` with no `Hidden` between (R7). c) `Hover` → `Idle` → `Hover` with no `Hidden` reading, because the face reads `Idle` until the phase is Hidden (F2); the notch slides back from where it was (R8). d) stays `Paused` throughout: `Paused` outranks `Hover` (face priority, `src/Boo.Core/NotchFace.cs`), so the hover makes no visible change, and the notch never reads `Idle`/`Hidden` while paused (R10). |
 | Expected effects | none besides the notch moving |
 | Covers | R2, R4, R5, R7, R8, R10, F1, F2, `LIVE-2` |
 | Evidence | `j7-hover-edges-face-timeline.txt` with `Mark` at each pointer move; timings inferred (say so) |
@@ -158,7 +164,7 @@ today, `tools/Boo.LiveSmoke/LiveAppFixture.cs:123`); "speech on" is Boo's defaul
 | Field | Content |
 | --- | --- |
 | Preconditions | as j9 for the hold parts; no AI for the tap |
-| Steps | a) Hover top centre; click the eyes quickly (under 200 ms). b) Press and hold the eyes about 3 s, release. c) Press and hold the eyes, drag the pointer well off the notch so the eyes lose mouse capture. |
+| Steps | a) Hover top centre; click the eyes quickly (under 200 ms). b) Press and hold the eyes about 3 s, release. c) Press and hold the eyes, then make another window take the mouse (Alt+Tab, or bring another window to the front) so the eyes lose mouse capture. Dragging alone does **not** do it: the eyes keep the mouse while the button is held (`src/Boo.App/NotchWindow.xaml.cs`). If the driver cannot switch windows while the mouse button is held, this step is **manual**. |
 | Expected faces | a) `Hover`, no `Listening`; the panel opens (same as Ctrl+Alt+B). b) `Hover` → `Listening` (after 200 ms) → `Thinking` → `Responding` → `Idle` → `Hidden`. c) losing capture counts as an eye release (H7): same as a release at that moment. |
 | Expected effects | a) panel open. b) and c) a voice turn, as j9 |
 | Covers | F23, F24, H2, H4, H5, H7 |
@@ -190,7 +196,7 @@ are hit. After a hotkey Stop (and any Stop while no panel exists) the notch's `H
 | j12c | `Listening`: hold Ctrl+Alt+Space (j9) | Ctrl+Alt+F12 while still holding, then release the chord | `Listening` → `Idle` → `Hidden`; the later release does nothing (H6); mic off | F21, H6, F13, `INV-TALK-1` |
 | j12d | `Capture`: j2 step (speech off) during the AI call | panel `Stop Boo` button | `Capture` → (may stay `Capture` briefly until the in-flight capture is disposed, **expect today's behaviour**, `INV-STOP-1` (b), duration UNVERIFIED) → `Idle` → `Hidden` | F21, F15, `INV-STOP-1` |
 | j12e | `ApplyPending`: j5 card showing | right-click on the notch | card gone (`Review action` hidden); face unchanged by the card | F21, A3 |
-| j12f | focus **running** (j13 Start) | tray Stop | **Expect today's behaviour (§5-F4):** the session is **paused**, face goes to `Paused` and stays pinned (not quiet) | F21, F19, Fo3, §5-F4, `INV-STOP-1` (a) |
+| j12f | focus **running** (j13 Start) | tray Stop (if the tray icon cannot be reached by UI Automation on the runner, drive this step **manual** and say so) | **Expect today's behaviour (§5-F4):** the session is **paused**, face goes to `Paused` and stays pinned (not quiet) | F21, F19, Fo3, §5-F4, `INV-STOP-1` (a) |
 | j12g | focus **paused** (j13 Pause) | Ctrl+Alt+F12 | stays `Paused` (§5-F4) | F21, §5-F4 |
 | j12h | ring showing (j3) | Ctrl+Alt+F12 | ring and pointer windows close | P4, F21 |
 
@@ -215,13 +221,13 @@ already press Ctrl+Alt+F12 and Ctrl+Alt+S on a running session; they do not read
 
 | Field | Content |
 | --- | --- |
-| Preconditions | Developer Mode on. Live: focus model `gpt-6-luna`, a task clearly unrelated to what Boo's test screen shows (the AI decides; retry once if no nudge, and say so). Mock: `tools/Boo.QaMockAi` answers the first three checks off-task, so a nudge is certain on the second or third check (demo-ci step 4 does this). |
-| Steps | a) Start focus; wait for the nudge; click `Back to it`. b) Wait for another nudge; let it time out (no click). c) Wait for another nudge; click `5 min break`. |
+| Preconditions | Developer Mode on. Live: focus model `gpt-6-luna`, a task clearly unrelated to what Boo's test screen shows (the AI decides; retry once if no nudge, and say so). Mock: `tools/Boo.QaMockAi` answers only the first three checks of its whole run off-task, then always on-task, so one mock run gives one nudge: steps b) and c) each need a **fresh mock process** (and a fresh session). Live and mock: a new nudge needs at least **120 focus-seconds** after the previous one (`NudgePolicy`, `src/Boo.Core/FocusSession.cs`). |
+| Steps | a) Start focus; wait for the nudge; click `Back to it`. b) Wait at least 120 focus-seconds for another nudge (fresh mock process in mock mode); let it time out (no click). c) Same wait (fresh mock process in mock mode); click `5 min break`. |
 | Expected faces | a) `Capture` → `Nudge` (caption shown) → `Back to it` → `Idle` → `Hidden`. b) `Nudge` about 6 s → `Idle` → `Hidden`. c) `Nudge` → `Paused` (break pauses the session). |
 | Expected effects | nudge pointer/ring may show (8 s hold, P3); session paused after c) |
 | Covers | F16, F17, Fo3 (5 min break), Fo8, F14, F15, P3 |
 | Evidence | face timeline; nudge buttons and caption read through UI Automation |
-| Live / mock | live (AI-dependent); mock-capable (certain) |
+| Live / mock | live (AI-dependent); mock-capable: a) certain in one mock run, b) and c) certain only with a fresh mock process each |
 
 #### j15 — Approval card edges
 
@@ -315,7 +321,7 @@ needs a device change the runner cannot make); **not drivable yet** = no user ac
 | G3 | j11, j17 | |
 | G5 | **not drivable yet** | the commit-under-lock ordering is internal; no user action can show Stop and a commit interleaving; reducer/unit tests only |
 | A1, A2, A3, A5, A6, A7, A8 | j5, j12e, j15, j16 | A7 depends on the AI proposing two steps |
-| A4 (expired / policy denies / target window changed) | **manual** | Stop clears the card first (A3), so "expired" is not reachable by a click; a changed target window needs a second app moved in between; not scripted yet |
+| A4 (expired / policy denies / target window changed) | **manual** (the "policy denies" part may be drivable by asking for a write outside Boo's file folder; UNVERIFIED) | Stop clears the card first (A3), so "expired" is not reachable by a click; a changed target window needs a second app moved in between; not scripted yet |
 | U1, U3 | j5, j16 | |
 | U2, U4, U5, U6 | j16 | |
 | P1, P2 | j18 | |
@@ -344,7 +350,7 @@ Invariants and findings:
 | §5-F8 | j9, j10, j11, j17 | |
 | §5-F9 | j13 e); quit part manual | |
 
-Count: the map has **74 rows** (R 11, F 24, H 8, Fo 8, G 5, A 8, U 6, P 4). Every row is hit by at least one journey
+Count: the map has **75 rows** (R 11, F 25 including F10b, H 8, Fo 8, G 5, A 8, U 6, P 4). Every row is hit by at least one journey
 for at least one of its events. Rows or events that **no** journey can drive from the UI today: **F10**, the sleep /
 tick-error / disconnect events of **F19** and **Fo3**, the lock / sleep / update / quit / crash / internal sources of
 **F21**, the lock / suspend events of **H6**, **G5**, **A4**, and the scroll / resize / foreground / display events of
