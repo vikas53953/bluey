@@ -21,6 +21,15 @@
     <Compile Include="$(MSBuildThisFileDirectory)scripts/quality/canary/Canary.Wpf.cs" Condition="'$(UseWPF)' == 'true'" />
     <Compile Include="$(MSBuildThisFileDirectory)scripts/quality/canary/Canary.WinForms.cs" Condition="'$(UseWindowsForms)' == 'true'" />
   </ItemGroup>
+  <!-- BooNoAnalyzerConfig is set only by scripts/quality/banned_apis.py product: it compiles each src/ project a second
+       time with NO analyzer config files (.editorconfig, .globalconfig, generated and SDK ones), right before the
+       compiler runs, and requires the same RS0030 diagnostics as the real build. So no config can change a ban. -->
+  <Target Name="_BooDropAnalyzerConfig" BeforeTargets="CoreCompile" Condition="'$(BooNoAnalyzerConfig)' == 'true'">
+    <ItemGroup>
+      <EditorConfigFiles Remove="@(EditorConfigFiles)" />
+      <GlobalAnalyzerConfigFiles Remove="@(GlobalAnalyzerConfigFiles)" />
+    </ItemGroup>
+  </Target>
   <!-- One SARIF error log per project when BooSarifDir is set (scripts/quality/banned_apis.py reads them). -->
   <PropertyGroup Condition="'$(BooSarifDir)' != ''">
     <ErrorLog>$(BooSarifDir)/$(MSBuildProjectName).sarif,version=2.1</ErrorLog>

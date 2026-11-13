@@ -47,8 +47,11 @@ PR 1.4; see Known gaps.
 [`quality-gates.yml`](../../.github/workflows/quality-gates.yml) (job `quality`, Linux, about a minute, no uploads)
 also runs the **base branch's** `ratchet.py` with the **base branch's** `baseline.json`, both read from git rather than
 from the PR, and fails on any rise. Raising a number in the PR's `baseline.json`, or weakening a pattern in the PR's
-`ratchet.py`, therefore changes nothing. (The workflow file itself is the remaining hole: see HANDOFF.md, known
-issues, item 0.)
+`ratchet.py`, therefore changes nothing. The same job runs the **base branch's** `banned_apis.py` (once it exists on
+the base) on the PR's tree: `rise-check` (no ban line removed, no baseline entry added or count raised, RS0030 named
+only in `AnalyzerBaseline.cs`) and `product` (see [Banned APIs](#banned-apis-rs0030)). What the base copies cannot
+guard: the workflow file itself and `Directory.Build.props` (the analyzer wiring) come from the PR. That is the
+remaining hole: HANDOFF.md, known issues, item 0 (CODEOWNERS decision pending with Vikas).
 
 A ratchet counts, it does not track identity: removing one hit and adding another of the same rule in the same project
 keeps the count equal and passes. That is accepted; the compiler-exact checks in later Phase 1 PRs close it per rule.
@@ -185,12 +188,25 @@ PR 1.3 makes the ban exact: the compiler, not a text scan, decides which member 
   project with a SARIF error log and requires, per member and per rule, **exactly** the declared count (a new call:
   `0 -> 1` or `1 -> 2` fails; a fixed call fails with "lower the count" until the file is lowered), and refuses any
   RS0030 silenced by `#pragma`, by a `[SuppressMessage]` outside these files, or by an unknown justification. On a
-  pull request the **base branch's copy** of `banned_apis.py` (`rise-check`) refuses a new entry, a raised count or a
-  removed ban line, the same way the ratchet is judged by its base copy.
-- **The probe.** The same step compiles the canary files inside every `src/` project (`BooBannedApiProbe`), with that
-  project's own settings, and requires every banned line in them to fire as an unsuppressed error. So `NoWarn`,
-  `WarningsNotAsErrors`, an `.editorconfig` severity, `RunAnalyzers=false`, a removed `PackageReference` or
-  `AdditionalFiles`, or a project-local ban list all fail closed, and so does a project that stops writing the log.
+  pull request the **base branch's copy** of `banned_apis.py` runs `rise-check` and `product` on the PR's tree:
+  `rise-check` refuses a new entry, a raised count, a removed ban line, and RS0030 named in any `src/` C# file other
+  than `AnalyzerBaseline.cs`.
+- **Analyzer config files (exact).** An `.editorconfig` or `.globalconfig` can turn RS0030 off for one file
+  (`[EvilA.cs]` + `dotnet_diagnostic.RS0030.severity = none`), for the `ApiDesign` category, or for everything, and the
+  probe below cannot see that because the canary files live elsewhere. So `product` compiles every `src/` project a
+  second time with **no** analyzer config files: `BooNoAnalyzerConfig` removes every `EditorConfigFiles` and
+  `GlobalAnalyzerConfigFiles` item right before the compiler runs, which covers discovered `.editorconfig` /
+  `.globalconfig` files, `is_global` configs with path sections and items a project adds itself. The RS0030
+  diagnostics (place, level, message, suppression) must be identical in both builds, and after the strip only the
+  SDK's own `analysislevel_*.globalconfig` (from the dotnet install) may remain. On top, every config file the compiler
+  received, and every `.editorconfig` / `.globalconfig` in the repository, may not set
+  `dotnet_diagnostic.RS0030.severity`, `dotnet_analyzer_diagnostic.category-ApiDesign.severity` or
+  `dotnet_analyzer_diagnostic.severity` (none does today).
+- **The probe.** The same step compiles the canary files (from `scripts/quality/canary/`) inside every `src/` project
+  (`BooBannedApiProbe`), with that project's own settings, and requires every banned line in them to fire as an
+  unsuppressed error. That covers project-wide switches: `NoWarn`, `WarningsNotAsErrors`, `TreatWarningsAsErrors=false`,
+  `RunAnalyzers=false`, a removed `PackageReference` or `AdditionalFiles`, a project-local ban list, and a project that
+  stops writing the error log. It does not cover settings scoped to other file paths; the config strip above does.
 
 **Fix:** use the replacement named in the error (the rule sections above). **Do NOT** add a suppression, raise a count,
 or edit `src/BannedSymbols.txt` by hand. `BOO-ASYNC-002`'s one hit (`PushToTalkUplink.Discard`) has no cleanup PR in
@@ -213,7 +229,8 @@ compiles (`dotnet msbuild <proj> -t:Build -getItem:Compile -getItem:Using`: the 
 `<Import>`ed files, `Directory.*.props` and items added by targets are included) and fails when that differs from the
 files the ratchet reads: a compiled file outside the project, not `.cs`, or git-ignored; a scanned file that is not
 compiled; a generated file under `obj/` that is not a known SDK or WPF output; an `x:Code` block in a XAML page; a
-`<Using>` item that is `Static="true"` or has an `Alias`. **Fix:** put the code in a `.cs` file in the project.
+`<Using>` item that is `Static="true"` or has an `Alias`; a `<ProjectReference>` to anything but
+`src/<Name>/<Name>.csproj`. **Fix:** put the code in a `.cs` file in the project.
 **Do NOT** pull files in through build items.
 
 ## Known gaps (the text-level ratchet does not see these; PRs 1.3 and 1.4 make them exact)
@@ -232,8 +249,14 @@ and deliberate evasion is closed by the compiler, which sees the real names, typ
 | Shape of the code | a broad catch with an unreachable `throw` counts as "rethrows"; a static field or property declared over two lines, or a tuple type plus `=>`; `///` comments inside a method body count as documentation | PR 1.4 analyzers |
 | Disabled `#if` blocks | the compiler skips their text, the ratchet reads it, so an unmatched quote or `/*` inside one can hide or invent a later hit (none in `src/` today) | PR 1.4 (compiler); for the banned APIs the compiler already judges only what is compiled |
 | Swap of a baselined banned call | remove one baselined RS0030 hit and add a new call in another member, silenced by a `[SuppressMessage]` that copies the removed entry's justification | **Not closed**: the counts still match. It needs a deliberately copied suppression, which review sees; PR 1.5 (`BOO-LINT-002`, no suppression outside `AnalyzerBaseline.cs`) refuses it |
+| A `src/` project referencing a project outside `src/` | `<ProjectReference Include="../../tools/X/X.csproj"/>` | **Closed by PR 1.3**: the [compile list](#compile-list) fails on any reference that is not `src/<Name>/<Name>.csproj` |
+| A build target that re-adds an analyzer config only during the strip build, or that disables the strip | a target conditioned on `BooNoAnalyzerConfig` | **Not closed**: it needs a project-file target that names the check's own switch, which review sees; the text check of every config the real build used still applies |
 | Scope outside `src/` | projects in `tools/` and `tests/` are not judged | by design for now |
 
+- Not banned yet (owner: PR 1.4 or a cleanup PR; deliberately not in PR 1.3): `Environment.ExpandEnvironmentVariables`
+  (reads environment variables), `DispatcherOperation.Wait` (a blocking wait on the UI thread), Windows Forms
+  `Control.Invoke` (synchronous cross-thread call), and the hidden clocks `Environment.TickCount` / `TickCount64`,
+  `Stopwatch.GetTimestamp` and `TimeProvider.System` (used today at `src/Boo.App/MainWindow.Talk.cs:56`).
 - Identity: a swap (one removed, one added, same rule and project) passes, as explained above.
 - Renames: a baselined project that disappears fails both the PR's own check and the base branch's check, on purpose:
   a judged-on-totals mode would let a PR swap hits between projects or drop a project from the scan. A real rename is

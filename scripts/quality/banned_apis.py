@@ -17,6 +17,7 @@ import difflib
 import json
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -250,6 +251,59 @@ def judge_rise(base_list_ids, list_ids, base_entries, entries):
     return problems
 
 
+CONFIG_KEY = re.compile(r'^\s*(dotnet_diagnostic\.rs0030\.severity|dotnet_analyzer_diagnostic\.category-apidesign\.severity|'
+                        r'dotnet_analyzer_diagnostic\.severity)\s*[=:]', re.I)
+CONFIG_NAME = re.compile(r'(^|/)(\.editorconfig|\.globalconfig|[^/]*\.editorconfig|[^/]*\.globalconfig)$', re.I)
+
+
+def config_problems(configs):
+    """configs: {path: text} of analyzer config files (.editorconfig / .globalconfig, any section). A line that sets
+    the severity of RS0030, of the ApiDesign category or of every diagnostic is refused: none exists today, and the
+    stripped build below proves the rest exactly."""
+    problems = []
+    for path, text in sorted(configs.items()):
+        for number, line in enumerate(text.splitlines(), 1):
+            if CONFIG_KEY.match(line):
+                problems.append(f'{path}:{number}: "{line.strip()}" changes how RS0030 is reported. Remove it; a ban is '
+                                f'not configurable per file or per project.')
+    return problems
+
+
+def rs0030_key(result):
+    suppressions = tuple(sorted((s.get('type', ''), s.get('justification', '')) for s in result['suppressions']))
+    return result['file'], result['line'], result['level'], result['message'], suppressions
+
+
+def judge_config_strip(project, normal, stripped):
+    """normal / stripped: SARIF results of the same project compiled with and without every analyzer config file. The
+    RS0030 diagnostics (place, level, message, suppression) must be identical; any difference is a config at work."""
+    problems = []
+    a = sorted(rs0030_key(r) for r in normal if r['rule'] == 'RS0030')
+    b = sorted(rs0030_key(r) for r in stripped if r['rule'] == 'RS0030')
+    for key in sorted(set(b) - set(a)) + sorted(set(a) - set(b)):
+        only = 'only without' if key in b and key not in a else 'only with'
+        problems.append(f'{project} {key[0]}:{key[1]}: an RS0030 ({key[2]}) appears {only} the analyzer config files, so '
+                        f'an .editorconfig / .globalconfig changes the ban. Remove that setting.')
+    if not problems and len(a) != len(b):
+        problems.append(f'{project}: {len(a)} RS0030 with the analyzer config files, {len(b)} without.')
+    return problems
+
+
+def judge_stripped_configs(project, paths, sdk_root):
+    """After the strip only the SDK's own analysis-level config may be left (it is added later by the SDK and holds no
+    RS0030 setting); anything else was put back by a build target after the strip."""
+    return [f'{project}: {path} is still passed to the compiler after the analyzer configs were removed (added by a '
+            f'build target?). Remove that target.' for path in sorted(paths)
+            if not (path.startswith(sdk_root) and re.search(r'/analysislevel[^/]*\.globalconfig$', path, re.I))]
+
+
+def suppressions_outside_baseline(files):
+    """files: {relative path: text} of C# files under src/. RS0030 may be named only in src/<Project>/AnalyzerBaseline.cs."""
+    return [f'{path}: names RS0030 outside {BASELINE_FILE}. Only {BASELINE_FILE} may baseline banned calls.'
+            for path, text in sorted(files.items())
+            if 'RS0030' in text and not (path.count('/') == 2 and path.endswith('/' + BASELINE_FILE))]
+
+
 def fix_text(rule):
     return f'Fix the cause (see {RULES_DOC} and the rule {rule}); do not baseline new code.'
 
@@ -415,6 +469,29 @@ def cmd_canary(base):
     return 0
 
 
+def compile_project(base, project, sarif_dir, *extra):
+    """Rebuild one src/ project alone (its references are already built) with a SARIF log. Returns (exit code,
+    analyzer config files the compiler got, SARIF results). Rebuild, because an up-to-date project writes no log."""
+    sarif_dir.mkdir(exist_ok=True)
+    run = dotnet(['msbuild', f'src/{project}/{project}.csproj', '-restore', '-nologo', '-t:Rebuild',
+                  '-p:BuildProjectReferences=false', '-p:Configuration=Release', '-p:EnableWindowsTargeting=true',
+                  '-p:PublishReadyToRun=false', f'-p:BooSarifDir={sarif_dir.as_posix()}', *extra,
+                  '-getItem:EditorConfigFiles', '-getItem:GlobalAnalyzerConfigFiles'], base, expect_success=False)
+    items = json_output(run.stdout).get('Items', {})
+    configs = sorted({pathlib.Path(item['FullPath']).resolve().as_posix()
+                      for name in ('EditorConfigFiles', 'GlobalAnalyzerConfigFiles') for item in items.get(name, [])
+                      if pathlib.Path(item['FullPath']).is_file()})
+    return run.returncode, configs, read_sarif(sarif_dir / f'{project}.sarif', base)
+
+
+def repo_configs(base):
+    run = subprocess.run(['git', '-C', str(base), 'ls-files', '-z', '-c', '-o', '--exclude-standard'],
+                         capture_output=True)
+    if run.returncode:
+        raise ToolError('cannot list files with git')
+    return [name for name in run.stdout.decode('utf-8').split('\0') if name and CONFIG_NAME.search(name)]
+
+
 def cmd_product(base):
     listed, markers, problems = canary_inputs(base)
     if problems:
@@ -427,31 +504,41 @@ def cmd_product(base):
         entries, bad = parse_baseline(path, read(base, path)) if (base / path).is_file() else ({}, [])
         baselines[project] = entries
         problems += bad
+    dotnet_path = shutil.which('dotnet')
+    if not dotnet_path:
+        raise ToolError('dotnet is not on PATH')
+    sdk_root = pathlib.Path(dotnet_path).resolve().parent.as_posix() + '/'
+    configs = {name: read(base, name) for name in repo_configs(base)}
+    total = 0
     with tempfile.TemporaryDirectory() as scratch:
-        sarif_dir = pathlib.Path(scratch) / 'build'
-        sarif_dir.mkdir()
-        # First a normal build (so every project's references exist), then each project compiled again on its own
-        # with --no-incremental: an up-to-date project skips the compiler and would write no error log.
+        scratch = pathlib.Path(scratch)
         for project in projects:
             dotnet(['build', f'src/{project}/{project}.csproj', *BUILD_PROPS], base)
+        normal = {}
         for project in projects:
-            dotnet(['build', f'src/{project}/{project}.csproj', *BUILD_PROPS, '--no-dependencies', '--no-incremental',
-                    f'-p:BooSarifDir={sarif_dir.as_posix()}'], base)
-        total = 0
-        for project in projects:
-            results = read_sarif(sarif_dir / f'{project}.sarif', base)
+            code, used, results = compile_project(base, project, scratch / 'build')
+            if code:
+                problems.append(f'{project}: the build failed (exit {code}).')
+            normal[project] = results
             total += sum(1 for r in results if r['rule'] == 'RS0030')
             problems += judge_baseline(project, baselines[project], results)
-        probe_dir = pathlib.Path(scratch) / 'probe'
-        probe_dir.mkdir()
+            for path in used:
+                configs.setdefault(relative(path, base), pathlib.Path(path).read_text(encoding='utf-8-sig',
+                                                                                      errors='replace'))
         for project in projects:
-            problems += probe(base, project, probe_dir, listed, markers)
+            _, left, results = compile_project(base, project, scratch / 'stripped', '-p:BooNoAnalyzerConfig=true')
+            problems += judge_stripped_configs(project, left, sdk_root)
+            problems += judge_config_strip(project, normal[project], results)
+        problems += config_problems(configs)
+        for project in projects:
+            problems += probe(base, project, scratch / 'probe', listed, markers)
     if problems:
         print(f'BANNED APIS FAILED in src/.\n  Rule: {RULES_DOC}\n  ' + '\n  '.join(problems))
         return 1
     entries = sum(len(e) for e in baselines.values())
     print(f'BANNED APIS OK: {len(projects)} projects build green; {total} baselined RS0030 hits match {entries} '
-          f'{BASELINE_FILE} entries exactly; the canary fires in every project')
+          f'{BASELINE_FILE} entries exactly; the same RS0030 with every analyzer config removed ({len(configs)} config '
+          f'files read, none touches RS0030); the canary fires in every project')
     return 0
 
 
@@ -459,6 +546,7 @@ def probe(base, project, probe_dir, listed, markers):
     """Compile the canary files inside the real project (its own props, editorconfig, NoWarn...). Each banned line in
     them must fire as an unsuppressed error, so no project setting can quietly switch the ban off."""
     csproj = f'src/{project}/{project}.csproj'
+    probe_dir.mkdir(exist_ok=True)
     evaluated = json_output(dotnet(['msbuild', csproj, '-nologo', '-p:EnableWindowsTargeting=true',
                                     '-p:BooBannedApiProbe=true', '-getItem:Compile'], base).stdout)
     included = {relative(item['FullPath'], base) for item in evaluated['Items']['Compile']} & set(CANARY_FILES)
@@ -485,31 +573,47 @@ def git_show(base, rev, path):
     return run.stdout.decode('utf-8-sig') if run.returncode == 0 else None
 
 
+def src_csharp(base, rev=None):
+    """{relative path: text} of every C# file under src/: at a git revision, or what git would commit now."""
+    if rev:
+        run = subprocess.run(['git', '-C', str(base), 'ls-tree', '-r', '-z', '--name-only', rev, '--', 'src'],
+                             capture_output=True)
+    else:
+        run = subprocess.run(['git', '-C', str(base), 'ls-files', '-z', '-c', '-o', '--exclude-standard', '--', 'src'],
+                             capture_output=True)
+    if run.returncode:
+        raise ToolError(f'cannot list src/ with git{" at " + rev if rev else ""}')
+    names = [name for name in run.stdout.decode('utf-8').split('\0') if name.lower().endswith('.cs')]
+    if rev:
+        return {name: git_show(base, rev, name) or '' for name in names}
+    return {name: (base / name).read_text(encoding='utf-8-sig', errors='replace') for name in names
+            if (base / name).is_file()}
+
+
+def baselines_in(files):
+    """({project: {target: (justification, counts)}}, problems) from every AnalyzerBaseline.cs in files; a file that
+    names RS0030 anywhere else is a problem."""
+    texts = {path.split('/')[1]: (path, text) for path, text in files.items()
+             if path.count('/') == 2 and path.endswith('/' + BASELINE_FILE)}
+    entries, problems = baseline_entries_from(texts)
+    return entries, problems + suppressions_outside_baseline(files)
+
+
 def cmd_rise_check(base, rev):
     base_list = git_show(base, rev, LIST)
     if base_list is None:
         print(f'The base ({rev}) has no {LIST} yet: this PR introduces it, so there is no older ban list to apply.')
         return 0
-    listing = subprocess.run(['git', '-C', str(base), 'ls-tree', '-r', '--name-only', rev, '--', 'src'],
-                             capture_output=True, text=True)
-    if listing.returncode:
-        raise ToolError(f'cannot list {rev} with git')
-    base_texts = {}
-    for path in listing.stdout.splitlines():
-        parts = path.split('/')
-        if len(parts) == 3 and parts[2] == BASELINE_FILE:
-            base_texts[parts[1]] = (path, git_show(base, rev, path) or '')
-    texts = {project: (f'src/{project}/{BASELINE_FILE}', read(base, f'src/{project}/{BASELINE_FILE}'))
-             for project in src_projects(base) if (base / f'src/{project}/{BASELINE_FILE}').is_file()}
-    base_entries, _ = baseline_entries_from(base_texts)
-    entries, problems = baseline_entries_from(texts)
+    base_entries, _ = baselines_in(src_csharp(base, rev))
+    entries, problems = baselines_in(src_csharp(base))
     problems += judge_rise([d for d, _ in parse_list(base_list)], [d for d, _ in parse_list(read(base, LIST))],
                            base_entries, entries)
     if problems:
         print('BANNED APIS (judged by the base branch\'s own copy) FAILED: this PR loosens the ban.\n  '
               + '\n  '.join(problems))
         return 1
-    print('BANNED APIS (judged by the base branch\'s own copy) OK: no ban removed, no baseline entry added or raised')
+    print('BANNED APIS (judged by the base branch\'s own copy) OK: no ban removed, no baseline entry added or raised, '
+          'RS0030 named only in AnalyzerBaseline.cs')
     return 0
 
 
@@ -631,12 +735,41 @@ def self_test():
                                                                                             'BOO-UI-001': 1})}}), 1,
            'raised 0 -> 1')
 
+    cfg = {'src/Boo.Core/.editorconfig': '[EvilA.cs]\ndotnet_diagnostic.RS0030.severity = none\n'}
+    expect('config: RS0030 severity', config_problems(cfg), 1, 'changes how RS0030')
+    expect('config: category, any case', config_problems({'x/.globalconfig': 'is_global = true\n[/a/EvilA.cs]\n'
+                                                           'dotnet_analyzer_diagnostic.category-ApiDesign.severity=none'}),
+           1, 'changes how RS0030')
+    expect('config: all diagnostics', config_problems({'a.editorconfig': 'DOTNET_ANALYZER_DIAGNOSTIC.SEVERITY : none'}), 1,
+           'changes how RS0030')
+    expect('config: other rules fine', config_problems({'a.editorconfig': 'dotnet_diagnostic.CA1031.severity = none\n'
+                                                                          'dotnet_diagnostic.RS0031.severity = none'}), 0)
+    r1 = product_hit(j1)
+    r_evil = dict(product_hit(), file='src/P/EvilA.cs', line=2)
+    expect('strip: identical', judge_config_strip('P', [r1, r1], [r1, r1]), 0)
+    expect('strip: a hit hidden by a config', judge_config_strip('P', [r1], [r1, r_evil]), 1, 'only without')
+    expect('strip: severity changed by a config', judge_config_strip('P', [dict(r_evil, level='note')], [r_evil]), 2,
+           'changes the ban')
+    expect('strip: duplicate count differs', judge_config_strip('P', [r1], [r1, r1]), 1, 'without')
+    sdk = '/usr/share/dotnet/'
+    expect('strip: only the SDK level config left', judge_stripped_configs(
+        'P', [sdk + 'sdk/10.0.403/Sdks/Microsoft.NET.Sdk/analyzers/build/config/analysislevel_10_default.globalconfig'],
+        sdk), 0)
+    expect('strip: a config put back', judge_stripped_configs('P', ['/repo/src/P/evil.globalconfig'], sdk), 1, 'still')
+    expect('strip: look-alike name outside the SDK', judge_stripped_configs(
+        'P', ['/repo/src/P/analysislevel_10_default.globalconfig'], sdk), 1, 'still')
+    expect('RS0030 outside the baseline file', suppressions_outside_baseline({
+        'src/P/AnalyzerBaseline.cs': 'RS0030', 'src/P/A.cs': '[SuppressMessage("ApiDesign", "RS0030")]',
+        'src/P/Sub/AnalyzerBaseline.cs': 'RS0030', 'src/P/B.cs': 'clean'}), 2, 'outside')
+    found, bad = baselines_in({'src/P/AnalyzerBaseline.cs': text, 'src/P/A.cs': 'x'})
+    expect('baselines_in reads every project file', bad + ([] if set(found['P']) == {t1, t2} else ['entries']), 0)
+
     expect('sarif uri', [] if relative((root / 'src' / 'x.cs').resolve().as_uri(), root) == 'src/x.cs' else ['uri'], 0)
 
     if failures:
         print('BANNED APIS SELF-TEST FAILED:\n  ' + '\n  '.join(failures))
         return 1
-    print('BANNED APIS SELF-TEST OK: list, marker, binding, firing, baseline and rise judging all behave')
+    print('BANNED APIS SELF-TEST OK: list, marker, binding, firing, baseline, analyzer-config and rise judging all behave')
     return 0
 
 

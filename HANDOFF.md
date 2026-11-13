@@ -309,9 +309,10 @@ logic. Rules, fixes and known gaps: `docs/quality/RULES.md`. To be made a requir
 
 With PR 1.3 the same job also sets up .NET (global.json) and runs the banned-API checks: `banned_apis.py list-check`
 (the list equals a fresh expansion from the reference packs), `canary` (each of the 86 lines fires exactly once),
-`product` (every `src/` project builds; RS0030 hits equal `AnalyzerBaseline.cs` per member and rule; the canary fires
-inside each project) and `compile_list.py`; on a pull request the base branch's `banned_apis.py rise-check` refuses a
-new baseline entry, a raised count or a removed ban. Timeout 20 minutes; the new steps took about 2.5 minutes on Linux (WSL) with packages already restored.
+`product` (every `src/` project builds; RS0030 hits equal `AnalyzerBaseline.cs` per member and rule; the same RS0030
+appear with every analyzer config file removed; the canary fires inside each project) and `compile_list.py`; on a pull
+request the base branch's own `banned_apis.py` runs `rise-check` (no new baseline entry, raised count or removed ban)
+and `product` on the PR's tree. The workflow file and `Directory.Build.props` still come from the PR (known issue 0). Timeout 20 minutes; the new steps took about 2.5 minutes on Linux (WSL) with packages already restored.
 
 ### Next phase
 

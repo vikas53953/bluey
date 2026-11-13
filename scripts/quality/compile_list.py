@@ -10,7 +10,8 @@ itself (the Compile and Using items after the Build target ran) and fails when:
   - a file the ratchet scans for that project is not compiled (the ratchet would count code that does not ship);
   - a file generated under the project's obj/ is not one of the known SDK / WPF outputs;
   - a XAML page holds an x:Code block (C# hidden inside XAML, which the ratchet never reads);
-  - a <Using> item is static or an alias (the ratchet cannot see through it; write a normal `using` in a .cs file).
+  - a <Using> item is static or an alias (the ratchet cannot see through it; write a normal `using` in a .cs file);
+  - a <ProjectReference> points outside src/<Name>/<Name>.csproj (that code ships with the app but nothing judges it).
 Exit 1 on a finding, 2 when the check could not run. Rule text: docs/quality/RULES.md#compile-list.
 """
 import importlib.util
@@ -40,6 +41,14 @@ def generated_ok(name, project, assembly, xaml_stems):
                      f'{assembly}_Content.g.cs'}
             or re.fullmatch(r'\.NETCoreApp,Version=v\d+\.\d+\.AssemblyAttributes\.cs', name) is not None
             or (name.endswith('.g.cs') and name[:-5] in xaml_stems))
+
+
+def judge_references(project, references, projects):
+    """references: posix paths relative to the repo of every ProjectReference; projects: the src/ project names."""
+    allowed = {f'src/{name}/{name}.csproj' for name in projects}
+    return [f'{project}: <ProjectReference> to {path}, which is not a src/<Name>/<Name>.csproj project. Code it pulls in '
+            f'ships with the app but is never judged; move it into src/.' for path in sorted(references)
+            if path not in allowed]
 
 
 def judge(project, compiled, scanned, listed, usings, xaml, assembly):
@@ -95,7 +104,8 @@ def check(base):
     for project in projects:
         csproj = f'src/{project}/{project}.csproj'
         run = subprocess.run(['dotnet', 'msbuild', csproj, *BUILD, '-getItem:Compile', '-getItem:Using', '-getItem:Page',
-                              '-getItem:ApplicationDefinition', '-getProperty:AssemblyName'],
+                              '-getItem:ApplicationDefinition', '-getItem:ProjectReference',
+                              '-getProperty:AssemblyName'],
                              cwd=str(base), capture_output=True, text=True, encoding='utf-8', errors='replace')
         start = run.stdout.find('{')
         if run.returncode or start < 0:
@@ -114,12 +124,14 @@ def check(base):
             path = relative(item['FullPath'], base)
             xaml[path] = pathlib.Path(item['FullPath']).read_text(encoding='utf-8-sig', errors='replace')
         problems += judge(project, compiled, scanned, listed, usings, xaml, data['Properties']['AssemblyName'])
+        problems += judge_references(project, {relative(item['FullPath'], base)
+                                               for item in items.get('ProjectReference', [])}, projects)
     if problems:
         print(f'COMPILE LIST FAILED: what the build compiles is not what the ratchet reads.\n  Rule: {RULES_DOC}\n  '
               + '\n  '.join(problems))
         return 1
     print(f'COMPILE LIST OK: {len(projects)} projects; every compiled file is a .cs file the ratchet reads, no static or '
-          f'alias <Using>, no x:Code')
+          f'alias <Using>, no x:Code, every project reference inside src/')
     return 0
 
 
@@ -143,6 +155,11 @@ def self_test():
         return judge(p, set(compiled) | sdk, set(scanned), listed_files, usings, xaml if pages is None else pages, 'Boo')
 
     expect('exact', run([a, b]), 0)
+    names = ['Boo.App', 'Boo.Core']
+    expect('reference inside src', judge_references(p, {'src/Boo.Core/Boo.Core.csproj'}, names), 0)
+    expect('reference to tools', judge_references(p, {'tools/Boo.LiveProbe/Boo.LiveProbe.csproj'}, names), 1,
+           'not a src')
+    expect('reference to a nested project', judge_references(p, {'src/Group/Hack/Hack.csproj'}, names), 1, 'not a src')
     expect('outside file compiled', run([a, b, 'docs/x.txt']), 1, 'docs/x.txt is compiled')
     expect('other project file compiled', run([a, b, 'src/Boo.Core/C.cs']), 1, 'is compiled')
     expect('ignored file compiled', run([a, b, f'src/{p}/Ignored.cs']), 1, 'is compiled')
@@ -162,7 +179,7 @@ def self_test():
     if failures:
         print('COMPILE LIST SELF-TEST FAILED:\n  ' + '\n  '.join(failures))
         return 1
-    print('COMPILE LIST SELF-TEST OK: outside, ignored, missing and generated files, static and alias usings, x:Code')
+    print('COMPILE LIST SELF-TEST OK: outside, ignored, missing and generated files, static and alias usings, x:Code, project references')
     return 0
 
 
