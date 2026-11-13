@@ -36,9 +36,11 @@ internal sealed class PerfDiagnostics
     private readonly NotchWindow _notch;
     private readonly Stopwatch _uptime = Stopwatch.StartNew();
     private readonly DispatcherTimer _timer;
+    private readonly TimeProvider _clock;
 
-    private PerfDiagnostics(string path, NotchWindow notch, Dispatcher dispatcher)
+    private PerfDiagnostics(string path, NotchWindow notch, Dispatcher dispatcher, TimeProvider clock)
     {
+        _clock = clock;
         _path = path;
         _tempPath = path + ".tmp";
         _notch = notch;
@@ -47,7 +49,7 @@ internal sealed class PerfDiagnostics
     }
 
     /// <summary>Starts the probe when BOO_PERF_DIAG is set; returns null (and does nothing) otherwise.</summary>
-    public static PerfDiagnostics? TryStart(NotchWindow notch, Dispatcher dispatcher)
+    public static PerfDiagnostics? TryStart(NotchWindow notch, Dispatcher dispatcher, TimeProvider? clock = null)
     {
         var path = Environment.GetEnvironmentVariable(EnvironmentVariable);
         if (string.IsNullOrWhiteSpace(path))
@@ -62,7 +64,7 @@ internal sealed class PerfDiagnostics
             {
                 Directory.CreateDirectory(directory);
             }
-            var probe = new PerfDiagnostics(full, notch, dispatcher);
+            var probe = new PerfDiagnostics(full, notch, dispatcher, clock ?? TimeProvider.System);
             probe.Write();
             probe._timer.Start();
             return probe;
@@ -80,7 +82,7 @@ internal sealed class PerfDiagnostics
     {
         var snapshot = new Snapshot(
             Schema,
-            DateTimeOffset.UtcNow,
+            _clock.GetUtcNow(),
             _uptime.ElapsedMilliseconds,
             GC.CollectionCount(0),
             GC.CollectionCount(1),
