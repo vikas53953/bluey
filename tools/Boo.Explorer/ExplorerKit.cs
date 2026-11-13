@@ -54,7 +54,7 @@ public static class ExplorerLedger
         var events = RequestMeter.Events;
         var sb = new StringBuilder();
         sb.AppendLine($"REAL-KEY requests Boo sent (metered at Boo's network boundary): {RequestMeter.BillableStarted} of hard cap {HardCap}");
-        sb.AppendLine($"all requests Boo started: {events.Count(e => e.Contains(" START "))}; finished with an HTTP status: {events.Count(e => e.Contains(" STOP "))}; failed before a status: {events.Count(e => e.Contains(" FAILED "))}");
+        sb.AppendLine($"all requests Boo started: {events.Count(e => e.Contains(" START "))}; answered with an HTTP status: {events.Count(e => e.Contains(" STOP ") && !e.Contains("HTTP -1"))}; failed or cancelled before a status: {events.Count(e => e.Contains(" FAILED "))}");
         sb.AppendLine($"questions the harness asked: {Attempts.Count}; retries: 0 (the harness never re-asks)");
         sb.AppendLine("--- asked by the harness ---");
         Attempts.ForEach(a => sb.AppendLine("  " + a));
