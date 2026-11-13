@@ -223,13 +223,14 @@ public sealed class NotchStateRecorder : IDisposable
     {
         using var automation = new UIA3Automation();
         var last = string.Empty;
+        Window? notch = null;
         while (!_stop)
         {
             var state = string.Empty;
             var readStart = _clock.ElapsedMilliseconds;
             try
             {
-                var notch = _boo.App.GetAllTopLevelWindows(automation).FirstOrDefault(w =>
+                notch ??= _boo.App.GetAllTopLevelWindows(automation).FirstOrDefault(w =>
                 {
                     var n = BooAppFixture.SafeName(w);
                     return n == BooAppFixture.NotchName || n == BooAppFixture.NotchTitle;
@@ -238,7 +239,8 @@ public sealed class NotchStateRecorder : IDisposable
             }
             catch (Exception)
             {
-                // Boo is busy or exiting; sample again.
+                // A retained UIA element can go stale when Boo exits. Keep the failed read as health evidence.
+                notch = null;
             }
             lock (_gate) _observations.Add((readStart, _clock.ElapsedMilliseconds, state));
             if (state.Length > 0 && state != last)

@@ -26,13 +26,14 @@ public sealed class HoverEdgeTests : IClassFixture<NoKeyFixture>
         var clock = Stopwatch.StartNew();
         var samples = new List<(long Start, long At, string Face)>();
         var actionStarts = new Dictionary<long, long>();
-        var points = _boo.WaitForNotch(QaUi.UiTimeout).BoundingRectangle;
+        var notch = _boo.WaitForNotch(QaUi.UiTimeout);
+        var points = notch.BoundingRectangle;
         var hover = new Point(points.Left + points.Width / 2, points.Top + 2);
         var away = new Point(hover.X, hover.Y + 300);
         void Sample()
         {
             var start = clock.ElapsedMilliseconds;
-            var face = QaUi.NotchState(_boo);
+            var face = notch.Properties.ItemStatus.ValueOrDefault ?? string.Empty;
             var end = clock.ElapsedMilliseconds;
             samples.Add((start, end, face));
             trace.Add($"read [{start},{end}] observed {face}");
@@ -46,7 +47,9 @@ public sealed class HoverEdgeTests : IClassFixture<NoKeyFixture>
         {
             var begin = clock.ElapsedMilliseconds;
             trace.Add($"{begin} action-begin {action}");
-            Mouse.MoveTo(point);
+            // MoveTo interpolates at 0.5 pixels/ms in FlaUI 4, missing subsecond branch deadlines.
+            // Position sends the real pointer directly; UIA transitions still bound app processing time.
+            Mouse.Position = point;
             var at = clock.ElapsedMilliseconds;
             trace.Add($"{at} action-end {action}");
             actionStarts[at] = begin;
@@ -69,7 +72,7 @@ public sealed class HoverEdgeTests : IClassFixture<NoKeyFixture>
         void FreshHidden(string branch)
         {
             Move(away, branch + " setup-away");
-            Assert.True(BooAppFixture.WaitUntil(() => QaUi.NotchState(_boo) == "Hidden", TimeSpan.FromSeconds(5)),
+            Assert.True(BooAppFixture.WaitUntil(() => notch.Properties.ItemStatus.ValueOrDefault == "Hidden", TimeSpan.FromSeconds(5)),
                 "SETUP: fresh Hidden was not established for " + branch);
             Sample();
             Assert.Equal("Hidden", samples[^1].Face);
@@ -164,7 +167,7 @@ public sealed class HoverEdgeTests : IClassFixture<NoKeyFixture>
             QaUi.Find(_boo, panel, "FocusDurationBox").AsTextBox().Text = "25";
             QaUi.Find(_boo, panel, "FocusStartButton").AsButton().Invoke();
             QaUi.Find(_boo, panel, "FocusPauseButton").AsButton().Invoke();
-            Assert.True(BooAppFixture.WaitUntil(() => QaUi.NotchState(_boo) == "Paused", TimeSpan.FromSeconds(5)));
+            Assert.True(BooAppFixture.WaitUntil(() => notch.Properties.ItemStatus.ValueOrDefault == "Paused", TimeSpan.FromSeconds(5)));
             QaUi.Find(_boo, panel, "CloseButton").AsButton().Invoke();
             var d = clock.ElapsedMilliseconds;
             Move(hover, "d hover paused");
