@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #20 merged**, with `lane/face` at `e1d4b5c`.
+Status last updated: **13 Nov 2026, after PR #21 merged (06:12 IST)**, with `lane/face` at `1c82af8`.
 
 ---
 
@@ -135,14 +135,19 @@ screenshot a key; logs record lengths only.
 - A PR must be **up to date** with its base to merge. After every merge into `lane/face`, the other open PRs show
   BEHIND and need a sync (see section 7).
 - Branch protection, set 12 Nov on **both `lane/face` and `main`** (read back from the API):
-  - required checks: **`demos`** (demo-ci) and **`build-test-publish`** (windows-ci), both from GitHub Actions;
+  - required checks: **`demos`** (demo-ci) and **`build-test-publish`** (windows-ci), both from GitHub Actions
+    (app id 15368); on **`lane/face` only**, since 13 Nov ~06:15 IST, also **`live-ai-smoke`** (app id 15368, read
+    back after the change: `demos`, `build-test-publish`, `live-ai-smoke`, strict);
   - branch must be up to date before merging;
   - force pushes and branch deletion blocked;
   - no required approvals (Vikas is the only reviewer); admins not enforced (Vikas can override).
-  - `live-ai-smoke` is **not yet** a required check. PR #20 makes it run on every pull request with a final always-run
-    job `live-ai-smoke` that is green only if the key check and the real round trip both succeeded (GitHub counts a
-    skipped required job as passing). After PR #20 merges, the context `live-ai-smoke` (GitHub Actions) is added to
-    `lane/face` protection (Grok Bot, 13 Nov: only tightens the gate).
+  - `live-ai-smoke` is a **required check on `lane/face`** (since PR #20 merged, `e1d4b5c`): it runs on every pull
+    request, and its final always-run job is green only if the key check and the real round trip both succeeded
+    (GitHub counts a skipped required job as passing). It is pinned to app id 15368, so no other app can post a
+    passing status with that name. **`main` step still to do:** add the same pinned context to `main` protection only
+    once `lane/face` (with the `pull_request` trigger) has reached `main` through PR #3; before that, `main` PRs would
+    wait forever for a check their workflow cannot produce. Open PRs into `lane/face` whose branch predates PR #20 must
+    sync first, or the check stays "Expected".
 - **Merging, tagging and releasing stay with Vikas**, and agents never merge, tag, release, or push to `lane/face` or
   `main`. Exception, recorded by PR #18: since 13 Nov 12:15 AM IST the verifying bot (Grok Bot) merges PR #17, PR #18 and the
   agent-trust Phase 1–3 PRs once every gate passes; tags and releases stay with Vikas either way.
@@ -187,15 +192,15 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 PRs into `lane/face` must be **up to date** with it to merge, so every merge makes the others BEHIND. Sync by merging
 `origin/lane/face` into the branch (no force push), then re-run CI and one live smoke on the new head.
 
-| PR | Branch → base | State (13 Nov, after PR #20) | Notes |
+| PR | Branch → base | State (13 Nov, after PR #21) | Notes |
 | --- | --- | --- | --- |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
 | [#22](https://github.com/vikas53953/bluey/pull/22) | `fix/demo-step4-state-race` → `lane/face` | **merged 13 Nov** (`af241fa`) | Demo Step 4 test race fix: re-read the notch state after the button search; oracle revisions 22–23 (`docs/verification/test-oracle-revision-22.md`). |
-| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open**, synced with `e1d4b5c` (PR #20); the QA verdict for the current head is in the PR description | `verify-boo` skill (`.claude/skills/verify-boo`), live journeys j0–j6 (`tools/Boo.VerifyLive`), `docs/FEATURE_MAP.md`, prove-it rule (AGENTS.md, CLAUDE.md), `journeys` input on `live-ai-smoke` (journeys run only on a manual dispatch with `journeys=true`, never on the per-PR run). Also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks). Since PR #18 the journeys capture Boo's windows only (j3 reads the ring and pointer from Boo's overlay rendered from its own content; "target in front" is asked of Windows), and the skill's local runner refuses to run on a personal PC. Last QA PASS at `87a1442` (live [43319490629](https://github.com/vikas53953/bluey/actions/runs/43319490629)). |
+| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open**, synced with `1c82af8` (PR #21); the QA verdict for the current head is in the PR description | `verify-boo` skill (`.claude/skills/verify-boo`), live journeys j0–j6 (`tools/Boo.VerifyLive`), `docs/FEATURE_MAP.md`, prove-it rule (AGENTS.md, CLAUDE.md), `journeys` input on `live-ai-smoke` (journeys run only on a manual dispatch with `journeys=true`, never on the per-PR run). Also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks; inside a string, so the quality ratchet stays at 554). Since PR #18 the journeys capture Boo's windows only (j3 reads the ring and pointer from Boo's overlay rendered from its own content; "target in front" is asked of Windows), and the skill's local runner refuses to run on a personal PC. Last QA PASS at `d2f9827` (live [43335756258](https://github.com/vikas53953/bluey/actions/runs/43335756258); fresh reviewer REVIEW PASS). |
 | [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **open** | 3-phase agent trust plan (`docs/plans/agent-trust-plan.md`). |
 | [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **merged 13 Nov** (`00a1fc2`) | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option; runner check in windows-ci; overlay capture proof in demo-ci; oracle revision 24 (3 capture fixtures). Latest completed QA: **QA PASS at `b590f92`** (live [43313942831](https://github.com/vikas53953/bluey/actions/runs/43313942831), windows-ci [43313897620](https://github.com/vikas53953/bluey/actions/runs/43313897620), demo-ci [43313897674](https://github.com/vikas53953/bluey/actions/runs/43313897674)); the head after this sync is re-QA'd in the PR body. |
-| [#20](https://github.com/vikas53953/bluey/pull/20) | `ci/live-smoke-required` → `lane/face` (retargeted 13 Nov after #18 merged) | merged 13 Nov (`e1d4b5c`) | Live smoke on every pull request with a final required `live-ai-smoke` job; per-PR concurrency; docs on cost, fork/Dependabot PRs and the gate-edit hole. Latest completed QA: none yet on lane/face base (stacked QA PASS at `ed7ed61`). |
-| [#21](https://github.com/vikas53953/bluey/pull/21) → #20's branch | stacked | **open** | A ratchet of known-bad code patterns (`quality-gates.yml`). |
+| [#20](https://github.com/vikas53953/bluey/pull/20) | `ci/live-smoke-required` → `lane/face` | **merged 13 Nov** (`e1d4b5c`) | Live smoke on every pull request with a final required `live-ai-smoke` job; per-PR concurrency; docs on cost, fork/Dependabot PRs and the gate-edit hole. Latest completed QA: none yet on lane/face base (stacked QA PASS at `ed7ed61`). |
+| [#21](https://github.com/vikas53953/bluey/pull/21) | `quality/ratchet` → `lane/face` (retargeted 13 Nov after #20 merged) | merged 13 Nov 06:12 IST (`1c82af8`) | A ratchet of 16 known-bad code patterns in `src/` (`quality-gates.yml`, job `quality`); 554 hits today, may only go down; the base branch's own ratchet also judges every PR. Latest completed QA: none yet on the lane/face base (stacked QA PASS at `57cdeb1`); this head is re-QA'd in the PR body. |
 | [#19](https://github.com/vikas53953/bluey/pull/19) | `docs/scrub-local-paths` → `lane/face` | merged 13 Nov 03:17 IST (`b765f0f`) | Replaces the owner's Windows username and home paths in old docs (and in files that arrived later, e.g. the Living ink evidence notes) with `%USERPROFILE%` / `<user>_<machine>`. Old commits keep the old text (no history rewrite). |
 | [#16](https://github.com/vikas53953/bluey/pull/16) | `docs/project-handoff` → `lane/face` | merged 13 Nov 02:46 IST (`e0fb7b3`) | This handoff (HANDOFF.md, docs/DECISIONS.md, CONTRIBUTING.md). Merged with the PR #12 session notes and decision records. |
 | [#15](https://github.com/vikas53953/bluey/pull/15) | `ci/artifact-retention-7d` → `lane/face` | merged 13 Nov 01:40 IST (`95e9718`) | `retention-days: 7` on every upload. |
@@ -256,12 +261,16 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 11. **PR #13 follow-ups (low, from its reviews).** `Test-FeatureMap.ps1` does not catch a map row typed without its
    leading `|` or a lowercase ID; a failed restore of Windows animation effects after a live run is only written
    to stderr; Boo's `AnnotationValidator` still drops a whole explanation when one mark is invalid (run 43196068202:
-   "The annotation mark bounds are invalid"; PR #13 only tells the AI the mark rules).
-12. **Explain requests sometimes hit Boo's 45 s OpenAI limit** (`HttpClient { Timeout = 45 s }`, `MainWindow.xaml.cs`).
-   In PR #13's live journeys, 2 of 12 runs that made a j3 explain request ended with "OpenAI response timed out. Try again."
-   (43202679653, 43333049693); chat, research and Apply/Undo never did. The request is Boo's own (its capture of the
-   display plus the question), so the test's screenshot method cannot cause it. Raising the limit (longer waits vs fewer
-   timeouts) is a product decision for Vikas; j3 now records how long each explain answer took.
+   "The annotation mark bounds are invalid"; PR #13 only tells the AI the mark rules); j3 does not prove its ring is
+   new (safe while j3 is the first explain request: Boo clears old overlays on every reply); the j3/j6 "target in
+   front" check looks at one point.
+12. **Explain requests can hit Boo's 45 s OpenAI limit** (the panel's `HttpClient { Timeout = 45 s }`,
+   `MainWindow.xaml.cs`). PR #13 live run 43333049693 ended j3 with Boo's status "OpenAI response timed out. Try again.";
+   run 43202679653 failed j3 the same way from the outside, but its cause is UNPROVEN (the test did not yet record Boo's
+   status, and its evidence has expired). Chat, research and Apply/Undo never timed out. The request is Boo's own (its
+   capture of the display plus the question), so the test's screenshot method cannot cause it; in passing runs the
+   marks arrive in about 6 s (`marksAfterSeconds`). Raising the limit (longer waits vs fewer timeouts) is a product
+   decision for Vikas.
 
 ### UNVERIFIED (not proven on `lane/face`)
 
@@ -270,14 +279,23 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
   voice turn on `feat/living-ink`; not re-verified independently.
 - **Pointer + ring with a real model, beyond PR #13's one target.** Once PR #13 merges, its live journey j3 proves the
   ring runs through a known button's edges and the pointer lands on it (passed on `de9492f`, `7c5af8d`, `60930b9`,
-  `e86a107` and `87a1442`), on one 1024x768 VM screen. Still UNVERIFIED: other targets, other DPI or multiple monitors,
-  and **Windows animation effects off**: Boo then hides the pointer by design, and the journeys run with animations
-  switched on.
+  `e86a107`, `87a1442` and, reading Boo's own overlay render, `d2f9827`), on one 1024x768 VM screen. Still
+  UNVERIFIED: other targets, other DPI or multiple monitors, and **Windows animation effects off**: Boo then hides the
+  pointer by design, and the journeys run with animations switched on.
 - **A manual run by Vikas on his PC**: the three demos and a real 25-minute focus session
   ([docs/MORNING_CHECKLIST.md](docs/MORNING_CHECKLIST.md)). Delivery is not accepted until this is done.
 - Installer install / Start-menu / uninstall / real update round trip on a PC; the SmartScreen prompt.
 - The `github-release` job (needs a `v*` tag; the portable ZIP and installer upload again since 13 Nov).
 - Hover timing, DPI and multi-monitor behaviour by hand (native checklists in `docs/verification/2026-11-08-*`).
+
+### Quality ratchet (Phase 1, PR #21)
+
+`.github/workflows/quality-gates.yml` (job `quality`, Linux, about a minute, no uploads) runs
+`scripts/quality/ratchet.py`: today's count of 16 known-bad patterns in `src/` (554 hits on `lane/face`, 13 Nov 2026, per
+project, in `docs/quality/baseline.json`) may only go **down**. A rise fails with what / why / fix / do-not / rule; a fall
+fails until `--lower` writes the new baseline. On a pull request the **base branch's own** ratchet and baseline also judge
+the code, so a PR cannot raise its own numbers. `--self-test` checks 59 snippets with exact counts and the pass/fail
+logic. Rules, fixes and known gaps: `docs/quality/RULES.md`. To be made a required check (`quality`) after it merges.
 
 ### Next phase
 

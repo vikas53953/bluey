@@ -396,7 +396,7 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
                 var score = System.Text.RegularExpressions.Regex.Match(history, @"(\d+)% focused");
                 Assert.True(score.Success, $"Session history has no focus estimate: '{history}'");
                 Assert.True(int.Parse(score.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) > 0,
-                    $"Boo judged a session spent entirely in the on-task window as '{score.Value}' and nudged {nudges} times. See j6-on-task-*.png.");
+                    $"Boo judged a session spent entirely in the on-task window as '{score.Value}' and nudged {nudges} times (target in front {onTopHits}/{onTopChecks} checks). See j6-focus.txt and the j6-nudge-*.boo-*.png screenshots.");
             }
             finally
             {
