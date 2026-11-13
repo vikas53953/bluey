@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <!-- The bypass: references that exist only in the real build. A gate that evaluates the project alone, in Debug,
+       without a runtime identifier, on another OS, never sees them. -->
+  <ItemGroup>
+    <ProjectReference Include="../LibConfig/LibConfig.csproj" Condition="'$(Configuration)' == 'Release'" />
+    <ProjectReference Include="../LibRid/LibRid.csproj" Condition="'$(RuntimeIdentifier)' == 'win-x64'" />
+    <ProjectReference Include="../LibPublishing/LibPublishing.csproj" Condition="'$(_IsPublishing)' == 'true'" />
+    <ProjectReference Include="../LibSolution/LibSolution.csproj" Condition="'$(SolutionName)' == 'Fix'" />
+    <ProjectReference Include="../LibOs/LibOs.csproj" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+  </ItemGroup>
+</Project>
