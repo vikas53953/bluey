@@ -20,7 +20,7 @@ public sealed class TranscriptNoKeyBooFixture : BooAppFixture
 }
 
 /// <summary>
-/// Regression for the app explorer's finding (issue linked in docs/FEATURE_MAP.md row X8): when the
+/// Regression for the app explorer's finding (issue linked in docs/FEATURE_MAP.md row X9): when the
 /// same line appears twice in Conversation (the same question asked twice, or the same short answer twice), the screen
 /// shows both rows but UI Automation, which screen readers use, exposes only ONE of them. Found by run
 /// https://github.com/vikas53953/bluey/actions/runs/43469967627 (b01-wrong-key.txt reads one "You" row; the panel image
