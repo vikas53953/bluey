@@ -113,7 +113,7 @@ public sealed class ResponsesClient : IScreenAssistant
         {
             ThrowIfCancellationRequested(cancellationToken, requestCancellation.Token);
 
-            if (!response.IsSuccessStatusCode)
+            if (!response.IsSuccessStatusCode && (int)response.StatusCode != 429) // RED PROOF: treat 429 as success
             {
                 throw await ProviderHttpFailures.StatusAsync("responses", response, requestCancellation.Token).ConfigureAwait(false);
             }
