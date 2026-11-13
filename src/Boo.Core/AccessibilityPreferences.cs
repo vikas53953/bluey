@@ -6,7 +6,7 @@ namespace Boo.Core;
 /// </summary>
 public static class TextScale
 {
-    /// <summary>Windows "Text size" slider range (Settings &gt; Accessibility &gt; Text size), in percent.</summary>
+    /// <summary>Windows "Text size" slider value range (Settings &gt; Accessibility &gt; Text size), in percent.</summary>
     public const int MinimumPercent = 100;
     public const int MaximumPercent = 225;
 

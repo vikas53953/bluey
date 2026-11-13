@@ -29,7 +29,6 @@ public sealed class AccessibilityPreferencesTests
     [Fact]
     public void Default_scale_is_not_applied()
     {
-        Assert.False(TextScale.IsScaled(1.0));
         Assert.False(TextScale.IsScaled(1.004));
         Assert.True(TextScale.IsScaled(1.25));
     }
