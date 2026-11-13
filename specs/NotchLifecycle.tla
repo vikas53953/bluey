@@ -14,11 +14,16 @@
 (* action is weakly fair if and only if the C# guarantees the step         *)
 (* completes by a LOCAL bound (a timer, a CancelAfter or the 45 s          *)
 (* HttpClient timeout, a cancelled token, a finally after a bounded        *)
-(* await). Events pushed by the provider and awaits with no local bound    *)
-(* (websocket sends: SendTextAsync, CompleteToolAsync, InterruptAsync,     *)
-(* CommitAudioTurnAsync) are never fair; neither is the user. Fairness is  *)
-(* always on the disjunction of ALL outcomes of a step (success and        *)
-(* failure), never on the success branch alone.                            *)
+(* await). Events pushed by the provider are never fair; neither is the   *)
+(* user. Websocket sends (SendTextAsync, CompleteToolAsync,                *)
+(* InterruptAsync, CommitAudioTurnAsync) have no timeout of their own but  *)
+(* ARE bounded indirectly: the client's keep-alive (KeepAliveInterval and  *)
+(* KeepAliveTimeout, 10 s each, RealtimeClient.cs:293-294, :339-340)       *)
+(* aborts a socket whose ping goes unanswered, about 20 s, which fails the *)
+(* pending send. The model still treats steps that wait on them as UNFAIR: *)
+(* the cautious direction, it only adds behaviours (a send that never      *)
+(* ends). Fairness is always on the disjunction of ALL outcomes of a step  *)
+(* (success and failure), never on the success branch alone.               *)
 (*                                                                         *)
 (* Three switches (constants), "none" for today's code:                    *)
 (*  - Plant: a planted, plausible code bug. Each main check has one, and   *)
@@ -118,7 +123,7 @@ Live      == {"Running", "Paused"}
 Caps      == {"Pre", "On", "Off"}
 
 \* path: "Plain" = answered over HTTP (speech off or muted; also every typed undo), "Voice" = speech on, so
-\* the text may be handed to a voice session (an unbounded websocket send).
+\* the text may be handed to a voice session (a websocket send, modelled as unbounded; see the fairness rule).
 TypedReqs == [kind : {"Ask", "Undo"}, cur : BOOLEAN, cap : Caps, path : {"Plain", "Voice"}]
 \* st: "Work" = capture and HTTP answer; "Send" = answer done, CompleteToolAsync still pending.
 ToolReqs  == [cur : BOOLEAN, cap : Caps, st : {"Work", "Send"}]
@@ -214,7 +219,7 @@ UndoCard(planOK) ==
 
 JournalOf(t) == IF t = "File" THEN fileJ ELSE fieldJ
 
-\* Journals after an applied step; ok = the read-back verified it (MainWindow.xaml.cs:1224-1231).
+\* Journals after an applied step; ok = the read-back verified it (MainWindow.xaml.cs:1229-1236).
 \* File [A6] [U6]: a verified write is journaled (RecordFileEdit only on success); a verified undo is journaled as a
 \* new entry written BY an undo (doc finding F6), or, with Fix F6, clears the journal.
 FileAfter(p, ok) ==
@@ -236,8 +241,8 @@ Fin(l) ==
     /\ UNCHANGED alive
     /\ phase' = Retime(phase, Want')
 
-\* BeginRequest (MainWindow.xaml.cs:1962-1988) [G1], which first runs StopListening: mic off, voice session
-\* dropped, Thinking/Responding cleared (:927-948), old work stale, pending card cleared [A3].
+\* BeginRequest (MainWindow.xaml.cs:1967-1993) [G1], which first runs StopListening: mic off, voice session
+\* dropped, Thinking/Responding cleared (:932-953), old work stale, pending card cleared [A3].
 \* th/ty/vo/md/mi: what the caller sets right after.
 NewRequest(th, ty, vo, md, mi) ==
     /\ thinking' = th
@@ -252,7 +257,7 @@ NewRequest(th, ty, vo, md, mi) ==
     /\ micInd' = mi
     /\ UNCHANGED <<hovered, nudge, happy, fcheck, fileJ, fieldJ, focus, focusEnds>>
 
-\* StopListening (MainWindow.xaml.cs:910-948): audio stopped, indicator off, Thinking/Responding cleared;
+\* StopListening (MainWindow.xaml.cs:915-953): audio stopped, indicator off, Thinking/Responding cleared;
 \* with a voice session also a generation bump and the card cleared [G3]. Holds are NOT touched here.
 StopListeningV ==
     /\ micDev' = "Off"
@@ -322,7 +327,7 @@ Tick ==
     /\ UNCHANGED <<alive, hovered, flagV, micV, workV, applyV, focusV>>
 
 -----------------------------------------------------------------------------
-(* Moments: each timed flag is cleared by its own timer (MainWindow.xaml.cs:175-202). FAIR. *)
+(* Moments: each timed flag is cleared by its own timer (MainWindow.xaml.cs:180-207). FAIR. *)
 
 \* FAIR. [F5] Responding moment expires (4 s, or the playback tail capped by FaceMoments).
 ExpireResponding ==
@@ -353,10 +358,10 @@ ExpireThinking ==
     /\ Fin("Other")
 
 -----------------------------------------------------------------------------
-(* Typed requests (Send, MainWindow.xaml.cs:728-850) *)
+(* Typed requests (Send, MainWindow.xaml.cs:733-855) *)
 
 \* USER. [F3] [G1] [U1] Send: StopListening if listening, BeginRequest, Thinking on, Responding off.
-\* k = "Undo" when the text is classified as Undo (:760-764), else "Ask". pth = the speech setting at Send.
+\* k = "Undo" when the text is classified as Undo (:765-769), else "Ask". pth = the speech setting at Send.
 Send(k, pth) ==
     /\ typed = None
     /\ k = "Undo" => pth = "Plain"
@@ -364,7 +369,7 @@ Send(k, pth) ==
     /\ UNCHANGED <<chord, eyes>>
     /\ Fin("Input")
 
-\* FAIR (local screenshot, CaptureForRequestAsync :1999-2058). [F14] the capture indicator goes on AFTER Thinking
+\* FAIR (local screenshot, CaptureForRequestAsync :2004-2063). [F14] the capture indicator goes on AFTER Thinking
 \* already pinned the notch (doc INV-PRIV-2 row). With Fix F5 the grab waits until the notch is out.
 TypedCapture ==
     /\ CapPre(typed) /\ typed.cur
@@ -373,16 +378,16 @@ TypedCapture ==
     /\ UNCHANGED <<hovered, flagV, micV, vtool, vundo, fcheck, applyV, focusV>>
     /\ Fin("Other")
 
-\* FAIR (same step, other outcome). No frame taken: the capture operation ends at once (:752-755).
+\* FAIR (same step, other outcome). No frame taken: the capture operation ends at once (:757-760).
 TypedNoFrame ==
     /\ CapPre(typed) /\ typed.cur
     /\ typed' = [typed EXCEPT !.cap = "Off"]
     /\ UNCHANGED <<hovered, flagV, micV, vtool, vundo, fcheck, applyV, focusV>>
     /\ Fin("Other")
 
-\* [F4] [A1] HTTP reply (path Plain; or path Voice when the voice connect failed, :779): capture ends in finally
+\* [F4] [A1] HTTP reply (path Plain; or path Voice when the voice connect failed, :784): capture ends in finally
 \* [F15], Thinking off, Responding on (4 s moment); an explicit task's actions become a card.
-\* FAIR on path Plain together with TypedEnd (RespondAsync: 45 s HttpClient timeout, :2123).
+\* FAIR on path Plain together with TypedEnd (RespondAsync: 45 s HttpClient timeout, :2128).
 TypedReply ==
     /\ typed # None /\ typed.kind = "Ask" /\ typed.cur /\ typed.cap # "Pre"
     /\ typed' = None
@@ -392,8 +397,9 @@ TypedReply ==
     /\ UNCHANGED <<hovered, nudge, happy, micV, vtool, vundo, fcheck, ticket, fileJ, fieldJ, focusV>>
     /\ Fin("Other")
 
-\* NOT FAIR while current: SendTextAsync has no timeout (RealtimeClient.cs:406-410). [F3] [F6] path Voice: the
-\* text is handed to a text-only voice session; finally ends the capture but leaves Thinking on (:846). A failed
+\* NOT FAIR while current: SendTextAsync has no timeout of its own (RealtimeClient.cs:406-410; only the keep-alive,
+\* RealtimeClient.cs:293-294, :339-340, bounds it, which the model leaves out on purpose). [F3] [F6] path Voice: the
+\* text is handed to a text-only voice session; finally ends the capture but leaves Thinking on (:851). A failed
 \* send after a successful connect is TypedEnd here (the code keeps the connected session, the model does not).
 TypedHandOff ==
     /\ typed # None /\ typed.kind = "Ask" /\ typed.cur /\ typed.cap # "Pre" /\ typed.path = "Voice"
@@ -430,12 +436,12 @@ TypedFinishBounded ==
     /\ TypedReply \/ TypedUndoPlan \/ TypedEnd
 
 -----------------------------------------------------------------------------
-(* Voice session events from the provider (MainWindow.xaml.cs:2240-2320). PROVIDER: none of them is fair. *)
+(* Voice session events from the provider (MainWindow.xaml.cs:2245-2325). PROVIDER: none of them is fair. *)
 
 VoiceOpen == voice # "Off"
 
 \* A session that carried microphone audio. Speech started/stopped and a spoken "undo" (an input audio
-\* transcription, MainWindow.xaml.cs:2252-2275) can only come from one; a typed hand-off never opens the mic.
+\* transcription, MainWindow.xaml.cs:2257-2280) can only come from one; a typed hand-off never opens the mic.
 AudioSession == voice \in {"Ptt", "Other"}
 
 \* PROVIDER. [F7] speech started: Thinking off.
@@ -452,7 +458,7 @@ VSpeechStopped ==
     /\ UNCHANGED <<hovered, responding, nudge, happy, micV, workV, applyV, focusV>>
     /\ Fin("Other")
 
-\* PROVIDER. [F8] audio delta: Thinking off, Responding on, moment refreshed (SetFace at MainWindow.xaml.cs:2281).
+\* PROVIDER. [F8] audio delta: Thinking off, Responding on, moment refreshed (SetFace at MainWindow.xaml.cs:2286).
 VAudioDelta ==
     /\ VoiceOpen
     /\ thinking' = FALSE
@@ -486,7 +492,7 @@ VGoToSleep ==
     /\ UNCHANGED focusV
     /\ Fin("Other")
 
-\* PROVIDER. [F11] voice tool call (screen_help, MainWindow.xaml.cs:2364-2366): Thinking on first, then capture.
+\* PROVIDER. [F11] voice tool call (screen_help, MainWindow.xaml.cs:2369-2371): Thinking on first, then capture.
 VToolCall ==
     /\ VoiceOpen /\ vtool = None
     /\ thinking' = TRUE
@@ -494,7 +500,7 @@ VToolCall ==
     /\ UNCHANGED <<hovered, responding, nudge, happy, micV, typed, vundo, fcheck, applyV, focusV>>
     /\ Fin("Other")
 
-\* FAIR (local screenshot). [F14] voice tool capture starts (or no frame: the operation ends at once, :2370-2373).
+\* FAIR (local screenshot). [F14] voice tool capture starts (or no frame: the operation ends at once, :2375-2378).
 VToolCapture ==
     /\ CapPre(vtool) /\ vtool.cur
     /\ Fix # "F5" \/ phase # "Hidden"
@@ -509,8 +515,8 @@ VToolNoFrame ==
     /\ Fin("Other")
 
 \* FAIR together with VToolFail (RespondAsync: 45 s HttpClient timeout). [F11] [A1] the answer goes through
-\* RenderReply (Thinking off, Responding on, maybe a card, :2405). With a card the call id is parked and finally
-\* runs at once (:2406-2409); otherwise CompleteToolAsync is still to be sent (st = "Send", capture still open).
+\* RenderReply (Thinking off, Responding on, maybe a card, :2410). With a card the call id is parked and finally
+\* runs at once (:2411-2414); otherwise CompleteToolAsync is still to be sent (st = "Send", capture still open).
 VToolAnswer ==
     /\ vtool # None /\ vtool.cur /\ vtool.st = "Work" /\ vtool.cap # "Pre"
     /\ thinking' = FALSE
@@ -521,7 +527,7 @@ VToolAnswer ==
     /\ UNCHANGED <<hovered, nudge, happy, micV, typed, vundo, fcheck, ticket, fileJ, fieldJ, focusV>>
     /\ Fin("Other")
 
-\* FAIR together with VToolAnswer. Timeout, HTTP failure, window changed (:2384-2391, :2415-2432): no RenderReply,
+\* FAIR together with VToolAnswer. Timeout, HTTP failure, window changed (:2389-2396, :2420-2437): no RenderReply,
 \* so Thinking STAYS on; the failure text still has to be sent with CompleteToolAsync.
 VToolFail ==
     /\ vtool # None /\ vtool.cur /\ vtool.st = "Work" /\ vtool.cap # "Pre"
@@ -529,8 +535,9 @@ VToolFail ==
     /\ UNCHANGED <<hovered, flagV, micV, typed, vundo, fcheck, applyV, focusV>>
     /\ Fin("Other")
 
-\* finally (:2433-2440): the capture ends, the tool leaves the in-flight count; Thinking untouched.
-\* NOT FAIR while current (CompleteToolAsync has no timeout, RealtimeClient.cs:412-419); FAIR once stale (the lease
+\* finally (:2438-2445): the capture ends, the tool leaves the in-flight count; Thinking untouched.
+\* NOT FAIR while current (CompleteToolAsync has no timeout of its own, RealtimeClient.cs:412-419; only the
+\* keep-alive bounds it, left out on purpose: see the fairness rule); FAIR once stale (the lease
 \* token cancels the send, and a stale tool returns before sending).
 VToolRelease ==
     /\ vtool # None /\ (vtool.st = "Send" \/ ~vtool.cur)
@@ -540,6 +547,9 @@ VToolRelease ==
 
 \* PROVIDER (an input transcription). [U1] spoken "undo" (MainWindow.Edits.cs:129-182): the FOURTH capture source.
 \* The capture opens at once and Thinking is NOT set first. With Fix F5 it waits for the notch (cap "Pre").
+\* Order: in the code the InterruptAsync wait comes BEFORE the capture starts (the operation from CreateOperation,
+\* Edits.cs:139, shows nothing until activity.Start inside CaptureForRequestAsync, Edits.cs:157); the model opens
+\* the capture first and waits in VUndoDone. That only adds behaviours where the notch is pinned longer.
 VUndoStart ==
     /\ AudioSession /\ vundo = None
     /\ vundo' = [cur |-> TRUE, cap |-> IF Fix = "F5" THEN "Pre" ELSE "On"]
@@ -555,7 +565,8 @@ VUndoCapture ==
 
 \* [U1]-[U4] [F11] spoken undo finishes: capture ends; if current, the plan becomes a card and finally sets
 \* Thinking = tools in flight > 0 (SetFace at Edits.cs:181). NOT FAIR while current: it first awaits
-\* realtime.InterruptAsync with no timeout (Edits.cs:144-150, RealtimeClient.cs:457-458); FAIR once stale.
+\* realtime.InterruptAsync with no timeout of its own (Edits.cs:144-150, RealtimeClient.cs:457-458; only the
+\* keep-alive bounds it, left out on purpose: see the fairness rule); FAIR once stale.
 VUndoDone ==
     /\ vundo # None /\ (vundo.cap = "On" \/ ~vundo.cur)
     /\ vundo' = None
@@ -569,7 +580,7 @@ VUndoDone ==
 -----------------------------------------------------------------------------
 (* Microphone: Talk button (doc finding F8) and hold-to-talk (doc 3.3) *)
 
-\* USER. [F8 finding] [F12] [F13] Talk button (MainWindow.xaml.cs:853-908). If listening: StopListening. Else
+\* USER. [F8 finding] [F12] [F13] Talk button (MainWindow.xaml.cs:858-913). If listening: StopListening. Else
 \* BeginRequest, connect, then open the Talk-button audio and light the indicator (connect step collapsed;
 \* a failed connect is VGoToSleep/VDrop after this step).
 TalkButton ==
@@ -622,7 +633,7 @@ HoldTimeout ==
     /\ Fin("Other")
 
 -----------------------------------------------------------------------------
-(* Stop and quit (StopAll, MainWindow.xaml.cs:265-318) *)
+(* Stop and quit (StopAll, MainWindow.xaml.cs:270-323) *)
 
 \* USER (or the OS / an internal guard). [F21] [G2] [H6] [A3] [Fo3] Stop from any source: holds cancelled, mic off,
 \* voice session dropped, all work stale, pending card cleared, a running focus session PAUSED, face flags replaced
@@ -682,7 +693,7 @@ Reject ==
     /\ Fin("Other")
 
 \* FAIR together with ExecEnd (local: ExecuteAsync with the lease token, then a read-back of at most five 120 ms
-\* polls, MainWindow.xaml.cs:1225-1226, Edits.cs:358-364).
+\* polls, MainWindow.xaml.cs:1230-1231, Edits.cs:358-364).
 \* [A6] [G5] [U5] [U6] the effect commits inside TryCommit under the coordinator's lock (DesktopTools.cs:130, 165,
 \* 223, 287, 332, 384, 467; RequestCoordinator.cs:46-62), so Stop cannot interleave: only for the current
 \* generation and only while IsStillAuthorized accepts the ticket of this exact proposal (DesktopTools.cs:968).
@@ -756,7 +767,7 @@ FocusResume ==
     /\ UNCHANGED <<hovered, flagV, micV, workV, applyV, focusEnds>>
     /\ Fin("Other")
 
-\* FAIR (1 s focus timer, FocusTimer_OnTick MainWindow.xaml.cs:1438-1460). [Fo5] [Fo7] [F18] the planned time is
+\* FAIR (1 s focus timer, FocusTimer_OnTick MainWindow.xaml.cs:1443-1465). [Fo5] [Fo7] [F18] the planned time is
 \* reached: one end event, Happy moment.
 FocusComplete ==
     /\ alive /\ focus = "Running"
@@ -783,7 +794,7 @@ FocusEndAgain ==
     /\ UNCHANGED <<hovered, flagV, micV, workV, applyV, focus>>
     /\ Fin("Other")
 
-\* FAIR (capture timer, FocusCaptureTimer_OnTick MainWindow.xaml.cs:1497-1500). [Fo8] [F14] a focus check is due:
+\* FAIR (capture timer, FocusCaptureTimer_OnTick MainWindow.xaml.cs:1502-1505). [Fo8] [F14] a focus check is due:
 \* its capture STARTS the reveal (nothing pinned the notch before). With Fix F5 it pins first ("Pre").
 FocusCheckStart ==
     /\ alive /\ focus = "Running" /\ fcheck = "None"
@@ -798,7 +809,7 @@ FocusCheckCapture ==
     /\ UNCHANGED <<hovered, flagV, micV, typed, vtool, vundo, applyV, focusV>>
     /\ Fin("Other")
 
-\* FAIR (local capture, then ClassifyAsync over the 45 s HttpClient, MainWindow.xaml.cs:1506-1582, :1624).
+\* FAIR (local capture, then ClassifyAsync over the 45 s HttpClient, MainWindow.xaml.cs:1511-1587, :1629).
 \* [Fo8] [F15] [F16] the check ends: capture off; "drifting" while still running -> Nudge moment.
 FocusCheckDone ==
     /\ alive /\ fcheck = "On"
@@ -846,6 +857,10 @@ Next ==
 
 \* THE FAIRNESS RULE (top of file; table in specs/README.md). One WF per step, on all of its outcomes, and only
 \* where the code bounds that step locally. Everything not listed here is USER or PROVIDER: never fair.
+\* The WF terms do NOT include Next's model bound Active' <= MaxActive. Of the fair steps only FocusCheckStart can
+\* add a busy lane, so the only effect is that behaviours where a due focus check stays blocked by the bound forever
+\* are not counted; the bound exists only in the model (the app has no such limit), and the Python copy of the
+\* model, which counts those behaviours, gets the same result for every liveness check (mock evidence).
 Fairness ==
     /\ WF_vars(Tick)
     /\ WF_vars(ExpireResponding)
@@ -890,7 +905,9 @@ TypeOK ==
     /\ last \in {"Other", "Input", "Stop", "QuietEnd", "Replaced"}
 
 \* INV-PRIV-1 (doc 4, today's form): the mic indicator or a capture is on => the notch is out (Revealing
-\* counts: the 240 ms slide has started) and shows Listening or Capture.
+\* counts: the 240 ms slide has started) and shows Listening or Capture. The Face half is STRUCTURAL (Face copies
+\* the resolver's priority, NotchFace.cs:38-53); the phase half depends on the timeline and is what the red proof
+\* PinIgnoresCapture breaks.
 INV_PRIV_1 == (micInd \/ CaptureOn) => (phase # "Hidden" /\ Face \in {"Capture", "Listening"})
 
 \* INV-APPLY-1, STRUCTURAL: every applied effect carries the ticket of that exact proposal.
@@ -916,14 +933,16 @@ INV_TALK_1 ==
 INV_TALK_1_RELEASE ==
     [][((chord \/ eyes) /\ ~(chord' \/ eyes')) => (micDev' # "Hold" /\ ~micInd')]_vars
 
-\* INV-FOCUS-1, today's form: at most one end event per session (_endRaised, FocusSessionController.cs:161-168).
+\* INV-FOCUS-1, today's form, STRUCTURAL: at most one end event per session (_endRaised,
+\* FocusSessionController.cs:161-168; the model only lets End and Complete leave a live session).
 INV_FOCUS_AT_MOST_ONE == focusEnds <= 1
 
 \* LIVE-1, Responding part: never stuck on Responding (moment timer).
 LIVE_1_RESPONDING == responding ~> ~responding
 
-\* LIVE-2, today's form: after the pointer leaves and nothing pins the notch, it reaches Hidden unless new
-\* input arrives first (or Boo quits).
+\* LIVE-2, today's form: after the pointer leaves and nothing pins the notch, it reaches Hidden unless the
+\* pointer comes back, something pins it again (new input, or a fair internal step such as a focus check or a
+\* provider event), or Boo quits.
 LIVE_2 == (alive /\ ~hovered /\ ~Pinned) ~> (~alive \/ hovered \/ Pinned \/ phase = "Hidden")
 
 -----------------------------------------------------------------------------
@@ -944,7 +963,8 @@ INV_APPLY_2_FILE ==
     (effect # None /\ effect.p.kind = "Undo" /\ effect.p.target = "File") => effect.journal = "edit"
 
 \* INV-FOCUS-1 as written (doc finding F9, Fix F9): exactly one end event per session. Breaks: a session replaced
-\* by a new Start, or open at quit, closes with none.
+\* by a new Start, or open at quit, closes with none. With Fix F9 it passes STRUCTURALLY (the fix relabels that
+\* close as "Replaced"); W_FOCUS_1_EXACT shows the close still happens.
 INV_FOCUS_1_EXACT == last # "QuietEnd"
 
 \* LIVE-1, Thinking part (doc finding F7, Fix F7): Thinking always ends, unless new user input (Send, Talk button,

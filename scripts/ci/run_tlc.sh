@@ -13,7 +13,8 @@
 #   fixwitness each gap's trigger is still REACHED with its Fix on (the fix did not just switch the trigger off)
 #
 # tla2tools.jar is a pinned release, checked against its SHA-256 BEFORE it is used; a failed download or a
-# wrong hash stops the run (fail closed). Logs, with the counterexample traces: artifacts/tlc/*.log.
+# wrong hash stops the run (fail closed). Every TLC output, with its counterexample trace, is printed to this log;
+# a local run also keeps a copy in artifacts/tlc/*.log.
 # Never reads secrets.
 set -euo pipefail
 
@@ -166,6 +167,53 @@ for c in $EXPECTED_GAPS; do
   [ "$fixes" = "$wfixes" ] || fail "gap $c: its fix run and its fix witness use different Fix switches."
 done
 
+# The table must match the model exactly: every planted bug in the .tla's Plants set has a red-proof row, every
+# W_* witness defined in the .tla has a witness or fixwitness row, every Fix value has a fix row, and nothing else.
+# The lists are read from the .tla with a strict parse; an empty or malformed list fails closed.
+TLA="$SPECS/NotchLifecycle.tla"
+tla_set() { # $1 = Plants or Fixes: the quoted names of that set definition, comments stripped, "none" dropped
+  awk -v name="$1" '
+    $0 ~ "^" name " ==[[:space:]]*$" {inside = 1; next}
+    inside {
+      line = $0; p = index(line, "\134*"); if (p > 0) line = substr(line, 1, p - 1); text = text " " line
+      if (line ~ /}/) {inside = 0; done = 1}
+    }
+    END {
+      if (!done) exit 1
+      n = split(text, parts, "\"")
+      for (i = 2; i <= n; i += 2) if (parts[i] != "none") print parts[i]
+    }' "$TLA" | sort
+}
+uniq_sorted() { sed '/^$/d' | sort -u; }
+PLANTS_TLA="$(tla_set Plants)" || fail "could not parse the Plants set in specs/NotchLifecycle.tla."
+FIXES_TLA="$(tla_set Fixes)" || fail "could not parse the Fixes set in specs/NotchLifecycle.tla."
+WITNESSES_TLA="$(grep -oE '^W_[A-Z0-9_]+[[:space:]]+==' "$TLA" | awk '{print $1}' | sort)"
+[ -n "$PLANTS_TLA" ] && [ -n "$FIXES_TLA" ] && [ -n "$WITNESSES_TLA" ] \
+  || fail "the Plants set, the Fixes set or the W_* witnesses in specs/NotchLifecycle.tla came out empty."
+for list in "$PLANTS_TLA" "$FIXES_TLA" "$WITNESSES_TLA"; do
+  [ "$(echo "$list" | sort -u)" = "$list" ] || fail "specs/NotchLifecycle.tla names one Plant, Fix or witness twice."
+done
+PLANTS_TABLE="$(echo "$TABLE" | awk '$1 == "redproof" {print $2}' | sort)"
+FIXES_TABLE="$(echo "$TABLE" | awk '$1 == "fix" {print $3}' | uniq_sorted)"
+WITNESSES_TABLE="$(echo "$TABLE" | awk '$1 == "witness" || $1 == "fixwitness" {print $5}' | uniq_sorted)"
+[ "$PLANTS_TABLE" = "$(echo "$PLANTS_TABLE" | sort -u)" ] || fail "run table: a Plant has more than one red-proof row."
+[ "$PLANTS_TABLE" = "$PLANTS_TLA" ] \
+  || fail "red-proof rows [$(echo $PLANTS_TABLE)] do not match the Plants in the .tla [$(echo $PLANTS_TLA)]. Every planted bug needs exactly one red-proof row."
+[ "$FIXES_TABLE" = "$FIXES_TLA" ] \
+  || fail "fix rows [$(echo $FIXES_TABLE)] do not match the Fixes in the .tla [$(echo $FIXES_TLA)]. Every Fix needs a fix row."
+[ "$WITNESSES_TABLE" = "$WITNESSES_TLA" ] \
+  || fail "witness rows [$(echo $WITNESSES_TABLE)] do not match the W_* witnesses in the .tla [$(echo $WITNESSES_TLA)]. Every witness needs a row."
+while read -r role plant fix kind check covers; do
+  case "$role" in
+    redproof)       has "$EXPECTED_HOLDS" "$check" && [ "$check" = "$covers" ] || fail "run table: red proof row for $check must name a main check it covers." ;;
+    witness)        case "$check" in W_*) ;; *) fail "run table: witness $check must be a W_* definition." ;; esac
+                    has "$EXPECTED_HOLDS" "$covers" || fail "run table: witness $check covers $covers, which is not a main check." ;;
+    gap|fix)        has "$EXPECTED_GAPS" "$check" && [ "$check" = "$covers" ] || fail "run table: $role row for $check must name a gap." ;;
+    fixwitness)     case "$check" in W_*) ;; *) fail "run table: fix witness $check must be a W_* definition." ;; esac
+                    has "$EXPECTED_GAPS" "$covers" || fail "run table: fix witness $check covers $covers, which is not a gap." ;;
+  esac
+done <<< "$TABLE"
+
 # --- 3. run TLC -----------------------------------------------------------------------------------------
 MAX_ACTIVE=2
 [ "$MODE" = wide ] && MAX_ACTIVE=3
@@ -211,7 +259,7 @@ run_tlc main NotchLifecycle.cfg
 if passed "$OUT/main.log"; then
   note "PASS  main (MaxActive $MAX_ACTIVE): every check that holds today passed"
 else
-  note "FAIL  main (MaxActive $MAX_ACTIVE): expected a pass, TLC exit $RC. A check that held is now broken, or the model does not parse. See artifacts/tlc/main.log."
+  note "FAIL  main (MaxActive $MAX_ACTIVE): expected a pass, TLC exit $RC. A check that held is now broken, or the model does not parse (trace above in this log; also artifacts/tlc/main.log when run locally)."
   BAD=1
 fi
 
@@ -235,10 +283,10 @@ if [ "$MODE" = all ]; then
       if passed "$log"; then
         note "OK    fix        $check passes with Fix $fix"
       elif failed_on "$log" "$kind" "$check"; then
-        note "FAIL  fix        $check still FAILS with Fix $fix: its counterexample has another cause than the finding says. Read artifacts/tlc/$name.log and update the doc and the Fix."
+        note "FAIL  fix        $check still FAILS with Fix $fix: its counterexample has another cause than the finding says. Update the doc and the Fix (trace above in this log; also artifacts/tlc/$name.log when run locally)."
         BAD=1
       else
-        note "FAIL  fix        $check with Fix $fix: TLC exit $RC (a parse or model error?). See artifacts/tlc/$name.log."
+        note "FAIL  fix        $check with Fix $fix: TLC exit $RC (a parse or model error?) (trace above in this log; also artifacts/tlc/$name.log when run locally)."
         BAD=1
       fi
       continue
@@ -247,7 +295,7 @@ if [ "$MODE" = all ]; then
       case "$role" in
         redproof)   note "OK    redproof   $covers catches Plant $plant" ;;
         witness)    note "OK    witness    $covers: its trigger is reached ($check)" ;;
-        gap)        note "OK    gap        $check fails as expected (counterexample in artifacts/tlc/$name.log)" ;;
+        gap)        note "OK    gap        $check fails as expected (trace above in this log; also artifacts/tlc/$name.log when run locally)" ;;
         fixwitness) note "OK    fixwitness $covers: its trigger is still reached with Fix $fix ($check)" ;;
       esac
     elif passed "$log"; then
@@ -259,7 +307,7 @@ if [ "$MODE" = all ]; then
       esac
       BAD=1
     else
-      note "FAIL  $role $check (Plant $plant, Fix $fix): TLC exit $RC without the expected counterexample (a parse or model error?). See artifacts/tlc/$name.log."
+      note "FAIL  $role $check (Plant $plant, Fix $fix): TLC exit $RC without the expected counterexample (a parse or model error?) (trace above in this log; also artifacts/tlc/$name.log when run locally)."
       BAD=1
     fi
   done <<< "$TABLE"
