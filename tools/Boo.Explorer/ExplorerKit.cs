@@ -329,7 +329,12 @@ public abstract class ExplorerSteps<TFixture> where TFixture : BooAppFixture
     /// Types and sends one question. On a real-key launch the metered request count must be under the cap first
     /// (refused otherwise, nothing typed). The meter, not this call, says what Boo really sent.
     /// </summary>
-    protected void Ask(Window panel, string text, string label)
+    /// <param name="whilePending">
+    /// True only for a question deliberately sent while the previous reply is still on the wire (the caller has just
+    /// proved that with <see cref="RequireReplyPending"/>). It is still admitted and counted; it skips the "quiet Boo"
+    /// wait, which would otherwise hold it until the first reply finished.
+    /// </param>
+    protected void Ask(Window panel, string text, string label, bool whilePending = false)
     {
         var meter = Meter;
         if (BillableLaunch)
@@ -338,8 +343,8 @@ public abstract class ExplorerSteps<TFixture> where TFixture : BooAppFixture
             var settings = BooAppFixture.ReadShared(Boo.SettingsPath);
             Assert.True(System.Text.RegularExpressions.Regex.IsMatch(settings, "\"SpeechEnabled\"\\s*:\\s*false"),
                 "FAIL CLOSED: speech is on in settings.json, so voice turns could bypass the meter. Nothing was asked.");
-            // One request per admission: start only from a quiet Boo.
-            Assert.True(meter.Drain(TimeSpan.FromSeconds(30)),
+            // One request per admission: start only from a quiet Boo, unless this question is meant to overlap.
+            Assert.True(whilePending || meter.Drain(TimeSpan.FromSeconds(30)),
                 $"FAIL CLOSED: Boo still has {meter.InFlight} request(s) in flight before '{label}'. Nothing was asked.");
         }
         ExplorerLedger.Admit(label + ": " + text, meter, BillableLaunch);
