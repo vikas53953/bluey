@@ -117,9 +117,18 @@ today, `tools/Boo.LiveSmoke/LiveAppFixture.cs:123`); "speech on" is Boo's defaul
 
 **Reading the expected faces.** The notch shows one face at a time, the highest of: `Capture` > `Listening` >
 `Responding` > `Thinking` > `Nudge` > `Happy` > `Paused` > `Hover` > `Idle` > `Hidden`
-(`src/Boo.Core/NotchFace.cs`, `FaceStateResolver`). Every expected sequence below follows that order: while a
-higher face is on, a lower one (for example `Hover` while `Paused`) does not show. A journey that seems to expect
-otherwise is a mistake in this list; report it, do not count it as a Boo failure.
+(`src/Boo.Core/NotchFace.cs`, `FaceStateResolver`; it also has `UserHidden` just below `Listening`, which nothing
+sets today, §5-F2). Every expected sequence below follows that order: while a higher face is on, a lower one (for
+example `Hover` while `Paused`) does not show. Two consequences every journey here follows:
+- **Voice and AI turns sit on top.** While a turn shows `Listening`, `Thinking` or `Responding`, a lower face that
+  happens during it (`Happy` when a voice command ends a focus session, `Paused` when one pauses it) may never be
+  visible. Such a result is proven from the panel (focus status, history), not from the face.
+- **The pointer stays where the mouse left it.** After a click or hold on the notch or its eyes, the pointer is still
+  on the notch, so the face reads `Hover` (above `Idle`) until a step moves the pointer away. Buttons on the notch are
+  pressed through UI Automation where possible (no pointer), or the journey moves the pointer away before expecting
+  `Idle` / `Hidden`.
+
+A journey that seems to expect otherwise is a mistake in this list; report it, do not count it as a Boo failure.
 
 ### New journeys
 
@@ -164,8 +173,8 @@ otherwise is a mistake in this list; report it, do not count it as a Boo failure
 | Field | Content |
 | --- | --- |
 | Preconditions | as j9 for the hold parts; no AI for the tap |
-| Steps | a) Hover top centre; click the eyes quickly (under 200 ms). b) Press and hold the eyes about 3 s, release. c) Press and hold the eyes, then make another window take the mouse (Alt+Tab, or bring another window to the front) so the eyes lose mouse capture. Dragging alone does **not** do it: the eyes keep the mouse while the button is held (`src/Boo.App/NotchWindow.xaml.cs`). If the driver cannot switch windows while the mouse button is held, this step is **manual**. |
-| Expected faces | a) `Hover`, no `Listening`; the panel opens (same as Ctrl+Alt+B). b) `Hover` → `Listening` (after 200 ms) → `Thinking` → `Responding` → `Idle` → `Hidden`. c) losing capture counts as an eye release (H7): same as a release at that moment. |
+| Steps | a) Hover top centre; click the eyes quickly (under 200 ms). b) Press and hold the eyes about 3 s, release, then move the pointer away from the notch. c) Press and hold the eyes, then make another window take the mouse (Alt+Tab, or bring another window to the front) so the eyes lose mouse capture. Dragging alone does **not** do it: the eyes keep the mouse while the button is held (`src/Boo.App/NotchWindow.xaml.cs`). Then move the pointer away. If the driver cannot switch windows while the mouse button is held, this step is **manual**; that switching windows releases the eyes at all is **UNVERIFIED** (the notch window never takes focus). |
+| Expected faces | a) `Hover`, no `Listening`; the panel opens (same as Ctrl+Alt+B). b) `Hover` → `Listening` (after 200 ms) → `Thinking` → `Responding` → `Hover` (the pointer is still on the eyes) → after the pointer moves away: `Idle` → `Hidden`. c) losing capture counts as an eye release (H7): same as b) from that moment. |
 | Expected effects | a) panel open. b) and c) a voice turn, as j9 |
 | Covers | F23, F24, H2, H4, H5, H7 |
 | Evidence | face timeline; panel found by UI Automation for a) |
@@ -222,8 +231,8 @@ already press Ctrl+Alt+F12 and Ctrl+Alt+S on a running session; they do not read
 | Field | Content |
 | --- | --- |
 | Preconditions | Developer Mode on. Live: focus model `gpt-6-luna`, a task clearly unrelated to what Boo's test screen shows (the AI decides; retry once if no nudge, and say so). Mock: `tools/Boo.QaMockAi` answers only the first three checks of its whole run off-task, then always on-task, so one mock run gives one nudge: steps b) and c) each need a **fresh mock process** (and a fresh session). Live and mock: a new nudge needs at least **120 focus-seconds** after the previous one (`NudgePolicy`, `src/Boo.Core/FocusSession.cs`). |
-| Steps | a) Start focus; wait for the nudge; click `Back to it`. b) Wait at least 120 focus-seconds for another nudge (fresh mock process in mock mode); let it time out (no click). c) Same wait (fresh mock process in mock mode); click `5 min break`. |
-| Expected faces | a) `Capture` → `Nudge` (caption shown) → `Back to it` → `Idle` → `Hidden`. b) `Nudge` about 6 s → `Idle` → `Hidden`. c) `Nudge` → `Paused` (break pauses the session). |
+| Steps | a) Start focus; wait for the nudge; press `Back to it` through UI Automation (no pointer; with a mouse click, move the pointer away afterwards). b) Wait at least 120 focus-seconds for another nudge (fresh mock process in mock mode); let it time out (no click). c) Same wait (fresh mock process in mock mode); click `5 min break`. |
+| Expected faces | a) `Capture` → `Nudge` (caption shown) → `Back to it` → `Idle` → `Hidden` (with a mouse click: `Hover` until the pointer moves away). b) `Nudge` about 6 s → `Idle` → `Hidden`. c) `Nudge` → `Paused` (break pauses the session). |
 | Expected effects | nudge pointer/ring may show (8 s hold, P3); session paused after c) |
 | Covers | F16, F17, Fo3 (5 min break), Fo8, F14, F15, P3 |
 | Evidence | face timeline; nudge buttons and caption read through UI Automation |
@@ -257,7 +266,7 @@ already press Ctrl+Alt+F12 and Ctrl+Alt+S on a running session; they do not read
 | --- | --- |
 | Preconditions | speech on; realtime model; mic as j9 for push-to-talk |
 | Steps | a) Hold-to-talk: "start a 25 minute focus session on writing". b) Hold-to-talk: "pause my focus", then "resume", then "end my focus". c) Hold-to-talk or typed: "go to sleep". |
-| Expected faces | a) session starts (Fo1 voice). b) `Paused` → `Idle` → `Hidden` → `Happy` (push-to-talk sessions may change focus, unlike j11 b). c) the spoken reply finishes (or an 8 s fallback), then the voice session ends: `Thinking`/`Responding` cleared, mic off, focus untouched (F10b). |
+| Expected faces | a) session starts (Fo1 voice). b) each spoken turn reads `Listening` → `Thinking` → `Responding` (on top of everything else). Between turns: `Paused` after "pause my focus" (pinned), then `Idle` → `Hidden` after "resume". After "end my focus" the session ends during that turn's `Thinking`/`Responding`, so its 2.5 s `Happy` is usually hidden; prove the end from the panel's focus status and history (`Ended`), not from the face (push-to-talk sessions may change focus, unlike j11 b). c) the spoken reply finishes (or an 8 s fallback), then the voice session ends: `Thinking`/`Responding` cleared, mic off, focus untouched (F10b). |
 | Covers | Fo1, Fo3, Fo4, Fo6 (voice), F10b, G3, §5-F8 (voice ends itself, drives focus) |
 | Evidence | face timeline; focus status read |
 | Live / mock | **live only** (voice, AI-dependent tool choice) |
