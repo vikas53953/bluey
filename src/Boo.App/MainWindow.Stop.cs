@@ -10,9 +10,14 @@ namespace Boo.App;
 public partial class MainWindow
 {
     private const string StoppedStatusMessage = "Stopped. Nothing is running now; ask again when you are ready.";
-    // The "Boo is working" text last put in the status line (ShowBusyStatus), so Stop can replace it (issue #71).
+    /// <summary>The "Boo is working" text last put in the status line by <see cref="ShowBusyStatus"/>.</summary>
     private string? _busyStatusText;
 
+    /// <summary>
+    /// Stops everything. A cancelled request no longer writes its own message (it is not current any more), so this
+    /// replaces a "Boo is working" status line that is still showing with a plain "Stopped" line; an error or a newer
+    /// message stays (issue #71).
+    /// </summary>
     public void StopAll()
     {
         StopHoldToTalk();
@@ -59,8 +64,6 @@ public partial class MainWindow
             _focusTimer.Stop();
             FocusStatus.Text = "Paused by Stop; Resume is explicit.";
         }
-        // A cancelled request no longer writes its own message (it is not current any more), so Stop must not leave a
-        // "Boo is working" line behind. Replace it only while it is still showing: an error or a newer message stays.
         if (_busyStatusText is not null && StatusText.Text == _busyStatusText)
         {
             StatusText.Text = StoppedStatusMessage;
