@@ -144,7 +144,7 @@ bash scripts/ci/run_tlc.sh --wide   # main cfg only, MaxActive 3
 ```
 
 It downloads `tla2tools.jar` (pinned release, SHA-256 checked before use), runs the run table and prints a summary.
-Logs, with the counterexample steps, land in `artifacts/tlc/`.
+Logs, with the counterexample steps, land in `artifacts/tlc/`. In CI the same output is printed in the `formal` job log; nothing is uploaded, so the BOO-SAFE-002 key scan has nothing to guard there.
 
 ## Exit bar for reviewers
 

@@ -7,7 +7,8 @@ name: formal
 #   - every main check catches its planted bug (red proof) and its trigger is reached (witness); every gap passes
 #     with its own fix switch on. The run table is in scripts/ci/run_tlc.sh.
 #   - nightly only (job tlc-wide): the main cfg again with MaxActive = 3 (more features overlapping at once).
-# Linux only, no secrets, no .NET build. tla2tools.jar is a pinned release checked by SHA-256 before use.
+# Linux only, no secrets, no .NET build, no uploads: every result and counterexample trace is printed in the job log
+# (so there is nothing for the BOO-SAFE-002 key scan to guard). tla2tools.jar is a pinned release checked by SHA-256 before use.
 
 on:
   pull_request:
@@ -50,41 +51,10 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      # Python + PyYAML (hash-pinned) for the key scan before the upload, as in the other workflows.
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: '3.12'
-
-      - name: PyYAML for the key scan (hash-pinned)
-        run: |
-          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
 
       - name: TLC (main passes, red proofs caught, triggers reached, gaps fail today and pass with their fix)
         run: bash scripts/ci/run_tlc.sh
 
-      # Key scan right before the upload (BOO-SAFE-002, generated from scripts/quality/key_scan.py; --check-workflows
-      # rejects any edit). The upload runs ONLY if the scan reports safe=true.
-      - name: Key scan before upload (TLC output)
-        if: ${{ !cancelled() }}
-        id: keyscan_artifacts_tlc
-        shell: pwsh
-        run: |
-          $rc = 98
-          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/tlc; $rc = $LASTEXITCODE } catch { $rc = 99 }
-          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
-          if ($rc -eq 0) { exit 0 }
-          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/tlc' -Recurse -Force -ErrorAction SilentlyContinue }
-          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/tlc')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
-          exit 1
-
-      - name: Upload TLC output (traces for the gaps and the red proof)
-        if: ${{ !cancelled() && steps.keyscan_artifacts_tlc.outputs.safe == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: tlc-output
-          path: artifacts/tlc
-          if-no-files-found: ignore
-          retention-days: 7
 
   tlc-wide:
     if: github.event_name == 'schedule'
@@ -102,38 +72,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      # Python + PyYAML (hash-pinned) for the key scan before the upload, as in the other workflows.
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: '3.12'
-
-      - name: PyYAML for the key scan (hash-pinned)
-        run: |
-          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
 
       - name: TLC nightly (main cfg with MaxActive = 3)
         run: bash scripts/ci/run_tlc.sh --wide
 
-      # Key scan right before the upload (BOO-SAFE-002, generated from scripts/quality/key_scan.py; --check-workflows
-      # rejects any edit). The upload runs ONLY if the scan reports safe=true.
-      - name: Key scan before upload (TLC output, nightly)
-        if: ${{ !cancelled() }}
-        id: keyscan_artifacts_tlc
-        shell: pwsh
-        run: |
-          $rc = 98
-          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/tlc; $rc = $LASTEXITCODE } catch { $rc = 99 }
-          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
-          if ($rc -eq 0) { exit 0 }
-          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/tlc' -Recurse -Force -ErrorAction SilentlyContinue }
-          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/tlc')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
-          exit 1
-
-      - name: Upload TLC output
-        if: ${{ !cancelled() && steps.keyscan_artifacts_tlc.outputs.safe == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: tlc-output-wide
-          path: artifacts/tlc
-          if-no-files-found: ignore
-          retention-days: 7
