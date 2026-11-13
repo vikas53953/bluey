@@ -8,6 +8,7 @@ inferred as a pass: a check counts only if its test ran and passed in this run. 
 GitHub, appends it to the job summary. Exit 0 = every expected group, required journey and notch state is proven (BLOCKED and
 UNVERIFIED required rows fail the report); exit 1 otherwise. Reads no secrets.
 """
+import json
 import os
 import pathlib
 import re
@@ -39,6 +40,7 @@ PLAIN = {
     'S4': 'Focus Start / Pause (notch Paused) / Resume / End',
     'S5': 'Settings saved to file; a new Boo starts with the same choices',
     'Q7': 'Hover edges: all four real-clock branches (no AI key)',
+    'QD15': 'Two file steps: Next step card and separate approvals (partial j15d)',
     'Q67': 'Issue 67 diagnostic: ten compact-window focus cycles without UIA errors (no key)',
     'Q18': 'Newer typed request only answer during 15-second watch (partial j18)',
     'Q16': 'Second approved file Undo restores exact contents (partial j16; field pending)',
@@ -75,7 +77,7 @@ JOURNEYS = [
     ('j12', 'Stop from every busy state (only j12d, Stop during a typed answer, is driven: S3)', []),
     ('j13', 'Focus lifecycle (S4 and Q13 cover subsets; full sequence and event proof pending)', []),
     ('j14', 'Focus nudge (off task)', []),
-    ('j15', 'Approval card edges (a-c driven by Q15; d-e pending)', []),
+    ('j15', 'Approval card edges (a-c Q15, d QD15; e pending)', []),
     ('j16', 'Second undo (file branch Q16; field branch pending)', []),
     ('j17', 'Voice ends itself and drives focus', 'voice'),
     ('j18', 'Newer request wins (typed Q18; ring and face ownership pending)', []),
@@ -143,11 +145,32 @@ def build(folder, run_url='', app_sha='', harness_sha='', models=''):
     if not any(r[0] == 'smoke' and 'voice' in r[1].lower() for r in rows):
         table.append(f'| Voice provider: real OpenAI synthetic audio round trip (component; no Boo.exe UI) | BLOCKED | no live voice test exists on this harness yet; it '
                      f'arrives with PR #47. Not a pass. | {link} |')
+    audio_available = None
+    audio_path = folder / 'capabilities' / 'audio.json'
+    if audio_path.is_file():
+        try:
+            audio = json.loads(audio_path.read_text(encoding='utf-8-sig'))
+            count = audio['wave_in_count']
+            devices = audio['inputs']
+            if type(count) is not int or count < 0 or not isinstance(devices, list) or len(devices) != count:
+                raise ValueError('invalid endpoint count/list')
+            if any(not isinstance(d, dict) or type(d.get('pcm24k_mono16_supported')) is not bool for d in devices):
+                raise ValueError('invalid format-query result')
+            supported = sum(d['pcm24k_mono16_supported'] for d in devices)
+            audio_available = supported > 0
+            table.append(f'| Audio environment (no app voice proof) | manual | WinMM inputs={count}, outputs={audio["wave_out_count"]}, format-query-supported PCM24k/mono16 inputs={supported} | {link} |')
+        except (ValueError, KeyError, TypeError) as error:
+            problems.append(f'Invalid audio capability receipt: {error}')
+            table.append(f'| Audio environment | UNVERIFIED | invalid capability receipt | {link} |')
+    else:
+        table.append(f'| Audio environment | UNVERIFIED | capability probe did not produce a receipt | {link} |')
     ran = {short_id(r[1]): r[2] for r in rows if short_id(r[1])}
     voice_results = [r for r in rows if r[0] == 'smoke' and 'voice' in r[1].lower()]
     voice_passed = bool(voice_results) and all(r[2] == 'Passed' for r in voice_results)
     for jid, title, checks in JOURNEYS:
-        if checks == 'voice' and voice_passed:
+        if checks == 'voice' and audio_available is False:
+            table.append(f'| Journey {jid}: {title} | BLOCKED | no WinMM capture endpoint with the required PCM24k/mono16 format; provider component proof does not exercise app microphone capture | {link} |')
+        elif checks == 'voice' and voice_passed:
             table.append(f'| Journey {jid}: {title} | UNVERIFIED | provider round trip passed; this app UI journey is not driven yet | {link} |')
         elif checks == 'voice' and voice_results:
             table.append(f'| Journey {jid}: {title} | BLOCKED | provider component did not pass; app UI journey is not driven | {link} |')
@@ -243,6 +266,19 @@ def self_test():
                                     ('Boo.LiveSmoke.LiveVoiceRoundTripTests.Voice_Y', 'Failed', '')])
         text, green = build(root)
         check('mixed voice outcomes cannot imply component pass', not green and 'provider round trip passed' not in text)
+        trx(root / 'smoke' / 'trx', [('Boo.LiveSmoke.LiveVoiceRoundTripTests.Voice_X', 'Passed', '')])
+        capability = root / 'capabilities'
+        capability.mkdir()
+        (capability / 'audio.json').write_text(json.dumps({'wave_in_count': 0, 'wave_out_count': 0, 'inputs': []}), encoding='utf-8')
+        text, green = build(root)
+        check('missing capture endpoint blocks UI voice despite passing provider', not green and 'no WinMM capture endpoint' in text)
+        check('capability evidence links are interpolated', '{link}' not in text)
+        (capability / 'audio.json').write_text(json.dumps({'wave_in_count': 1, 'wave_out_count': 1, 'inputs': [{'pcm24k_mono16_supported': True}]}), encoding='utf-8')
+        text, green = build(root)
+        check('compatible endpoint alone cannot prove app voice UI', not green and 'provider round trip passed; this app UI journey is not driven yet' in text)
+        (capability / 'audio.json').write_text('{"wave_in_count": "unknown", "inputs": []}', encoding='utf-8')
+        text, green = build(root)
+        check('invalid capability receipt fails closed', not green and 'invalid capability receipt' in text)
     print('QA_REPORT_SELF_TEST_OK' if ok else 'QA_REPORT_SELF_TEST_FAILED')
     return 0 if ok else 1
 

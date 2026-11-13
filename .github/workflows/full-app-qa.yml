@@ -196,6 +196,10 @@ jobs:
           python -I tools/Boo.QaSuite/qa_report.py --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Audio environment capability probe (no provider calls)
+        shell: pwsh
+        run: ./tools/Boo.QaSuite/Probe-AudioCapabilities.ps1
+
       - name: Mock selected-folder request contract (not live AI proof)
         shell: pwsh
         run: |
