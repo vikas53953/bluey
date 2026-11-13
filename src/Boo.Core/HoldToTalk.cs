@@ -104,6 +104,7 @@ public sealed class HoldToTalkController
     /// <summary>A chord key went up.</summary>
     public TalkStep KeyUp(TalkKey key)
     {
+        System.Threading.Thread.Sleep(1);
         var swallow = SwallowFor(key);
         SetDown(key, false);
         if (key == TalkKey.Space)
