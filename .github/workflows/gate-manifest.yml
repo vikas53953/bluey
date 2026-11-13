@@ -27,8 +27,14 @@ jobs:
         shell: pwsh
         run: |
           if ($env:BASE_SHA) {
+            git cat-file -e "${env:BASE_SHA}^{commit}" 2>$null
+            if ($LASTEXITCODE -ne 0) { Write-Error 'BOO-CI-001 base commit is unavailable'; exit 1 }
             git cat-file -e "${env:BASE_SHA}:scripts/quality/gate_manifest.py" 2>$null
-            if ($LASTEXITCODE -eq 0) {
+            $hasChecker = $LASTEXITCODE -eq 0
+            git cat-file -e "${env:BASE_SHA}:docs/quality/gate-manifest.json" 2>$null
+            $hasManifest = $LASTEXITCODE -eq 0
+            if ($hasChecker -ne $hasManifest) { Write-Error 'BOO-CI-001 partial base contract: restore both checker and manifest'; exit 1 }
+            if ($hasChecker) {
               git show "${env:BASE_SHA}:scripts/quality/gate_manifest.py" | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/base_gate_manifest.py"
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
               git show "${env:BASE_SHA}:docs/quality/gate-manifest.json" | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/base_gate_manifest.json"
