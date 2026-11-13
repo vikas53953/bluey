@@ -66,6 +66,34 @@ internal static class CecilScan
                && string.Equals(Path.GetDirectoryName(definition.Module.FileName), RuntimeDirectory, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Framework references of <paramref name="assembly"/> (names in <paramref name="frameworkNames"/>) whose copy
+    /// actually loaded at run time is not the installed runtime's: a package can ship its own System.Linq.dll with a
+    /// higher version and Microsoft's public key, and the .NET host then loads that copy instead. The test process
+    /// resolves assemblies the same way the app does, so each reference is loaded here and its file must be in the
+    /// shared framework folder. A reference that cannot be loaded at all also counts.</summary>
+    public static IReadOnlyCollection<string> FrameworkReferencesNotFromRuntime(Assembly assembly, IReadOnlyCollection<string> frameworkNames)
+    {
+        var offenders = new SortedSet<string>(StringComparer.Ordinal);
+        using var module = Read(assembly);
+        foreach (var reference in module.AssemblyReferences.Where(r => frameworkNames.Contains(r.Name)))
+        {
+            string? folder;
+            try
+            {
+                folder = Path.GetDirectoryName(Assembly.Load(new AssemblyName(reference.FullName)).Location);
+            }
+            catch (Exception e) when (e is FileNotFoundException or FileLoadException or BadImageFormatException)
+            {
+                folder = null;
+            }
+            if (!string.Equals(folder, RuntimeDirectory, StringComparison.OrdinalIgnoreCase))
+            {
+                offenders.Add($"<{reference.Name} {reference.Version} not loaded from the installed .NET runtime>");
+            }
+        }
+        return offenders;
+    }
+
     /// <summary>True when the assembly was compiled with unsafe code allowed ([module: UnverifiableCode]): raw pointers
     /// can reach any address, so no reference scan can vouch for it.</summary>
     public static bool AllowsUnsafeCode(Assembly assembly)

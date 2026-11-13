@@ -276,9 +276,10 @@ casts to or names, generic arguments included.
   `StreamWriter(path)`, `Path.Exists`, `XDocument.Load(path)`, `TarFile`, certificate and resource loaders,
   `AssemblyLoadContext`, ...), so any list of bad types or namespaces misses one; reviews proved it several times.
   Core is small and pure, so it may use **only** the framework types approved in the test (text, collections, maths,
-  JSON, regex, tasks, hashing, and the exceptions and enums it needs), and only when the type is really found in the .NET runtime installed on the machine (the test looks it up there;
-  a package or project that borrows a framework name, namespace or Microsoft key token is not trusted, because .NET
-  does not check those claims). **The test for every approval:** nothing
+  JSON, regex, tasks, hashing, and the exceptions and enums it needs), and only when it really is the installed .NET runtime's: the type must exist in the runtime's own folder, and each
+  framework assembly Core references must load from that folder (the test loads it the way the app does). A package
+  or project that borrows a framework name, namespace or Microsoft key token, or ships its own higher-version copy of
+  a framework file, fails one of the two, because .NET does not check those claims itself. **The test for every approval:** nothing
   reachable through it may depend on or change the files on this machine, or find or build code from a name. A type
   where only some members pass is approved **member by member**: of `Path` only the members that work on the text of
   a path (not `Exists`, `GetTempFileName`, or `GetFullPath`, which asks Windows for the real names behind short ones
@@ -299,8 +300,9 @@ casts to or names, generic arguments included.
 shared mutable state the rule does not count; counting every `static readonly` collection or array would flood it
 with read-only tables. (2) BOO-ARCH-006 looks at `src/Boo.App/*Window*.cs` in the top folder, which holds every
 window code-behind today; a window elsewhere or not named `...Window` would be missed. (3) 002 and 003 read the
-compiled code. For 002 that leaves one gap: an approval that fails the test and that review missed (a type that
-only looks like a framework type is caught by the runtime lookup above). Accepted on
+compiled code. For 002 that leaves one gap: an approval that fails the test and that review missed (a type or
+assembly that only looks like the framework's is caught by the two runtime checks above; the checks run on the build
+machine, so they see what the app would load there). Accepted on
 purpose, because they read the machine's settings or the app's own files, never the user's: a stack trace reads the
 app's own debug file (`.pdb`), local time and culture read Windows settings, `AppContext` hands Core the install folder
 as text, and a named `Mutex` is a signal between processes. Core can always use disk through an object the app hands

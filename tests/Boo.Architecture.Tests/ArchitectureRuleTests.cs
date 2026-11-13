@@ -233,6 +233,7 @@ public sealed class ArchitectureRuleTests
             .ToDictionary(kv => kv.Key, kv => kv.Value);
         var native = CecilScan.TypesCallingNative(Core, _ => true, countComImports: true).ToList(); // no native, COM, by-name or raw-address calls
         if (CecilScan.AllowsUnsafeCode(Core)) native.Add("<Boo.Core compiled with unsafe code allowed>");
+        native.AddRange(CecilScan.FrameworkReferencesNotFromRuntime(Core, CoreApprovedAssemblies)); // a replaced framework file
         // ScopedFiles is the second class in ActionPolicy.cs (the plan's "ActionPolicy.cs:209"). StartupRegistration is a
         // third the plan's text count could not see: Path.GetFullPath (StartupRegistration.cs:68-69) asks Windows for the
         // long form of short names like RUNNER~1, so its answer depends on the files on the machine.
@@ -256,7 +257,7 @@ public sealed class ArchitectureRuleTests
 
     private static string Detail(IReadOnlyDictionary<string, SortedSet<string>> scan, IReadOnlyCollection<string> native, string what) =>
         string.Join("; ", scan.Select(kv => $"{kv.Key} uses ({what}): {string.Join(", ", kv.Value)}")
-            .Concat(native.Select(n => $"{n}: native or COM call")));
+            .Concat(native.Select(n => n.StartsWith('<') ? n : $"{n}: native or COM call")));
 
     [Fact]
     public void BOO_ARCH_004_Windows_layer_has_no_WPF_controls_shapes_or_windows()
