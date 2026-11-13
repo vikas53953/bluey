@@ -60,7 +60,7 @@ CLASSES = {
     'timeout-no-answer': 'no answer arrived in time',
     'answer-check-failed': 'an answer arrived but did not pass the check, or the failure did not match a known class',
     'test-did-not-run': 'the round trip did not run exactly one test that passed',
-    'key-found-in-evidence': 'the key scan found a key-shaped string in the evidence, so nothing was uploaded',
+    'key-scan-failed': 'the key scan found a key-shaped string in the evidence or could not run, so nothing was uploaded',
     'upload-failed': 'the evidence upload failed',
     'timeout-or-cancelled': 'the step timed out or the run was cancelled',
     'unknown': 'the job failed before any checked step, or in a step without an id',
@@ -68,7 +68,7 @@ CLASSES = {
 
 FIXED_CLASS = {'runner': 'runner-not-github-hosted', 'key': 'key-missing-or-malformed', 'build': 'build-failed',
                'hosts': 'ai-host-redirected', 'typed_gate': 'test-did-not-run', 'voice_gate': 'test-did-not-run',
-               'keyscan': 'key-found-in-evidence', 'upload': 'upload-failed', 'setup': 'unknown'}
+               'keyscan': 'key-scan-failed', 'upload': 'upload-failed', 'setup': 'unknown'}
 
 # Log patterns, checked in this order (specific provider errors before the generic timeout).
 LOG_PATTERNS = [

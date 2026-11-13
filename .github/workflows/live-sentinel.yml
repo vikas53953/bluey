@@ -86,6 +86,15 @@ jobs:
           "Testing lane/face at $sha"
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "sha=$sha"
 
+      # Python first: the key scan and the classifier run even when an early step fails.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
       - name: Require the OpenAI key and valid model ids (fail closed), mask the key
         id: key
         shell: pwsh
@@ -143,14 +152,6 @@ jobs:
             "$h -> $($ips -join ', ')"
           }
           if ($bad) { $bad | ForEach-Object { "::error title=Live sentinel FAILED CLOSED::$_" }; exit 1 }
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: PyYAML for the key scan (hash-pinned)
-        run: |
-          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
 
       - uses: actions/setup-dotnet@v4
         with:
