@@ -128,6 +128,8 @@ class _Tables(html.parser.HTMLParser):
     def handle_data(self, data):
         top = self._top()
         if top is not None and top.cell is not None:
+            if 'del' in self._tags:
+                return                                     # struck-out text is withdrawn: a reader does not read it
             top.cell[0].append(data)
             for link in self._links:
                 link[1].append(data)
@@ -165,8 +167,9 @@ def check(rendered_html, changed_files, repo):
     for k, (header, rows, shaped) in enumerate(tables(rendered_html), 1):
         if not shaped:
             problems.append(f'table {k} is not a plain Markdown pipe table (raw HTML table or HTML inside a cell, '
-                            'merged cells, a table inside it, rows before the header or a footer): write every table '
-                            'as a Markdown pipe table with plain text, links, bold, italic and code in its cells')
+                            'footnotes or math in a cell, merged cells, a table inside it, rows before the header or a '
+                            'footer): write every table as a Markdown pipe table with plain text, links, bold, italic, '
+                            'strikethrough and code in its cells')
             continue
         cols = [c for c, h in enumerate(header) if label_of(h) == 'label'
                 and len([w for w in h.split() if re.search(r'[A-Za-z]', w)]) == 1]
@@ -356,6 +359,14 @@ def self_test():
     expect('a cell starting with "live" in a table without a Label column fails',
            check(good + table([['real AI round trip', 'live (OpenAI)']], ('Claim', 'L\u0430bel')), ['src/a.cs'], repo)
            != [])
+    expect('struck-out text is not read: "~~mock~~ live" is a live row and needs a run link',
+           check(table([['rt', '<del>mock</del> live', 'trust me']]), [], repo) != [])
+    expect('struck-out text is not read in a table without a Label column either',
+           check(good + table([['rt', '<del>x</del> live', 'trust me']], ('Claim', 'Lable')), ['src/a.cs'], repo) != [])
+    expect('a struck-out run link does not count',
+           check(table([['rt', 'live', f'<del><a href="{run}">run</a></del>']]), [], repo) != [])
+    expect('"~~live~~ UNVERIFIED" reads as UNVERIFIED',
+           check(table([['rt', '<del>live</del> UNVERIFIED', 'not tested']]), [], repo) == [])
     expect('a table without a Label column that mentions "the live run" passes',
            check(good + table([['the live run', 'x']], ('a', 'b')), ['src/a.cs'], repo) == [])
     for name, cell in (('a folded <details> before the label', '<details><summary></summary>mock</details> live'),
@@ -444,6 +455,13 @@ RENDER_CASES = (
     ('a look-alike Label header with "live (OpenAI)"', '| Claim | Label | Proof |\n|---|---|---|\n'
      '| live run | BLOCKED | no runner today |\n\n| Claim | L\u0430bel | Proof |\n|---|---|---|\n'
      '| real AI round trip | live (OpenAI) | trust me |\n', False),
+    ('struck-out mock before live', '| Claim | Label | Proof |\n|---|---|---|\n| live run | BLOCKED | no runner today |\n'
+     '| real AI round trip | ~~mock~~ live | trust me |\n', False),
+    ('struck-out word before live under a misspelled Label', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| live run | BLOCKED | no runner today |\n\n| Claim | Lable | Proof |\n|---|---|---|\n'
+     '| real AI round trip | ~~x~~ live | trust me |\n', False),
+    ('a struck-out run link', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| rt | live | ~~[run](https://github.com/{repo}/actions/runs/123)~~ |\n', False),
     ('commit and PR autolinks, emoji, code in cells pass', '| Claim | Label | Proof |\n|---|---|---|\n'
      '| #1 and 342b93d72418efd7520219fb99ca27fa9b2f5904 `x` | :white_check_mark: **live** | '
      '[run](https://github.com/{repo}/actions/runs/1) <br> ~~old~~ |\n', True),

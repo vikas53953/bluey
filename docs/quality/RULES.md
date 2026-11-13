@@ -271,8 +271,10 @@ Markdown pipe table**: a table written in raw HTML can be drawn in a different o
 rows before the header, a footer, a table inside a table), and raw HTML inside a cell (`<details>`, `<ruby>`,
 `<span>`, ...) can hide text or links from the reader. So any table that does not have exactly the shape GitHub gives a
 pipe table, or whose cells hold anything but text, links, bold, italic, strikethrough, code, emoji, images and line
-breaks, fails the check. A cell starting with `live` in a table without a `Label` column (for example a misspelled
-or look-alike header) also fails. If GitHub cannot render the body, the check fails closed. A self-test first proves every rule on HTML samples, and a render test sends the known tricks through
+breaks, fails the check (footnotes and math in a cell fail too). Struck-out text (`~~...~~`) is not read, as a
+reader would not read it: `~~mock~~ live` is a live row. A cell starting with `live` in a table without a `Label`
+column (for example a misspelled or look-alike header) also fails. Only tables are evidence: a claim written in prose,
+a list or a code block is not checked and does not count. If GitHub cannot render the body, the check fails closed. A self-test first proves every rule on HTML samples, and a render test sends the known tricks through
 GitHub's real renderer. Then the PR's own copy of the checker judges the body, and so does the **base branch's** copy
 (read from git), so a PR cannot loosen the checker script it is judged by.
 
