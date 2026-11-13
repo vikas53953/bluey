@@ -6,13 +6,15 @@ fix, because that is what an agent reaches for next.
 
 ## How the ratchet works
 
-[`scripts/quality/ratchet.py`](../../scripts/quality/ratchet.py) reads every `.cs` file git would commit under `src/`
+[`scripts/quality/ratchet.py`](../../scripts/quality/ratchet.py) reads every `.cs` file (any letter case) git would commit under `src/`
 (tracked files, plus new files that are not git-ignored; build output in `bin/` and `obj/` is ignored, but a file forced
 into git there is read) with a small C# lexer (strings, `$"{...}"` interpolation holes, verbatim and raw strings, char
 literals, line and block comments, `#` directive lines, every C# line break). Before matching, identifiers are spelled
-the plain way (`\u0043ollect` and `@Collect` read as `Collect`) and `using` aliases and `using static` members are
+the plain way (`\u0043ollect` and `@Collect` read as `Collect`; invisible formatting characters such as a soft
+hyphen are dropped, as the compiler drops them) and `using` aliases and `using static` members are
 written out in full (`using G = System.GC;` then `G.Collect()`, or `using static System.GC;` then `Collect()`, both read
-as `GC.Collect()`), including `global using` lines and `<Using>` items in the `.csproj` or `Directory.Build` files. It
+as `GC.Collect()`), including `using` lines anywhere a statement can start, spaces around the dots, `global using` lines and `<Using>`
+items in the `.csproj` or `Directory.Build` files (read with an XML parser). It
 counts each pattern below **per project, every match on a line**, and compares with [`baseline.json`](baseline.json):
 
 - a count that goes **up** fails (new problem);
@@ -21,12 +23,17 @@ counts each pattern below **per project, every match on a line**, and compares w
 - a C# file or project in `src/` that is not inside a `src/<Name>/` project (a loose `src/X.cs`, a folder without a
   `.csproj`, a project nested deeper such as `src/Group/Hack/Hack.csproj`) fails, because the build would compile it
   but no project count would include it;
-- `--list <RULE>` prints every hit; `--self-test` checks 102 snippets with exact expected counts (including tricky
+- **fail closed:** an `<Import>`, a `<Compile Include>`, or a `.csproj` / `Directory.Build` file that is not readable XML
+  fails the check, because it can bring code or settings in from somewhere the ratchet cannot follow (none in `src/`
+  today);
+- `--list <RULE>` prints every hit; `--self-test` checks 117 snippets with exact expected counts (including tricky
   strings, interpolation format clauses, `#` directive lines and unusual line breaks that could hide code), that clean
   code stays quiet, and the pass/fail logic itself on a throwaway git tree (equal passes, rise fails, fall fails until
   lowered, a vanished or renamed project, an extra empty project, a nested `bin/`, ignored and forced build output,
-  stray files and projects, global and `.csproj` usings, the test loader). Every lexer, exemption and layout rule has a
-  check that fails if that rule is switched off (proved by breaking each one in a scratch copy, 13 Nov 2026).
+  stray files and projects, global, `.csproj` and `Directory.Build` usings, fail-closed MSBuild items, an upper-case
+  `.CS` file, the test loader). Each guard was switched off one at a time in a scratch copy, and the self-test failed
+  for each one listed in the mutation record of PR #23 (13 Nov 2026). This is evidence, not a proof: the ratchet reads
+  text, and the compiler-exact checks come in PR 1.3 (see Known gaps).
 
 **A PR cannot loosen its own gate.** On a pull request, the workflow
 [`quality-gates.yml`](../../.github/workflows/quality-gates.yml) (job `quality`, Linux, about a minute, no uploads)
@@ -138,6 +145,14 @@ the INVARIANT tag; API docs use `///`. **Do NOT** reword the comment to dodge th
 `TODO(#123): ...`. **Do NOT** delete the note and keep the debt.
 
 ## Known gaps (the text-level ratchet does not see these; later Phase 1 PRs make them exact)
+
+The ratchet reads text, so a determined writer can always find a spelling the compiler accepts and the text scan does
+not follow. Four review rounds on PRs #21 and #23 closed every route found, as a class where possible. The routes that
+need real type knowledge are left to **PR 1.3 (BannedApiAnalyzers)**, where the compiler itself resolves every name:
+
+- Calling a guarded static member through a subclass (`class P2 : Process { ... Start("x"); P2.Start("y"); }`).
+- `using static System.DateTime;` plus a local variable named `Now` or `Today` counts as a hit (a false positive; none
+  in `src/` today).
 
 - `.Wait()` / `.Result` on a task variable whose name does not contain "task"; an instance `process.Start()`.
 - A broad catch whose body has an unreachable `throw` counts as "rethrows".

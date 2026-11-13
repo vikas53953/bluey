@@ -21,6 +21,8 @@ import re
 import subprocess
 import sys
 import tempfile
+import unicodedata
+import xml.etree.ElementTree as ElementTree
 
 root = pathlib.Path(__file__).resolve().parent.parent.parent
 BASELINE = root / 'docs' / 'quality' / 'baseline.json'
@@ -31,6 +33,9 @@ RULES_DOC = 'docs/quality/RULES.md'
 # Lexer: returns the source with string/char literal text and comments blanked (newlines kept, interpolation holes kept
 # as code), plus the comments found, as (line, text, kind) with kind 'doc' (exactly ///), 'line' or 'block'.
 # ---------------------------------------------------------------------------------------------------------------------
+STRING_START = re.compile(r'(\$*)(@?)(\$*)("{3,}|")')  # no length limit: a raw string may open with any number of quotes
+
+
 def lex(text):
     # Every C# line break (CR LF, lone CR, NEL, LINE SEPARATOR, PARAGRAPH SEPARATOR) becomes \n, so none can hide code
     # inside a `//` comment.
@@ -102,12 +107,12 @@ def lex(text):
                 blank(i + 1, min(j, n))
                 i = j + 1
                 continue
-            m = re.match(r'(\$*)(@?)(\$*)("{3,}|")', text[i:i + 12]) if c in '$@"' else None
+            m = STRING_START.match(text, i) if c in '$@"' else None
             if m and (m.group(1) or m.group(2) or m.group(3) or c == '"'):
                 dollars = len(m.group(1)) + len(m.group(3))
                 verbatim = bool(m.group(2))
                 quote_count = 1 if verbatim else len(m.group(4))
-                i = scan_string(i + m.start(4) + quote_count, dollars, verbatim, quote_count)
+                i = scan_string(m.start(4) + quote_count, dollars, verbatim, quote_count)
                 continue
             if stop_at_brace:
                 if c == '{':
@@ -167,15 +172,20 @@ def lex(text):
 STATIC_MEMBERS = {'GC': ['Collect'], 'Thread': ['Sleep'], 'Task': ['Delay', 'WaitAll', 'WaitAny'],
                   'DateTime': ['Now', 'UtcNow', 'Today'], 'DateTimeOffset': ['Now', 'UtcNow', 'Today'],
                   'Environment': ['GetEnvironmentVariable'], 'Process': ['Start']}
-USING = re.compile(r'^[ \t]*(global\s+)?using\s+(static\s+)?(?:(\w+)\s*=\s*)?(?:global::)?([\w.]+)\s*(?:<[^;\n]*>)?\s*;',
-                   re.M)
+# A using directive anywhere a statement can start (line start, or after ; { }), with spaces allowed around the dots.
+USING = re.compile(r'(?:^|(?<=[;{}]))\s*(global\s+)?using\s+(static\s+)?(?:(\w+)\s*=\s*)?(?:global\s*::\s*)?'
+                   r'(\w+(?:\s*\.\s*\w+)*)\s*(?:<[^;]*>)?\s*;', re.M)
 
 
 def plain_identifiers(code):
-    """Spell identifiers the plain way: `\\u0043ollect` -> `Collect`, `@GC` -> `GC` (string text is already blank)."""
+    """Spell identifiers the plain way: `\\u0043ollect` -> `Collect`, `@GC` -> `GC`, and drop invisible formatting
+    characters (Unicode Cf, such as a soft hyphen), which the compiler ignores inside names. String text is blank."""
     def decode(m):
         char = chr(int(m.group(1) or m.group(2), 16))
+        if unicodedata.category(char) == 'Cf':
+            return ''
         return char if char.isprintable() else ' '
+    code = ''.join(c for c in code if unicodedata.category(c) != 'Cf')
     code = re.sub(r'\\u([0-9A-Fa-f]{4})|\\U([0-9A-Fa-f]{8})', decode, code)
     return re.sub(r'@(?=[A-Za-z_])', '', code)
 
@@ -195,7 +205,8 @@ class Source:
     def __init__(self, text, project_usings=()):
         code, self.comments = lex(text)
         code = plain_identifiers(code)
-        self.usings = [(bool(m.group(1)), bool(m.group(2)), m.group(3), m.group(4)) for m in USING.finditer(code)]
+        self.usings = [(bool(m.group(1)), bool(m.group(2)), m.group(3), re.sub(r'\s', '', m.group(4)))
+                       for m in USING.finditer(code)]
         self.code = expand_usings(code, list(project_usings) + self.usings)
         self.code_lines = self.code.split('\n')
 
@@ -307,7 +318,9 @@ RULES = [
           ('Action a = Thread.Sleep;', 1),
           ('using static System.Threading.Thread;\n Sleep(1); x.Sleep(2);', 1),
           ('using T = System.Threading.Thread;\n T.Sleep(1);', 1),
-          ('Thread.\\u0053leep(1); @Thread.@Sleep(2);', 2)]),
+          ('Thread.\\u0053leep(1); @Thread.@Sleep(2);', 2),
+          ('using System; using static System.Threading.Thread;\n Sleep(1);', 1),
+          ('{ using static System . Threading . Thread;\n Sleep(1); }', 1)]),
     Rule('BOO-ASYNC-002', 'Blocking wait on async work (Task.Wait/WaitAll/WaitAny, .Result, GetAwaiter().GetResult())',
          'Blocking on a task from the WPF UI thread deadlocks.', 'Make the caller async and await it.',
          'Do NOT wrap it in Task.Run to hide the block.',
@@ -337,10 +350,13 @@ RULES = [
          'Do NOT wrap the clock in a static helper; that is the same hidden clock.',
          pattern_hits(r'\bDateTime(Offset)?\s*\.\s*(Now|UtcNow|Today)\b'),
          [('var t = DateTime.UtcNow;', 1), ('var s = $"{DateTime.Now:HH:mm} {DateTimeOffset.UtcNow}";', 2),
-          ('var s = "DateTime.Now";', 0)]),
+          ('var s = "DateTime.Now";', 0),
+          ('using static System.DateTime;\n var t = Now;', 1),
+          ('using static System.DateTimeOffset;\n var t = UtcNow;', 1)]),
     Rule('BOO-TIME-002', 'Task.Delay', 'A delay used to "let things settle" hides a race.',
          'Wait for the real signal; for a real timeout use the TimeProvider overload so tests control time.',
-         'Do NOT make the delay longer.', pattern_hits(r'\bTask\s*\.\s*Delay\b'), [('await Task.Delay(100);', 1)]),
+         'Do NOT make the delay longer.', pattern_hits(r'\bTask\s*\.\s*Delay\b'),
+         [('await Task.Delay(100);', 1), ('using static System.Threading.Tasks.Task;\n await Delay(1);', 1)]),
     Rule('BOO-TIME-003', 'new DispatcherTimer', 'Timers are a common "fix" for ordering bugs and are untestable '
          'without a fake clock.', 'Prefer an event or an awaited signal; keep real periodic timers in one owner class.',
          'Do NOT add a timer to wait for something to finish.',
@@ -390,15 +406,24 @@ RULES = [
                                                     ('// c\u2029GC.Collect();', 1),
                                                     ('GC.\\u0043ollect(); @GC.@Collect(); GC.\\U00000043ollect();', 3),
                                                     ('using G = System.GC;\n G.Collect(); var s = "G.Collect()";', 1),
-                                                    ('using static System.GC;\n Collect();', 1)]),
+                                                    ('using static System.GC;\n Collect();', 1),
+                                                    ('using G = System . GC;\n G.Collect();', 1),
+                                                    ('GC.Col\\u00ADlect(); GC.Col\u00adlect(); GC.\u200bCollect();', 3),
+                                                    ('var r = ' + '"' * 13 + 'x' + '"' * 13 + '; GC.Collect();', 1),
+                                                    ('var r = ' + '"' * 13 + 'a' + '"' * 11 + ' GC.Collect(); ' + '"' * 11
+                                                     + 'b' + '"' * 13 + ';', 0),
+                                                    ('var s = $"{ new { A = c ? 1 : GC.Collect() }.A }";', 1),
+                                                    ('var s = $"{ arr[c ? 1 : GC.Collect()] }";', 1)]),
     Rule('BOO-RT-002', 'Environment.GetEnvironmentVariable',
          'Hidden switches (for example BOO_QA_CAPTURABLE) change privacy behaviour and must be auditable.',
          'Read environment variables in one place and pass the value in.', 'Do NOT add another reader.',
          pattern_hits(r'\bEnvironment\s*\.\s*GetEnvironmentVariable\b'),
-         [('Environment.GetEnvironmentVariable("X");', 1), ('Func<string, string?> f = Environment.GetEnvironmentVariable;', 1)]),
+         [('Environment.GetEnvironmentVariable("X");', 1), ('Func<string, string?> f = Environment.GetEnvironmentVariable;', 1),
+          ('using static System.Environment;\n GetEnvironmentVariable("X");', 1)]),
     Rule('BOO-SAFE-003', 'Process.Start', 'Launching a program is a permissioned, security-sensitive action.',
          'Go through the ActionPolicy gate (DesktopTools).', 'Do NOT call Process.Start directly.',
-         pattern_hits(r'\bProcess\s*\.\s*Start\b'), [('Process.Start("x");', 1)]),
+         pattern_hits(r'\bProcess\s*\.\s*Start\b'),
+         [('Process.Start("x");', 1), ('using static System.Diagnostics.Process;\n Start("x");', 1)]),
     Rule('BOO-ERR-001', 'Broad catch with an empty body (error thrown away)',
          'The failure vanishes; the next symptom shows up somewhere unrelated.',
          'Catch the specific exception you expect and handle it, or let it propagate.', 'Do NOT widen the catch.',
@@ -428,6 +453,8 @@ RULES = [
           ('// INVARIANT: undo restores bytes, see UndoJournalTests.Roundtrip', 0),
           ('// INVARIANT: undo restores bytes, see MissingTests.Roundtrip', 1),
           ('// INVARIANT: undo restores bytes, see UndoJournalTests.NoSuchMethod', 1),
+          ('// INVARIANT: undo restores bytes, see UndoJournal.Roundtrip', 1),
+          ('// note TODO(#12): tracked only at the start', 1),
           ('// TODO: fix later', 1), ('// TODO(12): no hash', 1),
           ('#pragma warning disable CS0168 // TODO(#1): tracked here', 1),
           ('// INVARIANT: retry because flaky, see e.g. above', 1),
@@ -463,41 +490,63 @@ def layout(base):
     """(projects, problems): projects are src/<Name>/ folders that hold a .csproj directly; any C# project or file in
     src/ that sits anywhere else is a problem, because the build compiles it but the ratchet would not judge it."""
     listed = files(base, 'src')
-    projects = sorted({parts[1] for parts in listed if len(parts) == 3 and parts[2].endswith('.csproj')})
+    projects = sorted({parts[1] for parts in listed if len(parts) == 3 and is_project(parts[2])})
     problems = []
     for parts in listed:
         path = '/'.join(parts)
-        if parts[-1].endswith('.csproj') and len(parts) != 3:
+        if is_project(parts[-1]) and len(parts) != 3:
             problems.append(f'{path}: a project outside src/<Name>/ is not judged. Put it at src/<Name>/<Name>.csproj.')
-        elif parts[-1].endswith('.cs') and (len(parts) < 3 or parts[1] not in projects):
+        elif is_csharp(parts[-1]) and (len(parts) < 3 or parts[1] not in projects):
             problems.append(f'{path}: C# file outside a src/<Name>/ project is not judged. Move it into a project.')
     return projects, problems
+
+
+def is_csharp(name):
+    return name.lower().endswith('.cs')  # MSBuild on Windows compiles Evil.CS too
+
+
+def is_project(name):
+    return name.lower().endswith('.csproj')
 
 
 def load_tests(base):
     KNOWN_TESTS.clear()
     for parts in files(base, 'tests'):
-        if parts[-1].endswith('.cs'):
+        if is_csharp(parts[-1]):
             text = (base / '/'.join(parts)).read_text(encoding='utf-8-sig', errors='replace')
             for name in re.findall(r'\bclass\s+([A-Z]\w*Tests)\b', text):
                 KNOWN_TESTS[name] = KNOWN_TESTS.get(name, '') + text
 
 
-def project_usings(base, project, texts):
-    """`global using` lines from the project's files and <Using> items from its .csproj and Directory.Build files."""
-    found = [u for text in texts for u in Source(text).usings if u[0]]
+def msbuild(base, project):
+    """(usings, problems) from the project's .csproj files and the Directory.Build.props/.targets above it, read with an
+    XML parser. <Using> items are followed (attribute or child-element metadata). Anything that brings code or settings
+    in from elsewhere (<Compile Include>, <Import>) or cannot be read fails closed: the ratchet cannot follow it."""
     folder = base / 'src' / project
-    xml_files = sorted(folder.glob('*.csproj'))
-    for up in [folder, base / 'src', base]:
-        xml_files += [up / name for name in ('Directory.Build.props', 'Directory.Build.targets') if (up / name).is_file()]
-    for path in xml_files:
-        for item in re.findall(r'<Using\b[^>]*>', path.read_text(encoding='utf-8-sig', errors='replace')):
-            include = re.search(r'\bInclude\s*=\s*"([^"]*)"', item)
-            alias = re.search(r'\bAlias\s*=\s*"([^"]*)"', item)
-            static = re.search(r'\bStatic\s*=\s*"\s*true\s*"', item, re.I)
-            if include:
-                found.append((True, bool(static), alias.group(1) if alias else None, include.group(1)))
-    return found
+    paths = sorted(p for p in folder.iterdir() if p.is_file() and is_project(p.name))
+    for up in (folder, base / 'src', base):
+        paths += [up / name for name in ('Directory.Build.props', 'Directory.Build.targets') if (up / name).is_file()]
+    usings, problems = [], []
+    for path in paths:
+        where = path.relative_to(base).as_posix()
+        try:
+            elements = list(ElementTree.parse(path).iter())
+        except (ElementTree.ParseError, OSError) as error:
+            problems.append(f'{where}: cannot be read as XML ({error}), so the ratchet cannot follow it.')
+            continue
+        for element in elements:
+            tag = str(element.tag).split('}')[-1]
+            meta = {key.lower(): value for key, value in element.attrib.items()}
+            meta.update({str(child.tag).split('}')[-1].lower(): (child.text or '').strip() for child in element})
+            if tag == 'Import' or (tag == 'Compile' and 'include' in meta):
+                problems.append(f'{where}: <{tag}> brings code or settings in from elsewhere, which the ratchet cannot '
+                                f'follow. Keep compiled code as .cs files inside src/<Name>/ (the analyzers of later Phase 1 '
+                                f'PRs check compiled code exactly).')
+            elif tag == 'Using' and 'include' in meta:
+                for target in filter(None, (part.strip() for part in meta['include'].split(';'))):
+                    usings.append((True, meta.get('static', '').strip().lower() == 'true', meta.get('alias') or None,
+                                   re.sub(r'\s', '', target)))
+    return usings, problems
 
 
 def scan(base):
@@ -507,9 +556,11 @@ def scan(base):
     result = {rule.id: {project: [] for project in projects} for rule in RULES}
     listed = files(base, 'src')
     for project in projects:
-        paths = ['/'.join(parts) for parts in listed if parts[1:2] == (project,) and parts[-1].endswith('.cs')]
+        paths = ['/'.join(parts) for parts in listed if parts[1:2] == (project,) and is_csharp(parts[-1])]
         texts = {path: (base / path).read_text(encoding='utf-8-sig') for path in paths}
-        usings = project_usings(base, project, texts.values())
+        usings, msbuild_problems = msbuild(base, project)
+        problems += [p for p in msbuild_problems if p not in problems]
+        usings += [u for text in texts.values() for u in Source(text).usings if u[0]]  # `global using` lines
         for path in paths:
             source = Source(texts[path], usings)
             for rule in RULES:
@@ -598,6 +649,7 @@ def self_test():
     failures = []
     KNOWN_TESTS.clear()
     KNOWN_TESTS['UndoJournalTests'] = 'public void Roundtrip() { }'
+    KNOWN_TESTS['UndoJournal'] = 'public void Roundtrip() { }'  # not a *Tests class: a tag naming it is not exempt
     for rule in RULES:
         for snippet, expected in rule.samples:
             source = Source('class C {\n  void M() {\n    ' + snippet + '\n  }\n}\n')
@@ -659,7 +711,35 @@ def self_test():
                                                          '</ItemGroup></Project>', encoding='utf-8')
             code.write_text('class A { void M() { G.Collect(); } }', encoding='utf-8')
             steps += [('a <Using Alias> in the .csproj is followed', check(tree, baseline_path, rise_only=True), 1)]
+            code.write_text('class A { void M() { Collect(); } }', encoding='utf-8')
+            for name, xml in [('Static attribute', '<Using Include="System.GC" Static="true" />'),
+                              ('child-element metadata, single quotes', "<Using Include='System.GC'><Static>true</Static></Using>")]:
+                (tree / 'src' / 'P' / 'P.csproj').write_text(f'<Project><ItemGroup>{xml}</ItemGroup></Project>', encoding='utf-8')
+                steps += [(f'a .csproj <Using> with {name} is followed', check(tree, baseline_path, rise_only=True), 1)]
             (tree / 'src' / 'P' / 'P.csproj').write_text('<Project/>', encoding='utf-8')
+            (tree / 'src' / 'P' / 'B.cs').write_text('using static System.GC;', encoding='utf-8')
+            steps += [('a plain (not global) using in another file is not applied', check(tree, baseline_path, rise_only=True), 0)]
+            (tree / 'src' / 'P' / 'B.cs').unlink()
+            (tree / 'Directory.Build.props').write_text('<Project><ItemGroup><Using Include="System.GC" Static="true" />'
+                                                        '</ItemGroup></Project>', encoding='utf-8')
+            steps += [('a <Using> in Directory.Build.props is followed', check(tree, baseline_path, rise_only=True), 1)]
+            (tree / 'Directory.Build.props').unlink()
+            code.write_text('class A { void M() { } }', encoding='utf-8')
+            for name, xml in [('<Import>', '<Project><Import Project="../U.props" /></Project>'),
+                              ('<Compile Include>', '<Project><ItemGroup><Compile Include="Evil.txt" /></ItemGroup></Project>'),
+                              ('unreadable XML', '<Project><ItemGroup></Project>')]:
+                (tree / 'src' / 'P' / 'P.csproj').write_text(xml, encoding='utf-8')
+                steps += [(f'a .csproj with {name} fails closed', check(tree, baseline_path, rise_only=True), 1)]
+            (tree / 'src' / 'P' / 'P.csproj').write_text('<Project><ItemGroup><Compile Remove="Old.cs" /></ItemGroup></Project>',
+                                                         encoding='utf-8')
+            steps += [('<Compile Remove> is harmless', check(tree, baseline_path, rise_only=True), 0)]
+            (tree / 'src' / 'P' / 'P.csproj').write_text('<Project/>', encoding='utf-8')
+            (tree / 'src' / 'P' / 'Evil.CS').write_text('class E { void M() { GC.Collect(); } }', encoding='utf-8')
+            steps += [('an upper-case .CS file is judged', check(tree, baseline_path, rise_only=True), 1)]
+            (tree / 'src' / 'P' / 'Evil.CS').unlink()
+            (tree / 'src' / 'Loose.cs').write_text('class L { }', encoding='utf-8')
+            steps += [('--lower refuses while the layout has a problem', lower(tree, baseline_path), 1)]
+            (tree / 'src' / 'Loose.cs').unlink()
             code.write_text('class A { void M() { } }', encoding='utf-8')
             steps += [('check fall fails until lowered', check(tree, baseline_path), 1),
                       ('rise-only accepts a fall', check(tree, baseline_path, rise_only=True), 0),
