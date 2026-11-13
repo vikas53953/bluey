@@ -102,6 +102,22 @@ def check(base):
     listed = {'/'.join(parts) for parts in ratchet.files(base, 'src')}
     problems = []
     for project in projects:
+        # Project references first, by evaluation only: a reference outside src/ may not even build.
+        run = subprocess.run(['dotnet', 'msbuild', f'src/{project}/{project}.csproj', '-nologo',
+                              '-p:EnableWindowsTargeting=true', '-getItem:ProjectReference'],
+                             cwd=str(base), capture_output=True, text=True, encoding='utf-8', errors='replace')
+        start = run.stdout.find('{')
+        if run.returncode or start < 0:
+            print(f'COMPILE LIST COULD NOT RUN: evaluating src/{project}/{project}.csproj failed:\n{run.stdout[-2000:]}')
+            return 2
+        items = json.loads(run.stdout[start:]).get('Items', {})
+        problems += judge_references(project, {relative(item['FullPath'], base)
+                                               for item in items.get('ProjectReference', [])}, projects)
+    if problems:
+        print(f'COMPILE LIST FAILED: a src/ project pulls in a project outside src/.\n  Rule: {RULES_DOC}\n  '
+              + '\n  '.join(problems))
+        return 1
+    for project in projects:
         csproj = f'src/{project}/{project}.csproj'
         run = subprocess.run(['dotnet', 'msbuild', csproj, *BUILD, '-getItem:Compile', '-getItem:Using', '-getItem:Page',
                               '-getItem:ApplicationDefinition', '-getItem:ProjectReference',
@@ -124,8 +140,6 @@ def check(base):
             path = relative(item['FullPath'], base)
             xaml[path] = pathlib.Path(item['FullPath']).read_text(encoding='utf-8-sig', errors='replace')
         problems += judge(project, compiled, scanned, listed, usings, xaml, data['Properties']['AssemblyName'])
-        problems += judge_references(project, {relative(item['FullPath'], base)
-                                               for item in items.get('ProjectReference', [])}, projects)
     if problems:
         print(f'COMPILE LIST FAILED: what the build compiles is not what the ratchet reads.\n  Rule: {RULES_DOC}\n  '
               + '\n  '.join(problems))

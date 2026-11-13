@@ -23,6 +23,7 @@ import sys
 import tempfile
 import urllib.parse
 import urllib.request
+import uuid
 
 root = pathlib.Path(__file__).resolve().parent.parent.parent
 RULES_DOC = 'docs/quality/RULES.md#banned-apis-rs0030'
@@ -470,10 +471,10 @@ def cmd_canary(base):
 
 
 def compile_project(base, project, sarif_dir, *extra):
-    """Rebuild one src/ project alone (its references are already built) with a SARIF log. Returns (exit code,
-    analyzer config files the compiler got, SARIF results). Rebuild, because an up-to-date project writes no log."""
-    sarif_dir.mkdir(exist_ok=True)
-    run = dotnet(['msbuild', f'src/{project}/{project}.csproj', '-restore', '-nologo', '-t:Rebuild',
+    """Compile one src/ project alone (its references are already built) with a SARIF log. Returns (exit code,
+    analyzer config files the compiler got, SARIF results). A fresh stamp forces the compiler to run."""
+    stamp(sarif_dir)
+    run = dotnet(['msbuild', f'src/{project}/{project}.csproj', '-restore', '-nologo', '-t:Build',
                   '-p:BuildProjectReferences=false', '-p:Configuration=Release', '-p:EnableWindowsTargeting=true',
                   '-p:PublishReadyToRun=false', f'-p:BooSarifDir={sarif_dir.as_posix()}', *extra,
                   '-getItem:EditorConfigFiles', '-getItem:GlobalAnalyzerConfigFiles'], base, expect_success=False)
@@ -482,6 +483,12 @@ def compile_project(base, project, sarif_dir, *extra):
                       for name in ('EditorConfigFiles', 'GlobalAnalyzerConfigFiles') for item in items.get(name, [])
                       if pathlib.Path(item['FullPath']).is_file()})
     return run.returncode, configs, read_sarif(sarif_dir / f'{project}.sarif', base)
+
+
+def stamp(sarif_dir):
+    """A new file listed as a compile input (Directory.Build.props): newer than any output, so CoreCompile runs."""
+    sarif_dir.mkdir(exist_ok=True)
+    (sarif_dir / '.stamp').write_text(uuid.uuid4().hex, encoding='utf-8')
 
 
 def repo_configs(base):
@@ -516,7 +523,11 @@ def cmd_product(base):
             dotnet(['build', f'src/{project}/{project}.csproj', *BUILD_PROPS], base)
         normal = {}
         for project in projects:
-            code, used, results = compile_project(base, project, scratch / 'build')
+            try:
+                code, used, results = compile_project(base, project, scratch / 'build')
+            except ToolError as error:
+                problems.append(f'{project}: {error}')
+                continue
             if code:
                 problems.append(f'{project}: the build failed (exit {code}).')
             normal[project] = results
@@ -525,13 +536,20 @@ def cmd_product(base):
             for path in used:
                 configs.setdefault(relative(path, base), pathlib.Path(path).read_text(encoding='utf-8-sig',
                                                                                       errors='replace'))
-        for project in projects:
-            _, left, results = compile_project(base, project, scratch / 'stripped', '-p:BooNoAnalyzerConfig=true')
+        for project in normal:
+            try:
+                _, left, results = compile_project(base, project, scratch / 'stripped', '-p:BooNoAnalyzerConfig=true')
+            except ToolError as error:
+                problems.append(f'{project} (analyzer configs removed): {error}')
+                continue
             problems += judge_stripped_configs(project, left, sdk_root)
             problems += judge_config_strip(project, normal[project], results)
         problems += config_problems(configs)
         for project in projects:
-            problems += probe(base, project, scratch / 'probe', listed, markers)
+            try:
+                problems += probe(base, project, scratch / 'probe', listed, markers)
+            except ToolError as error:
+                problems.append(f'{project} probe: {error}')
     if problems:
         print(f'BANNED APIS FAILED in src/.\n  Rule: {RULES_DOC}\n  ' + '\n  '.join(problems))
         return 1
@@ -546,7 +564,7 @@ def probe(base, project, probe_dir, listed, markers):
     """Compile the canary files inside the real project (its own props, editorconfig, NoWarn...). Each banned line in
     them must fire as an unsuppressed error, so no project setting can quietly switch the ban off."""
     csproj = f'src/{project}/{project}.csproj'
-    probe_dir.mkdir(exist_ok=True)
+    stamp(probe_dir)
     evaluated = json_output(dotnet(['msbuild', csproj, '-nologo', '-p:EnableWindowsTargeting=true',
                                     '-p:BooBannedApiProbe=true', '-getItem:Compile'], base).stdout)
     included = {relative(item['FullPath'], base) for item in evaluated['Items']['Compile']} & set(CANARY_FILES)

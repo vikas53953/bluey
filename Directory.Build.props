@@ -30,8 +30,13 @@
       <GlobalAnalyzerConfigFiles Remove="@(GlobalAnalyzerConfigFiles)" />
     </ItemGroup>
   </Target>
-  <!-- One SARIF error log per project when BooSarifDir is set (scripts/quality/banned_apis.py reads them). -->
+  <!-- One SARIF error log per project when BooSarifDir is set (scripts/quality/banned_apis.py reads them). The
+       script writes a fresh .stamp there first, so the compiler always runs (an up-to-date project writes no log)
+       without a Clean that would delete outputs other projects reference. -->
   <PropertyGroup Condition="'$(BooSarifDir)' != ''">
     <ErrorLog>$(BooSarifDir)/$(MSBuildProjectName).sarif,version=2.1</ErrorLog>
   </PropertyGroup>
+  <ItemGroup Condition="'$(BooSarifDir)' != ''">
+    <CustomAdditionalCompileInputs Include="$(BooSarifDir)/.stamp" />
+  </ItemGroup>
 </Project>
