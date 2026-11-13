@@ -5,7 +5,7 @@ using FlaUI.Core.AutomationElements;
 
 namespace Boo.QaSuite.Journeys;
 
-/// <summary>Typed branch of j18. Two real requests, no retries; rings and face ownership remain separate coverage.</summary>
+/// <summary>Typed branch of j18. Two typed sends, no retries; provider overlap, rings and face ownership remain unverified.</summary>
 public sealed class RequestGenerationTests : IClassFixture<LiveAppFixture>
 {
     private readonly LiveAppFixture _boo;
@@ -31,20 +31,20 @@ public sealed class RequestGenerationTests : IClassFixture<LiveAppFixture>
         try
         {
             var before = Answers().Count;
-            Record("send first request");
+            Record("first typed Send");
             QaUi.Ask(_boo, panel, "Write a 400-word story about a lighthouse keeper and a lost cat.");
             Assert.True(BooAppFixture.WaitUntil(() =>
                 QaUi.NameOf(panel, "StatusText").StartsWith("Thinking about", StringComparison.Ordinal)
                 && Answers().Count == before, TimeSpan.FromSeconds(5)),
-                "SETUP: first request was not observed pending with no answer before replacement.");
-            Record("first request pending, no assistant answer");
+                "SETUP: first typed send was not observed pending in the UI with no answer before replacement.");
+            Record("first typed send pending in UI, no assistant answer; provider start not proven");
             var token = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
             var input = QaUi.Find(_boo, panel, "InputBox").AsTextBox();
             input.Text = $"Copy this token verbatim with no spaces or punctuation. Return only the token: {token}";
             // Recheck immediately before Send: text editing must not consume the first request's entire lifetime.
             Assert.Equal(before, Answers().Count);
             Assert.StartsWith("Thinking about", QaUi.NameOf(panel, "StatusText"), StringComparison.Ordinal);
-            Record("send second request, expected=" + token);
+            Record("second typed Send, expected=" + token);
             QaUi.Find(_boo, panel, "SendButton").AsButton().Invoke();
             Assert.True(BooAppFixture.WaitUntil(() => Answers().Count > before, TimeSpan.FromSeconds(120)),
                 $"No second answer. Status: {QaUi.NameOf(panel, "StatusText")}");
@@ -62,17 +62,19 @@ public sealed class RequestGenerationTests : IClassFixture<LiveAppFixture>
                 Thread.Sleep(100);
             } while (clock.ElapsedMilliseconds < deadline);
             _boo.CaptureScreen("qa-q18-after-late-result-watch");
-            Record("15-second watch complete; no obsolete transcript row observed. Rings and face ownership not proven by this check.");
+            Record("15-second watch complete; no obsolete transcript row observed. First-provider overlap, stale-provider-result rejection, rings and face ownership not proven by this check.");
         }
         catch (Exception ex)
         {
             Record("FAILED: " + ex);
-            _boo.CaptureScreen("qa-q18-FAILED");
+            try { _boo.CaptureScreen("qa-q18-FAILED"); }
+            catch (Exception captureError) { Record("failure screenshot unavailable: " + captureError); }
             throw;
         }
         finally
         {
-            Record("transcript=" + string.Join(" || ", Answers()));
+            try { Record("transcript=" + string.Join(" || ", Answers())); }
+            catch (Exception diagnosticError) { Record("final transcript diagnostic failed: " + diagnosticError); }
             _boo.WriteObservation("qa-q18-newer-typed-request", string.Join("\n", log));
         }
     }
