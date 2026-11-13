@@ -18,7 +18,7 @@ below is the script's output, unedited.
 
 <!-- generated: start -->
 
-Window: 2026-11-08T00:00:00Z to 2026-11-13T06:00:00Z (UTC; start included, end excluded). Repo `vikas53953/bluey`; base branches: lane/face, main. End-of-window `lane/face` commit: `0122ac745354d5ea62ae910cbff635e41335d716`. Snapshot sha256: `7350b63e7b682941eb78a404d6bea1f80936f6c103b94ef652c6a81de5f3cbe1`.
+Window: 2026-11-08T00:00:00Z to 2026-11-13T06:00:00Z (UTC; start included, end excluded; a run counts by the time it was created, with its result as fetched). Repo `vikas53953/bluey`; base branches: lane/face, main. End-of-window `lane/face` commit: `0122ac745354d5ea62ae910cbff635e41335d716`. Snapshot sha256: `361e1ff8391f076d0154322b54640f012db5075321319c279245913da049b678`.
 
 | Metric | Value | Why it matters |
 | --- | --- | --- |
@@ -26,7 +26,7 @@ Window: 2026-11-08T00:00:00Z to 2026-11-13T06:00:00Z (UTC; start included, end e
 | Revert rate | 0/21 = 0.0% | A revert means a merged change was wrong and the gates let it through. |
 | Merged PRs with a `QA PASS <commit>` line | 16/21 = 76.2% | The pipeline says no merge without a QA verdict; this shows how often that held. |
 | ... naming the exact head that merged | 16/21 = 76.2% | A PASS on an older commit does not prove the code that merged. |
-| Reviewer FAIL rounds (PRs opened in window) | total 1, mean 0.03 per PR; PRs with any: #24: 1 (lower bound); plus 4 rounds blocked by storage or budget | A fresh reviewer catching problems is the safety net working; a falling count means authors got better. |
+| Reviewer FAIL rounds (PRs opened in window) | UNVERIFIED as an exact number: verdicts are free text. Written in the standard form `QA FAIL — <commit>` / `REVIEW FAIL — <commit>`: 1 (#24: 1); PRs whose description or comments mention a QA or review FAIL in any form: 3 (#13, #23, #24); plus 4 rounds blocked by storage or budget | A fresh reviewer catching problems is the safety net working; a falling count means authors got better. |
 | PRs that went red, then green at the merged head | 11/21 = 52.4% (#4, #11, #12, #13, #14, #16, #17, #18, #19, #20, #25) | Shows the checks are actually stopping bad commits, not just passing. |
 | Flaky rate (same workflow + same commit, both pass and fail) | 19/743 = 2.6%; by workflow: demo-ci: 4, live-ai-smoke: 2, release: 2, windows-ci: 11 | Target under 2%. A flaky check trains people to re-run instead of read; above 2% the checks are noise. |
 | Flaky, strict (one run whose re-run attempt flipped the result) | 10/1125 = 0.9% | The broad rate above also counts a push run against a pull-request run of one commit, and a pull-request run tests the merge with the base; the strict rate is same code, same trigger. |
@@ -58,9 +58,9 @@ Queries run (ids replaced by placeholders; every exact command was printed to st
 | 1 | `gh api repos/vikas53953/bluey/branches/lane%2Fface/protection/required_status_checks --jq {contexts}` |
 | 1 | `gh api repos/vikas53953/bluey/branches/main/protection/required_status_checks --jq {contexts}` |
 | 1 | `gh api repos/vikas53953/bluey/labels/escaped --jq {name}` |
-| 1 | `git log origin/lane/face --since=2026-11-08T00:00:00Z --until=2026-11-13T06:00:00Z -i --grep=^Revert  --grep=This reverts commit --format=%H%x09%cI%x09%s` |
-| 1 | `git log origin/main --since=2026-11-08T00:00:00Z --until=2026-11-13T06:00:00Z -i --grep=^Revert  --grep=This reverts commit --format=%H%x09%cI%x09%s` |
-| 1 | `git rev-list -1 --first-parent --before=2026-11-13T06:00:00Z origin/lane/face` |
+| 1 | `git log origin/lane/face --since=2026-11-08T00:00:00Z --until=2026-11-13T05:59:59Z -i --grep=^Revert  --grep=This reverts commit --format=%H%x09%cI%x09%s` |
+| 1 | `git log origin/main --since=2026-11-08T00:00:00Z --until=2026-11-13T05:59:59Z -i --grep=^Revert  --grep=This reverts commit --format=%H%x09%cI%x09%s` |
+| 1 | `git rev-list -1 --first-parent --before=2026-11-13T05:59:59Z origin/lane/face` |
 | 1 | `git show 0122ac745354d5ea62ae910cbff635e41335d716:docs/FEATURE_MAP.md` |
 | 1 | `git show 0122ac745354d5ea62ae910cbff635e41335d716:docs/quality/baseline.json` |
 
@@ -79,6 +79,9 @@ Queries run (ids replaced by placeholders; every exact command was printed to st
   `0c968d4`). Counting only re-runs of the very same run, 10 of 1,125 runs flipped (0.9%). Both
   numbers are kept so the trend can be watched honestly. Several fall on 12 Nov, when the artifact storage quota
   turned runs red (PR #15's commit `8836c7e` is one); the table does not yet tell an infrastructure red from a code red.
+- **Reviewer FAIL rounds cannot be counted exactly yet.** Only one FAIL is written in the standard form
+  (`REVIEW FAIL at 4f8afe2` on #24); other PRs (listed in the table) mention a FAIL in prose. Until every reviewer
+  posts `REVIEW FAIL — <commit>` as a comment, read that list rather than trusting a total.
 - **About half the merged PRs went red first, then green.** The checks are stopping commits, not rubber-stamping.
 - **Most failed jobs are `build-test-publish` (90) and `demos` (54),** the two required checks on both branches.
   Why each failed is not in this table.
@@ -94,7 +97,7 @@ Queries run (ids replaced by placeholders; every exact command was printed to st
 | Escaped bugs | There is no `escaped` label on GitHub yet, so there is nothing to count. | Create the label; tag every bug found after merge, with the layer that should have caught it. |
 | Prose-to-check ratio | No list links each written rule (AGENTS.md, prompts) to a `BOO-*` check. It is not in git or Actions data. | A rule-to-check map file (later Phase 1 work). |
 | Fuzz yield | The fuzz does not exist yet. | Phase 3. |
-| Reviewer FAIL rounds (exact) | PR descriptions are rewritten, so older FAIL notes can vanish. The count is a **lower bound**. | Reviewers post each verdict as a new comment, never only in the description. |
+| Reviewer FAIL rounds (exact number) | Verdicts are written as free text ("had QA FAIL because …", a table cell "review \| **FAIL**"), and PR descriptions are rewritten, so older notes can vanish. Only the standard form `QA FAIL — <commit>` / `REVIEW FAIL — <commit>` is counted exactly; every other PR that mentions a FAIL is listed for a person to read. | Reviewers post every verdict as a new comment in the standard form, never only in the description. |
 | Required checks in the weekly workflow | The workflow token may not read branch protection. | Run locally with the owner's `gh` login, as below. |
 
 ## How each number is counted
@@ -111,7 +114,11 @@ Queries run (ids replaced by placeholders; every exact command was printed to st
   number never counts. A FAIL whose note says "blocked" (storage, budget) is a blocked round, not a reviewer FAIL.
   Each (kind, commit) counts once.
 - **Revert rate:** revert commits made on `lane/face` or `main` inside the window, divided by PRs merged inside the
-  window. The plan's "per 30 days" is the same count with a 30-day window.
+  window. The plan counts "merged PRs later reverted, per 30 days"; linking each revert to its PR is not done yet,
+  so this is the closest count git gives. Both are 0 today.
+- **Runs** count by the time they were created; a run that started before the window end and finished after it
+  counts with its final result as fetched.
+- **A verdict written as its opposite** ("no QA PASS at …", "not a QA FAIL …") does not count.
 - **Red then green:** a workflow failed on an earlier commit of the PR and passed on the commit that merged.
 - **Flaky (plan's way):** the same workflow on the same commit gave both a pass and a fail, counting re-runs and push
   and pull-request runs of that commit. Cancelled and skipped results are ignored.

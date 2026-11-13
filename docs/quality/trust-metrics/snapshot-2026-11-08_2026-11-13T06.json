@@ -8967,7 +8967,7 @@
    "closed_at": null,
    "created_at": "2026-11-13T05:46:40Z",
    "head_ref": "spec/notch-tla",
-   "head_sha": "319e242c3713cf09eb859e39ae56e814c80b41fc",
+   "head_sha": "4606f74cc69f794fa5ab54d6dbd74db4bae20b9b",
    "merged_at": null,
    "number": 29
   },
@@ -9007,7 +9007,7 @@
    "closed_at": null,
    "created_at": "2026-11-13T07:06:45Z",
    "head_ref": "quality/time-provider",
-   "head_sha": "5d81780114b85698d075727edf78d9dba955a510",
+   "head_sha": "2f18a904c461949e6916b93c12c54100f75b7ad2",
    "merged_at": null,
    "number": 33
   },
@@ -9017,7 +9017,7 @@
    "closed_at": null,
    "created_at": "2026-11-13T07:25:50Z",
    "head_ref": "quality/pr-evidence",
-   "head_sha": "2591062a17357f86811078f3033d71bbd2719b4c",
+   "head_sha": "2af4150ec3402a2eee1228510df0f27ac2491faf",
    "merged_at": null,
    "number": 34
   },
@@ -9037,7 +9037,7 @@
    "closed_at": null,
    "created_at": "2026-11-13T07:30:19Z",
    "head_ref": "quality/trust-metrics",
-   "head_sha": "88298d7af55938c58dadba9f5fa51f81235a1071",
+   "head_sha": "bd866765758807bffaaebdca861f00f7b704ff4a",
    "merged_at": null,
    "number": 36
   },
@@ -9050,6 +9050,16 @@
    "head_sha": "155a14bb1383aa59a932369e2cdfbbe1831e4e2d",
    "merged_at": null,
    "number": 37
+  },
+  {
+   "base": "quality/pr-evidence",
+   "body": "",
+   "closed_at": "2026-11-13T07:47:02Z",
+   "created_at": "2026-11-13T07:45:50Z",
+   "head_ref": "tmp/redproof-pr-evidence",
+   "head_sha": "f41fe12c3f8c91f7f5a014906dd5867a9b3d2fbe",
+   "merged_at": null,
+   "number": 38
   }
  ],
  "repo": "vikas53953/bluey",
