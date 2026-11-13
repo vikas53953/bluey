@@ -39,6 +39,7 @@ PLAIN = {
     'S4': 'Focus Start / Pause (notch Paused) / Resume / End',
     'S5': 'Settings saved to file; a new Boo starts with the same choices',
     'Q7': 'Hover edges: all four real-clock branches (no AI key)',
+    'Q67': 'Issue 67 diagnostic: ten compact-window focus cycles without UIA errors (no key)',
     'Q18': 'Newer typed request only answer during 15-second watch (partial j18)',
     'Q16': 'Second approved file Undo restores exact contents (partial j16; field pending)',
     'Q15': 'Approval Cancel / Escape / replacement (partial j15 a-c)',

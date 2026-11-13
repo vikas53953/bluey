@@ -40,7 +40,7 @@ public sealed class HoverEdgeTests : IClassFixture<NoKeyFixture>
         }
         void ObserveUntil(long deadline)
         {
-            while (clock.ElapsedMilliseconds < deadline) { Sample(); Thread.Sleep(10); }
+            while (clock.ElapsedMilliseconds < deadline) { Sample(); Thread.Sleep(1); }
             Sample();
         }
         long Move(Point point, string action)
