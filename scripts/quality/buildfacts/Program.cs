@@ -202,7 +202,7 @@ sealed class Extractor
             ["label"] = label,
             ["succeeded"] = build.Succeeded,
             ["msbuildVersion"] = build.MSBuildVersion,
-            ["commandLine"] = commandLine is null ? null : CommandLine(commandLine["Command line arguments = ".Length..].Trim('"')),
+            ["commandLine"] = commandLine is null ? null : CommandLines.MsBuild(commandLine["Command line arguments = ".Length..], tokens),
             ["units"] = unitArray,
             ["tasks"] = TaskCatalog(),
             ["copies"] = Copies(),
@@ -210,11 +210,6 @@ sealed class Extractor
             ["runtimePacks"] = RuntimePacks(),
         };
     }
-
-    // The MSBuild command line, split, with property values filtered (PropertyFilter) and paths tokenised.
-    string CommandLine(string text) => string.Join(" ",
-        CommandLineParser.SplitCommandLineIntoArguments(text, removeHashComments: false)
-            .Select(arg => Norm(PropertyFilter.Argument(arg)).Replace('\\', '/')));
 
     sealed class Unit(string projectFile, Dictionary<string, string> props)
     {
@@ -253,39 +248,7 @@ sealed class Extractor
 
     string Norm(string? text) => tokens.Norm(text);
 
-    // A path: absolute (relative ones are taken from the given base), normalised, with forward slashes.
-    string NormPath(string? value, string? baseDirectory = null)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return "";
-        }
-
-        var full = value;
-        try
-        {
-            full = Path.GetFullPath(Path.IsPathRooted(value) ? value : Path.Combine(baseDirectory ?? repo, value));
-        }
-        catch (ArgumentException)
-        {
-            // keep the text as given
-        }
-
-        // A file in a folder ABOVE the repository (MSBuild probes every parent folder for .editorconfig/.globalconfig/
-        // Directory.Build.*): keep how far up it is and its name, not the machine's folder names.
-        var directory = Path.GetDirectoryName(full);
-        var up = 0;
-        for (var d = Path.GetDirectoryName(repo); d is not null; d = Path.GetDirectoryName(d))
-        {
-            up++;
-            if (directory is not null && string.Equals(d.TrimEnd('\\', '/'), directory.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
-            {
-                return $"<repo-parent-{up}>/" + Path.GetFileName(full);
-            }
-        }
-
-        return Norm(full).Replace('\\', '/');
-    }
+    string NormPath(string? value, string? baseDirectory = null) => tokens.NormPath(value, baseDirectory);
 
     string? Resolve(string? value, string? baseDirectory)
     {
@@ -580,10 +543,7 @@ sealed class Extractor
     {
         var target = task.GetNearestParent<Target>();
         var commandLine = task.CommandLineArguments ?? "";
-        var all = CommandLineParser.SplitCommandLineIntoArguments(commandLine, removeHashComments: false).ToList();
-        var split = all.FindIndex(arg => Path.GetFileName(arg).ToLowerInvariant() is "csc.dll" or "csc.exe" or "csc");
-        var tool = split < 0 ? new List<string>() : all.Take(split + 1).ToList();
-        var rest = split < 0 ? all : all.Skip(split + 1).ToList();
+        var (tool, rest) = CommandLines.SplitCsc(commandLine);
 
         var responseFiles = new JsonArray();
         var expanded = new List<string>();
@@ -639,7 +599,7 @@ sealed class Extractor
             ["target"] = target?.Name,
             ["targetFile"] = NormPath(target?.SourceFilePath),
             ["taskAssembly"] = NormPath(task.FromAssembly),
-            ["tool"] = Arr(tool.Select(t => Norm(t).Replace('\\', '/')), sort: false),
+            ["tool"] = Arr(tool.Select(t => t == "exec" ? t : NormPath(t)), sort: false),
             ["arguments"] = Arr(expanded.Select(Norm), sort: false),
             ["switches"] = Arr(expanded.Where(IsSwitch).Select(SwitchName).Distinct()),
             ["responseFiles"] = responseFiles,

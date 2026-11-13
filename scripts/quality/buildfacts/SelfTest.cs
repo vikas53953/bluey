@@ -75,6 +75,8 @@ static class SelfTest
             failures.Add("leak guard: a tokenised path with doubled backslashes must pass");
         }
 
+        Spaces(failures);
+
         // Property values: only reviewed names keep them.
         var pair = PropertyFilter.Pair("ApiToken", "abc123secret");
         if (pair != "ApiToken=" + PropertyFilter.Hidden || PropertyFilter.Pair("Configuration", "Release") != "Configuration=Release")
@@ -97,8 +99,107 @@ static class SelfTest
             return 1;
         }
 
-        Console.WriteLine($"BUILDFACTS SELF-TEST: OK ({cases.Length} runner-layout paths tokenised, leak guard names the "
+        Console.WriteLine($"BUILDFACTS SELF-TEST: OK ({cases.Length} runner-layout paths tokenised, every field kind on roots with spaces, leak guard names the "
             + "JSON path, property values filtered)");
         return 0;
+    }
+
+    // Every kind of field the reader writes, on roots that hold spaces (the windows-latest SDK is under
+    // C:\Program Files\dotnet): the Csc compiler path (unquoted, quoted, dotnet exec), Csc arguments, the MSBuild command
+    // line (one outer quote pair, unquoted exe), single paths (imports, copies, references, outputs), relative paths,
+    // folders above the repo, and file contents (analyzer configs, response files, skipped-import reasons). Then the
+    // guard must find nothing left.
+    static void Spaces(List<string> failures)
+    {
+        var t = new PathTokens();
+        t.AddRepo(@"D:\a\my repo\bluey");
+        t.AddFromProperties(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["NetCoreRoot"] = @"C:\Program Files\dotnet\",
+            ["NuGetPackageRoot"] = @"C:\Users\runner admin\.nuget\packages\",
+            ["ProgramFiles(x86)"] = @"C:\Program Files (x86)",
+            ["TargetPlatformSdkPath"] = @"C:\Program Files (x86)\Windows Kits\10\",
+            ["RUNNER_TEMP"] = @"D:\a\_temp",
+        });
+        t.Add(@"C:\PROGRA~1\dotnet", "<dotnet>/");
+        var out_ = new JsonObject();
+        void Expect(string field, string got, string expected)
+        {
+            out_[field] = got;
+            if (got != expected)
+            {
+                failures.Add($"spaces, {field}: got {got}, expected {expected}");
+            }
+        }
+
+        const string Csc = @"C:\Program Files\dotnet\sdk\10.0.403\Roslyn\bincore\csc.exe";
+        var rawLines = new[]
+        {
+            Csc + @" /noconfig /reference:""C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Ref\10.0.14\ref\net10.0\System.dll"" /analyzerconfig:""D:\a\my repo\bluey\src\Boo.App\obj\x.editorconfig"" /out:obj\Release\Boo.dll ""D:\a\my repo\bluey\src\Boo.App\App.cs"" @""D:\a\_temp\extra.rsp""",
+            "\"" + Csc + "\" /noconfig /out:obj\\Release\\Boo.dll",
+            @"C:\Program Files\dotnet\dotnet.exe exec C:\Program Files\dotnet\sdk\10.0.403\Roslyn\bincore\csc.dll /noconfig",
+            @"""C:\Program Files\dotnet\dotnet.exe"" exec ""C:\Program Files\dotnet\sdk\10.0.403\Roslyn\bincore\csc.dll"" /noconfig",
+        };
+        var expectedTools = new[]
+        {
+            "<dotnet>/sdk/10.0.403/Roslyn/bincore/csc.exe",
+            "<dotnet>/sdk/10.0.403/Roslyn/bincore/csc.exe",
+            "<dotnet>/dotnet.exe exec <dotnet>/sdk/10.0.403/Roslyn/bincore/csc.dll",
+            "<dotnet>/dotnet.exe exec <dotnet>/sdk/10.0.403/Roslyn/bincore/csc.dll",
+        };
+        for (var i = 0; i < rawLines.Length; i++)
+        {
+            var (tool, rest) = CommandLines.SplitCsc(rawLines[i]);
+            Expect($"csc[{i}].tool", string.Join(" ", tool.Select(x => x == "exec" ? x : t.NormPath(x))), expectedTools[i]);
+            if (rest.Count == 0 || rest[0] != "/noconfig")
+            {
+                failures.Add($"spaces, csc[{i}]: arguments must start right after the compiler, got [{string.Join(" | ", rest)}]");
+            }
+
+            out_[$"csc[{i}].arguments"] = string.Join(" | ", rest.Select(a => t.Norm(a)));
+        }
+
+        var args = CommandLines.SplitCsc(rawLines[0]).Arguments.Select(a => t.Norm(a)).ToList();
+        // Roslyn keeps the quotes inside a switch value (it reads them itself); the root is tokenised either way.
+        Expect("csc.arguments[1]", args[1], "/reference:\"<dotnet>/packs\\Microsoft.NETCore.App.Ref\\10.0.14\\ref\\net10.0\\System.dll\"");
+        Expect("csc.arguments[2]", args[2], "/analyzerconfig:\"src\\Boo.App\\obj\\x.editorconfig\"");
+        Expect("csc.arguments[4]", args[4], "src\\Boo.App\\App.cs");
+        Expect("csc.arguments[5]", args[5], "@\"<temp>/extra.rsp\"");
+
+        Expect("commandLine", CommandLines.MsBuild(
+            @"""C:\Program Files\dotnet\sdk\10.0.403\MSBuild.exe -maxcpucount --property:Configuration=Release --property:Token=s3cr3t D:\a\my repo\bluey\Boo.sln -bl:artifacts/binlog/build.binlog""", t),
+            "<dotnet>/sdk/10.0.403/MSBuild.exe -maxcpucount --property:Configuration=Release --property:Token="
+            + PropertyFilter.Hidden + " Boo.sln -bl:artifacts/binlog/build.binlog");
+        Expect("commandLine (quoted exe)", CommandLines.MsBuild(
+            @"""C:\Program Files\dotnet\sdk\10.0.403\MSBuild.exe"" -restore ""D:\a\my repo\bluey\Boo.sln""", t),
+            "<dotnet>/sdk/10.0.403/MSBuild.exe -restore Boo.sln");
+
+        Expect("imports", t.NormPath(@"C:\Program Files\dotnet\sdk\10.0.403\Sdks\Microsoft.NET.Sdk\Sdk\Sdk.props"),
+            "<dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/Sdk/Sdk.props");
+        Expect("imports (slash form, trailing slash)", t.NormPath("c:/program files/dotnet/sdk/"), "<dotnet>/sdk/");
+        Expect("imports (8.3)", t.NormPath(@"C:\PROGRA~1\dotnet\sdk\10.0.403\Microsoft.Common.props"),
+            "<dotnet>/sdk/10.0.403/Microsoft.Common.props");
+        Expect("references (Windows SDK)", t.NormPath(@"C:\Program Files (x86)\Windows Kits\10\UnionMetadata\10.0.19041.0\Windows.winmd"),
+            "<winsdk>/UnionMetadata/10.0.19041.0/Windows.winmd");
+        Expect("references (NuGet with a space)", t.NormPath(@"C:\Users\runner admin\.nuget\packages\naudio\2.2.1\lib\NAudio.dll"),
+            "<nuget>/naudio/2.2.1/lib/NAudio.dll");
+        Expect("copies (repo with a space)", t.NormPath(@"D:\a\my repo\bluey\src\Boo.App\obj\Release\Boo.dll"),
+            "src/Boo.App/obj/Release/Boo.dll");
+        Expect("copies (relative to a project)", t.NormPath(@"obj\Release\Boo.dll", @"D:\a\my repo\bluey\src\Boo.App"),
+            "src/Boo.App/obj/Release/Boo.dll");
+        Expect("editorConfigItems (above the repo)", t.NormPath(@"D:\a\my repo\.editorconfig"), "<repo-parent-1>/.editorconfig");
+        Expect("analyzerConfigs.content",
+            t.Norm("build_property.ProjectDir = D:\\a\\my repo\\bluey\\src\\Boo.App\\\r\n[D:/a/my repo/bluey/src/**.cs]\r\n"),
+            "build_property.ProjectDir = src\\Boo.App\\\r\n[src/**.cs]\r\n");
+        Expect("responseFiles.content", t.Norm(@"/reference:""C:\Program Files\dotnet\packs\a.dll"""),
+            @"/reference:""<dotnet>/packs\a.dll""");
+        Expect("importsSkipped", t.Norm(@"Exists('C:\Program Files (x86)\Windows Kits\10\\Include\x.props')"),
+            @"Exists('<winsdk>/Include\x.props')");
+
+        var leaks = PathTokens.Leaks(out_, "runneradmin");
+        if (leaks.Count != 0)
+        {
+            failures.Add("spaces: machine paths left: " + string.Join(" | ", leaks));
+        }
     }
 }

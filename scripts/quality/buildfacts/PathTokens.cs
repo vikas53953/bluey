@@ -34,6 +34,7 @@ sealed class PathTokens
 
     readonly List<(string Root, string Token)> roots = [];
     bool sorted;
+    string repo = "";
 
     public void Add(string? root, string token)
     {
@@ -76,6 +77,7 @@ sealed class PathTokens
 
     public void AddRepo(string repo)
     {
+        this.repo = repo;
         Add(repo, "");
         var up = 0;
         for (var d = Path.GetDirectoryName(repo.TrimEnd('\\', '/')); d is not null; d = Path.GetDirectoryName(d))
@@ -115,6 +117,27 @@ sealed class PathTokens
 
         // WPF's temporary markup-compile project has a random name; keep the facts stable.
         return Regex.Replace(text, @"_[a-z0-9]{8}_wpftmp", "_wpftmp", RegexOptions.IgnoreCase);
+    }
+
+    // A path: absolute (relative ones are taken from the given base), tokenised, with forward slashes.
+    public string NormPath(string? value, string? baseDirectory = null)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "";
+        }
+
+        var full = value.Trim().Trim('"');
+        try
+        {
+            full = Path.GetFullPath(Path.IsPathRooted(full) ? full : Path.Combine(baseDirectory ?? repo, full));
+        }
+        catch (ArgumentException)
+        {
+            // keep the text as given
+        }
+
+        return Norm(full).Replace('\\', '/');
     }
 
     static bool Rooted(string path) =>
@@ -283,5 +306,55 @@ static class PropertyFilter
             return eq < 0 ? pair : Pair(pair[..eq], pair[(eq + 1)..]);
         });
         return m.Groups["sw"].Value + ":" + string.Join(";", pairs);
+    }
+}
+
+// Command lines whose paths may hold spaces (C:\Program Files\dotnet). Never split first and tokenise after: a split
+// cuts an unquoted path at its space, and neither half matches its root any more.
+static class CommandLines
+{
+    static readonly Regex CscName = new(@"csc(?:\.dll|\.exe)""?(?=\s|$)", RegexOptions.IgnoreCase);
+
+    public static List<string> Split(string text) =>
+        Microsoft.CodeAnalysis.CommandLineParser.SplitCommandLineIntoArguments(text, removeHashComments: false).ToList();
+
+    // Csc's logged line is "<compiler> <arguments>"; the compiler path is written unquoted even when it holds spaces.
+    // The compiler ends at its own name (csc.dll / csc.exe); the arguments after it are split quote-aware (MSBuild
+    // quotes every argument value that holds a space).
+    public static (List<string> Tool, List<string> Arguments) SplitCsc(string raw)
+    {
+        var m = CscName.Match(raw);
+        if (!m.Success)
+        {
+            return ([], Split(raw));
+        }
+
+        var head = raw[..(m.Index + m.Length)].Trim();
+        var rest = Split(raw[(m.Index + m.Length)..]);
+        List<string> tool;
+        if (head.Contains('"'))
+        {
+            tool = Split(head);
+        }
+        else
+        {
+            var parts = Regex.Split(head, @"\s+exec\s+", RegexOptions.IgnoreCase);
+            tool = parts.Length == 2 ? [parts[0], "exec", parts[1]] : [head];
+        }
+
+        return (tool, rest);
+    }
+
+    // The MSBuild command line: tokenise the whole raw text first (an unquoted SDK path with spaces stays whole), then
+    // split quote-aware, filter property values (PropertyFilter), and use forward slashes.
+    public static string MsBuild(string raw, PathTokens tokens)
+    {
+        var text = tokens.Norm(raw.Trim());
+        if (text.Length > 1 && text[0] == '"' && text[^1] == '"' && text.Count(c => c == '"') == 2)
+        {
+            text = text[1..^1];
+        }
+
+        return string.Join(" ", Split(text).Select(arg => tokens.Norm(PropertyFilter.Argument(arg)).Replace('\\', '/')));
     }
 }

@@ -285,13 +285,18 @@ Paths are repo-relative or under a token. Every machine root is taken from the b
 the runner tool cache, `USERPROFILE`; every folder above the repository) plus this process's, and mapped to `<dotnet>/`,
 `<nuget>/`, `<programfiles>/`, `<programfiles-x86>/`, `<winsdk>/`, `<temp>/`, `<toolcache>/`, `<localappdata>/`,
 `<home>/`, `<repo-parent-N>/` and so on, case-insensitively, with either slash and in 8.3 short and long forms, longest
-root first. Values are read only to find roots. Global properties and the MSBuild command line keep values only for
+root first. Paths may hold spaces (`C:\Program Files\dotnet` on windows-latest): a whole raw string is tokenised before
+it is ever split, the compiler path in a `Csc` line (logged unquoted) is cut at its own name, and arguments are split
+quote-aware. Values are read only to find roots. Global properties and the MSBuild command line keep values only for
 reviewed property names (`PropertyFilter`); any other `-p:Name=value` is written as `Name=<value not recorded>`, so a
 secret passed as a property never reaches the facts. The log's environment block is never read. Any absolute path left
 after that fails closed in both the reader and the check, naming the JSON path of the value (for example
 `$.binlogs[1].units[0].importsSkipped[12]`); the fix is to add the root's property to `PathTokens.FromProperties`, never
 to widen the guard. `BuildFacts --self-test` proves the tokens on a GitHub-runner layout (`C:\Program Files\dotnet`,
-`C:\Users\runneradmin\.nuget\packages`, `D:\a\_temp`, `C:\PROGRA~1`), the guard's JSON paths and the property filter.
+`C:\Users\runneradmin\.nuget\packages`, `D:\a\_temp`, `C:\PROGRA~1`), every kind of field on roots that hold spaces
+(the Csc compiler path unquoted, quoted and as `dotnet exec`; Csc arguments; the MSBuild command line; imports,
+references and copies; analyzer-config, response-file and skipped-import text), the guard's JSON paths and the property
+filter.
 Same logs, same file (sorted keys).
 
 **What fails closed** (`scripts/quality/build_facts.py check`, exit 1): malformed facts or a failed build; a machine
