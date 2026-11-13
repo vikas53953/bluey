@@ -564,7 +564,7 @@ Reject ==
 \* (DesktopTools.cs:968-971). Then [A7] more steps queued -> next card (new proposal, needs a new Approve)
 \* or [A8] done.
 Apply ==
-    /\ card # None /\ card.st = "Executing" /\ card.cur /\ ticket = card.p
+    /\ card # None /\ card.cur   \* THROWAWAY RED PROOF: approval guard removed (Apply without Approve)
     /\ fileJ' = FileAfter(card.p)
     /\ fieldJ' = FieldAfter(card.p)
     /\ effect' = [p |-> card.p, ticket |-> ticket, cur |-> card.cur, journal |-> JournalOf(card.p.target)]
