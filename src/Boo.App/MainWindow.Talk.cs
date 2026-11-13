@@ -53,7 +53,7 @@ public partial class MainWindow
             return;
         }
 
-        _talk = new HoldToTalkController(TimeProvider.System);
+        _talk = new HoldToTalkController(_timeProvider);
         _talkTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
         _talkTimer.Tick += (_, _) => RunTalk(c => c.Tick());
         SystemEvents.SessionSwitch += Talk_OnSessionSwitch;

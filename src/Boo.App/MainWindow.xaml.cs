@@ -67,8 +67,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource _focusCancellation = new();
     private bool _focusCaptureInFlight;
     private long _focusCaptureId;
-    // 30 s, not 10: a briefly busy UI thread must not look like sleep (real suspend already pauses via StopAll).
-    private readonly FocusClock _focusClock = new(maximumTickSeconds: 30);
+    private readonly FocusClock _focusClock;
     private double _lastFocusSaveRealElapsed;
     private ToolRequest? _pendingAction;
     private ActionPreviewModel? _pendingPreview;
@@ -111,6 +110,8 @@ public partial class MainWindow : Window
     {
         _timeProvider = timeProvider ?? TimeProvider.System;
         _chirps = new ChirpPlayer(_timeProvider);
+        // 30 s, not 10: a briefly busy UI thread must not look like sleep (real suspend already pauses via StopAll).
+        _focusClock = new FocusClock(_timeProvider, maximumTickSeconds: 30);
         _dataDirectory = dataDirectory;
         _onClose = onClose;
         _onStop = onStop;
