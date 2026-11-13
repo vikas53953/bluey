@@ -94,22 +94,39 @@ public sealed class StopStatusRegressionTests : IClassFixture<StalledNetworkBooF
         Element(panel, "InputBox").AsTextBox().Text = "Regression: a question that never gets an answer";
         Element(panel, "SendButton").AsButton().Invoke();
         var pending = BooAppFixture.WaitUntil(() => Status(panel).StartsWith("Thinking", StringComparison.Ordinal), TimeSpan.FromSeconds(10));
-        Thread.Sleep(2000);
+        // The request must really be on the wire (held by the silent proxy), not failed or still capturing.
+        var onTheWire = BooAppFixture.WaitUntil(() => StalledNetworkBooFixture.HeldConnections > 0, TimeSpan.FromSeconds(15));
+        Thread.Sleep(1000);
         var beforeStop = Status(panel);
-        Assert.True(pending && beforeStop.StartsWith("Thinking", StringComparison.Ordinal),
-            $"TEST SETUP: the question was not pending before Stop (status '{beforeStop}', proxy connections {StalledNetworkBooFixture.HeldConnections}). Nothing about Stop was checked.");
+        Assert.True(pending && onTheWire && beforeStop.StartsWith("Thinking", StringComparison.Ordinal),
+            $"TEST SETUP: the question was not pending on the network before Stop (status '{beforeStop}', proxy connections {StalledNetworkBooFixture.HeldConnections}). Nothing about Stop was checked.");
 
         Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.ALT, VirtualKeyShort.F12);
-        Thread.Sleep(5000);
+        // Within 5 s the status must SAY it stopped (an empty line, or an unrelated failure, is not proof), and it must
+        // stay that way: a late continuation may not put a "working" line back.
+        var saysStopped = BooAppFixture.WaitUntil(() => SaysStopped(Status(panel)), TimeSpan.FromSeconds(5));
         var afterStop = Status(panel);
+        var stable = true;
+        for (var i = 0; i < 15 && stable; i++)
+        {
+            Thread.Sleep(200);
+            stable = SaysStopped(Status(panel));
+        }
+        var after3s = Status(panel);
         _boo.CaptureScreen("regression-stop-status");
         _boo.WriteObservation("regression-stop-status",
-            $"beforeStop='{beforeStop}' afterStop5s='{afterStop}' proxyConnections={StalledNetworkBooFixture.HeldConnections}");
-        _output.WriteLine($"afterStop='{afterStop}'");
+            $"beforeStop='{beforeStop}' afterStop5s='{afterStop}' after3sMore='{after3s}' stable={stable} proxyConnections={StalledNetworkBooFixture.HeldConnections}");
+        _output.WriteLine($"afterStop='{afterStop}' after3s='{after3s}'");
 
-        Assert.False(afterStop.StartsWith("Thinking", StringComparison.Ordinal) || afterStop.Contains("waiting for the response", StringComparison.OrdinalIgnoreCase),
-            $"5 s after Stop the status still says Boo is working: '{afterStop}'.");
+        Assert.True(saysStopped, $"5 s after Stop the status does not say Boo stopped: '{afterStop}'.");
+        Assert.True(stable, $"After Stop the status changed back to '{after3s}'.");
     }
+
+    /// <summary>A status that tells the user Boo stopped, and does not also claim it is still working.</summary>
+    private static bool SaysStopped(string status) =>
+        status.Contains("stop", StringComparison.OrdinalIgnoreCase)
+        && !status.StartsWith("Thinking", StringComparison.Ordinal)
+        && !status.Contains("waiting for the", StringComparison.OrdinalIgnoreCase);
 
     private AutomationElement Element(Window panel, string id) =>
         _boo.WaitFor(() => panel.FindFirstDescendant(cf => cf.ByAutomationId(id)), TimeSpan.FromSeconds(30), $"element '{id}'");
