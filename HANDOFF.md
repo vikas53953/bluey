@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #17 merged**, with `lane/face` at `879ad4d` (PR #17); ratchet hardening PR #23 synced on top.
+Status last updated: **13 Nov 2026, after PR #24 merged**, with `lane/face` at `673b38e` (PR #24); ratchet hardening PR #23 synced on top.
 
 ---
 
@@ -192,13 +192,14 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 PRs into `lane/face` must be **up to date** with it to merge, so every merge makes the others BEHIND. Sync by merging
 `origin/lane/face` into the branch (no force push), then re-run CI and one live smoke on the new head.
 
-| PR | Branch → base | State (13 Nov, after PR #21) | Notes |
+| PR | Branch → base | State (13 Nov, after PR #17) | Notes |
 | --- | --- | --- | --- |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
 | [#22](https://github.com/vikas53953/bluey/pull/22) | `fix/demo-step4-state-race` → `lane/face` | **merged 13 Nov** (`af241fa`) | Demo Step 4 test race fix: re-read the notch state after the button search; oracle revisions 22–23 (`docs/verification/test-oracle-revision-22.md`). |
-| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **merged 13 Nov** (`13e5484`) | `verify-boo` skill (`.claude/skills/verify-boo`), live journeys j0–j6 (`tools/Boo.VerifyLive`), `docs/FEATURE_MAP.md`, prove-it rule (AGENTS.md, CLAUDE.md), `journeys` input on `live-ai-smoke` (journeys run only on a manual dispatch with `journeys=true`, never on the per-PR run). Also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks; inside a string, so the quality ratchet stays at 554). Since PR #18 the journeys capture Boo's windows only (j3 reads the ring and pointer from Boo's overlay rendered from its own content; "target in front" is asked of Windows), and the skill's local runner refuses to run on a personal PC. Last QA PASS at `d2f9827` (live [43335756258](https://github.com/vikas53953/bluey/actions/runs/43335756258); fresh reviewer REVIEW PASS). |
-| [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **merged 13 Nov** (`879ad4d`) | 3-phase agent trust plan (`docs/plans/agent-trust-plan.md`), with a dated progress note (steps 1, 2 and 4 and Phase 1 PRs #20, #21 done). Latest completed QA: **QA PASS at `77bfb91`** (live [43340191296](https://github.com/vikas53953/bluey/actions/runs/43340191296)), before the PR #13 sync; this head is re-QA'd in the PR body. |
-| [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **merged 13 Nov** (`00a1fc2`) | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option; runner check in windows-ci; overlay capture proof in demo-ci; oracle revision 24 (3 capture fixtures). Latest completed QA: **QA PASS at `b590f92`** (live [43313942831](https://github.com/vikas53953/bluey/actions/runs/43313942831), windows-ci [43313897620](https://github.com/vikas53953/bluey/actions/runs/43313897620), demo-ci [43313897674](https://github.com/vikas53953/bluey/actions/runs/43313897674)); the head after this sync is re-QA'd in the PR body. |
+| [#24](https://github.com/vikas53953/bluey/pull/24) | `docs/verify-boo-followups` → `lane/face` | **merged 13 Nov** (`673b38e`) | Docs-only follow-ups from PR #13's reviews: `SKILL.md` screenshot naming (the `.capture.txt` names each `boo-<n>` window; the panel is the title that starts with `Boo companion`), HANDOFF known issues 11–12 wording. No code change; the 45 s OpenAI timeout is untouched. |
+| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **merged 13 Nov** (`13e5484`) | `verify-boo` skill (`.claude/skills/verify-boo`), live journeys j0–j6 (`tools/Boo.VerifyLive`), `docs/FEATURE_MAP.md`, prove-it rule (AGENTS.md, CLAUDE.md), `journeys` input on `live-ai-smoke` (journeys run only on a manual dispatch with `journeys=true`, never on the per-PR run). Also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks; inside a string, so the quality ratchet stays at 554). Since PR #18 the journeys capture Boo's windows only (j3 reads the ring and pointer from Boo's overlay rendered from its own content; "target in front" is asked of Windows), and the skill's local runner refuses to run on a personal PC. Merged at its QA PASS head `3168e40` (live [43339557570](https://github.com/vikas53953/bluey/actions/runs/43339557570): round trip + 7/7 journeys; fresh reviewer REVIEW PASS). Follow-ups: PR #24. |
+| [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **merged 13 Nov** 07:50 IST (`879ad4d`) | 3-phase agent trust plan (`docs/plans/agent-trust-plan.md`), with a dated progress note (steps 1, 2 and 4 and Phase 1 PRs #20, #21 done). Latest completed QA: **QA PASS at `77bfb91`** (live [43340191296](https://github.com/vikas53953/bluey/actions/runs/43340191296)), before the PR #13 sync; this head is re-QA'd in the PR body. |
+| [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **merged 13 Nov** (`00a1fc2`) | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option; runner check in windows-ci; overlay capture proof in demo-ci; oracle revision 24 (3 capture fixtures). Merged at head `cadc05e`; its final QA evidence is in PR #18's description (an earlier QA PASS at `b590f92`: live [43313942831](https://github.com/vikas53953/bluey/actions/runs/43313942831)). |
 | [#20](https://github.com/vikas53953/bluey/pull/20) | `ci/live-smoke-required` → `lane/face` | **merged 13 Nov** (`e1d4b5c`) | Live smoke on every pull request with a final required `live-ai-smoke` job; per-PR concurrency; docs on cost, fork/Dependabot PRs and the gate-edit hole. Latest completed QA: none yet on lane/face base (stacked QA PASS at `ed7ed61`). |
 | [#21](https://github.com/vikas53953/bluey/pull/21) | `quality/ratchet` → `lane/face` | **merged 13 Nov** (`1c82af8`) | A ratchet of 16 known-bad code patterns in `src/` (`quality-gates.yml`, job `quality`); 554 hits today, may only go down; the base branch's own ratchet also judges every PR. Final QA: **QA PASS at `297d3dd`** (live [43335633395](https://github.com/vikas53953/bluey/actions/runs/43335633395), quality-gates [43335633345](https://github.com/vikas53953/bluey/actions/runs/43335633345)). |
 | [#23](https://github.com/vikas53953/bluey/pull/23) | `quality/ratchet-hardening` → `lane/face` | **open** | Hardens the ratchet so it catches ordinary spellings and can **only add detection, never hide a hit**: the text as written is always counted, extra views (`\u`/`@`/invisible characters, `using` aliases and `using static`, `global using`) can only add; calls split over lines count; it judges exactly the files git would commit (`.cs` in any letter case) and fails on C# files or projects outside `src/<Name>/` and on symlinks. Build-file tricks, subclass calls and the other gaps in `docs/quality/RULES.md` go to the compiler-exact PRs 1.3/1.4. Self-test 130 snippets; today's 554 hits unchanged. |
@@ -249,8 +250,8 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    and live runs only. Not measured: software-drawing CPU on 4K / 200 % or high-refresh screens, memory after the
    panel has been opened, and repeat hovers (~0.7 MB each, same on the old build).
 6. **SF-006 symlink cases** fail on a dev PC without Windows Developer Mode, same on unchanged `lane/face` (never skipped); they pass in CI.
-7. **Merge order / oracle revisions.** `lane/face` is at oracle revision 23 (PR #22, merged `af241fa`, took 22–23 on
-   top of PR #14's 21). PR #18 has re-synced and re-frozen its 3 capture fixtures on top as **revision 24**. PR #13 dropped every `-f runner=` use when it synced with PR #18. PRs #13, #18, #20 and #21, which edited the same
+7. **Merge order / oracle revisions.** `lane/face` is at oracle revision **24**: PR #22 (`af241fa`) took 22–23 on top of PR #14's 21, and
+   PR #18 (`00a1fc2`) re-froze its 3 capture fixtures on top as revision 24. PR #13 dropped every `-f runner=` use when it synced with PR #18. PRs #13, #18, #20 and #21, which edited the same
    workflows, have all merged (by `13e5484`); a new PR that edits `live-ai-smoke.yml`, `demo-ci.yml`, `windows-ci.yml` or
    `quality-gates.yml` syncs with `lane/face` first.
 8. The notch memory guard (`NotchDrawingMemoryTests`) has now run in CI: windows-ci on `8474556`
@@ -259,7 +260,7 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    otherwise.
 10. Resolved 13 Nov: the artifact storage quota and the Actions budget block. The repo went public, so standard runners
    are free. On 12 Nov the 8 Nov app copies (168 artifacts, 15.93 GB) were deleted, and uploads work again.
-11. **PR #13 follow-ups (low, from its reviews).** `Test-FeatureMap.ps1` does not catch a map row typed without its
+11. **Open follow-ups from PR #13's reviews (low; PR #13 merged).** `Test-FeatureMap.ps1` does not catch a map row typed without its
    leading `|` or a lowercase ID; a failed restore of Windows animation effects after a live run is only written
    to stderr; Boo's `AnnotationValidator` still drops a whole explanation when one mark is invalid (run 43196068202:
    "The annotation mark bounds are invalid"; PR #13 only tells the AI the mark rules); j3 does not prove its ring is
@@ -268,10 +269,10 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 12. **Explain requests can hit Boo's 45 s OpenAI limit** (the panel's `HttpClient { Timeout = 45 s }`,
    `MainWindow.xaml.cs`). PR #13 live run 43333049693 ended j3 with Boo's status "OpenAI response timed out. Try again.";
    run 43202679653 failed j3 the same way from the outside, but its cause is UNPROVEN (the test did not yet record Boo's
-   status, and its evidence has expired). Chat, research and Apply/Undo never timed out. The request is Boo's own (its
+   status then, and that run's evidence is no longer available). Chat, research and Apply/Undo never timed out. The request is Boo's own (its
    capture of the display plus the question), so the test's screenshot method cannot cause it; in passing runs the
-   marks arrive in about 6 s (`marksAfterSeconds`). Raising the limit (longer waits vs fewer timeouts) is a product
-   decision for Vikas.
+   marks arrive in about 4 to 6 s (`marksAfterSeconds`: 6.2 s in 43335756258, 4.2 s in 43339557570). Raising the limit
+   (longer waits vs fewer timeouts) is a product decision for Vikas; nothing in the code was changed.
 
 ### UNVERIFIED (not proven on `lane/face`)
 
@@ -280,7 +281,8 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
   voice turn on `feat/living-ink`; not re-verified independently.
 - **Pointer + ring with a real model, beyond PR #13's one target.** Since PR #13 merged (`13e5484`), its live journey j3 proves the
   ring runs through a known button's edges and the pointer lands on it (passed on `de9492f`, `7c5af8d`, `60930b9`,
-  `e86a107`, `87a1442` and, reading Boo's own overlay render, `d2f9827`), on one 1024x768 VM screen. Still
+  `e86a107`, `87a1442` and, reading Boo's own overlay render, `d2f9827` and `3168e40`; later runs in each PR's evidence
+  table), on one 1024x768 VM screen. Still
   UNVERIFIED: other targets, other DPI or multiple monitors, and **Windows animation effects off**: Boo then hides the
   pointer by design, and the journeys run with animations switched on.
 - **A manual run by Vikas on his PC**: the three demos and a real 25-minute focus session

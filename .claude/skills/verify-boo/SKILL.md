@@ -96,12 +96,20 @@ An evidence table, one row per feature or check you touched, every row with a la
 
 | Feature / check | Label | Evidence |
 | --- | --- | --- |
-| Research shows real source links | live | https://github.com/vikas53953/bluey/actions/runs/NNN (j4-research-sources.boo-0.png, j4-research.txt) |
+| Research shows real source links | live | https://github.com/vikas53953/bluey/actions/runs/NNN (`j4-research.txt` lists the "Open source ..." links read through UI Automation; the panel image `j4-research-sources.boo-<n>.png` shows the answer, but its Sources list can be cut off at the bottom, so it is supporting evidence only) |
 | Research edge cases | mock | windows-ci run link (ResearchSourcesTests) |
 | Pointer at 150 % scaling | manual | runbook 4.2, not run yet = UNVERIFIED |
 
 Then one line: `QA PASS — <full head SHA>` or `QA FAIL — <full head SHA>: <reason>`. Look at the screenshots yourself
 before writing PASS: a test that passed with a wrong-looking screen is a finding, not a pass.
+
+Screenshots are of Boo's own windows only (never the desktop): each capture moment saves one image per visible Boo
+window, `<moment>.boo-0.png`, `<moment>.boo-1.png`, ..., and `<moment>.capture.txt` says which number is which window
+(a line whose title STARTS with `Boo companion`, in live runs `'Boo companion [QA: capturable]'`, is the panel;
+`'Open Boo companion'` is the notch; `'Boo screen explanation'` is the pointer/ring overlay). Match the start of the title,
+never a substring: "Boo companion" also appears inside the notch's name, and the notch is often `boo-0`. The numbers
+follow window order, so read the `.capture.txt` before citing an image; never assume `boo-0` is the panel. Say in the
+evidence when a claim rests on a UI Automation read (for example `j4-research.txt`) rather than on what the image shows.
 
 ## How to maintain (keep the skill and the map true)
 
