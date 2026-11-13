@@ -148,3 +148,4 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | D67 | Hosted UIA focus Start/Running/Pause/End diagnostic: ten fixed compact-window cycles, no retries | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FocusAutomationDiagnosticTests.cs::Q67_CompactWindow_FocusStartPauseEnd_TenConsecutiveCyclesWithoutUiaErrors` |
 | A115 | j15d two file steps: Next step card, separate approvals, exact readbacks | UNVERIFIED | `tools/Boo.QaSuite/Journeys/SequentialApprovalTests.cs::QD15_TwoFileSteps_RequireSeparateApprovalsAndShowNextStep` |
 | E68 | GitHub VM audio endpoint and PCM24k/mono16 format-query capability receipt; no app voice proof | UNVERIFIED | `tools/Boo.QaSuite/Probe-AudioCapabilities.ps1` |
+| H10 | j10a physical eye tap under 200 ms opens panel without Listening; hold/capture-loss pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/EyeTapTests.cs::Q10_PhysicalEyeTapUnder200Ms_OpensPanelWithoutListening` |

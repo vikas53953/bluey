@@ -127,3 +127,7 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 | 13 Nov 2026 | Explicit file tasks tell the model whether Boo has a locally selected task folder. File proposals use relative paths and still require local resolution and approval; no absolute folder path is added to the AI payload. | Live Q15/Q16 model replies refused because folder context was missing; issue #66. | PR #54, issue #66 | proposed fix, UNVERIFIED pending live regression |
 
 | 13 Nov 2026 | j15d requires raw exact file readbacks; its setup receives the same failure evidence as its assertions. | Trimming could hide extra bytes, and setup failures must retain logs and screenshots without masking the original error. | PR #54 independent Codex review; SequentialApprovalTests.cs; manual source correction, native result UNVERIFIED | proposed |
+
+| 13 Nov 2026 | Add j10a as a physical bounded tap; leave synthetic voice, eye hold and capture-loss with f0750. | UIA Invoke bypasses the physical press classifier; separate ownership avoids duplicate in-app voice work. Missing branches remain required and red. | PR #54; EyeTapTests.cs; PR #50 j10; native UNVERIFIED | proposed |
+
+| 13 Nov 2026 | j10a no-Listening evidence includes UIA ItemStatus change events, with positive pre/post-action event delivery checks. | A brief Listening transition can fit between polling reads even with healthy 100 ms gaps. Preserve polling and exact tap bounds as additional evidence. | PR #54 independent Codex review; EyeTapTests.cs; native UNVERIFIED | proposed |

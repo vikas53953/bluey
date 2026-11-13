@@ -39,6 +39,7 @@ PLAIN = {
     'S3': 'Stop while an answer is coming: face clears, no answer lands',
     'S4': 'Focus Start / Pause (notch Paused) / Resume / End',
     'S5': 'Settings saved to file; a new Boo starts with the same choices',
+    'Q10': 'Physical eye tap under 200 ms opens panel without Listening (partial j10a)',
     'Q7': 'Hover edges: all four real-clock branches (no AI key)',
     'QD15': 'Two file steps: Next step card and separate approvals (partial j15d)',
     'Q67': 'Issue 67 diagnostic: ten compact-window focus cycles without UIA errors (no key)',
@@ -72,7 +73,7 @@ JOURNEYS = [
     ('j7', 'Hover edge timings', ['Q7']),
     ('j8', 'Typed question handed to voice', 'voice'),
     ('j9', 'Hold-to-talk with Ctrl+Alt+Space', 'voice'),
-    ('j10', 'The eyes: tap and hold', []),
+    ('j10', 'The eyes: tap Q10; hold and capture-loss pending', []),
     ('j11', 'Panel Talk button', 'voice'),
     ('j12', 'Stop from every busy state (only j12d, Stop during a typed answer, is driven: S3)', []),
     ('j13', 'Focus lifecycle (S4 and Q13 cover subsets; full sequence and event proof pending)', []),
@@ -232,7 +233,7 @@ def self_test():
         check('seen state -> live', '| Notch state Thinking | live |' in text)
         check('expectations cannot count as observations', '| Notch state Happy | UNVERIFIED |' in text and '| Notch state Nudge | UNVERIFIED |' in text)
         check('unseen state -> UNVERIFIED', '| Notch state Listening | UNVERIFIED |' in text)
-        check('journey with no driving check -> UNVERIFIED', '| Journey j10: The eyes: tap and hold | UNVERIFIED |' in text)
+        check('journey with no driving check -> UNVERIFIED', '| Journey j10: The eyes: tap Q10; hold and capture-loss pending | UNVERIFIED |' in text)
         check('mapped hover journey without result cannot pass', '| Journey j7: Hover edge timings | live | FAILED or not run (Q7=not run)' in text)
         check('voice journey -> BLOCKED', '| Journey j9: Hold-to-talk with Ctrl+Alt+Space | BLOCKED |' in text)
         check('journey whose checks did not run -> not live-passed', '| Journey j3: Screen explain: pointer and ring | live | FAILED or not run' in text)
