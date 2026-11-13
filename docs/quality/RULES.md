@@ -274,14 +274,19 @@ casts to or names, generic arguments included.
 
 - **002 is an allowlist.** Disk access is spread across the whole framework (`File`, `FileInfo`,
   `StreamWriter(path)`, `Path.Exists`, `XDocument.Load(path)`, `TarFile`, certificate and resource loaders,
-  `AssemblyLoadContext`, ...), so any list of bad types or namespaces misses one; three reviews proved it. Core is
-  small and pure, so it may use **only** the framework types approved in the test (text, collections, maths, JSON,
-  regex, tasks, hashing, and the exceptions and enums it needs). A type that has any member reaching outside the
-  program is approved **member by member**: of `Path` only the members that work on the text of a path (not
-  `Path.Exists`), of `Environment` only reads such as `GetEnvironmentVariable` (not `CurrentDirectory`), of `Type` and
-  `Delegate` nothing that finds code by its name. Native calls, COM classes and `[UnsafeAccessor]` methods (which bind
-  to any member by its name) are not allowed at all. Anything else fails and the message names it; if it is
-  harmless, a reviewer approves it in a one-line oracle revision.
+  `AssemblyLoadContext`, ...), so any list of bad types or namespaces misses one; reviews proved it several times.
+  Core is small and pure, so it may use **only** the framework types approved in the test (text, collections, maths,
+  JSON, regex, tasks, hashing, and the exceptions and enums it needs), and only when they really come from a listed
+  framework assembly (a package cannot borrow a framework namespace name). **The test for every approval:** nothing
+  reachable through it may depend on or change the files on this machine, or find or build code from a name. A type
+  where only some members pass is approved **member by member**: of `Path` only the members that work on the text of
+  a path (not `Exists`, `GetTempFileName`, or `GetFullPath`, which asks Windows for the real names behind short ones
+  like `RUNNER~1`), of `Environment` only reads such as `GetEnvironmentVariable` (not `CurrentDirectory`), of `Type`,
+  `Delegate`, `SHA256` and `RandomNumberGenerator` nothing that finds code by its name. Raw memory is not allowed:
+  `Unsafe` (only the compiler's own helper type may use it), raw handles, function pointers, `calli`, and compiling
+  Core with unsafe code. Native calls, COM classes and `[UnsafeAccessor]` methods are not allowed at all, and type
+  names inside attributes (`typeof`) are checked too. Anything else fails and the message names it; if it passes the
+  test, a reviewer approves it in a one-line oracle revision.
 - **003 is a deny rule**, because the app is the UI and uses far too much of WPF and Windows for an allowlist. It
   counts every `System.Net.*` type except a few harmless ones (status codes, request errors, `WebUtility`,
   `NetworkCredential` as a password reader), WebView2, the WPF browser controls (`WebBrowser`, `Frame`,
@@ -293,18 +298,22 @@ casts to or names, generic arguments included.
 shared mutable state the rule does not count; counting every `static readonly` collection or array would flood it
 with read-only tables. (2) BOO-ARCH-006 looks at `src/Boo.App/*Window*.cs` in the top folder, which holds every
 window code-behind today; a window elsewhere or not named `...Window` would be missed. (3) 002 and 003 read the
-compiled code. For 002 that leaves one gap: an approved type or member that can touch the disk and that review
-missed (each approval is meant to be checked for exactly that). For 003, reflection and anything reached by name are
-not seen. (4) 003 is a deny rule, so it does **not** see the app reaching
+compiled code. For 002 that leaves one gap: an approval that fails the test and that review missed. Accepted on
+purpose, because they read the machine's settings or the app's own files, never the user's: a stack trace reads the
+app's own debug file (`.pdb`), local time and culture read Windows settings, `AppContext` hands Core the install folder
+as text, and a named `Mutex` is a signal between processes. Core can always use disk through an object the app hands
+it (a `Stream`, an interface); that is the design, and no scan of Core alone can rule it out. For 003, reflection and
+anything reached by name are not seen. (4) 003 is a deny rule, so it does **not** see the app reaching
 the web some other way: a WPF image, media or font given a web address (`BitmapImage`, `MediaElement`), anything
-declared only in XAML (compiled XAML is not scanned), COM objects, or a third-party library. It also does not count,
+declared only in XAML (compiled XAML is not scanned), an XML loader given a web address (`XDocument.Load`,
+`XmlReader.Create`), COM objects, or a third-party library. It also does not count,
 on purpose, Velopack's update check and download (`UpdateService`, release lane) or opening a link in the browser
 (`Process.Start`); neither is a chat or AI client.
 
-| Rule | Checks | How | Today (matches plan section 1.5) |
+| Rule | Checks | How | Today (plan section 1.5, except 002) |
 | --- | --- | --- | --- |
 | [BOO-ARCH-001](#boo-arch-001) | `Boo.Core` uses nothing from `System.Net.Http`, `System.Net.WebSockets`, `Microsoft.Win32`, `Microsoft.Data.Sqlite`, `NAudio`, `Velopack` | NetArchTest, namespace match | 1: `ProviderFailureClassifier` (`ProviderFailure.cs`, `HttpRequestError`) |
-| [BOO-ARCH-002](#boo-arch-002) | `Boo.Core` does not touch the disk: it uses only approved framework types (and only the text members of `Path`), and no native or COM call | allowlist (Mono.Cecil) | 2: `ScopedFiles` (the second class in `ActionPolicy.cs`), `FileActionResolver` |
+| [BOO-ARCH-002](#boo-arch-002) | `Boo.Core` does not touch the disk: it uses only approved framework types and members (see the test above), no raw memory, and no native, COM or by-name call | allowlist (Mono.Cecil) | 3: `ScopedFiles` (the second class in `ActionPolicy.cs`), `FileActionResolver`, and `StartupRegistration` (`Path.GetFullPath`, lines 68-69), which the plan's text count of `File`/`Directory` could not see |
 | [BOO-ARCH-003](#boo-arch-003) | `Boo.App` does not talk to the network through `System.Net.*` (harmless types aside), WebView2, the WPF browser controls, other Windows Runtime areas, or native network DLLs | deny rule (Mono.Cecil); gaps listed above | 1 type: `MainWindow` (its 3 references: `MainWindow.xaml.cs:65,1624,2123`) |
 | [BOO-ARCH-004](#boo-arch-004) | `Boo.Windows` uses nothing from `System.Windows.Controls` / `System.Windows.Shapes` and has no `Window` subclass | NetArchTest | 0 |
 | [BOO-ARCH-005](#boo-arch-005) | no static field that is not `readonly`/`const`, no static property with a setter, in all 5 `src` assemblies | reflection; compiler-made caches excluded; named per declaring type (`Outer+Inner.Field`) | 2: `AccessibilitySettings._uiSettings`, `App.StartedInBackground` |

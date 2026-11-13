@@ -18,7 +18,7 @@ Changed frozen files: none. Removed: none. `Boo.sln` gains the project (not an o
 | Rule | Allowlist | Plan section 1.5 |
 | --- | --- | --- |
 | BOO-ARCH-001 Core: no network / registry / SQLite / NAudio / Velopack | `Boo.Core.ProviderFailureClassifier` | 1 (`ProviderFailure.cs`) |
-| BOO-ARCH-002 Core: no disk access (allowlist of approved framework types; `Path`, `Environment`, `Type`, `Delegate`, `AppContext` member by member; no native, COM or `[UnsafeAccessor]` call) | `Boo.Core.FileActionResolver`, `Boo.Core.ScopedFiles` | 2 (`ActionPolicy.cs:209`, `FileActionResolver.cs:38`; `ScopedFiles` is the class in `ActionPolicy.cs` that holds line 209) |
+| BOO-ARCH-002 Core: no disk access (allowlist of approved framework types from listed framework assemblies; risky types member by member; no raw memory; no native, COM, by-name or `[UnsafeAccessor]` call) | `Boo.Core.FileActionResolver`, `Boo.Core.ScopedFiles`, `Boo.Core.StartupRegistration` | 2 in the plan (`ActionPolicy.cs:209`, `FileActionResolver.cs:38`; `ScopedFiles` holds line 209). The plan counted text matches of `File`/`Directory`; the scan also finds `StartupRegistration.cs:68-69`, where `Path.GetFullPath` asks Windows for the real names behind short ones (`RUNNER~1`), so 3 |
 | BOO-ARCH-003 App: no network access (deny `System.Net.*` except harmless types, WebView2, WPF browser controls, other Windows Runtime areas, native network DLLs) | `Boo.App.MainWindow` | 3 references, all in this one type (`MainWindow.xaml.cs:65,1624,2123`) |
 | BOO-ARCH-004 Windows: no WPF controls / shapes / windows | none | 0 |
 | BOO-ARCH-005 no mutable statics | `Boo.App.AccessibilitySettings._uiSettings`, `Boo.App.App.StartedInBackground` | 2 (same two) |
@@ -37,16 +37,19 @@ Purely additive: no existing test, assertion, timeout or `Skip` is touched, and 
   `tmp/netarchtest-red-proof`, deleted after the run): a mutable static `Boo.Core.ArchRedProbe.Count` made the
   windows-ci step "Architecture tests" fail with `BOO-ARCH-005: new offender(s): Boo.Core.ArchRedProbe.Count`.
 - **CI, every rule and every bypass the reviews named**: see the PR description (run link, throwaway branch
-  `tmp/netarchtest-red-proof-3`, deleted after the run; an earlier run of the first 13 probes is
-  [43385545148](https://github.com/vikas53953/bluey/actions/runs/43385545148)). 002 probes: `FileInfo.Exists`,
-  `Path.Exists`, `Path.GetTempFileName`, `StreamWriter(path)`, `ZipFile`, `XDocument.Load(path)`, `TarFile`,
-  `TextWriterTraceListener(path)`, `X509CertificateLoader.LoadCertificateFromFile`, `ResourceReader(path)`,
-  `AssemblyLoadContext.LoadFromAssemblyPath`, a `DllImport`, a `[ComImport]` class, `Environment.CurrentDirectory = p`,
-  `Environment.GetLogicalDrives`, `Type.GetType("System.IO.File")`, `Delegate.CreateDelegate(type, target, name)`, an
-  `[UnsafeAccessor]` bound to `File.WriteAllText` (18). 003 probes:
-  `SocketsHttpHandler`, `TcpListener`, `Dns`, `WebBrowser.Navigate`, `Windows.Storage.StorageFile`, a `ws2_32` import
-  (6). Plus one probe each for 001, 004, 005 and 006. Locally (labelled **local**) all of them were caught before the
-  CI run; with the probes removed all 6 rules pass.
+  `tmp/netarchtest-red-proof-4`, deleted after the run; earlier runs of smaller probe sets:
+  [43385545148](https://github.com/vikas53953/bluey/actions/runs/43385545148),
+  [43387295836](https://github.com/vikas53953/bluey/actions/runs/43387295836)). 002 probes (25, plus Core compiled with
+  unsafe code): `FileInfo.Exists`, `Path.Exists`, `Path.GetTempFileName`, `Path.GetFullPath`, `StreamWriter(path)`,
+  `ZipFile`, `XDocument.Load(path)`, `TarFile`, `TextWriterTraceListener(path)`,
+  `X509CertificateLoader.LoadCertificateFromFile`, `ResourceReader(path)`, `AssemblyLoadContext.LoadFromAssemblyPath`, a
+  `DllImport`, a `[ComImport]` class, `Environment.CurrentDirectory = p`, `Environment.GetLogicalDrives`,
+  `Type.GetType("System.IO.File")`, `Delegate.CreateDelegate(type, target, name)`, an `[UnsafeAccessor]` bound to
+  `File.WriteAllText`, `SHA256.Create(name)`, `RandomNumberGenerator.Create(name)`, `Unsafe.As`,
+  `RuntimeTypeHandle.Value`, `typeof(FileInfo)` inside an attribute, a function pointer. 003 probes (6):
+  `SocketsHttpHandler`, `TcpListener`, `Dns`, `WebBrowser.Navigate`, `Windows.Storage.StorageFile`, a `ws2_32` import.
+  Plus one probe each for 001, 004, 005 and 006. Locally (labelled **local**) all of them were caught before the CI
+  run; with the probes removed all 6 rules pass.
 
 ## Choices the reviewer should check
 
@@ -71,6 +74,11 @@ Purely additive: no existing test, assertion, timeout or `Skip` is touched, and 
   claimed "an API nobody listed is caught" while framework APIs outside the denied namespaces still reached the disk.
 - Head `8411370` (`32054fd` synced onto `lane/face` `342b93d`): allowlist. REVIEW FAIL: `System.Environment` was approved
   whole, so `Environment.CurrentDirectory = p` checked a folder; `[UnsafeAccessor]` could bind to `File.WriteAllText`.
-- Now: 002 is an allowlist with risky types approved member by member and `[UnsafeAccessor]` counted; 003 a deny rule
-  with named gaps. Each time the revision was re-made with `--extend` from
+- Head `3ff363d`: member-level approvals. REVIEW FAIL: `Path.GetFullPath` (approved as text-only) expands short names
+  like `RUNNER~1` by asking Windows about the real files, and Core already does this in `StartupRegistration`;
+  `SHA256.Create(name)` builds a type from its name; approvals trusted a namespace name, not the assembly.
+- Then, before the next review, a one-shot audit of every approval against the written test; it added: approvals tied
+  to framework assemblies, `System.CodeDom.Compiler` cut to the one attribute, `calli` / unsafe code / function
+  pointers / `Unsafe` / raw handles denied, `typeof` inside attributes scanned.
+- Now: 002 is an allowlist with a written test for every approval and 3 offenders; 003 a deny rule with named gaps. Each time the revision was re-made with `--extend` from
   `lane/face`'s revision 24 before anything merged; the allowlists of offenders never changed.

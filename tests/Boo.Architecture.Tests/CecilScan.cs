@@ -1,3 +1,4 @@
+using System.IO;
 using System.Reflection;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
@@ -12,16 +13,43 @@ namespace Boo.Architecture.Tests;
 /// decided by the caller's predicates (a type predicate, and a member predicate for calls and field reads), so a rule
 /// can be an allowlist ("only these framework types") instead of a list of bad types that always misses one.
 /// Results are per outermost type (compiler-made nested types such as lambdas and async state machines count towards
-/// their owner), each with the references that hit, for the failure message. Not scanned: generic constraints, catch
-/// clause types, typeof inside attribute arguments (none can do anything by itself), and compiled XAML (BAML).
+/// their owner), each with the references that hit, for the failure message. Types named inside attribute arguments
+/// (typeof) are scanned too; a function pointer type always counts. Not scanned: generic constraints, catch clause
+/// types (neither can run code by itself), and compiled XAML (BAML).
 /// </summary>
 internal static class CecilScan
 {
+    /// <summary>Reads a module with a resolver that finds the framework (runtime and WPF) and the test output folder,
+    /// so attribute arguments that use enums from other assemblies can be read. A failure throws; nothing is skipped.</summary>
+    private static ModuleDefinition Read(Assembly assembly)
+    {
+        var resolver = new DefaultAssemblyResolver();
+        foreach (var dir in new[]
+                 {
+                     Path.GetDirectoryName(assembly.Location), AppContext.BaseDirectory,
+                     Path.GetDirectoryName(typeof(object).Assembly.Location),
+                     Path.GetDirectoryName(typeof(System.Windows.Window).Assembly.Location),
+                     Path.GetDirectoryName(typeof(System.Windows.Forms.Form).Assembly.Location),
+                 }.Distinct())
+        {
+            if (!string.IsNullOrEmpty(dir)) resolver.AddSearchDirectory(dir);
+        }
+        return ModuleDefinition.ReadModule(assembly.Location, new ReaderParameters { AssemblyResolver = resolver });
+    }
+
+    /// <summary>True when the assembly was compiled with unsafe code allowed ([module: UnverifiableCode]): raw pointers
+    /// can reach any address, so no reference scan can vouch for it.</summary>
+    public static bool AllowsUnsafeCode(Assembly assembly)
+    {
+        using var module = Read(assembly);
+        return module.CustomAttributes.Any(a => a.AttributeType.FullName == "System.Security.UnverifiableCodeAttribute");
+    }
+
     public static IReadOnlyDictionary<string, SortedSet<string>> TypesReferencing(
         Assembly assembly, Func<TypeReference, bool> bannedType, Func<MemberReference, bool>? bannedMember = null)
     {
         var offenders = new SortedDictionary<string, SortedSet<string>>(StringComparer.Ordinal);
-        using var module = ModuleDefinition.ReadModule(assembly.Location);
+        using var module = Read(assembly);
         foreach (var type in module.GetTypes())
         {
             var hits = new SortedSet<string>(StringComparer.Ordinal);
@@ -35,16 +63,18 @@ internal static class CecilScan
     }
 
     /// <summary>Types that reach code the type scan cannot see: a native call (DllImport, or LibraryImport, which
-    /// generates one) into a DLL the predicate rejects, an [UnsafeAccessor] method (binds to any member by its name,
-    /// always counted), or (when <paramref name="countComImports"/>) a COM class or interface ([ComImport]).</summary>
+    /// generates one) into a DLL the predicate rejects, an [UnsafeAccessor] method (binds to any member by its name),
+    /// a call through a raw address (calli), all always counted, or (when <paramref name="countComImports"/>) a COM class
+    /// or interface ([ComImport]).</summary>
     public static IReadOnlyCollection<string> TypesCallingNative(Assembly assembly, Func<string, bool> bannedDll, bool countComImports)
     {
         var offenders = new SortedSet<string>(StringComparer.Ordinal);
-        using var module = ModuleDefinition.ReadModule(assembly.Location);
+        using var module = Read(assembly);
         foreach (var type in module.GetTypes())
         {
             var native = type.Methods.Any(m => (m.IsPInvokeImpl && m.PInvokeInfo is not null && bannedDll(m.PInvokeInfo.Module.Name))
-                                               || m.CustomAttributes.Any(a => a.AttributeType.FullName == UnsafeAccessor));
+                                               || m.CustomAttributes.Any(a => a.AttributeType.FullName == UnsafeAccessor)
+                                               || (m.HasBody && m.Body.Instructions.Any(i => i.OpCode.Code == Code.Calli)));
             if (native || (countComImports && type.IsImport)) offenders.Add(Outermost(type).FullName);
         }
         return offenders;
@@ -74,9 +104,24 @@ internal static class CecilScan
             if (reference is not null) Mentions(reference, bannedType, hits);
         }
 
+        void Argument(CustomAttributeArgument argument)
+        {
+            switch (argument.Value)
+            {
+                case TypeReference t: Type(t); break; // typeof(X) inside an attribute
+                case CustomAttributeArgument inner: Argument(inner); break;
+                case CustomAttributeArgument[] items: foreach (var item in items) Argument(item); break;
+            }
+        }
+
         void Attributes(Mono.Cecil.ICustomAttributeProvider provider)
         {
-            foreach (var a in provider.CustomAttributes) Type(a.AttributeType);
+            foreach (var a in provider.CustomAttributes)
+            {
+                Type(a.AttributeType);
+                foreach (var argument in a.ConstructorArguments) Argument(argument);
+                foreach (var named in a.Fields.Concat(a.Properties)) Argument(named.Argument);
+            }
         }
 
         Type(type.BaseType);
@@ -124,6 +169,9 @@ internal static class CecilScan
             case GenericInstanceType generic:
                 Mentions(generic.ElementType, bannedType, hits);
                 foreach (var a in generic.GenericArguments) Mentions(a, bannedType, hits);
+                break;
+            case FunctionPointerType pointer:
+                hits.Add("function pointer " + pointer.FullName); // calls a raw address; never approved
                 break;
             case TypeSpecification specification:
                 Mentions(specification.ElementType, bannedType, hits);

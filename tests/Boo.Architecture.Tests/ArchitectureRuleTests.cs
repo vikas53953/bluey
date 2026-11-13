@@ -47,7 +47,7 @@ public sealed class ArchitectureRuleTests
     /// names, not their sub-namespaces, so a new namespace needs review.</summary>
     public static readonly string[] CoreApprovedNamespaces =
     [
-        "System.Buffers", "System.Buffers.Binary", "System.CodeDom.Compiler", "System.Collections", "System.Collections.Frozen",
+        "System.Buffers", "System.Buffers.Binary", "System.Collections", "System.Collections.Frozen",
         "System.Collections.Generic", "System.Collections.Immutable", "System.Collections.ObjectModel",
         "System.Diagnostics.CodeAnalysis", "System.Globalization", "System.Linq", "System.Numerics",
         "System.Runtime.CompilerServices", "System.Runtime.Versioning", "System.Text", "System.Text.Json",
@@ -55,9 +55,29 @@ public sealed class ArchitectureRuleTests
         "System.Threading.Tasks",
     ];
 
+    /// <summary>002: the framework assemblies an approval can come from. A namespace or type name is only trusted when
+    /// the type really comes from one of these (a package could declare types in any namespace it likes; NuGet reserves
+    /// the System.* package names for Microsoft).</summary>
+    public static readonly string[] CoreApprovedAssemblies =
+    [
+        "System.Runtime", "System.Collections", "System.Collections.Concurrent", "System.Collections.Immutable", "System.Linq",
+        "System.Memory", "System.ObjectModel", "System.Runtime.InteropServices", "System.Runtime.Intrinsics",
+        "System.Runtime.Numerics", "System.Security.Cryptography", "System.Text.Encoding.Extensions", "System.Text.Json",
+        "System.Text.RegularExpressions", "System.Threading", "System.Threading.Channels", "System.Net.Http",
+        "System.Net.Primitives",
+    ];
+
+    /// <summary>002: types inside an approved namespace that are still not allowed: raw memory access, which can reach
+    /// any code without naming it.</summary>
+    public static readonly string[] CoreDeniedTypes = ["System.Runtime.CompilerServices.Unsafe"];
+
+    /// <summary>The one type that may use CoreDeniedTypes: written by the compiler for inline arrays and collection
+    /// literals (Unsafe.Add / As / AsRef); C# code cannot name it or add to it.</summary>
+    private const string CompilerHelperType = "<PrivateImplementationDetails>";
+
     /// <summary>002: single framework types Core may use from namespaces that also hold disk, network or process APIs.
-    /// A type with any member that can reach outside the program (Path, Environment, Type, Delegate, AppContext) is
-    /// approved per member instead, in CoreApprovedMembers below.</summary>
+    /// The test for every approval: nothing in the type may depend on or change the files on this machine, or find code
+    /// by its name. A type where some members fail that test is approved per member instead, in CoreApprovedMembers.</summary>
     public static readonly string[] CoreApprovedTypes =
     [
         // System: values, primitives, delegates, exceptions, maths, time, Uri as text, runtime facts.
@@ -75,8 +95,7 @@ public sealed class ArchitectureRuleTests
         "System.NotImplementedException", "System.NotSupportedException", "System.Nullable`1", "System.Object",
         "System.ObjectDisposedException", "System.ObsoleteAttribute", "System.OperatingSystem", "System.OperationCanceledException",
         "System.OutOfMemoryException", "System.OverflowException", "System.ParamArrayAttribute", "System.Predicate`1",
-        "System.Random", "System.Range", "System.ReadOnlyMemory`1", "System.ReadOnlySpan`1", "System.RuntimeFieldHandle",
-        "System.RuntimeTypeHandle", "System.Single", "System.Span`1", "System.StackOverflowException", "System.String",
+        "System.Random", "System.Range", "System.ReadOnlyMemory`1", "System.ReadOnlySpan`1", "System.Single", "System.Span`1", "System.StackOverflowException", "System.String",
         "System.StringComparer", "System.StringComparison", "System.StringSplitOptions", "System.TimeoutException",
         "System.TimeProvider", "System.TimeSpan", "System.TypeInitializationException", "System.UInt16",
         "System.UInt32", "System.UInt64", "System.UnauthorizedAccessException", "System.Uri", "System.UriKind",
@@ -87,7 +106,7 @@ public sealed class ArchitectureRuleTests
         "System.Diagnostics.DebuggerBrowsableAttribute", "System.Diagnostics.DebuggerBrowsableState",
         "System.Diagnostics.DebuggerStepThroughAttribute", "System.Diagnostics.DebuggerNonUserCodeAttribute",
         "System.Diagnostics.Stopwatch", "System.Diagnostics.UnreachableException",
-        // System.IO: exceptions, the attributes enum and in-memory streams. File and Directory are the two offenders.
+        // System.IO: exceptions, the attributes enum and in-memory streams (File and Directory are not approved).
         "System.IO.IOException", "System.IO.FileNotFoundException", "System.IO.DirectoryNotFoundException",
         "System.IO.PathTooLongException", "System.IO.EndOfStreamException", "System.IO.InvalidDataException",
         "System.IO.FileAttributes", "System.IO.Stream", "System.IO.MemoryStream", "System.IO.StringReader",
@@ -100,25 +119,26 @@ public sealed class ArchitectureRuleTests
         "System.Reflection.AssemblyProductAttribute", "System.Reflection.AssemblyTitleAttribute",
         "System.Reflection.DefaultMemberAttribute",
         // System.Runtime.InteropServices: span helpers and attributes only (no DllImport, no Marshal).
-        "System.Runtime.InteropServices.InAttribute", "System.Runtime.InteropServices.MemoryMarshal",
-        "System.Runtime.InteropServices.CollectionsMarshal", "System.Runtime.InteropServices.SEHException",
+        "System.Runtime.InteropServices.InAttribute", "System.Runtime.InteropServices.CollectionsMarshal",
+        "System.Runtime.InteropServices.SEHException",
+        // The attribute the regex source generator writes (the rest of System.CodeDom.Compiler is not approved).
+        "System.CodeDom.Compiler.GeneratedCodeAttribute",
         // System.Security.Cryptography: hashing and constant-time compare (no certificate or key-file loaders).
-        "System.Security.Cryptography.CryptographicOperations", "System.Security.Cryptography.SHA256",
-        "System.Security.Cryptography.RandomNumberGenerator", "System.Security.Cryptography.IncrementalHash",
         "System.Security.Cryptography.HashAlgorithmName",
     ];
 
-    /// <summary>002: types approved member by member, because other members of the same type reach outside the program:
-    /// Path.Exists / GetTempFileName (disk), Environment.CurrentDirectory / GetLogicalDrives (disk), Type.GetType(name)
-    /// and Delegate.CreateDelegate(name) (reach any type by its name). Only the members listed may be called; the type
+    /// <summary>002: types approved member by member, because other members of the same type fail the test above:
+    /// Path.Exists / GetTempFileName / GetFullPath (disk), Environment.CurrentDirectory / GetLogicalDrives (disk),
+    /// Type.GetType(name), Delegate.CreateDelegate(name), SHA256.Create(name) (find code by its name). Only the members listed may be called; the type
     /// itself may be named (a parameter, a field, typeof).</summary>
     public static readonly IReadOnlyDictionary<string, string[]> CoreApprovedMembers = new Dictionary<string, string[]>
     {
-        // Members that work on the text of a path and never look at the disk.
+        // Members that work on the text of a path only. Not GetFullPath / GetRelativePath: they depend on the current
+        // folder and expand short names like PROGRA~1 by asking Windows about the real files (GetLongPathNameW).
         ["System.IO.Path"] =
         [
             "Combine", "Join", "GetFileName", "GetFileNameWithoutExtension", "GetExtension", "HasExtension", "ChangeExtension",
-            "GetDirectoryName", "GetFullPath", "GetRelativePath", "GetPathRoot", "IsPathRooted", "IsPathFullyQualified",
+            "GetDirectoryName", "GetPathRoot", "IsPathRooted", "IsPathFullyQualified",
             "TrimEndingDirectorySeparator", "EndsInDirectorySeparator", "GetInvalidPathChars", "GetInvalidFileNameChars",
             "DirectorySeparatorChar", "AltDirectorySeparatorChar", "PathSeparator", "VolumeSeparatorChar",
         ],
@@ -134,16 +154,26 @@ public sealed class ArchitectureRuleTests
         ],
         ["System.Delegate"] = ["Combine", "Remove", "op_Equality", "op_Inequality"],
         ["System.AppContext"] = ["GetData", "TryGetSwitch", "get_BaseDirectory", "get_TargetFrameworkName"],
+        // Not Create(string name): it builds any type by its name (CryptoConfig.CreateFromName).
+        ["System.Security.Cryptography.SHA256"] = ["HashData"],
+        ["System.Security.Cryptography.RandomNumberGenerator"] = ["GetBytes", "Fill", "GetInt32", "GetHexString", "GetString"],
+        ["System.Security.Cryptography.CryptographicOperations"] = ["FixedTimeEquals", "ZeroMemory"],
+        // Raw handles and memory: may be named (typeof, array initialisers), but nothing that turns them into a pointer.
+        ["System.RuntimeTypeHandle"] = [],
+        ["System.RuntimeFieldHandle"] = [],
+        ["System.Runtime.InteropServices.MemoryMarshal"] = ["CreateReadOnlySpan"],
     };
 
     private static bool CoreMayUse(TypeReference type)
     {
-        // Own code: anything defined in the scanned assembly (including compiler-generated regex classes, which use a
-        // System.* namespace) or in another Boo assembly. Built-in primitives (int, IntPtr, string, object, void) are fine.
+        // Own code: anything defined in Core itself (including compiler-generated regex classes, which use a System.*
+        // namespace). Never trusted by namespace name: a type from any other assembly, Boo.* included, must be approved.
+        // Built-in primitives (int, IntPtr, string, object, void) are fine.
         if (type.Scope is ModuleDefinition || type.IsPrimitive) return true;
         if (type.MetadataType is MetadataType.Void or MetadataType.String or MetadataType.Object or MetadataType.TypedByReference) return true;
+        if (type.Scope is not AssemblyNameReference from || !CoreApprovedAssemblies.Contains(from.Name)) return false;
+        if (CoreDeniedTypes.Contains(type.FullName)) return false;
         var ns = CecilScan.NamespaceOf(type);
-        if (ns == "Boo" || ns.StartsWith("Boo.", StringComparison.Ordinal)) return true;
         return CoreApprovedNamespaces.Contains(ns) || CoreApprovedTypes.Contains(type.FullName) || CoreApprovedMembers.ContainsKey(type.FullName);
     }
 
@@ -188,11 +218,16 @@ public sealed class ArchitectureRuleTests
     [Fact]
     public void BOO_ARCH_002_Core_does_not_touch_the_file_system()
     {
-        var scan = CecilScan.TypesReferencing(Core, t => !CoreMayUse(t), CoreMayNotCall);
-        var native = CecilScan.TypesCallingNative(Core, _ => true, countComImports: true); // Core makes no native, COM or by-name ([UnsafeAccessor]) calls
-        // ScopedFiles is the second class in ActionPolicy.cs (the plan's "ActionPolicy.cs:209").
+        var scan = CecilScan.TypesReferencing(Core, t => !CoreMayUse(t), CoreMayNotCall)
+            .Where(kv => !(kv.Key == CompilerHelperType && kv.Value.All(CoreDeniedTypes.Contains)))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+        var native = CecilScan.TypesCallingNative(Core, _ => true, countComImports: true).ToList(); // no native, COM, by-name or raw-address calls
+        if (CecilScan.AllowsUnsafeCode(Core)) native.Add("<Boo.Core compiled with unsafe code allowed>");
+        // ScopedFiles is the second class in ActionPolicy.cs (the plan's "ActionPolicy.cs:209"). StartupRegistration is a
+        // third the plan's text count could not see: Path.GetFullPath (StartupRegistration.cs:68-69) asks Windows for the
+        // long form of short names like RUNNER~1, so its answer depends on the files on the machine.
         AssertExactOffenders("BOO-ARCH-002", scan.Keys.Concat(native).Distinct().ToList(),
-            ["Boo.Core.FileActionResolver", "Boo.Core.ScopedFiles"], Detail(scan, native, "not approved for Core"));
+            ["Boo.Core.FileActionResolver", "Boo.Core.ScopedFiles", "Boo.Core.StartupRegistration"], Detail(scan, native, "not approved for Core"));
     }
 
     [Fact]
