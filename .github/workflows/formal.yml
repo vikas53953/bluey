@@ -53,12 +53,27 @@ jobs:
       - name: TLC (main passes, red proofs caught, triggers reached, gaps fail today and pass with their fix)
         run: bash scripts/ci/run_tlc.sh
 
+      # Key scan right before the upload (BOO-SAFE-002, generated from scripts/quality/key_scan.py; --check-workflows
+      # rejects any edit). The upload runs ONLY if the scan reports safe=true.
+      - name: Key scan before upload (TLC output)
+        if: ${{ !cancelled() }}
+        id: keyscan_artifacts_tlc
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/tlc; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/tlc' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/tlc')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
       - name: Upload TLC output (traces for the gaps and the red proof)
-        if: always()
+        if: ${{ !cancelled() && steps.keyscan_artifacts_tlc.outputs.safe == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tlc-output
-          path: artifacts/tlc/*.log
+          path: artifacts/tlc
           if-no-files-found: ignore
           retention-days: 7
 
@@ -81,11 +96,26 @@ jobs:
       - name: TLC nightly (main cfg with MaxActive = 3)
         run: bash scripts/ci/run_tlc.sh --wide
 
+      # Key scan right before the upload (BOO-SAFE-002, generated from scripts/quality/key_scan.py; --check-workflows
+      # rejects any edit). The upload runs ONLY if the scan reports safe=true.
+      - name: Key scan before upload (TLC output, nightly)
+        if: ${{ !cancelled() }}
+        id: keyscan_artifacts_tlc
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/tlc; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/tlc' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/tlc')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
       - name: Upload TLC output
-        if: always()
+        if: ${{ !cancelled() && steps.keyscan_artifacts_tlc.outputs.safe == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tlc-output-wide
-          path: artifacts/tlc/*.log
+          path: artifacts/tlc
           if-no-files-found: ignore
           retention-days: 7
