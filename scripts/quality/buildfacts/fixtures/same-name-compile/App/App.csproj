@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Lib/Lib.csproj" />
+    <!-- The bypass, with only allowed SDK tasks: build Evil (outside the solution, AssemblyName Lib) and let the SDK's
+         own copy of None items put its Lib.dll over the judged Lib's output, which the publish then ships. -->
+    <ProjectReference Include="../Evil/Evil.csproj" ReferenceOutputAssembly="false" />
+    <None Include="../Evil/bin/fixed/Lib.dll" Link="../../../../Lib/bin/Release/net10.0/Lib.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+</Project>

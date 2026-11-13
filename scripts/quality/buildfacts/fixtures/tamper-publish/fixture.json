@@ -1,0 +1,44 @@
+{
+  "bypass": "after publish, a shell command copies other code over the shipped App.dll",
+  "builds": [
+    {
+      "label": "build",
+      "args": [
+        "build",
+        "App/App.csproj",
+        "-c",
+        "Release"
+      ]
+    },
+    {
+      "label": "publish",
+      "args": [
+        "publish",
+        "App/App.csproj",
+        "-c",
+        "Release",
+        "-o",
+        "out"
+      ]
+    }
+  ],
+  "projects": [
+    "App/App.csproj",
+    "Lib/Lib.csproj"
+  ],
+  "publishDir": "out",
+  "visible": [
+    {
+      "label": "publish",
+      "field": "tasks.task",
+      "contains": "Exec | SwapAfterPublish | App/App.csproj"
+    }
+  ],
+  "check": {
+    "result": "fail",
+    "mustInclude": [
+      "unknown task ran: Exec | SwapAfterPublish",
+      "out/App.dll: does not trace to a judged compile"
+    ]
+  }
+}
