@@ -256,3 +256,104 @@ Known gaps of the key scan:
 Red proof (13 Nov 2026): run [43359573803](https://github.com/vikas53953/bluey/actions/runs/43359573803) on a
 throwaway branch planted a run-time-built fake key in the test results; the scan before that upload reported
 `OpenAI/Anthropic API key ... The value is not shown`, deleted the file and failed the job (`KEY_SCAN_FAILED 1 of 7`).
+
+## Architecture rules (BOO-ARCH, `tests/Boo.Architecture.Tests`)
+
+Plan section 2.4 B, PR 1.11. A normal xUnit project that reads the compiled `src` assemblies, so it runs wherever the
+solution builds; no app starts and no screen is touched. Each rule lists today's offenders **by name** (baseline
+13 Nov 2026, `lane/face` `af089dd`). The list is exact both ways: a **new** offender fails, and an offender that has been
+**fixed** also fails until its name is removed, so every gain is locked in. The test project is frozen (oracle
+revision 25), so removing a name, like adding a rule, goes through a reviewed `scripts/test_oracle.py --rebaseline`.
+Dependency offenders (001-004) count per outermost type (lambdas and async state machines count towards the type that
+wrote them); static-state offenders (005) are named per declaring type, nested types included.
+
+**Why two tools, and two shapes.** 001 and 004 are about whole namespaces and use NetArchTest. 002 and 003 use
+`CecilScan` (Mono.Cecil, the library NetArchTest is built on), which sees base types, interfaces, fields,
+properties, events, attributes, parameters, return values, locals and every member the code calls, constructs,
+casts to or names, generic arguments included.
+
+- **002 is an allowlist.** Disk access is spread across the whole framework (`File`, `FileInfo`,
+  `StreamWriter(path)`, `Path.Exists`, `XDocument.Load(path)`, `TarFile`, certificate and resource loaders,
+  `AssemblyLoadContext`, ...), so any list of bad types or namespaces misses one; reviews proved it several times.
+  Core is small and pure, so it may use **only** the framework types approved in the test (text, collections, maths,
+  JSON, regex, tasks, hashing, and the exceptions and enums it needs), and only when they really come from a listed
+  framework assembly (a package cannot borrow a framework namespace name). **The test for every approval:** nothing
+  reachable through it may depend on or change the files on this machine, or find or build code from a name. A type
+  where only some members pass is approved **member by member**: of `Path` only the members that work on the text of
+  a path (not `Exists`, `GetTempFileName`, or `GetFullPath`, which asks Windows for the real names behind short ones
+  like `RUNNER~1`), of `Environment` only reads such as `GetEnvironmentVariable` (not `CurrentDirectory`), of `Type`,
+  `Delegate`, `SHA256` and `RandomNumberGenerator` nothing that finds code by its name. Raw memory is not allowed:
+  `Unsafe` (only the compiler's own helper type may use it), raw handles, function pointers, `calli`, and compiling
+  Core with unsafe code. Native calls, COM classes and `[UnsafeAccessor]` methods are not allowed at all, and type
+  names inside attributes (`typeof`) are checked too. Anything else fails and the message names it; if it passes the
+  test, a reviewer approves it in a one-line oracle revision.
+- **003 is a deny rule**, because the app is the UI and uses far too much of WPF and Windows for an allowlist. It
+  counts every `System.Net.*` type except a few harmless ones (status codes, request errors, `WebUtility`,
+  `NetworkCredential` as a password reader), WebView2, the WPF browser controls (`WebBrowser`, `Frame`,
+  `NavigationWindow`), every Windows Runtime area except the two the app uses (`Windows.Foundation`,
+  `Windows.UI.ViewManagement`), and native calls into anything but `user32`, `kernel32`, `shcore`, `dwmapi`, `gdi32`.
+
+**Known gaps.** (1) BOO-ARCH-005 sees fields and setters, not what a `readonly` field points to: a
+`static readonly List<T>` that is changed later (today `AccessibilitySettings.Listeners`, `.Add` at line 48) is
+shared mutable state the rule does not count; counting every `static readonly` collection or array would flood it
+with read-only tables. (2) BOO-ARCH-006 looks at `src/Boo.App/*Window*.cs` in the top folder, which holds every
+window code-behind today; a window elsewhere or not named `...Window` would be missed. (3) 002 and 003 read the
+compiled code. For 002 that leaves one gap: an approval that fails the test and that review missed. Accepted on
+purpose, because they read the machine's settings or the app's own files, never the user's: a stack trace reads the
+app's own debug file (`.pdb`), local time and culture read Windows settings, `AppContext` hands Core the install folder
+as text, and a named `Mutex` is a signal between processes. Core can always use disk through an object the app hands
+it (a `Stream`, an interface); that is the design, and no scan of Core alone can rule it out. For 003, reflection and
+anything reached by name are not seen. (4) 003 is a deny rule, so it does **not** see the app reaching
+the web some other way: a WPF image, media or font given a web address (`BitmapImage`, `MediaElement`), anything
+declared only in XAML (compiled XAML is not scanned), an XML loader given a web address (`XDocument.Load`,
+`XmlReader.Create`), COM objects, or a third-party library. It also does not count,
+on purpose, Velopack's update check and download (`UpdateService`, release lane) or opening a link in the browser
+(`Process.Start`); neither is a chat or AI client.
+
+| Rule | Checks | How | Today (plan section 1.5, except 002) |
+| --- | --- | --- | --- |
+| [BOO-ARCH-001](#boo-arch-001) | `Boo.Core` uses nothing from `System.Net.Http`, `System.Net.WebSockets`, `Microsoft.Win32`, `Microsoft.Data.Sqlite`, `NAudio`, `Velopack` | NetArchTest, namespace match | 1: `ProviderFailureClassifier` (`ProviderFailure.cs`, `HttpRequestError`) |
+| [BOO-ARCH-002](#boo-arch-002) | `Boo.Core` does not touch the disk: it uses only approved framework types and members (see the test above), no raw memory, and no native, COM or by-name call | allowlist (Mono.Cecil) | 3: `ScopedFiles` (the second class in `ActionPolicy.cs`), `FileActionResolver`, and `StartupRegistration` (`Path.GetFullPath`, lines 68-69), which the plan's text count of `File`/`Directory` could not see |
+| [BOO-ARCH-003](#boo-arch-003) | `Boo.App` does not talk to the network through `System.Net.*` (harmless types aside), WebView2, the WPF browser controls, other Windows Runtime areas, or native network DLLs | deny rule (Mono.Cecil); gaps listed above | 1 type: `MainWindow` (its 3 references: `MainWindow.xaml.cs:65,1624,2123`) |
+| [BOO-ARCH-004](#boo-arch-004) | `Boo.Windows` uses nothing from `System.Windows.Controls` / `System.Windows.Shapes` and has no `Window` subclass | NetArchTest | 0 |
+| [BOO-ARCH-005](#boo-arch-005) | no static field that is not `readonly`/`const`, no static property with a setter, in all 5 `src` assemblies | reflection; compiler-made caches excluded; named per declaring type (`Outer+Inner.Field`) | 2: `AccessibilitySettings._uiSettings`, `App.StartedInBackground` |
+| [BOO-ARCH-006](#boo-arch-006) | every `src/Boo.App/*Window*.cs` file has at most 2,679 lines | line count | 0 over (largest: `MainWindow.xaml.cs`, 2,679; the plan measured 2,674 before PR #33 added 5 lines) |
+| [BOO-ARCH-007](#boo-arch-007) | a new `MainWindow` feature goes in its own `MainWindow.<Feature>.cs` partial | written rule only (review) | |
+
+## BOO-ARCH-001
+**Boo.Core stays pure.** Core is the code every other layer and every unit test relies on; network, registry,
+database, audio or installer types make it slow and hard to test. **Fix:** put the outside call in `Boo.Providers`,
+`Boo.Storage` or `Boo.Windows` and pass Core plain values or an interface. **Do NOT** move the type into Core "to reuse it".
+
+## BOO-ARCH-002
+**Core does not touch disk.** File checks in Core make rules depend on the machine. **Fix:** an interface in Core (like
+`IStartupRegistry`) with the real implementation outside. The failure message names every framework type or member
+that is not approved. **Do NOT** swap `File.Exists` for `FileInfo`, `Path.Exists`, a stream or another loader: Core may
+use only approved types and members, so all are caught. **Do NOT** approve a type unless no member of it can reach
+the disk; if some can, approve only the members that cannot.
+
+## BOO-ARCH-003
+**The window does not talk to the network.** Network calls belong in `Boo.Providers`, where timeouts, failures and
+keys are handled in one place (the 45 s timeout lives in `MainWindow` today for this reason). **Fix:** create the
+client in Providers and inject it. **Do NOT** hide a new `HttpClient` in a helper class in `Boo.App`, or swap it for a
+handler, a socket, `Dns`, a browser control or a Windows Runtime network API: all are caught. The rule cannot see a web
+address handed to a WPF image or media element, or XAML-only elements (known gap 4); reviewers check those.
+
+## BOO-ARCH-004
+**Boo.Windows is Windows integration, not UI.** Bitmaps (`System.Windows.Media`) and UI Automation are fine; controls,
+shapes and windows belong in `Boo.App`.
+
+## BOO-ARCH-005
+**No mutable static state.** A static that changes is shared by every caller and every test, which makes order-dependent
+bugs. **Fix:** an instance field passed in, or `static readonly` set once. **Do NOT** add `readonly` and mutate the
+object inside it to get past the check.
+
+## BOO-ARCH-006
+**Window code-behind stays under its budget** (today's largest file, 2,679 lines). The budget may only go down, in a
+reviewed oracle revision. **Fix:** move the feature into `MainWindow.<Feature>.cs` (BOO-ARCH-007) or its logic into
+`Boo.Core`. **Do NOT** raise the budget.
+
+## BOO-ARCH-007
+**One feature, one partial.** `Boo.App` is already sliced by feature (`MainWindow.Talk.cs`, `.Voice.cs`, `.Edits.cs`,
+`.Focus.cs`, `.Updates.cs`, `.Accessibility.cs`, `.Shortcuts.cs`). A new feature gets its own file. Checked by review;
+BOO-ARCH-006 is what makes skipping it fail.
