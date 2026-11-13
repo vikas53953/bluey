@@ -32,6 +32,10 @@ on:
         type: string
         required: false
         default: ''
+      journeys:
+        description: "Also run the verify-boo LIVE user journeys (tools/Boo.VerifyLive: hotkey + hover wake, chat, explain ring, research, Apply/Undo, 25-min Developer Mode focus). About 15 more minutes and ~45 paid requests."
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -86,7 +90,7 @@ jobs:
     needs: preflight
     # GitHub's own Windows VM only. Never the owner's PC (see the header).
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 50  # 30 for the round trip + about 15 for the journeys
     env:
       DOTNET_NOLOGO: "1"
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
@@ -152,6 +156,7 @@ jobs:
           dotnet restore Boo.sln
           dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/live
           dotnet build tools/Boo.LiveSmoke -c Release
+          dotnet build tools/Boo.VerifyLive -c Release
 
       - name: Real AI round trip (FlaUI against published Boo.exe)
         timeout-minutes: 15
@@ -175,6 +180,33 @@ jobs:
         if: always()
         shell: pwsh
         run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/live-evidence/trx -SourceDirectory tools/Boo.LiveSmoke
+
+      # verify-boo skill: the live user journeys on the same runner, same key, same evidence folder (so the key leak scan
+      # below covers them too). Runs after the round trip even if it failed, so one run shows every live feature.
+      - name: Live user journeys (verify-boo skill, FlaUI against published Boo.exe)
+        if: ${{ !cancelled() && inputs.journeys }}
+        timeout-minutes: 25
+        shell: pwsh
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\live-evidence\journeys
+          BOO_LIVE_TEXT_PROVIDER: ${{ inputs.text_provider || 'openai' }}
+          BOO_LIVE_MODEL: ${{ inputs.model }}
+          BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          BOO_LIVE_ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
+          BOO_LIVE_GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/live-evidence/journeys | Out-Null
+          & dotnet test tools/Boo.VerifyLive -c Release --no-build --logger trx --logger "console;verbosity=normal" --results-directory artifacts/live-evidence/journeys/trx
+          $testExit = $LASTEXITCODE
+          '----- journey observations -----'
+          Get-ChildItem artifacts/live-evidence/journeys -Filter *.txt -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          exit $testExit
+
+      - name: Test gate (every live journey ran and passed)
+        if: ${{ !cancelled() && inputs.journeys }}
+        shell: pwsh
+        run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/live-evidence/journeys/trx -SourceDirectory tools/Boo.VerifyLive
 
       # Proof in the log (readable even when artifact upload fails) that every screenshot is a Boo window, not the
       # whole desktop. Every PNG must come from the Boo-window renderer (BooAppFixture.CaptureBooWindows writes only
