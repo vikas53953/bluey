@@ -657,7 +657,7 @@ fixing it; Phase 3's fuzz uses it as its action vocabulary. Boo already has `--n
 | 2.11 | **Every notch state tested** (added 13 Nov by Vikas): behaviour tests against the `NotchLifecycle` reducer for every row and state of the notch map (`docs/architecture/notch-lifecycle.md`), plus app-level checks of the published `Boo.exe` on `windows-latest` with the real clock where timing matters (reveal/retract, moment timers, the 120 s hold cap, focus ticks). Includes Listening, Nudge, Paused, Stop, the second undo and every other state; no notch state left UNVERIFIED. Live parts use the cheapest OpenAI models (configurable). May land as several small PRs (reducer behaviour tests first; app-level journeys next, one or two states per PR). | M–L | Every state and row of the notch map has a passing test linked from `docs/FEATURE_MAP.md`; app-level evidence (screenshots or video) for every face state; 0 UNVERIFIED notch rows |
 | 2.12 | **Phase 2 gate** (added 13 Nov by Vikas): one full-app QA run of the published `Boo.exe` on `windows-latest` with the real clock: every Phase 1 and Phase 2 feature, every notch state, the live journeys, with video | S (run) | Gate run green with an evidence page; **no Phase 3 PR merges before it passes** |
 
-**Effort:** about 13 PRs, 3–4 weeks. The big one is 2.6 (moving behaviour out of 4,163 lines of code-behind);
+**Effort:** about 13 PRs, 3–4 weeks, plus 2.11 (several small PRs) and the 2.12 gate run. The big one is 2.6 (moving behaviour out of 4,163 lines of code-behind);
 everything else is additive.
 
 **Risks:**

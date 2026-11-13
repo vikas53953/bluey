@@ -6,6 +6,7 @@
   Fails (exit 1) when the map has drifted:
     - a row has no ID, no feature, or a "How verified" value that is not made only of the allowed labels
       (automated live, automated mock, manual, UNVERIFIED, out of scope; exact case; parts joined by "+"; notes in brackets);
+    - a row labelled "out of scope" does not cite the owner decision in docs/DECISIONS.md;
     - a row says "automated live" but cites no test method that drives the real Boo.exe;
     - a row cites a file that does not exist, or `file.cs::Method` where the method is not in that file;
     - a row claims "automated live" or "automated mock" but cites no test, workflow or script as proof;
@@ -78,6 +79,8 @@ foreach ($line in Get-Content $MapPath -Encoding UTF8) {
     }
   }
   if ($proof -match 'windows-ci|demo-ci|live-ai-smoke|release\.yml|live smoke|live journeys') { $hasProof = $true }
+  # 'out of scope' is an owner decision, never a way to park an untested feature: the row must cite the dated decision.
+  if (($found -ccontains 'out of scope') -and ($line -notmatch 'docs/DECISIONS\.md')) { $problems.Add("$id is 'out of scope' but cites no owner decision in docs/DECISIONS.md") }
   if (($how -cmatch 'automated (live|mock)') -and -not $hasProof) { $problems.Add("$id claims '$how' but cites no test, workflow or script") }
   # "automated live" must name a test method that drives the real Boo.exe (live journeys, live smoke, ui smoke, perf).
   # demo-ci (mock AI) and unit tests never make a row live.
