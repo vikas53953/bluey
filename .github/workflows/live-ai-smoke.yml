@@ -152,6 +152,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      # The key scan's workflow check reads YAML with PyYAML (hash-pinned) and fails closed without it.
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json

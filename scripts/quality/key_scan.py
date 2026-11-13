@@ -315,67 +315,15 @@ def step_run(path, secret_envs=()):
     ])
 
 
-def _parse_steps(text):
-    """Steps of every job as dicts of their top-level keys, each with '_job' (the job it belongs to). Block scalars keep
-    their exact text; nested mappings (`with:`, `env:`) become dicts of their keys. Anything this reader does not
-    understand makes the check fail."""
-    lines = text.splitlines()
-    steps, i, job = [], 0, None
-    while i < len(lines):
-        jm = re.match(r'^  ([A-Za-z_][\w-]*):\s*$', lines[i])
-        if jm and any(l.strip() == 'jobs:' for l in lines[:i]):
-            job = jm.group(1)
-        m = re.match(r'^(\s*)- (\S.*)$', lines[i])
-        if not m or not re.match(r'^["\']?[A-Za-z][\w-]*["\']?:', m.group(2)):
-            i += 1
-            continue
-        indent = len(m.group(1)) + 2
-        body = [' ' * indent + m.group(2)]
-        i += 1
-        while i < len(lines) and (not lines[i].strip() or len(lines[i]) - len(lines[i].lstrip()) >= indent):
-            body.append(lines[i])
-            i += 1
-        step, j = {'_job': job}, 0
-        while j < len(body):
-            line = body[j]
-            km = re.match(r'^ {%d}["\']?([A-Za-z][\w-]*)["\']?:\s*(.*)$' % indent, line)
-            j += 1
-            if not km:
-                continue
-            key, value = km.group(1), km.group(2).strip()
-            child = []
-            while j < len(body) and (not body[j].strip() or len(body[j]) - len(body[j].lstrip()) > indent):
-                child.append(body[j])
-                j += 1
-            while child and not child[-1].strip():
-                child.pop()
-            if value in ('|', '|-', '>', '>-'):
-                pad = min(len(c) - len(c.lstrip()) for c in child if c.strip()) if child else 0
-                step[key] = '\n'.join(c[pad:] for c in child)
-            elif not value and child:
-                sub = {}
-                for c in child:
-                    cm = re.match(r'^\s*["\']?([A-Za-z][\w-]*)["\']?:\s*(.*)$', c)
-                    if cm:
-                        sub[cm.group(1)] = cm.group(2).strip()
-                    elif c.strip():
-                        sub['<unreadable>'] = c.strip()
-                step[key] = sub
-            else:
-                step[key] = value + (' <multi-line>' if child else '')
-        steps.append(step)
-    return steps
-
-
-BLOCK_KEY = re.compile(r'^(\s*)(- )?[A-Za-z][\w-]*:\s*[|>][-+]?\s*$')
+BLOCK_KEY = re.compile(r'^(\s*)(- )?run:\s*\|-?\s*$')          # the only block scalar allowed: a run: | script
 KEY_LINE = re.compile(r'^\s*(- )?[A-Za-z][\w-]*:(?:\s+(?P<v>.*))?$')
 ITEM_LINE = re.compile(r'^\s*- (?P<v>.*)$')
 FLOW_LIST = re.compile(r'^\[\s*(?:"?[\w./*-]+"?\s*(?:,\s*"?[\w./*-]+"?\s*)*)?\]$')
 
 
 def _plain(value):
-    """A value the text reader reads exactly as YAML does: empty, a comment, a plain or quoted scalar without escapes,
-    a ${{ expression }}, or a flow list of plain words."""
+    """A simple value: empty, a comment, a plain or quoted scalar without escapes, a ${{ expression }}, or a flow
+    list of plain words."""
     v = (value or '').strip()
     if not v or v.startswith('#') or v.startswith('${{'):
         return True
@@ -392,10 +340,10 @@ def _plain(value):
 
 
 def grammar_problems(text):
-    """Allow-list: every line outside `run: |` style block scalars must be blank, a comment, `key: plain-value`,
+    """Allow-list: every line outside `run: |` scripts must be blank, a comment, `key: plain-value`,
     `- key: plain-value`, or `- plain-item`, with unquoted keys of letters, digits, `_` and `-`. Anything else
-    (quoted or escaped keys, `? ` complex keys, `!` tags, anchors, aliases, merges, flow mappings, documents, tabs)
-    fails, so the text reader below can never be blind to a step."""
+    (other block scalars such as `path: |`, quoted or escaped keys, `? ` complex keys, `!` tags, anchors, aliases,
+    merges, flow mappings, documents, tabs) fails. Defence in depth: the meaning is read by PyYAML below."""
     bad, block = [], None
     for n, line in enumerate(text.splitlines(), 1):
         if '\t' in line[:len(line) - len(line.lstrip())]:
@@ -430,7 +378,8 @@ def grammar_problems(text):
 
 
 def _yaml_steps(text):
-    """(job, steps) for every job, read by PyYAML exactly as a YAML parser reads it; None when PyYAML is missing."""
+    """(doc, [(job, body, steps)]) read by PyYAML exactly as a YAML parser reads it; None when PyYAML is missing,
+    'invalid' when the text is not YAML."""
     try:
         import yaml
     except ImportError:
@@ -447,8 +396,32 @@ def _yaml_steps(text):
     return doc, out
 
 
+WORKFLOW_KEYWORDS = {'jobs', 'steps', 'uses', 'with', 'path', 'run', 'if', 'id', 'name', 'env', 'shell',
+                     'working-directory', 'defaults', 'needs', 'runs-on', 'on', 'continue-on-error', 'strategy',
+                     'container', 'services', 'outputs', 'timeout-minutes', 'permissions', 'concurrency'}
+
+
+def case_problems(node, where='top'):
+    """Keys that are not strings (other than YAML's `on:` read as true) or that differ only in case from a workflow
+    keyword (`Uses:`, `STEPS:`): the check reads keys exactly, so such a key must fail rather than be skipped."""
+    bad = []
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k is True and where == 'top':
+                pass
+            elif not isinstance(k, str):
+                bad.append(f'{where}: a key that is not text ({type(k).__name__})')
+            elif k.lower() in WORKFLOW_KEYWORDS and k != k.lower():
+                bad.append(f'{where}: key {k!r} differs only in case from {k.lower()!r}')
+            bad += case_problems(v, f'{where}.{k}')
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            bad += case_problems(v, f'{where}[{i}]')
+    return bad
+
+
 def _check_pair(wf_name, prev, s, problems):
-    """One upload step and the step right before it, both as plain dicts (from PyYAML or the text reader)."""
+    """One upload step and the step right before it, both as read by PyYAML."""
     name = s.get('name', s.get('uses'))
     w = s.get('with') if isinstance(s.get('with'), dict) else {}
     path = w.get('path') if isinstance(w.get('path'), str) else ''
@@ -465,7 +438,7 @@ def _check_pair(wf_name, prev, s, problems):
         problems.append(f'{wf_name}: "{name}": the scan step env may only hold NAME_KEY: ${{{{ secrets.X }}}}')
         return
     secret_envs = sorted(env)
-    extra_keys = {str(k) for k in prev} - {'_job', 'name', 'id', 'if', 'shell', 'env', 'run'}
+    extra_keys = {str(k) for k in prev} - {'name', 'id', 'if', 'shell', 'env', 'run'}
     run = prev.get('run')
     if (not isinstance(run, str) or run.rstrip('\n') != step_run(path, secret_envs) or prev.get('shell') != 'pwsh'
             or prev.get('id') != scan_id(path) or extra_keys):
@@ -482,30 +455,27 @@ def _check_pair(wf_name, prev, s, problems):
         problems.append(f'{wf_name}: "{name}": its scan step must have if: {allowed.get(cond) or "(none)"}')
 
 
-def check_workflows(folder=None, out=print, use_yaml=True, use_grammar=True):
-    """Two layers, both must pass: (1) the allow-list grammar on every line of every workflow; (2) the meaning, read
-    by PyYAML when installed (windows-ci installs it hash-pinned, so the required check is authoritative), else by the
-    text reader, which the grammar keeps exact."""
+def check_workflows(folder=None, out=print, use_grammar=True):
+    """Two layers, both must pass: (1) the allow-list grammar on every line of every workflow; (2) the meaning, read by
+    PyYAML (hash-pinned from scripts/ci/requirements-ci.txt in every workflow that scans). No PyYAML = fail closed."""
     folder = folder or WORKFLOWS
-    problems, uploads, layer = [], 0, 'grammar + PyYAML'
+    problems, uploads = [], 0
     for wf in sorted(pathlib.Path(folder).glob('*.y*ml')):
         text = wf.read_text(encoding='utf-8')
-        for n in (grammar_problems(text) if use_grammar else []):
+        exempt = wf.name == 'release.yml'                 # documented gap (RULES.md): release uploads not scanned yet
+        for n in (grammar_problems(text) if use_grammar and not exempt else []):
             problems.append(f'{wf.name}:{n}: the key-scan check only accepts plain block YAML here (no quoted or '
-                            'escaped keys, ? keys, tags, anchors, aliases, merges or flow mappings)')
-        parsed = _yaml_steps(text) if use_yaml else None
+                            'escaped keys, ? keys, tags, anchors, aliases, merges, flow mappings, or block scalars '
+                            'other than run: |)')
+        parsed = _yaml_steps(text)
+        if parsed is None:
+            problems.append('PyYAML is not installed: install scripts/ci/requirements-ci.txt (hash-pinned) first')
+            break
         if parsed == 'invalid':
             problems.append(f'{wf.name}: not valid YAML')
             continue
-        if parsed is None:
-            layer = 'grammar + text reader (PyYAML not installed)'
-            jobs = {}
-            for s in _parse_steps(text):
-                jobs.setdefault(s.get('_job'), []).append(s)
-            jobs = [(j, {}, steps) for j, steps in jobs.items()]
-            doc = {}
-        else:
-            doc, jobs = parsed
+        doc, jobs = parsed
+        problems += [f'{wf.name}: {b}' for b in case_problems(doc)]
         scanned = False
         for job, body, steps in jobs:
             for i, s in enumerate(steps):
@@ -530,9 +500,9 @@ def check_workflows(folder=None, out=print, use_yaml=True, use_grammar=True):
     for p in problems:
         out(f'::error::{RULE} workflow check: {p}')
     if problems:
-        out(f'KEY_SCAN_WORKFLOWS_FAILED {len(problems)} problem(s) ({layer})')
+        out(f'KEY_SCAN_WORKFLOWS_FAILED {len(problems)} problem(s)')
         return 1
-    out(f'KEY_SCAN_WORKFLOWS_OK {uploads} upload step(s) checked ({layer})')
+    out(f'KEY_SCAN_WORKFLOWS_OK {uploads} upload step(s) checked (grammar + PyYAML)')
     return 0
 
 
@@ -850,12 +820,15 @@ def self_test(out=print):
                             .replace('--preflight --delete', '--preflight --secret-env X_KEY --delete'))):
             (wf / 'a.yml').write_text(text, encoding='utf-8')
             check(f'workflow check fails: {name}', check_workflows(wf, out=quiet) == 1)
-            check(f'workflow check fails without PyYAML too: {name}', check_workflows(wf, out=quiet, use_yaml=False) == 1)
+            if not grammar_problems(text):                 # valid plain YAML: the meaning layer alone must catch it
+                check(f'the PyYAML meaning layer alone catches: {name}',
+                      check_workflows(wf, out=quiet, use_grammar=False) == 1)
         try:
-            import yaml  # noqa: F401  (only to know whether the meaning layer can be tested on this machine)
+            import yaml  # noqa: F401
             yaml_here = True
         except ImportError:
             yaml_here = False
+        check('PyYAML is installed (the workflow check needs it)', yaml_here)
         flow = '      - {uses: actions/upload-artifact@v4, with: {path: s}}\n'
         scan_marker = '        id: ' + scan_id('out/x') + '\n'
         for name, text in (('jobs: with a comment, then a flow step',
@@ -869,17 +842,35 @@ def self_test(out=print):
                            ('flow step list on the next line', wf_text().replace('    steps:\n', '    steps:\n      [{uses: actions/upload-artifact@v4, with:\n        {path: s}}]\n    other:\n', 1)),
                            ('escaped working-directory on the scan step', wf_text().replace(scan_marker, scan_marker + '        "w\\x6frking-directory": decoy\n')),
                            ('complex-key working-directory on the scan step', wf_text().replace(scan_marker, scan_marker + '        ? working-directory\n        : decoy\n')),
-                           ('tagged env on the scan step', wf_text().replace(scan_marker, scan_marker + '        !!str env:\n          PATH: tools\n'))):
+                           ('tagged env on the scan step', wf_text().replace(scan_marker, scan_marker + '        !!str env:\n          PATH: tools\n')),
+                           ('upload path hidden in a path: | block', wf_text().replace(
+                               '          path: out/x\n', '          path: |\n            out\n            path: out/x\n')),
+                           ('quoted uses key', wf_text('no-scan').replace('        uses:', '        "uses":')),
+                           ('flow-style upload step', wf_text().replace('      - name: Upload x\n', flow + '      - name: Upload x\n'))):
             (wf / 'a.yml').write_text(text, encoding='utf-8')
             check(f'workflow check fails: {name}', check_workflows(wf, out=quiet) == 1)
-            check(f'workflow check fails without PyYAML too: {name}', check_workflows(wf, out=quiet, use_yaml=False) == 1)
-            if yaml_here:
-                check(f'the PyYAML meaning layer alone also catches: {name}',
-                      check_workflows(wf, out=quiet, use_grammar=False) == 1)
+            check(f'the grammar alone rejects: {name}', bool(grammar_problems(text)))
+            check(f'the PyYAML meaning layer alone catches: {name}', check_workflows(wf, out=quiet, use_grammar=False) == 1)
+        for name, text in (('capital Uses: in an unscanned upload', wf_text('no-scan').replace('        uses:', '        Uses:')),
+                           ('capital Steps: hides the steps', wf_text().replace('    steps:\n', '    Steps:\n')),
+                           ('folded run: > scan block', wf_text().replace('        run: |\n', '        run: >\n')),
+                           ('continuation line after the path',
+                            wf_text().replace('          path: out/x\n', '          path: out/x\n\n            - evil\n'))):
+            (wf / 'a.yml').write_text(text, encoding='utf-8')
+            check(f'workflow check fails: {name}', check_workflows(wf, out=quiet) == 1)
+            check(f'the PyYAML meaning layer alone catches: {name}', check_workflows(wf, out=quiet, use_grammar=False) == 1)
         (wf / 'a.yml').write_text(wf_text(), encoding='utf-8')
-        if yaml_here:
-            check('generated scan step passes the PyYAML layer alone', check_workflows(wf, out=quiet, use_grammar=False) == 0)
-        check('generated scan step passes without PyYAML too', check_workflows(wf, out=quiet, use_yaml=False) == 0)
+        check('generated scan step passes the PyYAML layer alone', check_workflows(wf, out=quiet, use_grammar=False) == 0)
+        check('the grammar alone accepts the generated scan step', grammar_problems(wf_text()) == [])
+        saved = sys.modules.get('yaml', None)
+        sys.modules['yaml'] = None                        # import yaml now raises ImportError
+        try:
+            check('a missing PyYAML fails the workflow check closed', check_workflows(wf, out=quiet) == 1)
+        finally:
+            if saved is None:
+                del sys.modules['yaml']
+            else:
+                sys.modules['yaml'] = saved
 
         # the PowerShell wrapper itself: safe=true only after exit 0 or 10; anything else empties the path
         shell = shutil.which('pwsh') or shutil.which('powershell')
