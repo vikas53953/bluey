@@ -96,9 +96,9 @@ stateDiagram-v2
 
 | # | From → To | Event | Cite | Label |
 | --- | --- | --- | --- | --- |
-| R1 | Hidden → Revealing | Pointer enters the notch strip | `src/Boo.App/NotchWindow.xaml.cs:1367-1371` → `src/Boo.Core/NotchFace.cs:311-315`, `:380-382`, `:392`, `:347` | code, live (j1 `revealed=True`) |
+| R1 | Hidden → Revealing | Pointer enters the notch strip | `src/Boo.App/NotchWindow.xaml.cs:1367-1371` → `src/Boo.Core/NotchFace.cs:311-315`, `:380-382`, `:392`, `:347` | code, live (j1 `revealed=True`; the harness reads the face state, not the reveal phase) |
 | R2 | Revealing → Revealed | 240 ms pass | `src/Boo.Core/NotchFace.cs:347`, `:395-396` | code |
-| R3 | Revealed → RetractPending | Pointer leaves and nothing pins | `src/Boo.App/NotchWindow.xaml.cs:1374-1378` → `src/Boo.Core/NotchFace.cs:317-324`, `:351` | code, live (j1 `retracted=True`) |
+| R3 | Revealed → RetractPending | Pointer leaves and nothing pins | `src/Boo.App/NotchWindow.xaml.cs:1374-1378` → `src/Boo.Core/NotchFace.cs:317-324`, `:351` | code, live (j1 `retracted=True`; face state, the phase is inferred) |
 | R4 | Revealing → RetractPending | Pointer left mid-reveal: the reveal finishes, then the 900 ms delay starts from whichever is later (leave or reveal end) | `src/Boo.Core/NotchFace.cs:349`, `:398-403` | code |
 | R5 | RetractPending → Retracting | 900 ms pass | `src/Boo.Core/NotchFace.cs:350-352` | code |
 | R6 | Retracting → Hidden | 160 ms pass | `src/Boo.Core/NotchFace.cs:352-353` | code, live (j1 `retracted=True`) |
@@ -122,11 +122,13 @@ The face is recomputed on every flag change (`src/Boo.App/NotchWindow.xaml.cs:49
 (`src/Boo.App/NotchWindow.xaml.cs:524-529`, `:1269`). `UserHidden` exists in the resolver but **no caller sets it**
 (searched `src/`, only `src/Boo.Core/NotchFace.cs:18`, `:44`).
 
-**Capture lasts through the AI call, not only the screenshot.** On a typed question, a voice `screen_help` tool and a focus
+**Capture lasts through the AI call, not only the screenshot.** On a typed question answered on the plain-text path, a voice `screen_help` tool and a focus
 check, the capture operation is disposed in a `finally` after the AI answers (`src/Boo.App/MainWindow.xaml.cs:2029`,
 `:822`, `:845`; `:2394`, `:2432-2434`; `:1528`, `:1582`). Because Capture outranks Thinking, the Thinking face is not
 seen during those calls; the notch shows Capture until the answer (or the cancel) arrives. If no frame is taken, the
-operation ends at once (`:752-755`).
+operation ends at once (`:752-755`). When a typed question is handed to the voice session instead (speech on), the
+`finally` runs as soon as the text is sent (`:797-801`, `:843-845`), so Capture ends before the reply and Thinking stays
+visible while waiting (`:846`).
 
 ```mermaid
 stateDiagram-v2
@@ -160,7 +162,7 @@ the reveal timeline when nothing else is set. Every arrow is in the table:
 | --- | --- | --- | --- | --- |
 | F1 | Pointer enters | `hovered = true` → `Hover` (if nothing higher) | `src/Boo.App/NotchWindow.xaml.cs:1367-1371`; `src/Boo.Core/NotchFace.cs:50` | code, live (j1 `state='Hover'`) |
 | F2 | Pointer leaves | `hovered = false` → `Idle` while the timeline is not Hidden, then `Hidden` | `src/Boo.App/NotchWindow.xaml.cs:1374-1378`, `:515`, `:654-659`; `src/Boo.Core/NotchFace.cs:51-52` | code, live (j1 `retracted=True`) |
-| F3 | Send (typed question) | `Thinking = true`, `Responding = false`. Every Send first drops any old voice session (`BeginRequest`). With speech on (the default, `src/Boo.Core/Contracts.cs:36`) and not muted, Send then opens a new voice session and hands the text to it; the voice rows F7-F10b take over. The plain-text path (F4) runs only when speech is off or muted, or when that connect fails with `InvalidOperationException` / `HttpRequestException`; other failures (timeout, cancel) end in F6 | `src/Boo.App/MainWindow.xaml.cs:728-743`, `:766-801`, `:1964-1974` | code |
+| F3 | Send (typed question) | `Thinking = true`, `Responding = false`. Every Send first drops any old voice session (`BeginRequest`). With speech on (the default, `src/Boo.Core/Contracts.cs:36`) and not muted, Send then opens a new voice session and hands the text to it; the voice rows F7-F10b take over. The plain-text path (F4) runs when speech is off or muted, or when that connect fails with `InvalidOperationException` / `HttpRequestException`; that includes the 15 s connect timeout and classified auth/quota/server failures, which are `ProviderException`, a kind of `InvalidOperationException`. Only a cancel, or a failure sending the text after connect, ends in F6 | `src/Boo.App/MainWindow.xaml.cs:728-743`, `:766-801` (filter `:779`), `:836`, `:1964-1974`; `src/Boo.Core/ProviderFailure.cs:32`; `src/Boo.Providers/RealtimeClient.cs:358-372`, `:384-390` | code |
 | F4 | Reply (typed, plain-text path) | `Thinking = false`, `Responding = true` held 4 s | `src/Boo.App/MainWindow.xaml.cs:950-953` | code, live (j2 reply `'Paris'`) |
 | F5 | Responding moment expires | `Responding = false` by the moment timer | `src/Boo.App/MainWindow.xaml.cs:175-202`; `src/Boo.Core/FaceMomentSchedule.cs:43-50` | code |
 | F6 | Reply failed / cancelled / stale (typed) | `Thinking = false` only if the request is still current **and the text was not handed to the voice session** (`!handedToRealtime`); a newer request or Stop owns the face otherwise | `src/Boo.App/MainWindow.xaml.cs:829-850` (condition `:846`) | code |
@@ -169,7 +171,7 @@ the reveal timeline when nothing else is set. Every arrow is in the table:
 | F9 | Voice: `response.done` | `Thinking = tools in flight > 0`; `Responding` held for the remaining playback (`FaceMoments.AfterReplyDone`) | `src/Boo.App/MainWindow.xaml.cs:2297-2302`; `src/Boo.Core/FaceMoments.cs:22-30` | code |
 | F10 | Voice: disconnect / error | `StopListening` clears `Thinking` and `Responding`; a running focus session is paused (`FocusPaused = true`) | `src/Boo.App/MainWindow.xaml.cs:2304-2315`, `:945-947` | code |
 | F10b | Voice tool `go_to_sleep` | after the spoken reply finishes (or an 8 s fallback) the voice session ends through `StopListening`: Thinking and Responding cleared, mic off; focus untouched | `src/Boo.App/MainWindow.Voice.cs:64-66`, `:76-81`, `:84-99`, `:104`, `:124-137` | code |
-| F11 | Voice tool call (`screen_help`) | `Thinking = true`; its answer goes through `RenderReply` (`Thinking = false`, `Responding = true`, as F4); later reply events also clear it; a cancelled voice undo clears it in `finally` | `src/Boo.App/MainWindow.xaml.cs:2364-2366`, `:2405`; `src/Boo.App/MainWindow.Edits.cs:174-182` | code |
+| F11 | Voice tool call (`screen_help`) | `Thinking = true`; its answer goes through `RenderReply` (`Thinking = false`, `Responding = true`, as F4); later reply events also clear it; every voice undo resets it in its `finally` | `src/Boo.App/MainWindow.xaml.cs:2364-2366`, `:2405`; `src/Boo.App/MainWindow.Edits.cs:174-182` | code |
 | F12 | Microphone on | notch `microphoneActive = true` → `Listening` | `src/Boo.App/MainWindow.Talk.cs:260-261`; `src/Boo.App/MainWindow.xaml.cs:884-885`; `src/Boo.App/NotchWindow.xaml.cs:355-359`, `:505`; `src/Boo.Core/NotchFace.cs:43` | code |
 | F13 | Microphone off | `microphoneActive = false` | `src/Boo.App/MainWindow.Talk.cs:396-397`; `src/Boo.App/MainWindow.xaml.cs:297`, `:895`, `:926` | code |
 | F14 | Capture starts | tracker gets an active display → `SetCaptureActivity(true)` → `Capture` | `src/Boo.App/MainWindow.xaml.cs:2029-2030` (typed / voice tool), `:1598-1599` (focus check), `:702-711`; `src/Boo.App/NotchWindow.xaml.cs:348-353`, `:504`; `src/Boo.Core/NotchFace.cs:42` | code, live (j6 `Hidden>Capture` ×N) |
@@ -290,7 +292,7 @@ stateDiagram-v2
 | # | Event | Effect | Cite | Label |
 | --- | --- | --- | --- | --- |
 | U1 | The user types or says "undo" | the request is classified as Undo; the **file** journal wins if it holds something, else the field journal | `src/Boo.App/MainWindow.xaml.cs:760-764`, `:2267-2275`; `src/Boo.App/MainWindow.Edits.cs:71-85` | code, live (j5 typed "undo" → `Undo: Delete file`) |
-| U2 | Nothing recorded | message, no card | `src/Boo.App/MainWindow.Edits.cs:81-84`; `src/Boo.Core/UndoJournal.cs:90-93`; `src/Boo.Core/FileUndoJournal.cs:70` | code |
+| U2 | Nothing recorded | message, no card (the app checks `HasPendingUndo` first, so the journals' own "nothing" plans are not reached from here) | `src/Boo.App/MainWindow.Edits.cs:74`, `:81-84` | code |
 | U3 | File undo planned | the reverse step (write the old text, or delete a file Boo created) is shown as an `Undo:` card; blocked if the file changed since | `src/Boo.App/MainWindow.Edits.cs:455-478`; `src/Boo.Core/FileUndoJournal.cs:67-106` | code, live (j5 `undoPreview='Undo: Delete file'`) |
 | U4 | Field undo planned | plan refuses on a newer change, an ambiguous Undo control, or an empty "before" value | `src/Boo.App/MainWindow.Edits.cs:93-123`; `src/Boo.Core/UndoJournal.cs:87-195` | code (demo-ci, mock: `02-undo-*`) |
 | U5 | Undo approved (field) | after read-back the journal is cleared, so a second undo has nothing to do | `src/Boo.App/MainWindow.Edits.cs:227-233`, `:327-357`; `src/Boo.Core/UndoJournal.cs:197-213` | code |
