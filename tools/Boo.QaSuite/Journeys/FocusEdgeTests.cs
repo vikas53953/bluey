@@ -46,10 +46,14 @@ public sealed class FocusEdgeTests : IClassFixture<NoKeyFixture>
 
             Start("j13 replaced session");
             var replaced = Assert.Single(store.List().Where(s => s.Task == "j13 replaced session"));
+            var observationStart = recorder.MarkObservationWindow();
             var replacing = recorder.Mark();
             Start("j13 replacement session");
             var happy = BooAppFixture.WaitUntil(() => recorder.HasSeenSince("Happy", replacing), TimeSpan.FromSeconds(3));
             var sessions = store.List();
+            var health = recorder.ObservationFailureSince(observationStart);
+            _boo.WriteObservation("qa-q13-observation-health", health ?? "Healthy: action boundaries, read durations and observation gaps within 100 ms.");
+            Assert.Null(health);
             Assert.False(happy, "Replacing a running session emitted the completed-session Happy face.");
             Assert.Equal(3, sessions.Count);
             Assert.Equal(FocusStatus.Ended, Assert.Single(sessions.Where(s => s.Id == replaced.Id)).Status);

@@ -24,15 +24,18 @@ public sealed class HoverEdgeTests : IClassFixture<NoKeyFixture>
         Assert.True(SystemParametersInfo(0x1042, 0, ref wasOn, 0), "Cannot read Windows animation effects.");
         var trace = new List<string>();
         var clock = Stopwatch.StartNew();
-        var samples = new List<(long At, string Face)>();
+        var samples = new List<(long Start, long At, string Face)>();
+        var actionStarts = new Dictionary<long, long>();
         var points = _boo.WaitForNotch(QaUi.UiTimeout).BoundingRectangle;
         var hover = new Point(points.Left + points.Width / 2, points.Top + 2);
         var away = new Point(hover.X, hover.Y + 300);
         void Sample()
         {
+            var start = clock.ElapsedMilliseconds;
             var face = QaUi.NotchState(_boo);
-            samples.Add((clock.ElapsedMilliseconds, face));
-            trace.Add($"{clock.ElapsedMilliseconds} observed {face}");
+            var end = clock.ElapsedMilliseconds;
+            samples.Add((start, end, face));
+            trace.Add($"read [{start},{end}] observed {face}");
         }
         void ObserveUntil(long deadline)
         {
@@ -41,11 +44,27 @@ public sealed class HoverEdgeTests : IClassFixture<NoKeyFixture>
         }
         long Move(Point point, string action)
         {
-            trace.Add($"{clock.ElapsedMilliseconds} action-begin {action}");
+            var begin = clock.ElapsedMilliseconds;
+            trace.Add($"{begin} action-begin {action}");
             Mouse.MoveTo(point);
             var at = clock.ElapsedMilliseconds;
             trace.Add($"{at} action-end {action}");
+            actionStarts[at] = begin;
             return at;
+        }
+        (long Lower, long Upper) Transition(long action, string before, string after)
+        {
+            var begin = actionStarts[action];
+            var index = samples.FindIndex(s => s.Start >= begin && s.Face == after);
+            Assert.True(index > 0, $"SETUP: no bounded {before}>{after} transition after action [{begin},{action}].");
+            var previous = samples[index - 1];
+            var current = samples[index];
+            Assert.Equal(before, previous.Face);
+            var lower = Math.Max(begin, previous.Start);
+            var upper = current.At;
+            trace.Add($"transition {before}>{after} bounded [{lower},{upper}]");
+            Assert.InRange(upper - lower, 0L, 35L);
+            return (lower, upper);
         }
         void FreshHidden(string branch)
         {
@@ -90,6 +109,21 @@ public sealed class HoverEdgeTests : IClassFixture<NoKeyFixture>
             ObserveUntil(a + 1700);
             Continuous(a, clock.ElapsedMilliseconds);
             Ordered(a, "Hover", "Idle", "Hidden");
+            var entryA = Transition(a, "Hidden", "Hover");
+            var leaveA = Transition(left, "Hover", "Idle");
+            Assert.True(entryA.Upper < actionStarts[left], "SETUP: Hover was not observed before leave.");
+            Assert.True(leaveA.Upper < entryA.Lower + 240, "SETUP: leave cannot be placed entirely inside reveal.");
+            var hiddenIndex = samples.FindIndex(s => s.Start >= leaveA.Upper && s.Face == "Hidden");
+            Assert.True(hiddenIndex > 0);
+            var hiddenLower = samples[hiddenIndex - 1].Start;
+            var hiddenUpper = samples[hiddenIndex].At;
+            Assert.Equal("Idle", samples[hiddenIndex - 1].Face);
+            Assert.InRange(hiddenUpper - hiddenLower, 0L, 35L);
+            // 240 reveal + 900 delayed countdown + 160 retract; allow one 60 Hz frame (20 ms).
+            // This rejects the earlier Hidden that a countdown incorrectly starting on leave would produce.
+            Assert.True(hiddenLower >= entryA.Lower + 1300 - 20 && hiddenUpper <= entryA.Upper + 1300 + 20,
+                $"Hidden interval [{hiddenLower},{hiddenUpper}] outside delayed-countdown bounds from entry [{entryA.Lower},{entryA.Upper}].");
+            trace.Add($"first Hidden bounded [{hiddenLower},{hiddenUpper}]; expected entry + 1300 ms, frame tolerance 20 ms");
             _boo.CaptureScreen("qa-q7-a-retracted");
 
             foreach (var delay in new[] { 400, 950 })
@@ -106,6 +140,20 @@ public sealed class HoverEdgeTests : IClassFixture<NoKeyFixture>
                 var end = clock.ElapsedMilliseconds;
                 Continuous(leave, end);
                 Ordered(entered, "Hover", "Idle", "Hover");
+                var entryBounds = Transition(entered, "Hidden", "Hover");
+                var leaveBounds = Transition(leave, "Hover", "Idle");
+                var returnBounds = Transition(reenter, "Idle", "Hover");
+                Assert.True(actionStarts[leave] >= entryBounds.Upper + 240,
+                    "SETUP: reveal completion is not bounded before leave.");
+                var earliestReturn = returnBounds.Lower - leaveBounds.Upper;
+                var latestReturn = returnBounds.Upper - leaveBounds.Lower;
+                trace.Add($"return relative to leave bounded [{earliestReturn},{latestReturn}]");
+                if (delay == 950)
+                    Assert.True(earliestReturn >= 900 && latestReturn < 1060,
+                        "SETUP: re-entry uncertainty does not fit entirely inside the 900-1060 ms retract interval.");
+                else
+                    Assert.True(earliestReturn >= 0 && latestReturn < 900,
+                        "SETUP: re-entry uncertainty does not fit entirely inside the delay interval.");
                 Assert.DoesNotContain(samples.Where(s => s.At >= leave && s.At <= end), s => s.Face == "Hidden");
                 _boo.CaptureScreen("qa-q7-reenter-" + delay);
             }

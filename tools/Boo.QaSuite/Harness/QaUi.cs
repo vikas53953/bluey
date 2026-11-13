@@ -170,10 +170,32 @@ public sealed class NotchStateRecorder : IDisposable
     private readonly object _gate = new();
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
     private readonly List<(long At, string State)> _events = new();
+    private readonly List<(long Start, long End, string State)> _observations = new();
     public long Mark() { lock (_gate) return _events.Count; }
     public bool HasSeenSince(string state, long mark)
     {
         lock (_gate) return _events.Skip(checked((int)mark)).Any(e => e.State == state);
+    }
+    public long MarkObservationWindow() => _clock.ElapsedMilliseconds;
+    public string? ObservationFailureSince(long start)
+    {
+        var end = _clock.ElapsedMilliseconds;
+        (long Start, long End, string State)[] observations;
+        lock (_gate) observations = _observations.Where(o => o.End >= start && o.Start <= end).ToArray();
+        File.WriteAllLines(Path.ChangeExtension(_file, ".health.txt"),
+            observations.Select(o => $"read [{o.Start},{o.End}] observed {o.State}"));
+        if (observations.Length < 2) return "Insufficient recorder observations.";
+        if (observations[0].Start > start + 100 || observations[^1].End < end - 100)
+            return "Recorder did not cover both action-window boundaries within 100 ms.";
+        for (var i = 0; i < observations.Length; i++)
+        {
+            var observation = observations[i];
+            if (observation.State.Length == 0 || observation.End - observation.Start > 100)
+                return $"Failed or slow face read [{observation.Start},{observation.End}].";
+            if (i > 0 && observation.Start - observations[i - 1].End > 100)
+                return $"Recorder observation gap before {observation.Start} exceeded 100 ms.";
+        }
+        return null;
     }
     private volatile bool _stop;
 
@@ -204,6 +226,7 @@ public sealed class NotchStateRecorder : IDisposable
         while (!_stop)
         {
             var state = string.Empty;
+            var readStart = _clock.ElapsedMilliseconds;
             try
             {
                 var notch = _boo.App.GetAllTopLevelWindows(automation).FirstOrDefault(w =>
@@ -217,6 +240,7 @@ public sealed class NotchStateRecorder : IDisposable
             {
                 // Boo is busy or exiting; sample again.
             }
+            lock (_gate) _observations.Add((readStart, _clock.ElapsedMilliseconds, state));
             if (state.Length > 0 && state != last)
             {
                 last = state;
