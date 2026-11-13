@@ -9,36 +9,20 @@
        in src/BannedSymbols.txt; RS0030 is an error through TreatWarningsAsErrors. The condition reads only reserved
        MSBuild properties, so a project cannot switch it off by setting a property. tests/ and tools/ are not judged
        (tests/ is the frozen oracle). BooBannedApiCanary is set only by scripts/quality/canary/Canary.csproj, which
-       proves every line fires; BooBannedApiProbe is set only by scripts/quality/banned_apis.py, which compiles the
-       same canary calls inside every src/ project to prove nothing in that project silences them. -->
+       proves every line fires. What the compiler really got (analyzers, this list, analyzer configs, options) and the
+       RS0030 results in the error log below are judged from windows-ci's build facts by scripts/quality/banned_apis.py
+       judge; this file and the workflow themselves are HANDOFF known issue 0. -->
   <ItemGroup Condition="$([MSBuild]::MakeRelative('$(MSBuildThisFileDirectory)', '$(MSBuildProjectDirectory)').Replace('\', '/').ToLowerInvariant().StartsWith('src/')) Or '$(BooBannedApiCanary)' == 'true'">
     <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0" PrivateAssets="all" />
     <AdditionalFiles Include="$(MSBuildThisFileDirectory)src/BannedSymbols.txt" />
   </ItemGroup>
-  <!-- Not in WPF's temporary markup-pass copy (*_wpftmp): it would fail first and stop the real compile. -->
-  <ItemGroup Condition="'$(BooBannedApiProbe)' == 'true' And !$(MSBuildProjectName.EndsWith('_wpftmp'))">
-    <Compile Include="$(MSBuildThisFileDirectory)scripts/quality/canary/Canary.Core.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)scripts/quality/canary/Canary.Wpf.cs" Condition="'$(UseWPF)' == 'true'" />
-    <Compile Include="$(MSBuildThisFileDirectory)scripts/quality/canary/Canary.WinForms.cs" Condition="'$(UseWindowsForms)' == 'true'" />
-  </ItemGroup>
-  <!-- BooNoAnalyzerConfig is set only by scripts/quality/banned_apis.py product: it compiles each src/ project a second
-       time with NO analyzer config files (.editorconfig, .globalconfig, generated and SDK ones), right before the
-       compiler runs, and requires the same RS0030 diagnostics as the real build. The script also reads the compiler
-       call MSBuild really ran (binary log) to prove the configs, response files and compiler it got. What it cannot
-       guard is this file and the workflow themselves (HANDOFF known issue 0). -->
-  <Target Name="_BooDropAnalyzerConfig" BeforeTargets="CoreCompile" Condition="'$(BooNoAnalyzerConfig)' == 'true'">
-    <ItemGroup>
-      <EditorConfigFiles Remove="@(EditorConfigFiles)" />
-      <GlobalAnalyzerConfigFiles Remove="@(GlobalAnalyzerConfigFiles)" />
-    </ItemGroup>
+  <!-- Every compile of a src/ project writes a SARIF error log next to its other intermediate files (set just before
+       CoreCompile, when IntermediateOutputPath is known). The build facts record it with the compiler call; the judge
+       needs it for the RS0030 results, suppressed ones included. A compile without it fails the judge. -->
+  <Target Name="_BooErrorLog" BeforeTargets="CoreCompile"
+          Condition="$([MSBuild]::MakeRelative('$(MSBuildThisFileDirectory)', '$(MSBuildProjectDirectory)').Replace('\', '/').ToLowerInvariant().StartsWith('src/'))">
+    <PropertyGroup>
+      <ErrorLog>$(IntermediateOutputPath)$(MSBuildProjectName).rs0030.sarif,version=2.1</ErrorLog>
+    </PropertyGroup>
   </Target>
-  <!-- One SARIF error log per project when BooSarifDir is set (scripts/quality/banned_apis.py reads them). The
-       script writes a fresh .stamp there first, so the compiler always runs (an up-to-date project writes no log)
-       without a Clean that would delete outputs other projects reference. -->
-  <PropertyGroup Condition="'$(BooSarifDir)' != ''">
-    <ErrorLog>$(BooSarifDir)/$(MSBuildProjectName).sarif,version=2.1</ErrorLog>
-  </PropertyGroup>
-  <ItemGroup Condition="'$(BooSarifDir)' != ''">
-    <CustomAdditionalCompileInputs Include="$(BooSarifDir)/.stamp" />
-  </ItemGroup>
 </Project>
