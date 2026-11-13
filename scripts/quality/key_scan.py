@@ -184,6 +184,10 @@ def safe(path, secrets=()):
     """The path for printing: any part whose name holds a key in ANY view (raw, URL-decoded, UTF-16) or a secret value
     is replaced by `<hidden name sha256:...>`, so a key in a file name is never printed in any encoding."""
     text = path.as_posix() if isinstance(path, pathlib.Path) else str(path)
+    whole = text.encode('utf-8', errors='replace')
+    if scan_bytes(whole, (), secrets) and not any(scan_bytes(x.encode('utf-8', errors='replace'), (), secrets)
+                                                  for x in text.split('/')):
+        return f'<hidden path sha256:{hashlib.sha256(whole).hexdigest()[:12]}>'   # a key across a "/": hide it all
     parts = []
     for part in text.split('/'):
         raw = part.encode('utf-8', errors='replace')
@@ -263,7 +267,8 @@ def scan(path, secret_envs=(), delete=False, out=print, oracle=None):
     count, bad = 0, {}
     for f in files_under(path):
         count += 1
-        hits = [(k, label, 'file name', o, n) for part in f.parts         # each folder and file name on its own
+        names = list(f.parts) + [f.as_posix()]     # each folder/file name on its own, and the path joined with "/"
+        hits = [(k, label, 'file name', o, n) for part in names
                 for k, label, _, o, n in scan_bytes(part.encode('utf-8', errors='ignore'), allowed, secrets)]
         hits += scan_bytes(f.read_bytes(), allowed, secrets)   # an unreadable file raises: the caller fails closed
         if hits:
@@ -566,7 +571,7 @@ def scan_diff(base, out=print, cwd=None, oracle=None):
         return EXIT_FAIL_CLOSED
     file, line_no, in_hunk, hits = None, 0, False, []
     for name in filter(None, names.stdout.split(b'\0')):          # a key in an added or renamed file NAME
-        for part in name.split(b'/'):                             # each folder and file name on its own
+        for part in name.split(b'/') + [name]:                    # each name on its own, and the whole path
             for _, label, _, _, length in scan_bytes(part, allowed, ()):
                 hits.append((name.decode('utf-8', errors='replace'), 0, label, length))
     for raw in diff.stdout.split(b'\n'):
@@ -631,13 +636,17 @@ def self_test(out=print):
         return code, '\n'.join(lines)
 
     env = {k: v for k, v in os.environ.items() if k not in ('PYTHONUTF8', 'PYTHONIOENCODING')}
+    tmp_root = [None]
 
     def cli(*args, extra_env=None):
-        return subprocess.run([sys.executable, '-I', __file__, *map(str, args)], capture_output=True,
-                              env=dict(env, **(extra_env or {})))
+        here = pathlib.Path(tmp_root[0])
+        args = [a.relative_to(here).as_posix() if isinstance(a, pathlib.Path) else str(a) for a in args]
+        return subprocess.run([sys.executable, '-I', os.path.abspath(__file__), *args], capture_output=True,
+                              cwd=here, env=dict(env, **(extra_env or {})))
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = pathlib.Path(tmp)
+        tmp_root[0] = tmp
         clean = tmp / 'clean'
         clean.mkdir()
         tail = chars(alnum, 40)
@@ -691,6 +700,27 @@ def self_test(out=print):
                 encoded = urllib.parse.quote(core, safe='').replace('-', '%2D')
                 check(f'{label} ({form}) value not printed (any encoding)',
                       core not in text and core[6:30] not in text and encoded not in text)
+
+        # a key that crosses a "/" in the path is still found, and never printed
+        span = tmp / 'span'
+        bearer = 'Bear' + 'er ' + chars(alnum, 20)
+        (span / 'x' / bearer).mkdir(parents=True)
+        (span / 'x' / bearer / (chars(alnum, 20) + '.txt')).write_text('x', encoding='utf-8')
+        code, text = run(span)
+        check('a bearer token split over a folder and a file name fails', code == EXIT_HIT)
+        check('a bearer token across a "/" is never printed', bearer[7:] not in text)
+        slash_secret = chars(alnum, 16) + '/' + chars(alnum, 16)
+        span2 = tmp / 'span2'
+        a, b = slash_secret.split('/')
+        (span2 / 'x' / a).mkdir(parents=True)
+        (span2 / 'x' / a / (b + '.txt')).write_text('x', encoding='utf-8')
+        os.environ['KEYSCAN_SELFTEST_SLASH_KEY'] = slash_secret
+        try:
+            code, text = run(span2, secret_envs=['KEYSCAN_SELFTEST_SLASH_KEY'])
+        finally:
+            del os.environ['KEYSCAN_SELFTEST_SLASH_KEY']
+        check('a secret value holding "/" spread over folder and file names fails', code == EXIT_HIT)
+        check('a secret value across a "/" is never printed (whole path hidden)', a not in text and b not in text)
 
         # allowed only when written verbatim in a frozen test file that matches its oracle hash
         allowed_fake, other_fake = fakes['GitHub token'], 'gh' + 'p_' + chars(alnum, 36)
@@ -794,6 +824,18 @@ def self_test(out=print):
             check(f'the command line {[a if isinstance(a, str) else "PATH" for a in args]} is refused (non-zero, '
                   'never a pass)', proc.returncode not in (0, EXIT_HIT))
         check('--help alone prints usage and exits 2', cli('--help').returncode == 2)
+        keep = tmp / 'keep'
+        (keep / 'sub').mkdir(parents=True)
+        (keep / 'sub' / 'a.txt').write_text('x', encoding='utf-8')
+        for bad in ('', '.', './x', '../x', 'out/../x', '/abs', '-x', 'out/x\t', 'a b'):
+            proc = subprocess.run([sys.executable, '-I', os.path.abspath(__file__), '--delete', '--bogus', bad], capture_output=True,
+                                  cwd=keep, env=env)
+            check(f'the path {bad!r} is refused and nothing is deleted', proc.returncode == EXIT_FAIL_CLOSED
+                  and (keep / 'sub' / 'a.txt').exists())
+            proc = subprocess.run([sys.executable, '-I', os.path.abspath(__file__), '--delete', bad], capture_output=True,
+                                  cwd=keep, env=env)
+            check(f'the path {bad!r} alone is refused, never a pass', proc.returncode == EXIT_FAIL_CLOSED
+                  and (keep / 'sub' / 'a.txt').exists())
 
         # workflow check: the scan step (id + exact run) right before the upload in the same job, upload gated on safe
         def wf_text(variant='', path='out/x', uses='actions/upload-artifact@v4', guard=True, scan_path='out/x'):
@@ -1048,6 +1090,13 @@ def self_test(out=print):
 
 # ---------------------------------------------------------------- command line
 
+def _cli_path_ok(path):
+    """One literal relative path of letters, digits and ._/- with no empty, "." or ".." parts (never "", the current
+    folder, an absolute path or a wildcard): the only kind of path the scan reads, and the only kind it may purge."""
+    return (bool(SAFE_PATH.match(path)) and not GLOB.search(path)
+            and not any(x in ('.', '..', '') for x in path.rstrip('/').split('/')))
+
+
 def main(argv):
     try:
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -1086,8 +1135,9 @@ def main(argv):
     try:
         if bad:
             raise ValueError('; '.join(bad))
-        if len(paths) != 1 or GLOB.search(paths[0]) or ' ' in paths[0]:
-            raise ValueError('scan exactly one literal path (no list, wildcard or spaces)')
+        if len(paths) != 1 or not _cli_path_ok(paths[0]):
+            raise ValueError('scan exactly one literal relative path (letters, digits and ._/- only; no "." or '
+                             '".." parts, not absolute)')
         if os.environ.get('BOO_KEYSCAN_SELFTEST_CRASH') == '1':
             raise RuntimeError('simulated internal error (self-test)')
         if preflight and (self_test() != 0 or check_workflows() != 0):
@@ -1101,7 +1151,7 @@ def main(argv):
                   'option); usage: key_scan.py [--preflight] [--secret-env NAME] [--delete] PATH')
         if delete:
             for p in paths:
-                if not GLOB.search(p):
+                if _cli_path_ok(p):                   # never purge a refused path: "" or "." would be the whole folder
                     purge(p)
         return EXIT_FAIL_CLOSED
 
