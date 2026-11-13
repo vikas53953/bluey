@@ -32,7 +32,12 @@ Written 12 Nov 2026 on `lane/face` at `f244e47`. Source idea: poteto's AIE talk 
 >   and `workflow_lint.py` as planned; the same protection ships under the names above.
 > - **Still open in Phase 1:** PRs 1.2–1.7 and 1.10–1.12 in section 2.9, plus the queued follow-ups from the reviews. Owner review of
 >   workflow and gate files (CODEOWNERS) is a pending decision for Vikas (`HANDOFF.md`, known issue 0).
-> - Phases 2 and 3 have **not started**; they wait for Vikas's explicit go after Phase 1.
+> - **Phases 2 and 3 have Vikas's go** (relayed by the Grok Bot watcher, 13 Nov 2026, 9:11 AM IST): on 13 Nov at about
+>   12:13 AM IST he confirmed the 24/7 auto pipeline covers all phases (1, 2, 3) continuously without a separate go; at
+>   12:16 AM IST he approved Phase 2's limits: GitHub spend **$0** (repo public, free GitHub-hosted runners only),
+>   OpenAI live-test spend cap **$10 a month**, live runs kept lean, and if the month's spend nears $10 the live tests
+>   pause and the agents say so. Phase 2 starts with PR 2.1 (`docs/architecture/notch-lifecycle.md`). Phase 3 still
+>   follows section 5: only after Phase 2's `live-journeys` check has been required and stable for 2 weeks.
 
 ## The idea in one picture
 
