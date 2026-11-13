@@ -38,6 +38,12 @@ Written 12 Nov 2026 on `lane/face` at `f244e47`. Source idea: poteto's AIE talk 
 >   OpenAI live-test spend cap **$10 a month**, live runs kept lean, and if the month's spend nears $10 the live tests
 >   pause and the agents say so. Phase 2 starts with PR 2.1 (`docs/architecture/notch-lifecycle.md`). Phase 3 still
 >   follows section 5: only after Phase 2's `live-journeys` check has been required and stable for 2 weeks.
+> - **Vikas's decisions, 13 Nov 2026, 2:58–2:59 PM IST** (relayed by the Grok Bot watcher; rows in `docs/DECISIONS.md`):
+>   (1) one provider, **OpenAI for chat and voice**, one key; Claude and Gemini **out of scope**; voice **in scope and
+>   live-tested**. (2) Tests use the **cheapest OpenAI models** that can do the job, model names configurable per test,
+>   cheap CI defaults; the $10/month cap stays. (3) **Every notch state is tested** (Phase 2, row 2.11). (4) **Phase
+>   gates** at the end of each phase (section 7); no Phase 3 PR merges before the Phase 1 and 2 gates pass, PR #3 not
+>   before the Phase 3 gate. (5) Before release Vikas uses the app himself for about 10 minutes; release stays with him.
 
 ## The idea in one picture
 
@@ -650,8 +656,9 @@ fixing it; Phase 3's fuzz uses it as its action vocabulary. Boo already has `--n
 | 2.8 | Video recording in `demo-ci` and `live-ai-smoke` | S | Video artifact under 25 MB on 3 runs; guard refuses on non-hosted runners |
 | 2.9 | `tools/Boo.Drive` CLI | M | An agent reproduces j5 (Apply/Undo) step by step from the CLI with screenshots |
 | 2.10 | `live-journeys` required check | S | Branch protection shows it; a PR without a live run cannot merge |
+| 2.11 | **Every notch state tested** (Vikas, 13 Nov): Listening, Nudge, Paused, Stop, the second Undo and every state in PR #27's notch map, each driven live on `windows-latest` with evidence | M | Each state has a live journey step with screenshots and a run link; the feature map has no `UNVERIFIED` notch-state row |
 
-**Effort:** about 13 PRs, 3–4 weeks. The big one is 2.6 (moving behaviour out of 4,163 lines of code-behind);
+**Effort:** about 14 PRs (row 2.11 added 13 Nov), 3–4 weeks. The big one is 2.6 (moving behaviour out of 4,163 lines of code-behind);
 everything else is additive.
 
 **Risks:**
@@ -799,7 +806,8 @@ retention. OpenAI: capped live turns per run.
 4. **Fix j3 and merge PR #13** (verify-boo), so the feature map and live journeys exist on `lane/face`. *(Done: merged
    13 Nov, `13e5484`.)*
 5. **Phase 2** in the order of 3.3; video (2.8) can go early because it helps every review.
-6. **Phase 3** only after Phase 2's `live-journeys` check has been required and stable for 2 weeks.
+6. **Phase 3** only after Phase 2's `live-journeys` check has been required and stable for 2 weeks, **and** after
+   the Phase 1 and Phase 2 gates have passed (section 7). PR #3 merges only after the Phase 3 gate passes.
 
 ## 6. Decisions Vikas must make
 
@@ -819,6 +827,26 @@ Each has a recommendation. Asked one at a time.
 | 10 | Monthly budgets: GitHub plan minutes/storage and an OpenAI spend cap for live runs | Needed before Phase 2's required live check. |
 
 ---
+
+
+## 7. Phase gates (decided by Vikas, 13 Nov 2026)
+
+At the end of each phase, a **"Boo – Phase N gate"** proves the whole app, not just the phase's PRs one by one.
+
+| Part of the gate | What it must show |
+| --- | --- |
+| Where | The `lane/face` tip, built and run on GitHub's `windows-latest`. Never Vikas's PC or screen. |
+| Full-app QA suite | Launch; every journey in `docs/FEATURE_MAP.md`; typed chat; **voice**; every notch state (row 2.11); settings; error paths (no key, network down, provider error). |
+| Real AI | A real OpenAI round trip for **chat and voice**, cheapest models that can do the job (decision of 13 Nov). |
+| This phase's features | All of the phase's features working together in the same run. |
+| Anti-mock check | Proof the run used the real published app and the real provider (no mock AI, no test doubles in the shipped build). |
+| Deliberate-failure probe | A planted failure that must turn the gate red, run and linked, so a green gate means something. |
+| Separate reviewer | A fresh reviewer that never saw the author's reasoning checks the evidence. |
+| Evidence | An evidence table (live / mock / manual / UNVERIFIED, run links); results recorded in `HANDOFF.md` and `docs/DECISIONS.md`. |
+
+Order: the **Phase 1 gate** runs as soon as the remaining Phase 1 PRs have landed; the **Phase 2 gate** after Phase
+2; **no Phase 3 PR merges until both have passed**; **PR #3 (into `main`) merges only after the Phase 3 gate
+passes**. Before a release, Vikas uses the app himself for about 10 minutes; release stays with him.
 
 ## Appendix: how every number was counted
 

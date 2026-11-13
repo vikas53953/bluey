@@ -24,6 +24,12 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Boo.Storage/Boo.Storage.csproj" />
+    <!-- The live voice round trip drives Boo's own OpenAI Realtime client (LiveVoiceRoundTripTests). -->
+    <ProjectReference Include="../../src/Boo.Providers/Boo.Providers.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Synthetic spoken question (Windows' offline speech synthesizer; see Voice/New-VoiceFixture.ps1). Never a mic. -->
+    <None Include="Voice/what-is-two-plus-three.wav" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
