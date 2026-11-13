@@ -63,7 +63,7 @@ The plan (§3.2 A) names 11 abstract states. Today they are not one variable; th
 | --- | --- | --- |
 | `Hidden` | `NotchFaceState.Hidden` with `RevealPhase.Hidden` | `src/Boo.Core/NotchFace.cs:52`, `:353-355` |
 | `Hover` (peek) | `NotchFaceState.Hover` = pointer is over the notch and no higher flag | `src/Boo.Core/NotchFace.cs:50`; `src/Boo.App/NotchWindow.xaml.cs:1367-1372` |
-| `Awake` (idle, panel ready) | **No such notch state.** `NotchFaceState.Idle` only means "revealed, pointer not on it"; in practice it is the short tail on the way out (retract delay). Whether the panel is open does not change the notch face at all. | `src/Boo.Core/NotchFace.cs:51`; `src/Boo.App/App.xaml.cs:103-138` (opening the panel never calls the notch) |
+| `Awake` (idle, panel ready) | **No such notch state.** `NotchFaceState.Idle` only means "revealed, pointer not on it"; in practice it is the short tail on the way out (retract delay). Whether the panel is open does not change the notch face at all. | `src/Boo.Core/NotchFace.cs:51`; `src/Boo.App/App.xaml.cs:103-138` (opening the panel never changes a face flag; it may re-place the notch and refresh the capture indicator through `RefreshSelectedDisplay`, `src/Boo.App/MainWindow.xaml.cs:600`) |
 | `Chat` (thinking → responding) | `Thinking` flag, then `Responding` flag held as a timed "moment" | `src/Boo.App/MainWindow.xaml.cs:743`, `:953`, `:2258`, `:2281`, `:2301-2302` |
 | `Listening` | `microphoneActive` in the notch (the app-level `FaceInputs.Listening` flag is never set by any caller) | `src/Boo.App/NotchWindow.xaml.cs:355-359`, `:505` |
 | `Capture` | `captureActive` in the notch, from the capture tracker (the app-level `FaceInputs.CaptureActive` is never set) | `src/Boo.App/MainWindow.xaml.cs:702-711`; `src/Boo.App/NotchWindow.xaml.cs:348-353`, `:504` |
@@ -141,7 +141,8 @@ stateDiagram-v2
   Nudge --> Idle: 6 s / Back to it
   Nudge --> Paused: 5 min break
   Hidden --> Paused: focus paused (Pause, Stop, sleep, disconnect)
-  Paused --> Idle: Resume / Start / End
+  Paused --> Idle: Resume / Start
+  Paused --> Happy: End
   Hidden --> Happy: focus session ends
   Happy --> Idle: 2.5 s
 ```
@@ -152,15 +153,16 @@ the reveal timeline when nothing else is set. Every arrow is in the table:
 | # | Event | Flag change | Cite | Label |
 | --- | --- | --- | --- | --- |
 | F1 | Pointer enters | `hovered = true` → `Hover` (if nothing higher) | `src/Boo.App/NotchWindow.xaml.cs:1367-1371`; `src/Boo.Core/NotchFace.cs:50` | code, live (j1 `state='Hover'`) |
-| F2 | Pointer leaves | `hovered = false` → `Idle` while the timeline is not Hidden, then `Hidden` | `src/Boo.App/NotchWindow.xaml.cs:1374-1378`, `:515`, `:654-659`; `src/Boo.Core/NotchFace.cs:51-52` | code, live (j6 `Idle>Hidden`) |
-| F3 | Send (typed question) | `Thinking = true`, `Responding = false` | `src/Boo.App/MainWindow.xaml.cs:728-743` | code |
-| F4 | Reply (typed) | `Thinking = false`, `Responding = true` held 4 s | `src/Boo.App/MainWindow.xaml.cs:950-953` | code, live (j2 reply `'Paris'`) |
+| F2 | Pointer leaves | `hovered = false` → `Idle` while the timeline is not Hidden, then `Hidden` | `src/Boo.App/NotchWindow.xaml.cs:1374-1378`, `:515`, `:654-659`; `src/Boo.Core/NotchFace.cs:51-52` | code, live (j1 `retracted=True`) |
+| F3 | Send (typed question) | `Thinking = true`, `Responding = false`. With speech on (the default, `src/Boo.Core/Contracts.cs:36`) and a voice session connected, the text is handed to the voice session and the voice rows F7-F10b take over | `src/Boo.App/MainWindow.xaml.cs:728-743`, `:766-801` | code |
+| F4 | Reply (typed, plain-text path) | `Thinking = false`, `Responding = true` held 4 s | `src/Boo.App/MainWindow.xaml.cs:950-953` | code, live (j2 reply `'Paris'`) |
 | F5 | Responding moment expires | `Responding = false` by the moment timer | `src/Boo.App/MainWindow.xaml.cs:175-202`; `src/Boo.Core/FaceMomentSchedule.cs:43-50` | code |
-| F6 | Reply failed / cancelled / stale (typed) | `Thinking = false` only if the request is still current; a newer request or Stop owns the face otherwise | `src/Boo.App/MainWindow.xaml.cs:829-850` | code |
+| F6 | Reply failed / cancelled / stale (typed) | `Thinking = false` only if the request is still current **and the text was not handed to the voice session** (`!handedToRealtime`); a newer request or Stop owns the face otherwise | `src/Boo.App/MainWindow.xaml.cs:829-850` (condition `:846`) | code |
 | F7 | Voice: speech started / stopped / committed | `Thinking = false` on started, `true` on stopped/committed | `src/Boo.App/MainWindow.xaml.cs:2252-2259` | code |
 | F8 | Voice: audio delta | `Responding = true`, 4 s moment refreshed on every delta | `src/Boo.App/MainWindow.xaml.cs:2278-2281` | code |
 | F9 | Voice: `response.done` | `Thinking = tools in flight > 0`; `Responding` held for the remaining playback (`FaceMoments.AfterReplyDone`) | `src/Boo.App/MainWindow.xaml.cs:2297-2302`; `src/Boo.Core/FaceMoments.cs:22-30` | code |
 | F10 | Voice: disconnect / error | `StopListening` clears `Thinking` and `Responding`; a running focus session is paused (`FocusPaused = true`) | `src/Boo.App/MainWindow.xaml.cs:2304-2315`, `:945-947` | code |
+| F10b | Voice tool `go_to_sleep` | after the spoken reply finishes (or an 8 s fallback) the voice session ends through `StopListening`: Thinking and Responding cleared, mic off; focus untouched | `src/Boo.App/MainWindow.Voice.cs:64-66`, `:76-81`, `:84-99`, `:104`, `:124-137` | code |
 | F11 | Voice tool call (`screen_help`) | `Thinking = true`; cleared by later reply events; a cancelled voice undo clears it in `finally` | `src/Boo.App/MainWindow.xaml.cs:2364-2366`; `src/Boo.App/MainWindow.Edits.cs:174-182` | code |
 | F12 | Microphone on | notch `microphoneActive = true` → `Listening` | `src/Boo.App/MainWindow.Talk.cs:260-261`; `src/Boo.App/MainWindow.xaml.cs:884-885`; `src/Boo.App/NotchWindow.xaml.cs:355-359`, `:505`; `src/Boo.Core/NotchFace.cs:43` | code |
 | F13 | Microphone off | `microphoneActive = false` | `src/Boo.App/MainWindow.Talk.cs:396-397`; `src/Boo.App/MainWindow.xaml.cs:297`, `:895`, `:926` | code |
@@ -171,8 +173,8 @@ the reveal timeline when nothing else is set. Every arrow is in the table:
 | F18 | Focus session ends (completed or End) | `FocusPaused = false`, `Happy = true` held 2.5 s | `src/Boo.App/MainWindow.Focus.cs:22-46` | code, live (j6 `>Happy`, `sawHappy=True`) |
 | F19 | Focus paused (Pause, Stop, sleep gap, tick error, provider disconnect) | `FocusPaused = true` | `src/Boo.App/MainWindow.xaml.cs:1375`, `:312`, `:1457`, `:1487`, `:2314` | code |
 | F20 | Focus Start / Resume | `FocusPaused = false` (Start also `Happy = false`) | `src/Boo.App/MainWindow.xaml.cs:1353`, `:1414` | code |
-| F21 | **Stop** (Ctrl+Alt+F12, Ctrl+Alt+S, tray Stop, panel Stop, right-click on the notch, lock/logoff, sleep) | replaces all app flags with `FocusPaused = (focus is paused)`: clears Thinking, Responding, Nudge, Happy and the caption; mic off; capture indicator refreshed | `src/Boo.App/MainWindow.xaml.cs:265-313`; sources: `src/Boo.App/NotchWindow.xaml.cs:1650-1656`, `:1381-1385`; `src/Boo.App/App.xaml.cs:188-199`, `:210`, `:225-229`, `:237-241`; `src/Boo.App/MainWindow.xaml.cs:1915` | code |
-| F22 | Hotkey Ctrl+Alt+B | opens the panel; **no notch flag changes** | `src/Boo.App/NotchWindow.xaml.cs:1643-1649` → `src/Boo.App/App.xaml.cs:75`, `:103-138` | code; live for the panel (j0); the notch face at that moment is UNVERIFIED (j0 logs only the panel) |
+| F21 | **Stop** (Ctrl+Alt+F12, Ctrl+Alt+S, tray Stop, panel Stop, right-click on the notch, lock/logoff, sleep) | replaces all app flags with `FocusPaused = (focus is paused)`: clears Thinking, Responding, Nudge, Happy and the caption; mic off; capture indicator refreshed | `src/Boo.App/MainWindow.xaml.cs:265-313`; sources: `src/Boo.App/NotchWindow.xaml.cs:1650-1656`, `:1381-1385`; `src/Boo.App/App.xaml.cs:188-199`, `:210`, `:225-229`, `:237-241`; `src/Boo.App/MainWindow.xaml.cs:1915`; update restart `src/Boo.App/MainWindow.Updates.cs:220` | code |
+| F22 | Hotkey Ctrl+Alt+B | opens the panel; **no notch flag changes** | `src/Boo.App/NotchWindow.xaml.cs:1643-1649` → `src/Boo.App/App.xaml.cs:75`, `:103-138` | code; live for the panel (j0); the notch face is not logged, but the notch capture `j0-after-hotkey.boo-0.png` shows the notch still collapsed |
 | F23 | Click on the eyes (< 200 ms) | opens the panel (same as F22) | `src/Boo.App/NotchWindow.xaml.cs:1322-1335`, `:1307-1311` | code |
 | F24 | Press and hold the eyes (≥ 200 ms) | `EyesHeldChanged(true)` → hold-to-talk (§3.3) | `src/Boo.App/NotchWindow.xaml.cs:1313-1320`, `:1351-1365`; `src/Boo.Core/NotchFaceGeometry.cs:58`; `src/Boo.App/App.xaml.cs:83` | code |
 
@@ -202,7 +204,7 @@ stateDiagram-v2
 | H4 | Listening → Idle | last release after ≥ 200 ms | `StopAndSend` | `src/Boo.Core/HoldToTalk.cs:105-121`, `:136-145`, `:189-200` | code |
 | H5 | Listening → Idle | last release before 200 ms | `Cancel`, hint "Hold to talk" | `src/Boo.Core/HoldToTalk.cs:197-198` | code |
 | H6 | Listening → Idle | Stop, session lock, suspend | `Cancel`; both holds cleared so later releases do nothing | `src/Boo.Core/HoldToTalk.cs:153-160`, `:202-213`; glue `src/Boo.App/MainWindow.Talk.cs:86`, `:113-127`; `src/Boo.App/MainWindow.xaml.cs:267` | code |
-| H7 | Listening → (as H3/H4/H5) | Boo's window lost focus or mouse capture | treated as an eye release | `src/Boo.Core/HoldToTalk.cs:151`; `src/Boo.App/NotchWindow.xaml.cs:1342-1349` | code |
+| H7 | Listening → (as H3/H4/H5) | the eyes lose mouse capture | the notch raises `EyesHeldChanged(false)`, i.e. an eye release. `HoldToTalkController.FocusLost` (`src/Boo.Core/HoldToTalk.cs:151`) is reachable only through `MainWindow.TalkFocusLost` (`src/Boo.App/MainWindow.Talk.cs:47`), which **nothing calls**: focus loss itself is not wired | `src/Boo.App/NotchWindow.xaml.cs:1342-1349` | code |
 | H8 | Listening → Idle | held longer than 120 s (250 ms ticker) | `StopAndSend` | `src/Boo.Core/HoldToTalk.cs:163-174`; `src/Boo.App/MainWindow.Talk.cs:57-58`, `:196-208` | code |
 
 What the shell does with each command (`src/Boo.App/MainWindow.Talk.cs:170-189`): `StartListening` starts a new
@@ -231,14 +233,14 @@ stateDiagram-v2
 
 | # | From → To | Event | Cite | Label |
 | --- | --- | --- | --- | --- |
-| Fo1 | none → Running | Start (task and minutes required; 1–240 min) | `src/Boo.App/MainWindow.xaml.cs:1315-1354`; `src/Boo.Core/FocusSession.cs:25` | code, live (j6 `minutes=25`) |
+| Fo1 | none → Running | Start: task not blank and minutes > 0 are checked; the duration is then clamped to 1–240 min. Also reachable by the voice tool `focus_start` | `src/Boo.App/MainWindow.xaml.cs:1315-1354` (checks `:1317`, `:1322`; clamp `:1342`); `src/Boo.Core/FocusSession.cs:22-25`; voice `src/Boo.App/MainWindow.Voice.cs:45-54` | code, live (j6 `minutes=25`) |
 | Fo2 | Running/Paused → Ended (quiet) | Start while a session is live: old one ends with **no** end event | `src/Boo.App/MainWindow.xaml.cs:1333-1341`; `src/Boo.Core/FocusSessionController.cs:152-159` | code |
-| Fo3 | Running → Paused | Pause button; Stop; clock gap (sleep); tick exception; provider disconnect; nudge "5 min break" | `src/Boo.App/MainWindow.xaml.cs:1361-1376`, `:303-310`, `:1448-1458`, `:1481-1487`, `:2308-2314`, `:1387-1389`; `src/Boo.Core/FocusSession.cs:62-70`; `src/Boo.Core/FocusSessionController.cs:128-132` | code |
-| Fo4 | Paused → Running | Resume only (unlock and reconnect never resume) | `src/Boo.App/MainWindow.xaml.cs:1394-1414`; `src/Boo.Core/FocusSession.cs:72-76` | code |
+| Fo3 | Running → Paused | Pause button; Stop; clock gap (sleep); tick exception; provider disconnect; nudge "5 min break" | `src/Boo.App/MainWindow.xaml.cs:1361-1376`, `:303-310`, `:1448-1458`, `:1481-1487`, `:2308-2314`, `:1387-1389`; voice `focus_pause` `src/Boo.App/MainWindow.Voice.cs:55-57`; `src/Boo.Core/FocusSession.cs:62-70`; `src/Boo.Core/FocusSessionController.cs:128-132` | code |
+| Fo4 | Paused → Running | Resume only, by button or voice `focus_resume` (unlock and reconnect never resume) | `src/Boo.App/MainWindow.xaml.cs:1394-1414`; `src/Boo.App/MainWindow.Voice.cs:58-60`; `src/Boo.Core/FocusSession.cs:72-76` | code |
 | Fo5 | Running → Ended | Tick reaches the planned duration (4× clock in Developer Mode) | `src/Boo.App/MainWindow.xaml.cs:1460`; `src/Boo.Core/FocusSessionController.cs:80-92`; `src/Boo.Core/FocusSession.cs:49-60` | code, live (j6 `Completed`) |
-| Fo6 | Running/Paused → Ended | End button | `src/Boo.App/MainWindow.xaml.cs:1422-1431`; `src/Boo.Core/FocusSessionController.cs:137-144` | code |
+| Fo6 | Running/Paused → Ended | End button or voice `focus_end` | `src/Boo.App/MainWindow.xaml.cs:1422-1431`; `src/Boo.App/MainWindow.Voice.cs:61-63`; `src/Boo.Core/FocusSessionController.cs:137-144` | code |
 | Fo7 | (Ended) | `SessionEnded` raised at most once → Happy face, chirp, save | `src/Boo.Core/FocusSessionController.cs:161-168`; `src/Boo.App/MainWindow.Focus.cs:22-46` | code, live (j6 `sawHappy=True`) |
-| Fo8 | Running → Running | Check due (every 30 s, 10 s in Developer Mode, paused time not counted) → capture → classify → maybe Nudge | `src/Boo.App/MainWindow.xaml.cs:1497-1558`; `src/Boo.Core/FocusSessionController.cs:74`, `:98-111` | code, live (j6 12 checks, `Capture` each) |
+| Fo8 | Running → Running | Check due (every 30 s, 10 s in Developer Mode, paused time not counted) → capture → classify → maybe Nudge | `src/Boo.App/MainWindow.xaml.cs:1497-1558`; `src/Boo.Core/FocusSessionController.cs:74`, `:98-111` | code, live (j6: 35 `Hidden>Capture>Idle` cycles in `states=`) |
 
 ### 3.5 Request generations (`RequestCoordinator`)
 
@@ -273,7 +275,7 @@ stateDiagram-v2
 | A3 | ApplyPending → NoProposal | Stop or any new request | `src/Boo.App/MainWindow.xaml.cs:301`, `:1982` | code |
 | A4 | ApplyPending → NoProposal | Approve, but the request is no longer current, the policy denies, or the target window changed | `src/Boo.App/MainWindow.xaml.cs:1177-1222` | code |
 | A5 | ApplyPending → Executing | Approve: an approval ticket is made for **this exact request** (digest of name, target, arguments, generation) and re-checked before every effect | `src/Boo.App/MainWindow.xaml.cs:1173`, `:1197`, `:1225`; `src/Boo.Core/ActionPolicy.cs:42-45`, `:62-82`; `src/Boo.Windows/DesktopTools.cs:968-971` | code, live (j5 `written='BOO-LIVE-VERIFY-OK'`) |
-| A6 | Executing → Applied | verified success → journal the edit (file: `FileUndoJournal`; field: `UndoJournal`) | `src/Boo.App/MainWindow.xaml.cs:1226-1231`; `src/Boo.App/MainWindow.Edits.cs:243-245`, `:307`, `:504-533` | code |
+| A6 | Executing → Applied | verified success → journal the edit (file: `FileUndoJournal`; field: `UndoJournal`) | `src/Boo.App/MainWindow.xaml.cs:1226-1231`; `src/Boo.App/MainWindow.Edits.cs:243-245`, `:307`, `:504-533` | code, live (j5 `written=...` then the undo card) |
 | A7 | Executing → ApplyPending | success and more steps queued | `src/Boo.App/MainWindow.xaml.cs:1246-1250` | code |
 | A8 | Executing → NoProposal | done, failed or stopped (`finally`) | `src/Boo.App/MainWindow.xaml.cs:1252-1285` | code |
 
@@ -281,7 +283,7 @@ stateDiagram-v2
 
 | # | Event | Effect | Cite | Label |
 | --- | --- | --- | --- | --- |
-| U1 | The user types or says "undo" | the request is classified as Undo; the **file** journal wins if it holds something, else the field journal | `src/Boo.App/MainWindow.xaml.cs:760-764`, `:2267-2275`; `src/Boo.App/MainWindow.Edits.cs:71-85` | code |
+| U1 | The user types or says "undo" | the request is classified as Undo; the **file** journal wins if it holds something, else the field journal | `src/Boo.App/MainWindow.xaml.cs:760-764`, `:2267-2275`; `src/Boo.App/MainWindow.Edits.cs:71-85` | code, live (j5 typed "undo" → `Undo: Delete file`) |
 | U2 | Nothing recorded | message, no card | `src/Boo.App/MainWindow.Edits.cs:81-84`; `src/Boo.Core/UndoJournal.cs:90-93`; `src/Boo.Core/FileUndoJournal.cs:70` | code |
 | U3 | File undo planned | the reverse step (write the old text, or delete a file Boo created) is shown as an `Undo:` card; blocked if the file changed since | `src/Boo.App/MainWindow.Edits.cs:455-478`; `src/Boo.Core/FileUndoJournal.cs:67-106` | code, live (j5 `undoPreview='Undo: Delete file'`) |
 | U4 | Field undo planned | plan refuses on a newer change, an ambiguous Undo control, or an empty "before" value | `src/Boo.App/MainWindow.Edits.cs:93-123`; `src/Boo.Core/UndoJournal.cs:87-195` | code (demo-ci, mock: `02-undo-*`) |
@@ -300,7 +302,7 @@ stateDiagram-v2
   Fly --> Land
   Land --> DrawRing: 120 ms
   DrawRing --> Hold: stroke drawn
-  Hold --> Clear: 8 s
+  Hold --> Clear: 10 s (explain ring) / 8 s (nudge ring)
   Clear --> Idle: Completed
   Fly --> Idle: Clear(reason)
   Land --> Idle: Clear(reason)
@@ -312,23 +314,23 @@ stateDiagram-v2
 | --- | --- | --- | --- |
 | P1 | Begin with an older or equal generation is refused | `src/Boo.Core/PointerGuidance.cs:274-277` | code |
 | P2 | Begin while one is showing clears it first (`TargetChanged`) | `src/Boo.Core/PointerGuidance.cs:279-282` | code |
-| P3 | Tick walks Fly → Land → DrawRing → Hold → Clear → Idle (`Completed`) | `src/Boo.Core/PointerGuidance.cs:292-335` | code, live (j3 ring) |
+| P3 | Tick walks Fly → Land → DrawRing → Hold → Clear → Idle (`Completed`); hold 10 s for the explain ring, 8 s default for the nudge ring | `src/Boo.Core/PointerGuidance.cs:292-335`; `src/Boo.App/AnnotationWindow.xaml.cs:66`, `:100` | code, live (j3 ring) |
 | P4 | Clear with any reason → Idle; the window closes with `Stop`; scroll, resize, foreground and display changes clear it | `src/Boo.Core/PointerGuidance.cs:338-354`; `src/Boo.App/AnnotationWindow.xaml.cs:87`, `:223`, `:281-298`; Stop/new request close the windows `src/Boo.App/MainWindow.xaml.cs:2590-2596`, `:300`, `:1981` | code |
 
 ## 4. The plan's invariants against today's code
 
 | Id | Plain words | Today | Where |
 | --- | --- | --- | --- |
-| `INV-PRIV-1` | Mic or capture on ⇒ notch visible | **Enforced in the notch window, not by `PresenceController`.** Capture and Listening beat every other flag, including `UserHidden`, and pin the timeline out. The reveal takes 240 ms (Revealing) unless reduced motion. `PresenceController` (the class the plan names) is **not used by the app** (only by Core and tests). | `src/Boo.Core/NotchFace.cs:41-43`; `src/Boo.App/NotchWindow.xaml.cs:504-512`; `src/Boo.Core/NotchFace.cs:327-334`; unused: `src/Boo.Core/PresenceController.cs:3` |
+| `INV-PRIV-1` | Mic or capture on ⇒ notch visible | **Enforced in the notch window, not by `PresenceController`.** Capture and Listening beat every other flag, including `UserHidden`, and pin the timeline out. The reveal takes 240 ms (Revealing) unless reduced motion. `PresenceController` (the class the plan names) is **not used by the app** (only by Core and tests). | `src/Boo.Core/NotchFace.cs:41-43`; `src/Boo.App/NotchWindow.xaml.cs:504-512`, reduced motion / wake-up shown at once `:683`, `:692-695`; `src/Boo.Core/NotchFace.cs:327-334`; unused: `src/Boo.Core/PresenceController.cs:3` |
 | `INV-PRIV-2` | No capture starts while Hidden without approval | **Not enforced as written.** Captures need no approval: they start on a typed Send, a voice tool call, or a focus check. Starting the capture is what reveals the notch: the indicator is set, then the code yields once to the UI before grabbing the frame. Whether the notch is already on screen at the moment of the grab is UNVERIFIED (timing). | `src/Boo.App/MainWindow.xaml.cs:2029-2037`, `:1598-1606` |
 | `INV-APPLY-1` | Apply only after Approve of the same proposal | **Enforced.** The ticket is a digest of the exact request (name, target, arguments, generation) and is re-checked before each effect. There is no separate proposal id; the digest plays that role. | `src/Boo.Core/ActionPolicy.cs:62-82`; `src/Boo.App/MainWindow.xaml.cs:1173`, `:1197`, `:1225`; `src/Boo.Windows/DesktopTools.cs:968-971` |
 | `INV-APPLY-2` | Undo only what was applied, only once; restores the before-state | **Fields: enforced** (plan needs a recorded edit, refuses newer changes, clears on verified undo). **Files: "only once" is not enforced**: the approved undo is journaled as a new edit, so a second undo reverses the undo (finding F6). | `src/Boo.Core/UndoJournal.cs:87-213`; `src/Boo.Core/FileUndoJournal.cs:31-59`; `src/Boo.App/MainWindow.Edits.cs:504-533` |
 | `INV-APPLY-3` | A new request never applies an older proposal | **Enforced** three ways: a new request clears the card; policy denies a request whose generation differs from the authority; commits run inside `TryCommit` for the current generation. | `src/Boo.App/MainWindow.xaml.cs:1982`; `src/Boo.Core/ActionPolicy.cs:42-45`; `src/Boo.Core/RequestCoordinator.cs:46-62` |
-| `INV-FOCUS-1` | Exactly one end event per session | **Enforced in Core** by `_endRaised`; a replaced session ends quietly and its handler is unsubscribed first. | `src/Boo.Core/FocusSessionController.cs:152-168`; `src/Boo.App/MainWindow.xaml.cs:1338-1339` |
+| `INV-FOCUS-1` | Exactly one end event per session | **Partly: at most one is enforced.** `_endRaised` stops a second event. But a session replaced by a new Start ends with `EndQuietly` and emits **none**, and a session still open when Boo quits is only paused by `StopAll`, never ended (finding F9). | `src/Boo.Core/FocusSessionController.cs:152-168`; `src/Boo.App/MainWindow.xaml.cs:1338-1339`, `:315-318` |
 | `INV-TALK-1` | After TalkUp or Stop, mic off | **Enforced in the glue.** `StopAndSend` and `Cancel` both stop the mic before anything else; Stop cancels the hold, stops audio and clears the indicator. The mic is opened before the first `await` in `StartPushToTalk`, so a release queued behind it still finds it open and closes it (code reading; ordering on the UI thread). | `src/Boo.App/MainWindow.Talk.cs:253-261`, `:299-303`, `:352-356`; `src/Boo.App/MainWindow.xaml.cs:267`, `:280`, `:297` |
-| `INV-STOP-1` | Stop from anywhere ⇒ quiet (Awake or Hidden), mic and capture off | **Partly.** Mic off: yes. Chat flags cleared: yes. But (a) **a running focus session is paused by Stop, and `Paused` pins the notch out**, so the notch stays visible showing Paused, not quiet; (b) capture: Stop cancels the work, but the capture indicator clears only when each in-flight capture finishes and disposes its operation, so `Capture` can outlast Stop briefly (UNVERIFIED how long). | `src/Boo.App/MainWindow.xaml.cs:265-313`, `:303-312`, `:713-717`, `:845`, `:1582`; `src/Boo.Core/NotchFace.cs:49` |
-| `LIVE-1` | Chat always ends ("never stuck on Responding") | **Responding: enforced** by the moment timer (4 s, or the playback tail capped by `FaceMoments`). **Thinking: no local timeout.** Typed requests end through the 45 s HTTP timeout and `finally`; a voice turn's Thinking ends only on a reply event, error, disconnect, Stop or a new request. If the provider stays connected and silent, Thinking stays (UNVERIFIED: no run has a silent provider). | `src/Boo.App/MainWindow.xaml.cs:175-202`, `:843-849`, `:2258`, `:2297-2307`, `:2123`; `src/Boo.Core/FaceMoments.cs:22-30` |
-| `LIVE-2` | Hover with no more input returns to Hidden | **Only after the pointer leaves.** Hover means "pointer is on the notch", so it lasts as long as the pointer stays. After PointerLeave: Idle for 900 ms, retract 160 ms, Hidden, driven by the render loop. | `src/Boo.App/NotchWindow.xaml.cs:1374-1378`, `:654-659`; `src/Boo.Core/NotchFace.cs:317-353`; live (j1 `retracted=True retractMs=713`) |
+| `INV-STOP-1` | Stop from anywhere ⇒ quiet (Awake or Hidden), mic and capture off | **Partly.** Mic off: yes. Chat flags cleared: yes. But (a) **a running focus session is paused by Stop (and an already-paused one stays paused), and `Paused` pins the notch out**, so the notch stays visible showing Paused, not quiet; (b) capture: Stop cancels the work, but the capture indicator clears only when each in-flight capture finishes and disposes its operation, so `Capture` can outlast Stop briefly (UNVERIFIED how long). | `src/Boo.App/MainWindow.xaml.cs:265-313`, `:303-312`, `:713-717`, `:845`, `:1582`; `src/Boo.Core/NotchFace.cs:49` |
+| `LIVE-1` | Chat always ends ("never stuck on Responding") | **Responding: enforced** by the moment timer (4 s, or the playback tail capped by `FaceMoments`). **Thinking: no local timeout.** Typed requests on the plain-text path end through the 45 s HTTP timeout and `finally`. But with speech on (the default) and a voice session connected, a typed question is handed to the voice session and `finally` leaves Thinking set (`:846`). A voice turn's Thinking (and such a hand-off) ends only on a reply event, error, disconnect, `go_to_sleep`, Stop or a new request. The voice client's 15 s connect timeout and 10 s keep-alive catch a dead connection, not a connected provider that stays silent; then Thinking stays (UNVERIFIED: no run has a silent provider). | `src/Boo.App/MainWindow.xaml.cs:175-202`, `:843-849`, `:2258`, `:766-801`, `:846`, `:2297-2307`, `:2123`; `src/Boo.Core/FaceMoments.cs:22-30`; `src/Boo.Providers/RealtimeClient.cs:292-294`, `:339-346` |
+| `LIVE-2` | Hover with no more input returns to Hidden | **Only after the pointer leaves.** Hover means "pointer is on the notch", so it lasts as long as the pointer stays. After PointerLeave: Idle for 900 ms, retract 160 ms, Hidden, driven by the render loop. | `src/Boo.App/NotchWindow.xaml.cs:1374-1378`, `:654-659`; `src/Boo.Core/NotchFace.cs:317-353`; live (j1 `retracted=True`; its `retractMs=713` is shorter than 900 + 160 ms because the harness starts its clock only after the animated mouse move away returns, i.e. after the pointer already left) |
 
 ## 5. Findings to settle before the model (no code changed here)
 
@@ -341,30 +343,31 @@ decision in its own PR, not here.
    Capture reach the face only through the notch's own mic/capture flags (`src/Boo.App/NotchWindow.xaml.cs:504-505`).
 3. **F3 There is no "Awake" notch state.** The panel being open does not change the notch; `Idle` is only the retract
    tail. The plan's statechart should either drop `Awake` or say it is a panel state.
-4. **F4 Stop is not a state and does not always end quiet**: with a running focus session, Stop leaves the notch pinned
+4. **F4 Stop is not a state and does not always end quiet**: with a running or paused focus session, Stop leaves the notch pinned
    on `Paused` (`INV-STOP-1` above). Either the invariant allows `Paused`, or Stop's behaviour changes.
 5. **F5 Captures need no approval**; the notch is revealed by the capture starting (`INV-PRIV-2` above). The invariant as
    worded does not match the product; it needs rewording (for example "capture never runs without the Capture face
    being set first") or a behaviour change.
 6. **F6 File undo toggles.** An approved file undo is journaled as a new edit, so "undo" twice re-applies the original
    edit. Field undo does not do this. The plan's property "double undo is a no-op" would fail for files today.
-7. **F7 Voice Thinking has no local timeout** (`LIVE-1` above).
+7. **F7 Thinking has no local timeout for voice turns, nor for typed text handed to the voice session** (speech on, the default; `LIVE-1` above).
 8. **F8 Two talk paths.** The panel Talk button opens the mic without `HoldToTalkController`; a model of "Listening"
-   must include both (`src/Boo.App/MainWindow.xaml.cs:853-908`).
+   must include both (`src/Boo.App/MainWindow.xaml.cs:853-908`). The voice session can also end itself (`go_to_sleep`, F10b) and drive focus (`focus_start/pause/resume/end`, `src/Boo.App/MainWindow.Voice.cs:43-66`); the model's event list needs these too.
+9. **F9 A focus session can end with no end event**: a session replaced by a new Start ends quietly, and one still open at quit is only paused (`INV-FOCUS-1` above). The model must either allow zero end events for these or the behaviour changes.
 
 ## 6. Cross-check against a live run
 
 Real-key live run [43339557570](https://github.com/vikas53953/bluey/actions/runs/43339557570) (PR #13 QA head
-`3168e40`, artifact `live-ai-evidence`, `journeys/`). The notch face state is read through UI Automation.
+`3168e40`, artifact `live-ai-evidence`, `journeys/`). The notch face state is read through UI Automation; the notch screenshots are black on black, so the cross-check rests mainly on those logs, with the panel screenshots (j2, j5) and the ring (j3) checked by eye.
 
 | Journey | What it shows | Transitions it confirms |
 | --- | --- | --- |
-| j0 `j0-hotkey.txt`, `j0-after-hotkey.*.png` | Ctrl+Alt+B opens the panel | F22 (panel part) |
+| j0 `j0-hotkey.txt`, `j0-after-hotkey.*.png` | Ctrl+Alt+B opens the panel; the notch capture shows it still collapsed | F22 |
 | j1 `j1-hover.txt`, `j1-hover-revealed.boo-0.png` | `revealed=True state='Hover'`, then `retracted=True` | R1, R3, R6, F1, F2, LIVE-2 |
 | j2 `j2-chat.txt`, `j2-chat-answer.*.png` | typed question, real reply `'Paris'` | F3, F4 (reply arrives; the Thinking/Responding faces themselves are not logged) |
-| j3 `j3-explain-ring.*.png` | pointer and ring drawn | P3, F14 |
+| j3 `j3-explain-ring.*.png` | pointer and ring drawn on the target button (the notch state is not logged) | P3 |
 | j5 `j5-apply-undo.txt`, `j5-*.png` | `Write file` card → written → `Undo: Delete file` card → file gone | A1, A5, A6, U1, U3 (a second undo is not run, so U6 stays UNVERIFIED) |
-| j6 `j6-focus.txt`, `j6-focus-*.png` | `states=Hidden>Capture>Idle>Hidden>…>Happy`, 12 checks, `Completed` | Fo1, Fo5, Fo7, Fo8, F14, F15, F18, R9, R11 |
+| j6 `j6-focus.txt`, `j6-focus-*.png` | `states=Hidden>Capture>Idle>Hidden>…>Happy` (35 capture cycles), `Completed`, `sawHappy=True` | Fo1, Fo5, Fo7, Fo8, F14, F15, F18, R9, R11 |
 
 Not covered by any run: Listening (voice is UNVERIFIED by choice, `docs/DECISIONS.md` 12 Nov), Nudge (j6 `nudges=0`),
 Paused, Stop, a second undo, a silent provider. Video of runs arrives with PR 2.8.
