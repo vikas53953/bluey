@@ -10,7 +10,7 @@ Where the facts come from:
   (reveal), **F1–F24** (face), **H1–H8** (hold-to-talk), **Fo1–Fo8** (focus), **G1–G5** (request generations),
   **A1–A8** (approval card), **U1–U6** (undo), **P1–P4** (pointer and ring), and its invariants (`INV-…`, `LIVE-…`).
 - The map's section 5 also numbers its **findings** F1–F9, which clash with the face rows F1–F24. In this file a
-  finding is always written **§5-F** plus its number (for example §5-F4 "Stop leaves focus Paused"); a plain **F4** is
+  finding is always written **§5-F** plus its number (for example §5-F4 "Stop leaves focus Paused"); findings now include §5-F10 (mixed microphone ownership). A plain **F4** is
   face row F4.
 - The face names: `NotchFaceState` in `src/Boo.Core/NotchSpec.cs:15` (10 values).
 - Existing journeys j0–j6: `tools/Boo.VerifyLive/LiveJourneyTests.cs` (`[Fact, Step(0)]` … `Step(6)`). Their ids do not
@@ -20,7 +20,7 @@ Where the facts come from:
 
 | Evidence | What it is | What it can prove |
 | --- | --- | --- |
-| **Face timeline** | `tools/Boo.VerifyLive/FaceTimeline.cs` (added by PR #48): reads the notch's face (UI Automation `ItemStatus`, `src/Boo.App/NotchWindow.xaml.cs:1268-1276`) about every 25 ms and writes `jN-<name>-face-timeline.txt` with the time each face started and how long it lasted. `Mark("...")` adds labelled moments; `WaitForFace(face, timeout, sinceMs)` waits only on readings taken after the wait began. | Which faces appeared, in what order, for how long. **Limit:** a face shown for less than one reading (about 25–35 ms) can be missed. |
+| **Face timeline (pending dependency)** | PR #48 proposes `tools/Boo.VerifyLive/FaceTimeline.cs`; it is **absent from this head**. The planned observer reads UI Automation `ItemStatus` about every 25 ms and writes `jN-<name>-face-timeline.txt`, with action marks and bounded waits. These filenames and APIs describe required future evidence, not an available recorder. Existing j0–j6 observation logs remain available. | Once implemented and validated: observed face order and durations. Until then, timeline-dependent assertions are **UNVERIFIED**. A face shorter than the actual sampling interval may be missed; record the measured interval. |
 | **UI Automation read** | A named control or property read through FlaUI: the panel's controls (for example `Send typed question`, `Activate microphone`, `Review action`, `Approve proposed action`, `Focus task`), the notch's `HelpText` (the "Stopped" flash, `src/Boo.App/NotchWindow.xaml.cs:315-339`), the nudge buttons `Back to it` and `5 min break` (`src/Boo.App/NotchWindow.xaml:101-120`). Written to `jN-*.txt`. | Panel state, card titles, status text, files written. |
 | **Boo-window screenshot** | One image per visible Boo window, `<moment>.boo-N.png` + `<moment>.capture.txt` (never the desktop; `SKILL.md` "Reporting"). | Supporting evidence. The notch images are often black on black, so a face claim rests on the timeline, not the picture. |
 
@@ -37,8 +37,9 @@ held 4 s (F4, F8); Nudge held 6 s (F16); Happy held 2.5 s (F18); hold-to-talk ta
 in Developer Mode (Fo8).
 
 **Live or mock-capable:** *live* = needs the real OpenAI key (cheapest models per the 13 Nov decision and PR #48:
-`gpt-6-luna` chat and focus, `gpt-realtime-2.1-mini` voice, set by `BOO_LIVE_MODEL`, `BOO_LIVE_FOCUS_MODEL`,
-`BOO_LIVE_REALTIME_MODEL`). *mock-capable* = can also run against `tools/Boo.QaMockAi` (text and focus answers only;
+`gpt-6-luna` chat and focus, `gpt-realtime-2.1-mini` voice). The current smoke supports `BOO_LIVE_MODEL` and
+`BOO_LIVE_REALTIME_MODEL`; **there is no `BOO_LIVE_FOCUS_MODEL` consumer at this head**. Focus uses Boo's configured
+focus model; record the actual settings and do not claim an environment override configured it. *mock-capable* = can also run against `tools/Boo.QaMockAi` (text and focus answers only;
 it has **no voice**), or needs no AI at all. A mock run proves the UI and logic, never the AI.
 
 **"Expect today's behaviour"** marks a step where the map's findings say Boo today differs from the plan. The journey
@@ -173,8 +174,8 @@ A journey that seems to expect otherwise is a mistake in this list; report it, d
 | Field | Content |
 | --- | --- |
 | Preconditions | as j9 for the hold parts; no AI for the tap |
-| Steps | a) Hover top centre; click the eyes quickly (under 200 ms). b) Press and hold the eyes about 3 s, release, then move the pointer away from the notch. c) Press and hold the eyes, then make another window take the mouse (Alt+Tab, or bring another window to the front) so the eyes lose mouse capture. Dragging alone does **not** do it: the eyes keep the mouse while the button is held (`src/Boo.App/NotchWindow.xaml.cs`). Then move the pointer away. If the driver cannot switch windows while the mouse button is held, this step is **manual**; that switching windows releases the eyes at all is **UNVERIFIED** (the notch window never takes focus). |
-| Expected faces | a) `Hover`, no `Listening`; the panel opens (same as Ctrl+Alt+B). b) `Hover` → `Listening` (after 200 ms) → `Thinking` → `Responding` → `Hover` (the pointer is still on the eyes) → after the pointer moves away: `Idle` → `Hidden`. c) losing capture counts as an eye release (H7): same as b) from that moment. |
+| Steps | a) Hover top centre; click the eyes quickly (under 200 ms). b) Press and hold the eyes about 3 s, release, keep the pointer on the eyes through the reply and until Hover returns, then move it away. c) Press and hold the eyes, then make another window take the mouse (Alt+Tab, or bring another window to the front) so the eyes lose mouse capture. Dragging alone does **not** do it: the eyes keep the mouse while the button is held (`src/Boo.App/NotchWindow.xaml.cs`). After capture loss move the pointer away immediately. If the driver cannot switch windows while the mouse button is held, this step is **manual**; that switching windows releases the eyes at all is **UNVERIFIED** (the notch window never takes focus). |
+| Expected faces | a) `Hover`, no `Listening`; the panel opens (same as Ctrl+Alt+B). b) `Hover` → `Listening` (after 200 ms) → `Thinking` → `Responding` → `Hover` (pointer stays on the eyes) → after pointer leave: `Idle` → `Hidden`. c) capture loss counts as eye release (H7); after immediate pointer leave the voice-turn faces take priority, then `Idle` → `Hidden`. No post-reply Hover is required in c). |
 | Expected effects | a) panel open. b) and c) a voice turn, as j9 |
 | Covers | F23, F24, H2, H4, H5, H7 |
 | Evidence | face timeline; panel found by UI Automation for a) |
@@ -187,7 +188,7 @@ A journey that seems to expect otherwise is a mistake in this list; report it, d
 | Preconditions | speech on; realtime model; mic as j9 |
 | Steps | a) Ctrl+Alt+B, click `Activate microphone` (Talk); speak (recorded question); click it again (now "Stop talk"). b) In a Talk session, ask "pause my focus" while a focus session runs. |
 | Expected faces | a) `Hidden` → `Listening` → `Idle`/`Hidden` after Stop talk (F13). b) **Expect today's behaviour:** `focus_pause` is refused in a non-push-to-talk voice session while a session is live (Fo3 note; `src/Boo.Core/VoiceCommands.cs:193-194`), so the face stays as it was (no `Paused`). |
-| Expected effects | `ListeningStatus` reads "Listening… press Stop talk or the global Stop to interrupt." then "Listening stopped." (`src/Boo.App/MainWindow.xaml.cs:853-908`) |
+| Expected effects | `ListeningStatus` reads "Listening… press Stop talk or the global Stop to interrupt." then "Microphone idle. Activate Talk when you want to speak." (`StopListening`, `src/Boo.App/MainWindow.xaml.cs:949`) |
 | Covers | §5-F8 (Talk button does not use `HoldToTalkController`), F12, F13, G3, Fo3 (voice refusal) |
 | Evidence | face timeline; `TalkButton` content and `ListeningStatus` read |
 | Live / mock | **live only**, mic needed |
@@ -322,6 +323,18 @@ already press Ctrl+Alt+F12 and Ctrl+Alt+S on a running session; they do not read
 
 These bug journeys add required outcomes; they do not claim the bugs are fixed or that this document executed them.
 
+#### j22 — Mixed chord and panel Talk must preserve microphone privacy
+
+| Field | Content |
+| --- | --- |
+| Preconditions | Disposable hosted Windows VM only; real OpenAI; working audio input as j9. With no input device, BLOCKED. Bound each variant to one attempt, then global Stop in cleanup. |
+| Steps | Hold Ctrl+Alt+Space; click panel Talk twice without releasing the chord. Wait until the second connection completes and Talk reads Stop talk, then release the chord. Separately repeat with Send then Talk during the hold, and with the 120-second hold timeout instead of release. Keep pointer away from the notch when observing the result. |
+| Required privacy outcome | Whenever any microphone is recording, the Listening indicator stays visible (or Capture if that higher-priority activity is active). Releasing the hold or global Stop must stop the relevant recording; a hidden face must never coexist with active recording. Verify device/stream lifetime independently of the face and button label. |
+| Known failure | Map §5-F10, code reading only: the Talk-button microphone can survive release/timeout while StopPushToTalkMic clears the shared indicator. This is a required FAIL if reproduced, never accepted current behavior. No live reproduction is claimed here. |
+| Evidence | Timestamped chord/Talk/connect/release events, face observations and Boo-window screenshots; independent audio-device/stream lifetime evidence. A Stop talk label alone does not prove recording. If lifetime cannot be observed, mark the privacy assertion UNVERIFIED rather than pass. Global Stop and confirm cleanup after each variant. |
+| Covers | §5-F10, INV-PRIV-1, INV-TALK-1; H4/H8 and mixed ownership beyond j9/j11 |
+| Live / mock | Live only, microphone-dependent; execution and independent stream observer are **UNVERIFIED** |
+
 ## 3. Transition coverage
 
 Every row of the map, and the journey(s) that drive it. **manual** = a person must do it on a throwaway VM (or it
@@ -380,11 +393,11 @@ Invariants and findings:
 
 | Item | Journeys | Today |
 | --- | --- | --- |
-| `INV-PRIV-1` | j9, j10, j11 (Listening), j2, j6 (Capture) | face shows `Listening`/`Capture` whenever mic/capture is on |
+| `INV-PRIV-1` | j9, j10, j11, j22 (Listening), j2, j6 (Capture) | Required: visible privacy indicator while a device is active. §5-F10 documents a code-reading gap; j22 must test it. Not an unconditional current-behavior claim. |
 | `INV-PRIV-2` | j6, j14 (focus check reveals the notch) | whether the notch is on screen at the moment of the grab is UNVERIFIED (timing); §5-F5 expect today's behaviour |
 | `INV-APPLY-1`, `-2`, `-3` | j5, j15, j16 | `-2` fails for files today (§5-F6) |
 | `INV-FOCUS-1` | j13 | §5-F9 |
-| `INV-TALK-1` | j9, j12c | |
+| `INV-TALK-1` | j9, j12c, j22 | §5-F10: mixed Talk/chord microphone can survive release; required failure if reproduced |
 | `INV-STOP-1` | j12 | §5-F4, and Capture may outlast Stop (j12d) |
 | `LIVE-1` | j2 (Responding ends), j8 (Thinking with voice) | a silent connected provider is **not drivable yet** (needs a provider that never answers; the mock has no voice) |
 | `LIVE-2` | j1, j7 | |
@@ -396,6 +409,7 @@ Invariants and findings:
 | §5-F7 | j8 | silent-provider part not drivable yet |
 | §5-F8 | j9, j10, j11, j17 | |
 | §5-F9 | j13 e); quit part manual | |
+| §5-F10 | j22 | Microphone privacy gap, code reading only; live execution UNVERIFIED |
 
 Count: the map has **75 rows** (R 11, F 25 including F10b, H 8, Fo 8, G 5, A 8, U 6, P 4). Every row is hit by at least one journey
 for at least one of its events. Rows or events that **no** journey can drive from the UI today: **F10**, the sleep /
@@ -409,15 +423,15 @@ on the runner; without one they are **BLOCKED**, never green.
 
 ## 4. How to reuse this list
 
-- **Refer to journeys by id** (`j0` … `j21`, sub-steps like `j12f`). Ids are stable: a journey that is dropped keeps its
+- **Refer to journeys by id** (`j0` … `j22`, sub-steps like `j12f`). Ids are stable: a journey that is dropped keeps its
   id retired; a new journey takes the next free number. Change a step here, in the same PR, when the behaviour it
   checks changes on purpose.
 - **Full-app QA suite** (branch `qa/full-app-suite`, PR 2.12 "Phase 2 gate"): run every journey; report one evidence row
   per journey id with its label (live / mock / manual / UNVERIFIED / BLOCKED) and run link.
 - **PR #45** (plan rows 2.11 "every notch state tested" and 2.12): the state table (section 1) and the transition table
   (section 3) are the checklist for "no notch state left UNVERIFIED". `docs/FEATURE_MAP.md` rows can cite a journey id.
-- **PR #48** (cheapest models, `FaceTimeline.cs`): each journey's face sequence is what its `jN-*-face-timeline.txt`
-  should show; use `Mark(...)` at each user action and `WaitForFace(...)` for the expected faces. A face shorter than
+- **PR #48** (pending `FaceTimeline.cs`): each journey's face sequence is what its planned `jN-*-face-timeline.txt`
+  should show once the recorder lands; action marks and bounded face waits are requirements, not current APIs. A face shorter than
   one reading (about 25–35 ms) can be missed, so a missing very short face (for example the tap in j9 b) is not a
   failure on its own.
 - **Steps marked "expect today's behaviour"** check today's code and name the finding. They are not a verdict on the
