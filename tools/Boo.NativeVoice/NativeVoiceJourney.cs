@@ -8,7 +8,7 @@ using Boo.LiveSmoke;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
 using FlaUI.Core.Input;
-using FlaUI.Core.WindowsAPI;
+using System.Drawing;
 
 [assembly: CollectionBehavior(DisableTestParallelization = true)]
 namespace Boo.NativeVoice;
@@ -54,10 +54,15 @@ public sealed class NativeVoiceJourney : IClassFixture<NativeVoiceFixture>
         {
             _boo.WaitForNotch(TimeSpan.FromSeconds(30));
             var panel = _boo.EnsurePanel();
-            panel.Focus();
-            Keyboard.Press(VirtualKeyShort.CONTROL);
-            Keyboard.Press(VirtualKeyShort.ALT);
-            Keyboard.Press(VirtualKeyShort.SPACE);
+            var notch = _boo.WaitForNotch(TimeSpan.FromSeconds(30));
+            var rect = notch.BoundingRectangle;
+            Mouse.MoveTo(new Point(rect.Left + rect.Width / 2, rect.Top + 2));
+            Assert.True(BooAppFixture.WaitUntil(() =>
+                notch.FindFirstDescendant(cf => cf.ByAutomationId("OpenButton")) is { IsOffscreen: false } button
+                && button.BoundingRectangle.Height > 0, TimeSpan.FromSeconds(10)), "Notch eyes did not reveal.");
+            var eyes = notch.FindFirstDescendant(cf => cf.ByAutomationId("OpenButton"))!.BoundingRectangle;
+            Mouse.MoveTo(new Point(eyes.Left + eyes.Width / 2, eyes.Top + Math.Min(20, eyes.Height / 2)));
+            Mouse.Down(MouseButton.Left);
             try
             {
                 Assert.True(BooAppFixture.WaitUntil(() =>
@@ -71,9 +76,7 @@ public sealed class NativeVoiceJourney : IClassFixture<NativeVoiceFixture>
             }
             finally
             {
-                Keyboard.Release(VirtualKeyShort.SPACE);
-                Keyboard.Release(VirtualKeyShort.ALT);
-                Keyboard.Release(VirtualKeyShort.CONTROL);
+                Mouse.Up(MouseButton.Left);
             }
             var answered = BooAppFixture.WaitUntil(() =>
             {
@@ -101,8 +104,9 @@ public sealed class NativeVoiceJourney : IClassFixture<NativeVoiceFixture>
                 Assert.Contains(rows, s => s.StartsWith("Boo: ") && Regex.IsMatch(s, @"\b(seven|7)\b", RegexOptions.IgnoreCase));
             }
         }
-        catch
+        catch (Exception ex)
         {
+            _boo.WriteObservation("native-failure", $"error={ex.Message}\nstatuses={string.Join(" > ", statuses)}");
             _boo.CaptureScreen("native-FAILED");
             throw;
         }

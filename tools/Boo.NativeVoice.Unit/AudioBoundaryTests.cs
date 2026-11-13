@@ -54,9 +54,10 @@ public sealed class AudioBoundaryTests
         string? Read(string name) => name switch
         {
             "BOO_QA_VOICE_INPUT" => "not-opened.wav", "GITHUB_ACTIONS" => actions,
-            "RUNNER_ENVIRONMENT" => runner, _ => null
+            "RUNNER_ENVIRONMENT" => runner, "BOO_QA_VOICE_EVIDENCE" => "receipt.jsonl", _ => null
         };
-        Assert.Throws<InvalidOperationException>(() => HostedVoiceOptions.Read(Read, windows));
+        var error = Assert.Throws<InvalidOperationException>(() => HostedVoiceOptions.Read(Read, windows));
+        Assert.Equal("QA voice devices require GitHub-hosted Windows.", error.Message);
     }
     [Fact]
     public async Task NativeFactoryForwardsModelTranscriptionAndBudgetToActualSessionPayload()
