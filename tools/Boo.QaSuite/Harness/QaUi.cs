@@ -196,6 +196,7 @@ public sealed class NotchStateRecorder : IDisposable
         }
         return null;
     }
+    private readonly List<string> _diagnosticReads = new();
     private volatile bool _stop;
 
     public NotchStateRecorder(BooAppFixture boo, string label)
@@ -227,6 +228,9 @@ public sealed class NotchStateRecorder : IDisposable
         {
             var state = string.Empty;
             var readStart = _clock.ElapsedMilliseconds;
+            var beginQpc = Stopwatch.GetTimestamp();
+            var discoveryQpc = beginQpc;
+            var propertyQpc = beginQpc;
             try
             {
                 notch ??= _boo.App.GetAllTopLevelWindows(automation).FirstOrDefault(w =>
@@ -234,14 +238,21 @@ public sealed class NotchStateRecorder : IDisposable
                     var n = BooAppFixture.SafeName(w);
                     return n == BooAppFixture.NotchName || n == BooAppFixture.NotchTitle;
                 });
+                discoveryQpc = Stopwatch.GetTimestamp();
                 state = notch?.Properties.ItemStatus.ValueOrDefault ?? string.Empty;
+                propertyQpc = Stopwatch.GetTimestamp();
             }
             catch (Exception)
             {
                 // A retained UIA element can go stale when Boo exits. Keep the failed read as health evidence.
                 notch = null;
             }
-            lock (_gate) _observations.Add((readStart, _clock.ElapsedMilliseconds, state));
+            var beforeInsertQpc = Stopwatch.GetTimestamp();
+            lock (_gate)
+            {
+                _observations.Add((readStart, _clock.ElapsedMilliseconds, state));
+                _diagnosticReads.Add($"qpc [{beginQpc},{discoveryQpc},{propertyQpc},{beforeInsertQpc},{Stopwatch.GetTimestamp()}] thread={Environment.CurrentManagedThreadId} observed={state}");
+            }
             if (state.Length > 0 && state != last)
             {
                 last = state;
@@ -266,5 +277,6 @@ public sealed class NotchStateRecorder : IDisposable
     {
         _stop = true;
         _thread.Join(TimeSpan.FromSeconds(2));
+        lock (_gate) File.WriteAllLines(Path.ChangeExtension(_file, ".timing.txt"), new[] { $"# QPC frequency={Stopwatch.Frequency}; begin/discovery/property/before-lock/insert" }.Concat(_diagnosticReads));
     }
 }

@@ -1322,6 +1322,7 @@ public partial class NotchWindow : Window
     private void OpenButton_OnPreviewMouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         _holdTimer.Stop();
+        UiTiming.Mark("eyes mouse-up begin");
         var outcome = _press.Up(_clock.Elapsed);
         if (OpenButton.IsMouseCaptured)
         {
@@ -1331,6 +1332,7 @@ public partial class NotchWindow : Window
         switch (outcome)
         {
             case PressOutcome.Click:
+                UiTiming.Mark("eyes classified Click");
                 OpenPanelFromNotch();
                 break;
             case PressOutcome.HoldEnded:

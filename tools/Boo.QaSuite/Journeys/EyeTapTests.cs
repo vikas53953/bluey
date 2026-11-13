@@ -9,10 +9,10 @@ using FlaUI.Core.Definitions;
 namespace Boo.QaSuite.Journeys;
 
 /// <summary>j10a only. A physical tap opens the panel; hold/capture-loss remain voice-owned.</summary>
-public sealed class EyeTapTests : IClassFixture<NoKeyFixture>
+public sealed class EyeTapTests : IClassFixture<EyeTapFixture>
 {
-    private readonly NoKeyFixture _boo;
-    public EyeTapTests(NoKeyFixture boo) => _boo = boo;
+    private readonly EyeTapFixture _boo;
+    public EyeTapTests(EyeTapFixture boo) => _boo = boo;
 
     [Fact]
     public void Q10_PhysicalEyeTapUnder200Ms_OpensPanelWithoutListening()
@@ -25,7 +25,7 @@ public sealed class EyeTapTests : IClassFixture<NoKeyFixture>
         var events = new ConcurrentQueue<(long At, string Face)>();
         Window? Panel() => _boo.App.GetAllTopLevelWindows(_boo.Automation)
             .FirstOrDefault(w => w.Properties.Name.Value.StartsWith(BooAppFixture.PanelTitlePrefix, StringComparison.Ordinal));
-        void Record(string value) => log.Add($"{clock.ElapsedMilliseconds} {value}");
+        void Record(string value) => log.Add($"{clock.ElapsedMilliseconds} qpc={Stopwatch.GetTimestamp()} {value}");
         try
         {
             var notch = _boo.WaitForNotch(QaUi.UiTimeout);
@@ -91,9 +91,23 @@ public sealed class EyeTapTests : IClassFixture<NoKeyFixture>
         {
             try { if (held) Mouse.Up(MouseButton.Left); }
             catch (Exception releaseError) when (primary is not null) { Record("release error: " + releaseError); }
+            var timing = System.IO.Path.Combine(_boo.DataDirectory, "ui-timing.txt");
+            try { _boo.WriteObservation("qa-j10a-app-timing", BooAppFixture.ReadShared(timing)); }
+            catch (Exception traceError) { Record("timing receipt error: " + traceError); }
             log.AddRange(events.Select(e => $"{e.At} ItemStatus event {e.Face}"));
             try { _boo.WriteObservation("qa-j10a-eye-tap", string.Join("\n", log)); }
             catch (Exception evidenceError) when (primary is not null) { Console.Error.WriteLine("Additional evidence failure: " + evidenceError); }
         }
+    }
+}
+
+/// <summary>Enables diagnostics before launching the published app; no key or behavior override.</summary>
+public sealed class EyeTapFixture : BooAppFixture
+{
+    public EyeTapFixture() : base(Seed) { }
+    private static void Seed(string directory)
+    {
+        QaSeeds.NoKeySpeechOff(directory);
+        System.IO.File.WriteAllText(System.IO.Path.Combine(directory, "qa-ui-timing.enabled"), "diagnostic only");
     }
 }
