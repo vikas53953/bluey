@@ -1,9 +1,6 @@
 name: eye-tap-profile
 on:
-  pull_request:
-    paths:
-      - .github/workflows/eye-tap-profile.yml
-      - scripts/ci/Profile-EyeTap.ps1
+  # One approved attempt is already running; future attempts require explicit dispatch.
   workflow_dispatch:
 permissions:
   contents: read

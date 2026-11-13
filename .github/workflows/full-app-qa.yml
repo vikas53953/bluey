@@ -17,12 +17,7 @@ name: full-app-qa
 # that were reviewed); the APP UNDER TEST is `app_ref` (folder app-under-test), built and published from there.
 
 on:
-  # Only PRs that change the suite itself (it proves its own change, and this registers the workflow so it can be
-  # dispatched before it reaches the default branch). Such a PR tests its own merge commit. Never any other PR.
-  pull_request:
-    paths:
-      - .github/workflows/full-app-qa.yml
-      - tools/Boo.QaSuite/**
+  # Paid runs are explicit dispatches; PR path filters include the whole cumulative diff.
   workflow_dispatch:
     inputs:
       app_ref:
