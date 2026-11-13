@@ -67,8 +67,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource _focusCancellation = new();
     private bool _focusCaptureInFlight;
     private long _focusCaptureId;
-    // 30 s, not 10: a briefly busy UI thread must not look like sleep (real suspend already pauses via StopAll).
-    private readonly FocusClock _focusClock = new(maximumTickSeconds: 30);
+    private readonly FocusClock _focusClock;
     private double _lastFocusSaveRealElapsed;
     private ToolRequest? _pendingAction;
     private ActionPreviewModel? _pendingPreview;
@@ -84,7 +83,8 @@ public partial class MainWindow : Window
     private bool _realtimeConnected;
     private bool _listening;
     private int _realtimeToolsInFlight;
-    private readonly ChirpPlayer _chirps = new();
+    private readonly TimeProvider _timeProvider;
+    private readonly ChirpPlayer _chirps;
     private bool _voiceTaskAuthorized;
     private bool _closingForExit;
     private bool _displayAffinitySupported = true;
@@ -105,8 +105,13 @@ public partial class MainWindow : Window
         Func<bool> captureExclusion,
         Action<bool, string?> onCaptureActivity,
         Action<bool> onMicrophoneActivity,
-        Action<NotchAppearance> onAppearanceChanged)
+        Action<NotchAppearance> onAppearanceChanged,
+        TimeProvider? timeProvider = null)
     {
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _chirps = new ChirpPlayer(_timeProvider);
+        // 30 s, not 10: a briefly busy UI thread must not look like sleep (real suspend already pauses via StopAll).
+        _focusClock = new FocusClock(_timeProvider, maximumTickSeconds: 30);
         _dataDirectory = dataDirectory;
         _onClose = onClose;
         _onStop = onStop;
@@ -1004,7 +1009,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            var validation = AnnotationValidator.Validate(proposal, frame.Context, DateTimeOffset.UtcNow);
+            var validation = AnnotationValidator.Validate(proposal, frame.Context, _timeProvider.GetUtcNow());
             if (!validation.Valid)
             {
                 ReportAnnotationOutcome($"Boo explained the screen without drawing: {validation.Reason}");
@@ -1340,7 +1345,7 @@ public partial class MainWindow : Window
                 SaveFocusSnapshot(superseded);
             }
             _focus = new FocusSessionController(FocusTaskBox.Text.Trim(), Math.Clamp(minutes * 60d, 60d, 14400d),
-                DeveloperModeBox.IsChecked == true);
+                DeveloperModeBox.IsChecked == true, _timeProvider);
             _focus.SessionEnded += Focus_OnSessionEnded;
             _focusCaptureInFlight = false;
             _lastFocusSaveRealElapsed = 0;
@@ -1537,7 +1542,7 @@ public partial class MainWindow : Window
                 decision.Probability,
                 decision.Confidence,
                 decision.Probabilities);
-            var age = Math.Max(0, (DateTimeOffset.UtcNow - frame.Context.CapturedAt).TotalSeconds);
+            var age = Math.Max(0, (_timeProvider.GetUtcNow() - frame.Context.CapturedAt).TotalSeconds);
             if (_focus.RecordCheck(check, age))
             {
                 FocusStatus.Text = "Nudge: return to the task when you are ready. Boo did not change your apps.";
@@ -1603,7 +1608,7 @@ public partial class MainWindow : Window
         {
             return null;
         }
-        var frame = await (_capture ??= new ScreenCapture()).CaptureAsync(
+        var frame = await (_capture ??= new ScreenCapture(_timeProvider)).CaptureAsync(
             display,
             target,
             OwnedWindowHandles(),
@@ -2034,7 +2039,7 @@ public partial class MainWindow : Window
             {
                 return null;
             }
-            var frame = await (_capture ??= new ScreenCapture()).CaptureAsync(
+            var frame = await (_capture ??= new ScreenCapture(_timeProvider)).CaptureAsync(
                 display,
                 target,
                 OwnedWindowHandles(),

@@ -38,9 +38,9 @@ public sealed class FocusSessionController
     private bool _endRaised;
     private double _sinceCheck;
 
-    public FocusSessionController(string task, double durationSeconds, bool developerMode = false)
+    public FocusSessionController(string task, double durationSeconds, bool developerMode = false, TimeProvider? clock = null)
     {
-        _session = new FocusSession(task, durationSeconds, developerMode);
+        _session = new FocusSession(task, durationSeconds, developerMode, clock);
         _developerMode = developerMode;
         _policy = CreatePolicy(developerMode);
     }

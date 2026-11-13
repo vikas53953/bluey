@@ -78,11 +78,11 @@
       "Boo.Windows": 0
     },
     "BOO-TIME-001": {
-      "Boo.App": 11,
-      "Boo.Core": 1,
+      "Boo.App": 0,
+      "Boo.Core": 0,
       "Boo.Providers": 0,
       "Boo.Storage": 0,
-      "Boo.Windows": 2
+      "Boo.Windows": 0
     },
     "BOO-TIME-002": {
       "Boo.App": 1,

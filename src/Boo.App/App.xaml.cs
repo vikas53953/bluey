@@ -35,6 +35,8 @@ public partial class App : System.Windows.Application
     private Forms.ToolStripItem? _trayShowItem;
     private Forms.ToolStripItem? _trayStopItem;
     private PerfDiagnostics? _perf;
+    /// <summary>The composition root's one real clock, handed to everything App builds (tests pass a fake TimeProvider).</summary>
+    private readonly TimeProvider _timeProvider = TimeProvider.System;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -65,7 +67,7 @@ public partial class App : System.Windows.Application
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
-        var crashedLastTime = _crashLog.ConsumeRecoveredNotice(DateTimeOffset.UtcNow, TimeSpan.FromDays(7));
+        var crashedLastTime = _crashLog.ConsumeRecoveredNotice(_timeProvider.GetUtcNow(), TimeSpan.FromDays(7));
         ApplyThemeResources();
         SystemParameters.StaticPropertyChanged += SystemParameters_OnStaticPropertyChanged;
 
@@ -83,7 +85,7 @@ public partial class App : System.Windows.Application
         _notch.EyesHeldChanged += held => _panel?.SetEyesHeld(held);
         _notch.NudgeActionChosen += takeBreak => _panel?.HandleNudgeAction(takeBreak);
         _notch.ShowNotch();
-        _perf = PerfDiagnostics.TryStart(_notch, Dispatcher); // only when BOO_PERF_DIAG is set (perf tests)
+        _perf = PerfDiagnostics.TryStart(_notch, Dispatcher, _timeProvider); // only when BOO_PERF_DIAG is set (perf tests)
 
         CreateTrayIcon();
         RefreshShortcutStatus(announce: true);
@@ -149,7 +151,8 @@ public partial class App : System.Windows.Application
             captureExclusion: () => _notch?.CaptureExclusionAvailable != false,
             onCaptureActivity: (active, displayName) => _notch?.SetCaptureActivity(active, displayName),
             onMicrophoneActivity: active => _notch?.SetMicrophoneActivity(active),
-            onAppearanceChanged: appearance => _notch?.SetAppearance(appearance));
+            onAppearanceChanged: appearance => _notch?.SetAppearance(appearance),
+            timeProvider: _timeProvider);
         panel.Closed += (_, _) => _panel = null;
         if (_notch is not null)
         {
@@ -301,7 +304,7 @@ public partial class App : System.Windows.Application
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
-        var recover = _startupComplete && Boo.Core.CrashReport.IsRecoverable(e.Exception) && _crashGuard.TryRecover(DateTimeOffset.UtcNow);
+        var recover = _startupComplete && Boo.Core.CrashReport.IsRecoverable(e.Exception) && _crashGuard.TryRecover(_timeProvider.GetUtcNow());
         WriteCrashLog(e.Exception, "Dispatcher", recover);
         if (!recover)
         {
@@ -391,7 +394,7 @@ public partial class App : System.Windows.Application
         {
             var store = _crashLog ??= new Boo.Storage.CrashLogStore(
                 string.IsNullOrEmpty(_dataDirectory) ? ResolveDataDirectory() : _dataDirectory);
-            store.Write(error, source, DateTimeOffset.UtcNow, recovered, typeof(App).Assembly.GetName().Version?.ToString());
+            store.Write(error, source, _timeProvider.GetUtcNow(), recovered, typeof(App).Assembly.GetName().Version?.ToString());
         }
         catch (Exception)
         {
