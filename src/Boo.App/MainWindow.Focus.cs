@@ -105,10 +105,7 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>
-    /// Pauses a RUNNING session only. On an ended (or already paused) session it does nothing: it used to claim
-    /// "Paused" and pin the notch on the Paused face with nothing to resume or end (issue #70).
-    /// </summary>
+    /// <summary>Pauses the focus session if it is running; otherwise does nothing.</summary>
     private void FocusPauseButton_OnClick(object sender, RoutedEventArgs e)
     {
         if (_focus is not { Status: Boo.Core.FocusStatus.Running })
@@ -186,10 +183,7 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>
-    /// The notch's Paused face always follows the session's REAL status, never the button or event that asked for a
-    /// pause: a pause request on a session that is not running (ended, or already paused) changes nothing (issue #70).
-    /// </summary>
+    /// <summary>Returns <paramref name="inputs"/> with the Paused face set exactly when the focus session is paused.</summary>
     private FaceInputs WithFocusFace(FaceInputs inputs) =>
         inputs with { FocusPaused = _focus is { Status: Boo.Core.FocusStatus.Paused } };
 }
