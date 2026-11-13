@@ -571,9 +571,10 @@ target framework and runtime identifier, in either log) is judged, including WPF
   real (the earlier evaluation-only check, Debug and project-alone on Linux, missed every one of these);
 - **packages**: `PackageReference` items and the direct dependencies in the restore results (a package added by a
   target before restore counts); `PackageDownload` items and the restore's downloads (only `sdk_packs` may be
-  downloaded); every reference `csc` got from a package must be in that project's restore results;
+  downloaded); every file `csc` got from a package (reference or analyzer) must be from that project's restore results,
+  same id and version;
 - **build code**: every imported file must be the repository's own, the SDK's (`<dotnet>/`), or a build file of a
-  package the project restores **and** whose row lists it under `package_build_files`. So an `Exists()`-guarded import
+  package the project restores (that id at that version) **and** whose row lists it under `package_build_files`. So an `Exists()`-guarded import
   of a downloaded package, and a NuGet MSBuild SDK (`<Sdk Name="..." Version="..."/>`, imported from `<nuget>/`
   without being restored), fail; so does an import from anywhere else on the machine;
 - **frameworks**: `FrameworkReference` items, the framework packs `csc` got, and the target frameworks the logs show
@@ -588,7 +589,7 @@ target framework and runtime identifier, in either log) is judged, including WPF
 It fails closed: facts that are not schema `boo-build-facts/1`, a missing, doubled or failed `build` / `publish` log, a
 malformed unit, a `src/` unit that no row owns, a declared project the build log does not compile, a unit without
 restore results, a restored library that is neither a package nor a project, or a reference with an unknown origin.
-The project files judged come from git (any `*proj` under `src/`, any letter case). `--self-test` judges 68 planted
+The project files judged come from git (any `*proj` under `src/`, any letter case). `--self-test` judges 70 planted
 builds shaped like today's (each of the review's bypasses as it appears in the facts), 11 loosening cases and 6 kinds of
 unreadable facts; `format` checks `layers.json` alone; `show FACTS` prints what each project references.
 

@@ -444,13 +444,13 @@ def judge_unit(out, ctx, name, row, unit, place, used, seen):
         out.add('BOO-REF-004', f'{name} restore results', f'the facts have no restore results (project.assets.json) '
                 f'for {unit["project"]}, so its packages cannot be judged.', place)
         assets = {'libraries': [], 'directDependencies': [], 'downloadDependencies': []}
-    restored = set()
+    restored = set()  # 'id/version', lower case: exactly what the restore resolved for this unit
     edges = []  # (target path, how)
     frameworks = [(f, 'FrameworkReference item') for f in unit['frameworkReferences']]
     for library in assets['libraries']:
         m = LIBRARY.match(library)
         if m and m['type'] == 'package':
-            restored.add(m['id'].lower())
+            restored.add(f"{m['id']}/{m['version']}".lower())
         elif m and m['type'] == 'project' and m['path']:
             edges.append((posixpath.normpath(posixpath.join(project_dir, m['path'])), 'restored project library'))
         else:
@@ -470,9 +470,9 @@ def judge_unit(out, ctx, name, row, unit, place, used, seen):
                     f'the SDK packs in layers.json "sdk_packs" may be downloaded, never a package to import build '
                     'code from.', place)
 
-    def from_package(package_id):
-        """A file of a package this unit restores, or of an SDK pack it downloads."""
-        if package_id.lower() in restored:
+    def from_package(package_id, version):
+        """A file of a package this unit restores (that id at that version), or of an SDK pack it downloads."""
+        if f'{package_id}/{version}'.lower() in restored:
             return True
         if package_id.lower() in sdk_packs and package_id.lower() in downloads:
             ctx['used_packs'].add(package_id.lower())
@@ -505,7 +505,7 @@ def judge_unit(out, ctx, name, row, unit, place, used, seen):
         output = SRC_OUTPUT.match(path)
         if pack:
             frameworks.append((pack['pack'], f'{how} {path}'))
-        elif nuget and from_package(nuget['id']):
+        elif nuget and from_package(nuget['id'], nuget['version']):
             pass
         elif output and output['file'] == output['folder']:
             edges.append((f'src/{output["folder"]}/{output["folder"]}.csproj', f'{how} {path}'))
@@ -526,10 +526,11 @@ def judge_unit(out, ctx, name, row, unit, place, used, seen):
             elif origin == 'frameworkReference':
                 frameworks.append(((ref.get('package') or '').split('/')[0], f'compile reference {path}'))
             elif origin == 'packageReference':
-                package = (ref.get('package') or '').split('/')[0]
+                package = ref.get('package') or ''
                 if package.lower() not in restored:
                     out.add('BOO-REF-003', f'{name} compiles against {package}', f'{name} is compiled against {path} '
-                            f'from package {package}, which is not in its restore results.', place)
+                            f'from package {package}, which is not in its restore results (that id at that version).',
+                            place)
             elif origin == 'reference':
                 place_file(path, 'compile reference')
             else:
@@ -539,7 +540,7 @@ def judge_unit(out, ctx, name, row, unit, place, used, seen):
             if analyzer.startswith('<dotnet>/'):
                 continue  # the SDK's own analyzers and source generators (the SDK is pinned by global.json)
             m = NUGET.match(analyzer)
-            if m and from_package(m['id']):
+            if m and from_package(m['id'], m['version']):
                 continue
             out.add('BOO-REF-003', f'{name} runs analyzer {analyzer}', f'{name} is compiled with analyzer {analyzer}, '
                     'which is neither the SDK\'s nor from a package this project restores.', place)
@@ -551,14 +552,15 @@ def judge_unit(out, ctx, name, row, unit, place, used, seen):
         m = NUGET.match(imported)
         if m:
             package = m['id']
-            if package.lower() in allowed_build and package.lower() in restored:
+            exact = f"{package}/{m['version']}".lower() in restored
+            if package.lower() in allowed_build and exact:
                 used['package_build_files'].add(package.lower())
                 if package.lower() in ctx['every_build']:
                     ctx['used_every']['package_build_files'].add(package.lower())
                 seen['imports'].add(package)
             else:
                 why = ('it is not in the restore results (a PackageDownload, a NuGet MSBuild SDK or a hand-written '
-                       'path)' if package.lower() not in restored else
+                       'path), or not at the version restored' if not exact else
                        f'layers.json allows {name} package build files only from: '
                        f'{listing(row["package_build_files"] + sorted(ctx["every_build"]))}')
                 out.add('BOO-REF-003', f'{name} imports build code from {package}', f'{name}\'s build imports '
@@ -664,7 +666,7 @@ WIN = 'net10.0-windows10.0.19041.0'
 NETCORE, WPF, WINSDK = 'Microsoft.NETCore.App', 'Microsoft.WindowsDesktop.App', 'Microsoft.Windows.SDK.NET.Ref.Windows'
 PACKS = ['Microsoft.NETCore.App.Runtime.win-x64', 'Microsoft.WindowsDesktop.App.Runtime.win-x64',
          'Microsoft.Windows.SDK.NET.Ref']
-SQLITE_TARGETS = '<nuget>/sqlitepclraw.lib.e_sqlite3/2.1.13/buildTransitive/net9.0/SQLitePCLRaw.lib.e_sqlite3.targets'
+SQLITE_TARGETS = '<nuget>/sqlitepclraw.lib.e_sqlite3/1.0.0/buildTransitive/net9.0/SQLitePCLRaw.lib.e_sqlite3.targets'
 SHARED_PROPS = '<nuget>/shared.analyzer/1.0.0/buildTransitive/Shared.Analyzer.props'
 
 
@@ -897,6 +899,11 @@ def logic_cases():
         ('an allowed package\'s build files in a project that does not restore it fail',
          each('Boo.Core', append('imports', SQLITE_TARGETS + ' <= src/Boo.Core/obj/x.nuget.g.targets')),
          ['BOO-REF-003']),
+        ('build files of an allowed package at a version the project does not restore fail',
+         each('Boo.Storage', append('imports', '<nuget>/sqlitepclraw.lib.e_sqlite3/9.9.9/build/x.targets <= x')),
+         ['BOO-REF-003']),
+        ('a file of a restored package at another version fails',
+         each('Boo.Windows', csc_ref('<nuget>/naudio/9.9.9/lib/net8.0/NAudio.dll'), 'build'), ['BOO-REF-003']),
         ('build files of a restored package that is not allowed fail',
          each('Boo.Windows', append('imports', '<nuget>/naudio/2.2.1/build/NAudio.targets <= x')), ['BOO-REF-003']),
         ('an import from outside the repository fails',
