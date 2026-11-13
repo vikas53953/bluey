@@ -227,9 +227,9 @@ The **Developer Mode** checkbox in Focus is for testing. On: "the focus clock ru
 | Setting | Default | Notes |
 | --- | --- | --- |
 | OpenAI key (voice + OpenAI text) | empty | Your OpenAI key, DPAPI-encrypted in `credential.bin`, cleared from the box after save |
-| Text AI provider | OpenAI | **Anthropic Claude** or **Google Gemini** can answer explain, research, nudges and focus checks instead. Voice always uses OpenAI Realtime and the OpenAI key |
+| Text AI provider | OpenAI | Keep it on **OpenAI**: since 13 Nov 2026 Boo uses only OpenAI, for chat and voice. The Anthropic Claude and Google Gemini choices are still in the list but are out of scope (not supported or tested). |
 | Anthropic Claude key, Google Gemini key | empty | One masked box each; stored in `credential.anthropic.bin` and `credential.gemini.bin` |
-| Claude / Gemini model, focus model | blank = default | Blank uses the built-in default ids; type a model id to override |
+| Claude / Gemini model (out of scope), focus model | blank = default | Blank uses the built-in default ids; type a model id to override |
 | Updates: Check GitHub Releases for updates once a day | off | Installed copies only. Needs a GitHub fine-grained token (**Contents: read** on the private repo), stored DPAPI-protected in `update-token.bin`. **Check for updates** checks now; **Install and restart** is the only step that changes files. **Include pre-releases** also offers suffixed tags |
 | Display | none | The one display Boo may capture. Required for explain and focus |
 | Microphone | default device | Selected device for voice |
