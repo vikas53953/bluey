@@ -100,14 +100,19 @@ internal sealed class FaceTimeline : IDisposable
     /// <summary>The faces seen in order (repeats collapsed) between two times, for observations.</summary>
     public IReadOnlyList<string> FacesSeen(double fromMs = 0, double toMs = double.MaxValue)
     {
-        var seen = new List<string>();
         lock (_gate)
         {
-            foreach (var s in _samples)
-            {
-                if (s.AtMs < fromMs || s.AtMs > toMs) continue;
-                if (seen.Count == 0 || seen[^1] != s.Face) seen.Add(s.Face);
-            }
+            return FacesIn(_samples, fromMs, toMs);
+        }
+    }
+
+    private static List<string> FacesIn(IEnumerable<Sample> samples, double fromMs = 0, double toMs = double.MaxValue)
+    {
+        var seen = new List<string>();
+        foreach (var s in samples)
+        {
+            if (s.AtMs < fromMs || s.AtMs > toMs) continue;
+            if (seen.Count == 0 || seen[^1] != s.Face) seen.Add(s.Face);
         }
         return seen;
     }
@@ -119,13 +124,20 @@ internal sealed class FaceTimeline : IDisposable
         {
             automation = new UIA3Automation();
             AutomationElement? notch = null;
+            var lastSearchMs = double.MinValue;
             while (!_stopping)
             {
                 var started = NowMs;
                 string face;
                 try
                 {
-                    notch ??= FindNotch(automation);
+                    // Searching all of Boo's windows is heavier than one read, so while the notch is missing search at most
+                    // every 250 ms and record Missing in between.
+                    if (notch is null && started - lastSearchMs >= 250)
+                    {
+                        lastSearchMs = started;
+                        notch = FindNotch(automation);
+                    }
                     face = notch is null ? Missing : notch.Properties.ItemStatus.ValueOrDefault ?? string.Empty;
                 }
                 catch (Exception)
@@ -173,13 +185,13 @@ internal sealed class FaceTimeline : IDisposable
         var inv = CultureInfo.InvariantCulture;
         var text = new StringBuilder();
         text.AppendLine(inv, $"face timeline '{_name}': notch ItemStatus read by UI Automation every ~{Interval.TotalMilliseconds:0} ms (recorder only; asserts nothing)");
-        text.AppendLine(inv, $"started {_startedAt:yyyy-MM-ddTHH:mm:ss.fffZ}; samples={samples.Count}; readErrors={_readErrors}");
+        text.AppendLine(inv, $"started {_startedAt:yyyy-MM-ddTHH:mm:ss.fffZ}; samples={samples.Count}; readErrors={Volatile.Read(ref _readErrors)}");
         if (samples.Count > 1)
         {
             var span = samples[^1].AtMs - samples[0].AtMs;
             text.AppendLine(inv, $"mean interval={span / (samples.Count - 1):0.0} ms; mean read={samples.Average(s => s.ReadMs):0.0} ms; max read={samples.Max(s => s.ReadMs):0.0} ms");
         }
-        text.AppendLine(inv, $"faces in order: {string.Join(" > ", FacesSeen())}");
+        text.AppendLine(inv, $"faces in order: {string.Join(" > ", FacesIn(samples))}");
         text.AppendLine("time from start (ms) | face | lasted (ms) | samples   (a face shorter than one interval can be missed)");
 
         var lines = new List<(double At, string Line)>();

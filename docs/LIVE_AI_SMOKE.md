@@ -12,7 +12,7 @@ buttons work, but not that Boo can talk to the real AI. This test is the missing
 `main`): then a PR cannot merge unless a real round trip passed on its newest commit (Vikas, 12 Nov 2026, 11:20 PM IST). A newer push to the same PR cancels the older run.
 
 **What it costs:** one small paid AI request per run (a screenshot and a short answer), so one per PR push plus any
-manual runs. It uses the **cheapest OpenAI models** by default, about a tenth of a cent per run (an estimate; see
+manual runs. It uses the **cheapest OpenAI models** by default, about two tenths of a cent per PR run (an estimate; see
 section 6). A run cancelled by a newer push may already have spent its request. GitHub's standard runners are free
 because the repository is public (since 13 Nov 2026); each run takes about 10–14 minutes of a Windows VM.
 
