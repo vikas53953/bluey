@@ -1,0 +1,53 @@
+# Source of src/BannedSymbols.txt. Edit this file, then run: python -I scripts/quality/banned_apis.py generate
+# The generator (scripts/quality/canary/ListGen) expands each BAN line into EVERY overload that the net10.0 and
+# Microsoft.WindowsDesktop.App reference packs declare under that name, so a new overload in a later .NET cannot slip
+# past. CI regenerates the list and fails if src/BannedSymbols.txt differs (scripts/quality/banned_apis.py list-check).
+#
+#   BAN   <M|P>:<Type>.<Member> | <message the agent sees>   nested types use +, generic types use `N (metadata names)
+#   ALLOW <exact doc id> | <why this overload stays allowed>   must name an overload that a BAN line produced
+#
+# Rule texts: docs/quality/RULES.md. Every generated line needs one call in scripts/quality/canary/Canary.*.cs.
+
+# BOO-ASYNC-001 blocking sleeps hide races
+BAN M:System.Threading.Thread.Sleep | BOO-ASYNC-001 A sleep hides a race instead of fixing it. Await the thing you are waiting for (Task, TaskCompletionSource, SemaphoreSlim.WaitAsync) or inject TimeProvider. Do not make the sleep longer.
+
+# BOO-ASYNC-002 sync-over-async deadlocks the WPF UI thread
+BAN M:System.Threading.Tasks.Task.Wait | BOO-ASYNC-002 Blocking on a Task can deadlock the UI thread. Make the caller async and await it.
+BAN M:System.Threading.Tasks.Task.WaitAll | BOO-ASYNC-002 Blocking on Tasks can deadlock the UI thread. Use await Task.WhenAll.
+BAN M:System.Threading.Tasks.Task.WaitAny | BOO-ASYNC-002 Blocking on Tasks can deadlock the UI thread. Use await Task.WhenAny.
+BAN P:System.Threading.Tasks.Task`1.Result | BOO-ASYNC-002 .Result blocks if the task is not finished. Await it. If you already checked IsCompleted, await it anyway: the cost is nil and the rule stays simple.
+BAN P:System.Threading.Tasks.ValueTask`1.Result | BOO-ASYNC-002 .Result blocks if the task is not finished. Await it.
+BAN M:System.Runtime.CompilerServices.TaskAwaiter.GetResult | BOO-ASYNC-002 GetAwaiter().GetResult() is a blocking wait. Make the caller async.
+BAN M:System.Runtime.CompilerServices.TaskAwaiter`1.GetResult | BOO-ASYNC-002 GetAwaiter().GetResult() is a blocking wait. Make the caller async.
+BAN M:System.Runtime.CompilerServices.ConfiguredTaskAwaitable+ConfiguredTaskAwaiter.GetResult | BOO-ASYNC-002 ConfigureAwait(false).GetAwaiter().GetResult() is still a blocking wait. Make the caller async.
+BAN M:System.Runtime.CompilerServices.ConfiguredTaskAwaitable`1+ConfiguredTaskAwaiter.GetResult | BOO-ASYNC-002 ConfigureAwait(false).GetAwaiter().GetResult() is still a blocking wait. Make the caller async.
+BAN M:System.Runtime.CompilerServices.ValueTaskAwaiter.GetResult | BOO-ASYNC-002 GetAwaiter().GetResult() is a blocking wait. Make the caller async.
+BAN M:System.Runtime.CompilerServices.ValueTaskAwaiter`1.GetResult | BOO-ASYNC-002 GetAwaiter().GetResult() is a blocking wait. Make the caller async.
+BAN M:System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable+ConfiguredValueTaskAwaiter.GetResult | BOO-ASYNC-002 ConfigureAwait(false).GetAwaiter().GetResult() is still a blocking wait. Make the caller async.
+BAN M:System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable`1+ConfiguredValueTaskAwaiter.GetResult | BOO-ASYNC-002 ConfigureAwait(false).GetAwaiter().GetResult() is still a blocking wait. Make the caller async.
+
+# BOO-UI-001 / BOO-UI-002 / BOO-UI-003 one way onto the UI thread: Dispatcher.InvokeAsync
+BAN M:System.Windows.Threading.Dispatcher.Invoke | BOO-UI-001 Synchronous Invoke can deadlock against a thread the UI waits on. Use await Dispatcher.InvokeAsync(...).
+BAN M:System.Windows.Threading.DispatcherExtensions.Invoke | BOO-UI-001 Synchronous Invoke can deadlock against a thread the UI waits on. Use await Dispatcher.InvokeAsync(...).
+BAN M:System.Windows.Threading.Dispatcher.BeginInvoke | BOO-UI-002 BeginInvoke is fire-and-forget: exceptions vanish and ordering is a guess. Use Dispatcher.InvokeAsync and observe the result (await it, or pass it to the UI error sink).
+BAN M:System.Windows.Threading.DispatcherExtensions.BeginInvoke | BOO-UI-002 BeginInvoke is fire-and-forget: exceptions vanish and ordering is a guess. Use Dispatcher.InvokeAsync and observe the result.
+BAN M:System.Windows.Forms.Application.DoEvents | BOO-UI-003 DoEvents re-enters the message loop and causes re-entrancy bugs. Await instead.
+BAN M:System.Windows.Threading.Dispatcher.PushFrame | BOO-UI-003 PushFrame runs a nested message loop (the WPF DoEvents) and causes re-entrancy bugs. Await instead.
+
+# BOO-TIME-001 / BOO-TIME-002 hidden clocks and delay-as-fix
+BAN P:System.DateTime.Now | BOO-TIME-001 Hidden clock. Take a TimeProvider (inject it, tests use a fake) and call GetLocalNow().
+BAN P:System.DateTime.UtcNow | BOO-TIME-001 Hidden clock. Take a TimeProvider and call GetUtcNow().
+BAN P:System.DateTime.Today | BOO-TIME-001 Hidden clock. Take a TimeProvider and use GetLocalNow().Date.
+BAN P:System.DateTimeOffset.Now | BOO-TIME-001 Hidden clock. Take a TimeProvider and call GetLocalNow().
+BAN P:System.DateTimeOffset.UtcNow | BOO-TIME-001 Hidden clock. Take a TimeProvider and call GetUtcNow().
+BAN M:System.Threading.Tasks.Task.Delay | BOO-TIME-002 A delay used to "let things settle" hides a race. Wait for the real signal. For a real timeout, use Task.Delay(TimeSpan, TimeProvider, CancellationToken) so tests can control time.
+ALLOW M:System.Threading.Tasks.Task.Delay(System.TimeSpan,System.TimeProvider) | takes a TimeProvider, so tests control time
+ALLOW M:System.Threading.Tasks.Task.Delay(System.TimeSpan,System.TimeProvider,System.Threading.CancellationToken) | takes a TimeProvider, so tests control time
+
+# BOO-RT-001 / BOO-RT-002 runtime knobs that agents reach for
+BAN M:System.GC.Collect | BOO-RT-001 Forcing a GC hides a leak. Find what holds the memory (dispose it). Perf tests have their own list.
+BAN M:System.Environment.GetEnvironmentVariable | BOO-RT-002 Hidden switch. Read environment variables only in BooEnvironment (one audited place) and pass the value in.
+BAN M:System.Environment.GetEnvironmentVariables | BOO-RT-002 Hidden switch. Read environment variables only in BooEnvironment (one audited place) and pass the value in.
+
+# BOO-SAFE-003 launching programs is a permissioned action (static overloads and the instance Start())
+BAN M:System.Diagnostics.Process.Start | BOO-SAFE-003 Launching a program must go through the ActionPolicy gate (DesktopTools). Do not call Process.Start directly.

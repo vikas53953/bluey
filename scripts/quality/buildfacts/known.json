@@ -86,6 +86,7 @@
     "FindUnderPath | _CleanGetCurrentAndPriorFileWrites | <dotnet>/sdk/10.0.403/Microsoft.Common.CurrentVersion.targets | <dotnet>/sdk/10.0.403/Microsoft.Build.Tasks.Core.dll",
     "FindUnderPath | _GetCurrentAndPriorPublishFileWrites | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Publish.targets | <dotnet>/sdk/10.0.403/Microsoft.Build.Tasks.Core.dll",
     "GenerateDepsFile | GenerateBuildDependencyFile | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Sdk.targets | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/tools/net10.0/Microsoft.NET.Build.Tasks.dll",
+    "GenerateDepsFile | GeneratePublishDependencyFile | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Publish.targets | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/tools/net10.0/Microsoft.NET.Build.Tasks.dll",
     "GenerateGlobalUsings | GenerateGlobalUsings | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.GenerateGlobalUsings.targets | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/tools/net10.0/Microsoft.NET.Build.Tasks.dll",
     "GenerateMSBuildEditorConfig | GenerateMSBuildEditorConfigFileCore | <dotnet>/sdk/10.0.403/Roslyn/Microsoft.Managed.Core.targets | <dotnet>/sdk/10.0.403/Roslyn/Microsoft.Build.Tasks.CodeAnalysis.dll",
     "GenerateRuntimeConfigurationFiles | GenerateBuildRuntimeConfigurationFiles | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Sdk.targets | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/tools/net10.0/Microsoft.NET.Build.Tasks.dll",
@@ -108,6 +109,7 @@
     "GetRestoreSettingsTask | _GetRestoreSettings | <dotnet>/sdk/10.0.403/NuGet.targets | <dotnet>/sdk/10.0.403/NuGet.Build.Tasks.dll",
     "Hash | CreateGeneratedAssemblyInfoInputsCacheFile | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.GenerateAssemblyInfo.targets | <dotnet>/sdk/10.0.403/Microsoft.Build.Tasks.Core.dll",
     "Hash | _GenerateCompileDependencyCache | <dotnet>/sdk/10.0.403/Microsoft.Common.CurrentVersion.targets | <dotnet>/sdk/10.0.403/Microsoft.Build.Tasks.Core.dll",
+    "Hash | _GeneratePublishDependencyFileInputCache | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Publish.targets | <dotnet>/sdk/10.0.403/Microsoft.Build.Tasks.Core.dll",
     "Hash | _GenerateRuntimeConfigurationFilesInputCache | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Sdk.targets | <dotnet>/sdk/10.0.403/Microsoft.Build.Tasks.Core.dll",
     "Hash | _GetCurrentAndPriorPublishFileWrites | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Publish.targets | <dotnet>/sdk/10.0.403/Microsoft.Build.Tasks.Core.dll",
     "JoinItems | ResolveLockFileReferences | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.PackageDependencyResolution.targets | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/tools/net10.0/Microsoft.NET.Build.Tasks.dll",
@@ -184,6 +186,7 @@
     "WriteLinesToFile | IncrementalClean | <dotnet>/sdk/10.0.403/Microsoft.Common.CurrentVersion.targets | <dotnet>/sdk/10.0.403/Microsoft.Build.Tasks.Core.dll",
     "WriteLinesToFile | MsCoverageReferencedPathMaps | <nuget>/microsoft.codecoverage/17.14.1/build/netstandard2.0/Microsoft.CodeCoverage.targets | <dotnet>/sdk/10.0.403/Microsoft.Build.Tasks.Core.dll",
     "WriteLinesToFile | _GenerateCompileDependencyCache | <dotnet>/sdk/10.0.403/Microsoft.Common.CurrentVersion.targets | <dotnet>/sdk/10.0.403/Microsoft.Build.Tasks.Core.dll",
+    "WriteLinesToFile | _GeneratePublishDependencyFileInputCache | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Publish.targets | <dotnet>/sdk/10.0.403/Microsoft.Build.Tasks.Core.dll",
     "WriteLinesToFile | _GenerateRuntimeConfigurationFilesInputCache | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Sdk.targets | <dotnet>/sdk/10.0.403/Microsoft.Build.Tasks.Core.dll",
     "WriteLinesToFile | _IncrementalCleanPublishDirectory | <dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Publish.targets | <dotnet>/sdk/10.0.403/Microsoft.Build.Tasks.Core.dll"
   ]

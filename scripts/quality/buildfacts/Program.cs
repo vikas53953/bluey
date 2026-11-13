@@ -11,7 +11,7 @@ using Metadata = Microsoft.Build.Logging.StructuredLogger.Metadata;
 
 // Build-facts extractor (scripts/quality/build_facts.py checks its output; docs/quality/RULES.md "Build facts").
 //
-//   BuildFacts --repo <root> --out <build-facts.json> <label>=<binlog> [<label>=<binlog> ...]
+//   BuildFacts --repo <root> --out <build-facts.json> [--replay-under <repo-relative prefix>] <label>=<binlog> [...]
 //
 // Reads the binary logs of the REAL build (windows-ci's Release build and publish) and writes what that build really
 // did: for every project / target framework / runtime identifier that was evaluated, its imports (and the imports that
@@ -28,6 +28,14 @@ using Metadata = Microsoft.Build.Logging.StructuredLogger.Metadata;
 // never read. Keys are sorted, lists are sorted where order has no meaning (command-line order is kept), so the same
 // build gives the same file. Exit 2 when the tool cannot do its job (unreadable log, a machine path or the user name
 // left in the output); it never writes a partial file.
+//
+// --replay-under src/: every Csc call of a project under that folder is compiled AGAIN by the SDK's own csc, with the
+// exact recorded arguments (response files included) but its outputs and error log in a temporary folder, after the
+// build. The facts get that replay's SARIF log and output hashes, so a judge never trusts a file the build itself could
+// have rewritten after the compile, and a build that changed a compile's inputs or output afterwards shows up as a
+// hash difference (the build is deterministic). Only the SDK's own csc is ever run; any other compiler is not replayed.
+// "writes": for the whole build, every file a known file-writing task wrote (Copy, Move, CopyRefAssembly, Delete,
+// Touch, WriteLinesToFile, WriteCodeFragment, GenerateDepsFile, GenerateRuntimeConfigurationFiles, CreateAppHost, ...).
 
 if (args is ["--self-test"])
 {
@@ -37,7 +45,7 @@ if (args is ["--self-test"])
 var options = ParseArgs(args);
 if (options is null)
 {
-    Console.Error.WriteLine("usage: BuildFacts --repo <root> --out <build-facts.json> <label>=<binlog> [...] | BuildFacts --self-test");
+    Console.Error.WriteLine("usage: BuildFacts --repo <root> --out <build-facts.json> [--replay-under <prefix>] <label>=<binlog> [...] | BuildFacts --self-test");
     return 2;
 }
 
@@ -55,7 +63,7 @@ try
     var logs = new JsonArray();
     foreach (var (label, path) in options.Value.Logs)
     {
-        logs.Add(new Extractor(options.Value.Repo, label, path).Run());
+        logs.Add(new Extractor(options.Value.Repo, label, path, options.Value.ReplayUnder).Run());
     }
 
     facts["binlogs"] = logs;
@@ -88,9 +96,9 @@ static string? Version(Type type) =>
     (type.Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
         .FirstOrDefault() as System.Reflection.AssemblyInformationalVersionAttribute)?.InformationalVersion.Split('+')[0];
 
-static (string Repo, string Out, List<(string Label, string Path)> Logs)? ParseArgs(string[] args)
+static (string Repo, string Out, List<(string Label, string Path)> Logs, string? ReplayUnder)? ParseArgs(string[] args)
 {
-    string? repo = null, output = null;
+    string? repo = null, output = null, replayUnder = null;
     var logs = new List<(string, string)>();
     for (var i = 0; i < args.Length; i++)
     {
@@ -101,6 +109,10 @@ static (string Repo, string Out, List<(string Label, string Path)> Logs)? ParseA
         else if (args[i] == "--out" && i + 1 < args.Length)
         {
             output = Path.GetFullPath(args[++i]);
+        }
+        else if (args[i] == "--replay-under" && i + 1 < args.Length)
+        {
+            replayUnder = args[++i].Replace('\\', '/').TrimEnd('/') + "/";
         }
         else if (args[i].Contains('=') && !args[i].StartsWith('-'))
         {
@@ -118,7 +130,7 @@ static (string Repo, string Out, List<(string Label, string Path)> Logs)? ParseA
         return null;
     }
 
-    return (repo, output, logs);
+    return (repo, output, logs, replayUnder);
 }
 
 sealed class FactsException(string message) : Exception(message);
@@ -137,15 +149,17 @@ sealed class Extractor
 
     readonly string repo;
     readonly string label;
+    readonly string? replayUnder;
     readonly string path;
     readonly PathTokens tokens = new();
     Build build = null!;
 
-    public Extractor(string repo, string label, string path)
+    public Extractor(string repo, string label, string path, string? replayUnder = null)
     {
         this.repo = repo;
         this.label = label;
         this.path = path;
+        this.replayUnder = replayUnder;
     }
 
     public JsonObject Run()
@@ -206,6 +220,7 @@ sealed class Extractor
             ["units"] = unitArray,
             ["tasks"] = TaskCatalog(),
             ["copies"] = Copies(),
+            ["writes"] = Writes(),
             ["readyToRun"] = ReadyToRun(),
             ["runtimePacks"] = RuntimePacks(),
         };
@@ -442,7 +457,7 @@ sealed class Extractor
                     continue;
                 }
 
-                var call = CscFacts(task, projectDirectory);
+                var call = CscFacts(task, projectDirectory, ShouldReplay(unit.ProjectFile));
                 foreach (var reference in call["references"]!.AsArray())
                 {
                     if (reference!["origin"]!.GetValue<string>() == "projectReference")
@@ -539,7 +554,10 @@ sealed class Extractor
     // -----------------------------------------------------------------------------------------------------------------
     // Csc
     // -----------------------------------------------------------------------------------------------------------------
-    JsonObject CscFacts(MSTask task, string projectDirectory)
+    bool ShouldReplay(string projectFile) =>
+        replayUnder is not null && NormPath(projectFile).StartsWith(replayUnder, StringComparison.OrdinalIgnoreCase);
+
+    JsonObject CscFacts(MSTask task, string projectDirectory, bool replay = false)
     {
         var target = task.GetNearestParent<Target>();
         var commandLine = task.CommandLineArguments ?? "";
@@ -623,8 +641,157 @@ sealed class Extractor
             ["references"] = References(task, projectDirectory),
             ["output"] = new JsonObject { ["path"] = NormPath(outputAssembly), ["sha256"] = Sha256(outputAssembly) },
             ["refOutput"] = refAssembly is null ? null : new JsonObject { ["path"] = NormPath(refAssembly), ["sha256"] = Sha256(refAssembly) },
+            ["replay"] = replay ? Replay(tool, rest, projectDirectory, outputAssembly) : null,
         };
     }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Replay: the same csc arguments, run again after the build with outputs and error log in a temporary folder.
+    // -----------------------------------------------------------------------------------------------------------------
+    static readonly Regex SdkCompiler = new(@"^<dotnet>/sdk/[^/]+/Roslyn/bincore/csc(\.exe|\.dll)?$", RegexOptions.IgnoreCase);
+
+    JsonObject Replay(List<string> tool, List<string> rest, string projectDirectory, string? outputAssembly)
+    {
+        var normTool = tool.Select(x => x == "exec" ? x : NormPath(x)).ToList();
+        var sdkTool = (normTool.Count == 1 && SdkCompiler.IsMatch(normTool[0]) && !normTool[0].EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            || (normTool.Count == 3 && normTool[1] == "exec" && SdkCompiler.IsMatch(normTool[2])
+                && Regex.IsMatch(normTool[0], @"^<dotnet>/dotnet(\.exe)?$", RegexOptions.IgnoreCase));
+        if (!sdkTool)
+        {
+            return new JsonObject { ["status"] = "not replayed: the compiler is not the SDK's own csc" };
+        }
+
+        // The outputs keep their original paths: the PE records its PDB path, and source generators name file-local
+        // types after the output folder, so only identical paths give an identical (deterministic) assembly. Every
+        // output file is saved first and put back afterwards, so the build's own files are left exactly as they were.
+        var temp = Directory.CreateTempSubdirectory("boo-replay-").FullName;
+        var saved = new Dictionary<string, byte[]?>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var args = new List<string>();
+            string? pdb = null;
+            foreach (var arg in rest)
+            {
+                var name = IsSwitch(arg) && !arg.StartsWith('@') ? SwitchName(arg) : "";
+                var colon = arg.IndexOf(':');
+                var value = colon < 0 ? "" : arg[(colon + 1)..].Trim('"');
+                switch (name)
+                {
+                    case "/noconfig":
+                    case "/errorlog":
+                        break;
+                    case "/out":
+                    case "/refout":
+                    case "/doc":
+                    case "/generatedfilesout":
+                        if (Resolve(value, projectDirectory) is { } file)
+                        {
+                            saved[file] = null;
+                        }
+
+                        args.Add(arg);
+                        break;
+                    case "/pdb":
+                        pdb = Resolve(value, projectDirectory);
+                        args.Add(arg);
+                        break;
+                    default:
+                        args.Add(arg);
+                        break;
+                }
+            }
+
+            pdb ??= outputAssembly is null ? null : Path.ChangeExtension(outputAssembly, ".pdb");
+            if (pdb is not null)
+            {
+                saved[pdb] = null;
+            }
+
+            if (outputAssembly is not null)
+            {
+                saved[outputAssembly] = null;
+            }
+
+            foreach (var file in saved.Keys.ToList())
+            {
+                saved[file] = File.Exists(file) ? File.ReadAllBytes(file) : null;
+            }
+
+            var sarif = Path.Combine(temp, "replay.sarif");
+            args.Add(Quote("/errorlog:", sarif + ",version=2.1"));
+            var rsp = Path.Combine(temp, "replay.rsp");
+            File.WriteAllLines(rsp, args);
+
+            var start = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = tool[0],
+                WorkingDirectory = projectDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            if (tool.Count == 3)
+            {
+                start.ArgumentList.Add("exec");
+                start.ArgumentList.Add(tool[2]);
+            }
+
+            start.ArgumentList.Add("/noconfig");
+            start.ArgumentList.Add("@" + rsp);
+            using var process = System.Diagnostics.Process.Start(start)!;
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            process.WaitForExit();
+            stdout.Wait();
+            stderr.Wait();
+
+            JsonNode? log = null;
+            if (File.Exists(sarif))
+            {
+                var text = Norm(File.ReadAllText(sarif));
+                try
+                {
+                    log = JsonNode.Parse(text);
+                }
+                catch (JsonException)
+                {
+                    log = text;
+                }
+            }
+
+            return new JsonObject
+            {
+                ["status"] = "replayed",
+                ["exitCode"] = process.ExitCode,
+                ["outputSha256"] = Sha256(outputAssembly),
+                ["sarif"] = log,
+            };
+        }
+        finally
+        {
+            foreach (var (file, bytes) in saved)
+            {
+                if (bytes is not null)
+                {
+                    File.WriteAllBytes(file, bytes);
+                }
+                else if (File.Exists(file))
+                {
+                    File.Delete(file);
+                }
+            }
+
+            try
+            {
+                Directory.Delete(temp, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    static string Quote(string prefix, string path) => prefix + (path.Contains(' ') ? "\"" + path + "\"" : path);
 
     void Expand(List<string> args, string baseDirectory, List<string> output, JsonArray responseFiles, int depth)
     {
@@ -818,6 +985,80 @@ sealed class Extractor
                     ["sourceSha256"] = Sha256(sourceFull),
                 };
                 seen[entry["destination"]!.GetValue<string>() + " <= " + entry["source"]!.GetValue<string>() + " @ " + target?.Name] = entry;
+            }
+        }
+
+        var array = new JsonArray();
+        foreach (var entry in seen.Values)
+        {
+            array.Add(entry);
+        }
+
+        return array;
+    }
+
+    // Files written by tasks that write files (parameter names per task). Only destinations: a judge then refuses any
+    // write into a file it trusts (a compile's output, reference output or error log) by a task that did not produce it.
+    static readonly Dictionary<string, string[]> Writers = new(StringComparer.Ordinal)
+    {
+        ["Copy"] = ["DestinationFiles", "DestinationFolder"],
+        ["Move"] = ["DestinationFiles", "DestinationFolder"],
+        ["CopyRefAssembly"] = ["DestinationPath"],
+        ["Delete"] = ["Files"],
+        ["Touch"] = ["Files"],
+        ["WriteLinesToFile"] = ["File"],
+        ["WriteCodeFragment"] = ["OutputFile"],
+        ["GenerateDepsFile"] = ["DepsFilePath"],
+        ["GenerateRuntimeConfigurationFiles"] = ["RuntimeConfigPath", "RuntimeConfigDevPath"],
+        ["CreateAppHost"] = ["AppHostDestinationPath"],
+        ["Microsoft.SourceLink.Common.GenerateSourceLinkFile"] = ["OutputFile"],
+        ["ResolvePackageAssets"] = ["ProjectAssetsCacheFile"],
+    };
+
+    JsonArray Writes()
+    {
+        var seen = new SortedDictionary<string, JsonObject>(StringComparer.Ordinal);
+        foreach (var task in build.FindChildrenRecursive<MSTask>())
+        {
+            if (!Writers.TryGetValue(task.Name, out var parameters))
+            {
+                continue;
+            }
+
+            var project = task.GetNearestParent<Project>();
+            var baseDirectory = project?.ProjectDirectory ?? repo;
+            var target = task.GetNearestParent<Target>();
+            var files = new List<string>();
+            foreach (var parameter in parameters)
+            {
+                var items = ParameterItems(task, parameter).Select(i => i.Text).ToList();
+                if (parameter == "DestinationFolder")
+                {
+                    if (ParameterItems(task, "DestinationFiles").Any())
+                    {
+                        continue;
+                    }
+
+                    files.AddRange(items.SelectMany(folder => ParameterItems(task, "SourceFiles")
+                        .Select(s => Path.Combine(folder, Path.GetFileName(s.Text)))));
+                }
+                else
+                {
+                    files.AddRange(items);
+                }
+            }
+
+            foreach (var file in files)
+            {
+                var entry = new JsonObject
+                {
+                    ["file"] = NormPath(file, baseDirectory),
+                    ["task"] = task.Name,
+                    ["target"] = target?.Name,
+                    ["targetFile"] = NormPath(target?.SourceFilePath),
+                    ["project"] = NormPath(project?.ProjectFile),
+                };
+                seen[entry["file"]!.GetValue<string>() + " | " + task.Name + " | " + target?.Name + " | " + entry["project"]] = entry;
             }
         }
 

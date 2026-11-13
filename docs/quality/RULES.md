@@ -12,13 +12,15 @@ but a file forced into git there is read) with a small C# lexer (strings, `$"{..
 clauses, verbatim and raw strings, char literals, line and block comments, `#` directive lines, every C# line break). It
 counts each pattern below **per project, every match**, and compares with [`baseline.json`](baseline.json).
 
-**What it promises: it catches ordinary spellings, and it never counts less than the `lane/face` ratchet did, except where that one counted text that is not code (listed below).** The text as
-written is always counted. Extra *views* of the same file can add hits, never remove them (per line, the highest count
+**What it promises: it catches ordinary spellings, and it never counts less than the `lane/face` ratchet did, except
+where that one counted text that is not code (listed in the PR #23 evidence bullet below).** The text as written is
+always counted. Extra *views* of the same file can add hits, never remove them (per line, the highest count
 of any view wins): identifiers spelled the plain way (`\u0043ollect` and `@Collect` read as `Collect`; invisible
 formatting characters dropped), and `using` aliases and `using static` members written out in full (`using G =
 System.GC;` then `G.Collect()`), including `global using` lines in any file of the project. A call split over lines (`System.GC` / `.Collect()`) counts at the line it starts on.
-Deliberate evasion (build-file tricks, subclasses, aliases the text cannot resolve) is closed exactly by the compiler
-checks of PRs 1.3 and 1.4; see Known gaps.
+Deliberate evasion (build-file tricks, subclasses, aliases the text cannot resolve) is closed by the compiler: for the
+banned APIs by [RS0030](#banned-apis-rs0030) and the [compile list](#compile-list) (PR 1.3), for the shape rules by
+PR 1.4; see Known gaps.
 
 - a count that goes **up** fails (new problem);
 - a count that goes **down** also fails until you run `python -I scripts/quality/ratchet.py --lower` and commit the
@@ -27,7 +29,7 @@ checks of PRs 1.3 and 1.4; see Known gaps.
 - a C# file or project in `src/` that is not inside a `src/<Name>/` project (a loose `src/X.cs`, a folder without a
   `.csproj`, a project nested deeper such as `src/Group/Hack/Hack.csproj`) fails, because the build would compile it
   but no project count would include it; so does a symbolic link committed under `src/`;
-- `--list <RULE>` prints every hit; `--self-test` checks 133 snippets with exact expected counts (every attack the PR
+- `--list <RULE>` prints every hit; `--self-test` checks 134 snippets with exact expected counts (every attack the PR
   #23 reviews found that the text can follow is a sample), checks on every snippet that the extra views never count less
   than the text as written, that clean code stays quiet, and the pass/fail logic itself on a throwaway git tree.
 - PR #23's evidence (13 Nov 2026): each guard switched off one at a time in a scratch copy made the self-test fail; and
@@ -37,16 +39,20 @@ checks of PRs 1.3 and 1.4; see Known gaps.
   `#` directive line (`#warning do not call GC.Collect`, `#region static fields`, a `/* */` on `#warning`), except a `//`
   comment on a line other than `#region` / `#endregion`, which counts; as a side effect a `catch { }` whose body holds
   only a directive is "empty" (BOO-ERR-001), not "handles" (BOO-ERR-002); (3) raw and interpolated strings that open with
-  more than 12 characters of `$` and quotes, which the old lexer misread. Code that is not valid C# (a Unicode line
-  separator inside a string or char literal) may also count differently; the build rejects it anyway. A second review (13 Nov) fuzzed 120,000 random
-  inputs and found no other way to count less.
+  more than 12 characters of `$` and quotes, which the old lexer misread. Code that is not valid C# (a Unicode
+  line-break character (U+0085, U+2028, U+2029) inside a string or char literal) may also count differently; the build
+  rejects it anyway. A second review (13 Nov) fuzzed 120,000 random inputs and found no other way to count less.
 
 **A PR cannot loosen its own gate.** On a pull request, the workflow
 [`quality-gates.yml`](../../.github/workflows/quality-gates.yml) (job `quality`, Linux, about a minute, no uploads)
 also runs the **base branch's** `ratchet.py` with the **base branch's** `baseline.json`, both read from git rather than
 from the PR, and fails on any rise. Raising a number in the PR's `baseline.json`, or weakening a pattern in the PR's
-`ratchet.py`, therefore changes nothing. (The workflow file itself is the remaining hole: see HANDOFF.md, known
-issues, item 0.)
+`ratchet.py`, therefore changes nothing. The same job runs the **base branch's** `banned_apis.py` (once it exists on
+the base) on the PR's tree as `rise-check` (no ban line removed, no baseline entry added or count raised, RS0030 named
+only in `AnalyzerBaseline.cs`), and `windows-ci` runs the base branch's copy as `judge` on the PR's build facts (see
+[Banned APIs](#banned-apis-rs0030)). What the base copies cannot guard: the workflow files themselves and
+`Directory.Build.props` (the analyzer wiring) come from the PR. That is the remaining hole: HANDOFF.md, known issues,
+item 0 (CODEOWNERS decision pending with Vikas).
 
 A ratchet counts, it does not track identity: removing one hit and adding another of the same rule in the same project
 keeps the count equal and passes. That is accepted; the compiler-exact checks in later Phase 1 PRs close it per rule.
@@ -64,7 +70,7 @@ keeps the count equal and passes. That is accepted; the compiler-exact checks in
 | [BOO-TIME-002](#boo-time-002) | `Task.Delay` | 1 |
 | [BOO-TIME-003](#boo-time-003) | `new DispatcherTimer` | 8 |
 | [BOO-RT-001](#boo-rt-001) | `GC.Collect` | 0 |
-| [BOO-RT-002](#boo-rt-002) | `Environment.GetEnvironmentVariable` | 3 |
+| [BOO-RT-002](#boo-rt-002) | `Environment.GetEnvironmentVariable(s)` | 3 |
 | [BOO-SAFE-003](#boo-safe-003) | `Process.Start` | 3 |
 | [BOO-ERR-001](#boo-err-001) | broad `catch` with an empty body | 24 |
 | [BOO-ERR-002](#boo-err-002) | broad `catch` that handles and carries on | 74 |
@@ -118,7 +124,7 @@ signal; keep real periodic timers in one owner class. **Do NOT** add a timer to 
 **GC.Collect.** Hides a leak. **Fix:** find what holds the memory and dispose it. **Do NOT** call it "just in case".
 
 ## BOO-RT-002
-**Environment.GetEnvironmentVariable.** Hidden switches (for example `BOO_QA_CAPTURABLE`) change privacy behaviour.
+**Environment.GetEnvironmentVariable(s)** (one name or all of them). Hidden switches (for example `BOO_QA_CAPTURABLE`) change privacy behaviour.
 **Fix:** read environment variables in one place and pass the value in. **Do NOT** add another reader.
 
 ## BOO-SAFE-003
@@ -150,6 +156,102 @@ the INVARIANT tag; API docs use `///`. **Do NOT** reword the comment to dodge th
 **Untracked TODO / FIXME / HACK / XXX** in any comment, `///` included. **Fix:** open a GitHub issue and write
 `TODO(#123): ...`. **Do NOT** delete the note and keep the debt.
 
+## Banned APIs (RS0030)
+
+PR 1.3 makes the ban exact: the compiler, not a text scan, decides which member a call reaches, so subclasses
+(`class P2 : Process { ... Start("x") }`), generic types (`Task<int>.Delay(1)`), `using static`, aliases, method groups
+(`new(Environment.GetEnvironmentVariable)`) and extension calls all resolve to the real member.
+
+- **Wiring.** [`Directory.Build.props`](../../Directory.Build.props) adds `Microsoft.CodeAnalysis.BannedApiAnalyzers`
+  5.6.0 and [`src/BannedSymbols.txt`](../../src/BannedSymbols.txt) to every project under `src/`. The condition reads
+  only reserved MSBuild properties (the project's own folder), so a project cannot set a property to opt out.
+  `RS0030` is an error through `TreatWarningsAsErrors`. `tests/` and `tools/` are not judged (`tests/` is the frozen
+  oracle; they get their own reviewed list later).
+- **The list** (86 lines) is generated, never hand-edited:
+  [`scripts/quality/canary/banned-groups.txt`](../../scripts/quality/canary/banned-groups.txt) names each member once
+  (`BAN M:System.Threading.Thread.Sleep | message`), and `python -I scripts/quality/banned_apis.py generate` expands it
+  into **every overload** the `net10.0` and `Microsoft.WindowsDesktop.App` reference packs declare, using Roslyn
+  (`scripts/quality/canary/ListGen`). `ALLOW` lines keep the `Task.Delay(TimeSpan, TimeProvider[, CancellationToken])`
+  overloads. Beyond the plan's list it bans what the reviews found: `Task.WaitAll(ReadOnlySpan<Task>)` and
+  `Task.WaitAll(IEnumerable<Task>, CancellationToken)`, the instance `Process.Start()`, both `SecureString`
+  `Process.Start` overloads, `ConfigureAwait(false).GetAwaiter().GetResult()` (Task and Task<T>), the same four for
+  `ValueTask`, `ValueTask<T>.Result`, `DateTime.Today`, `Environment.GetEnvironmentVariables` and
+  `Dispatcher.PushFrame` (the WPF `DoEvents`). CI step `list-check` regenerates the list and fails on any difference,
+  so a .NET update that adds an overload is caught.
+- **Today's hits are baselined per member**, in `src/<Project>/AnalyzerBaseline.cs`: one
+  `[assembly: SuppressMessage("ApiDesign", "RS0030", Scope = "member", Target = "~M:...", Justification = "Baselined by
+  PR 1.3; cleanup Cn; BOO-XXX-NNN xN; <same target>")]` per member, generated from the compiler's own diagnostics.
+  Re-measured on 13 Nov after PR #33 (TimeProvider): **25 hits in 20 members** (Boo.App 21 in 16, Boo.Core 2,
+  Boo.Windows 2): BOO-ASYNC-002 1, BOO-UI-001 2, BOO-UI-002 15, BOO-TIME-002 1, BOO-RT-002 3, BOO-SAFE-003 3;
+  BOO-TIME-001 is 0. These equal the ratchet's counts; the plan's table said 13 `BeginInvoke` because it predates the
+  lower-case `dispatcher.BeginInvoke` and PR #12's new one.
+- **Judged on the shipped build.** The gate reads the **build facts** of `windows-ci`'s own Release build and win-x64
+  publish ([Build facts](#build-facts-the-shipped-build)), not a separate build: `python -I
+  scripts/quality/banned_apis.py judge artifacts/build-facts/build-facts.json` runs right after the "Build facts" step.
+  The RS0030 results come from a **replay**: the build-facts reader (`--replay-under src/`) runs each recorded `src/`
+  compile again after the build, with the SDK's own csc and the exact recorded arguments, writing its SARIF log to a
+  temporary folder. The judge never reads an error log the build wrote, so no build step can replace it (PR #28's third
+  review overwrote a build-written log with `deps.json` through `<ProjectDepsFilePath>`; that route no longer reaches
+  the judge, and `build_facts.py` also refuses it, see [Build facts](#build-facts-the-shipped-build)). For **every**
+  `Csc` call of a `src/` project in both logs (the WPF twin `src/<Name>/<Name>_wpftmp.csproj` included, exactly as
+  `build_facts.py` accepts it) the judge fails closed unless:
+  - it runs from `CoreCompile`, and the compiler is the SDK's own csc (`<dotnet>/sdk/*/Roslyn/bincore/csc[.exe]` or
+    `<dotnet>/dotnet exec .../csc.dll`); anything else is reported alone, since its command line cannot be trusted;
+  - `/noconfig` is there and no response file (`@file`, `<CompilerResponseFile>`) is passed;
+  - both `Microsoft.CodeAnalysis.(CSharp.)BannedApiAnalyzers.dll` from the pinned 5.6.0 package are analyzers;
+  - the only `BannedSymbols*` additional file is `src/BannedSymbols.txt`;
+  - Roslyn's own reading of the options has no RS0030 entry (`/nowarn`, `/warnaserror-:RS0030`, ...), warnings are
+    errors, the warning level is at least 1, there is no `/ruleset`, analyzers are not skipped and the line parses;
+  - every analyzer config it received has readable text, and no config it received (the SDK's generated
+    `.editorconfig` included) nor any `.editorconfig` / `.globalconfig` in the repository sets
+    `dotnet_diagnostic.RS0030.severity`, `dotnet_analyzer_diagnostic.category-ApiDesign.severity` or
+    `dotnet_analyzer_diagnostic.severity` (none does today), whatever its file name, section or path;
+  - it was replayed cleanly (exit 0), its replay log is a real csc log of that compile (SARIF `2.1.0`, exactly one
+    run, tool `Microsoft (R) Visual C# Compiler`, every RS0030 in one of the compile's own sources; anything else fails,
+    never "0 results"), and every RS0030 in it is suppressed by exactly one `AnalyzerBaseline.cs` entry of that
+    project, with **exactly** the declared count per member and rule. A member-scoped suppression hides *every* RS0030
+    in that member, so a new call in an already baselined member keeps the build green: the count (`0 -> 1`, `1 -> 2`)
+    fails it. A fixed call fails with "lower the count" until the file is lowered. RS0030 silenced by `#pragma`, by a
+    `[SuppressMessage]` outside these files or by an unknown justification is refused.
+  A compile skipped as up to date (the publish reuses the build's outputs) has no call to judge; `build_facts.py`
+  traces every shipped assembly to a recorded compile, and every `src/` project must have one in the build log.
+  Publish-only code (a file included only under a `RuntimeIdentifier` or `_IsPublishing`) is compiled, logged and
+  judged in the publish log.
+- **On a pull request** `windows-ci` also runs the **base branch's** copy of `banned_apis.py` as `judge` on the same
+  facts (skipped while the base has none), and the `quality` job runs its `rise-check`: no new entry, no raised count,
+  no removed ban line, RS0030 named in no `src/` C# file other than `AnalyzerBaseline.cs`. On Linux the `quality` job
+  keeps the parts that need no build of the app: `list-check`, the [canary](#canary) and `format` (the ban list and
+  every `AnalyzerBaseline.cs` parse in their strict formats).
+- **Not covered:** the workflow files and `Directory.Build.props` themselves come from the pull request, so a PR that
+  edits them can switch these checks off (HANDOFF known issue 0, CODEOWNERS decision pending with Vikas). A build step
+  other than `Csc` that overwrites the compiled assembly is the build facts' job (unknown tasks and the hash trace);
+  their own holes are listed under [Build facts](#build-facts-the-shipped-build).
+
+**Fix:** use the replacement named in the error (the rule sections above). **Do NOT** add a suppression, raise a count,
+or edit `src/BannedSymbols.txt` by hand. `BOO-ASYNC-002`'s one hit (`PushToTalkUplink.Discard`) has no cleanup PR in
+plan 2.8 yet; its entry says "cleanup not yet planned".
+
+## Canary
+
+[`scripts/quality/canary/`](../../scripts/quality/canary/) holds one deliberate call per banned line
+(`Canary.Core.cs`, `Canary.Wpf.cs`, `Canary.WinForms.cs`; each call line ends in a `// BAN <doc id>` marker), built by
+`Canary.csproj` with the same analyzer and the same list. `python -I scripts/quality/banned_apis.py canary` proves:
+every listed line has exactly one marked call; Roslyn binds each marked call to exactly that overload (a call that
+drifts to a neighbouring overload fails); and the canary build reports **exactly one** RS0030 per marked line, as an
+unsuppressed error with that line's message, and none anywhere else. It runs on `ubuntu-latest`: WPF and Windows Forms
+compile on Linux with `EnableWindowsTargeting`, so no Windows job is needed.
+
+## Compile list
+
+[`scripts/quality/compile_list.py`](../../scripts/quality/compile_list.py) reads the same build facts (`windows-ci`,
+right after the banned-API judge): for every compile of a `src/` project, the source files the compiler really got
+(so `<Import>`ed files, `Directory.*.props`, publish-only items and files a target adds and removes again are all
+included) must equal the files the ratchet reads. It fails on a compiled file outside the project, not `.cs`, or
+git-ignored; a scanned file that is not compiled; a generated file under `obj/` that is not a known SDK or WPF output;
+a static or alias `global using` in the `GlobalUsings.g.cs` the compiler got; an `x:Code` block in a XAML file under
+`src/`; a `<ProjectReference>` to anything but `src/<Name>/<Name>.csproj`. **Fix:** put the code in a `.cs` file in
+the project. **Do NOT** pull files in through build items.
+
 ## Known gaps (the text-level ratchet does not see these; PRs 1.3 and 1.4 make them exact)
 
 The ratchet reads text, so a determined writer can always find a spelling the compiler accepts and the text scan does
@@ -158,15 +260,24 @@ and deliberate evasion is closed by the compiler, which sees the real names, typ
 
 | Gap | Example | Closed by |
 | --- | --- | --- |
-| Build files decide what is compiled and which usings apply | `<Compile Include="../x.txt"/>`, `<Using Include="System.GC" Static="true"/>`, `<Import>`, `Directory.Packages.props`, `obj/*.props`, `CustomAfterMicrosoftCommonTargets` | PR 1.3: the compiled file list and usings taken from MSBuild itself (`dotnet msbuild -getItem:Compile -getItem:Using`) and banned APIs checked by the compiler |
-| Calls through a subclass or a generic type | `class P2 : Process { ... Start("x"); }`, `Task<int>.Delay(1)` | PR 1.3 (BannedApiAnalyzers resolves the real member) |
-| Target-typed `new` with a nullable type | `DispatcherTimer? t = new();` | PR 1.3 |
-| `using static` false hits | `using static System.Diagnostics.Process;` plus the class's own `Start()`; `using static System.DateTime;` plus a local `Now` (none in `src/` today) | PR 1.3 |
-| Instance calls by name | `.Wait()` / `.Result` on a task variable whose name lacks "task"; an instance `process.Start()` | PR 1.4 analyzers |
+| Build files decide what is compiled and which usings apply | `<Compile Include="../x.txt"/>`, `<Using Include="System.GC" Static="true"/>`, `<Import>`, `Directory.Packages.props`, `obj/*.props`, `CustomAfterMicrosoftCommonTargets`, a target that adds a file and removes it after `CoreCompile` | **Closed by PR 1.3** for the banned APIs (the compiler judges whatever is compiled) and for the ratchet's file set ([compile list](#compile-list), read from the compiler call in the build facts). Still open for the text ratchet: code added by a source-generator package (RS0030 still judges generated code) |
+| Calls through a subclass or a generic type | `class P2 : Process { ... Start("x"); }`, `Task<int>.Delay(1)` | **Closed by PR 1.3** for the banned members (RS0030 resolves the real member); the text ratchet still counts by spelling |
+| Target-typed `new` with a nullable type | `DispatcherTimer? t = new();` | **Not closed**: `new DispatcherTimer` (BOO-TIME-003) is counted, not banned, so the compiler does not judge it; PR 1.4 |
+| `using static` false hits | `using static System.Diagnostics.Process;` plus the class's own `Start()`; `using static System.DateTime;` plus a local `Now` (none in `src/` today) | **Closed by PR 1.3** for the banned APIs (RS0030 fires only on the real member); the text ratchet may still over-count, which is safe |
+| Instance calls by name | `.Wait()` / `.Result` on a task variable whose name lacks "task"; an instance `process.Start()` | **Closed by PR 1.3** (RS0030 bans `Task.Wait`, `Task<T>.Result`, `ValueTask<T>.Result` and the instance `Process.Start()` by type) |
 | Shape of the code | a broad catch with an unreachable `throw` counts as "rethrows"; a static field or property declared over two lines, or a tuple type plus `=>`; `///` comments inside a method body count as documentation | PR 1.4 analyzers |
-| Disabled `#if` blocks | the compiler skips their text, the ratchet reads it, so an unmatched quote or `/*` inside one can hide or invent a later hit (none in `src/` today) | PR 1.4 (compiler) |
+| Disabled `#if` blocks | the compiler skips their text, the ratchet reads it, so an unmatched quote or `/*` inside one can hide or invent a later hit (none in `src/` today) | PR 1.4 (compiler); for the banned APIs the compiler already judges only what is compiled |
+| Swap of a baselined banned call | remove one baselined RS0030 hit and add a new call in another member, silenced by a `[SuppressMessage]` that copies the removed entry's justification | **Not closed**: the counts still match. It needs a deliberately copied suppression, which review sees; PR 1.5 (`BOO-LINT-002`, no suppression outside `AnalyzerBaseline.cs`) refuses it |
+| A `src/` project referencing a project outside `src/` | `<ProjectReference Include="../../tools/X/X.csproj"/>` | **Closed by PR 1.3**: the [compile list](#compile-list) fails on any reference that is not `src/<Name>/<Name>.csproj` |
+| Inputs to the compiler outside the build items | an analyzer config passed by `<CompilerResponseFile>`, a wrapper compiler (`CscToolPath`), a target that adds a config or a source before `CoreCompile` and removes it afterwards, a swapped `BannedSymbols.txt`, `/nowarn:RS0030`, code compiled only when publishing | **Closed by PR 1.3**: the compiler calls of the shipped build and publish are judged from the build facts (see [Banned APIs](#banned-apis-rs0030)); the compile list takes its sources from the same calls |
+| A build step that replaces the compiled assembly after `Csc` ran, or edits to the workflow files or `Directory.Build.props` | an `<Exec>` after `CoreCompile` that copies another DLL over the output; a PR that edits `windows-ci.yml` | The first is the build facts' job (unknown task, hash trace; see its known holes). **Not closed**: the second is HANDOFF known issue 0 (CODEOWNERS decision pending with Vikas) |
 | Scope outside `src/` | projects in `tools/` and `tests/` are not judged | by design for now |
 
+- Not banned yet (owner: PR 1.4 or a cleanup PR; deliberately not in PR 1.3): `Environment.ExpandEnvironmentVariables`
+  (reads environment variables), `DispatcherOperation.Wait` (a blocking wait on the UI thread), Windows Forms
+  `Control.Invoke` (synchronous cross-thread call), and the hidden clocks `Environment.TickCount` / `TickCount64`,
+  `Stopwatch.GetTimestamp` and `TimeProvider.System` (the injected default today, for example
+  `src/Boo.App/App.xaml.cs:39` and `src/Boo.Core/FocusClock.cs:27`, since PR #33).
 - Identity: a swap (one removed, one added, same rule and project) passes, as explained above.
 - Renames: a baselined project that disappears fails both the PR's own check and the base branch's check, on purpose:
   a judged-on-totals mode would let a PR swap hits between projects or drop a project from the scan. A real rename is
@@ -276,7 +387,8 @@ Debug on Linux, by references that exist only under `Configuration == Release`, 
 `SolutionName` or `IsOSPlatform('Windows')`, by `PackageDownload` plus an `Exists()`-guarded import, and by NuGet MSBuild
 SDKs). So the gates now read **facts of the real build**: `windows-ci`'s own Release build of `Boo.sln` and its publish
 of `Boo.App` write binary logs (`-bl`, nothing else changes), and the step **Build facts (the shipped build)** turns them
-into `build-facts.json`. This PR is the plumbing only; the banned-API and architecture judges are added on top later.
+into `build-facts.json`. PR #37 added the plumbing; PR 1.3 (#28) judges the banned APIs and the compile list on it
+([Banned APIs](#banned-apis-rs0030)); the architecture judge (#32) comes on top later.
 
 **What is captured** (`scripts/quality/buildfacts`, a small .NET reader pinned to `MSBuild.StructuredLogger` 2.3.269
 and Roslyn 5.6.0 with a lock file, restored in locked mode): for every project / target framework / runtime identifier
@@ -308,15 +420,20 @@ property value at all**: every `-p:`/`/p:`/`-property:`/`--property:`/`-rp:`/`-r
 quoted, repeated, or with pairs split by `;` or `,`, becomes `<value not recorded>`, and so does the value of every
 other switch except a short list whose values are fixed words or tokenised paths (`-m`, `-v`, `-tlp`, `-tl`, `-t`,
 `-restore`, `-nologo`, `-clp`, `-nr`, `-bl`). What is not covered: values the build itself writes into compiler inputs
-(for example `/define:` symbols or `build_property.*` lines in the generated analyzer config) are recorded, because the
-judges need them.
+or reviewed properties are recorded, because the judges need them: `/define:` symbols, `/nowarn` and `/warnaserror`
+lists, `build_property.*` lines in the generated analyzer config, and the per-unit `properties` map (for example
+`NoWarn`, `AssemblyName`, `DOTNET_HOST_PATH`). A secret put into one of those would be written out.
 
 **Path guard.** Any absolute path left after tokenising fails closed in both the reader and the check, naming the JSON
 path of the value (for example `$.binlogs[1].units[0].importsSkipped[12]`). It looks for every absolute-path shape, case
-insensitive, at any position after any delimiter (`:`, `@`, `;`, `,`, `[`, `=`, quotes, spaces): a drive letter (also
-inside `\\?\C:\`), a UNC path (`\\srv\`, `\\?\UNC\`), `//host/` (a URL's `scheme://` is allowed), a POSIX home (`/home/`,
-`/users/`, `/root/`), and an msys drive (`/c/`); a path character right before the shape means the middle of a relative
-path, which passes. It also refuses the user name. The fix for a hit is to add the root's property to
+insensitive: a drive letter followed by `\` or a single `/`, at **any** position, even glued right after a letter or
+digit (`/reference:libC:\x`, `abc1D:\x`, `file:///C:/x`; a URL's `scheme://` is not a drive), also inside `\\?\C:\`;
+a URL-encoded drive (`C%3A%5C`, `C%3A%2F`, `C%3A/`); and after any delimiter (`:`, `@`, `;`, `,`, `[`, `=`, quotes,
+spaces) a UNC path (`\\srv\`, `\\?\UNC\`), `//host/` (a URL's `scheme://` is allowed), a POSIX root (`/home/`,
+`/users/`, `/root/`, `/opt/`, `/tmp/`) and an msys drive (`/c/`); for these last shapes a path character right before
+means the middle of a relative path, which passes. It also refuses the user name. Still open: a drive-relative path
+without a separator (`C:Users`), which cannot be told apart from text like `x:Class`; other POSIX roots (`/var/`,
+`/mnt/`, `/usr/`). The fix for a hit is to add the root's property to
 `PathTokens.FromProperties`, never to widen the guard.
 
 `BuildFacts --self-test` proves the tokens on a GitHub-runner layout (`C:\Program Files\dotnet`,
@@ -340,8 +457,21 @@ reviewed; the check then prints the candidate `learn` lines for review); two sol
 name; any recorded copy **into** a file named like a solution project's assembly whose source does not trace to that
 project's own compile; and any managed `.dll`/`.exe` in the publish folder that does not trace, hash for hash and under
 its own name, through recorded copies and ReadyToRun compiles to a recorded `Csc` output or to a restored package or
-runtime pack, or whose name belongs to a solution project but whose content is not that project's compile.
+runtime pack, or whose name belongs to a solution project but whose content is not that project's compile; any
+recorded **write** (Copy, Move, CopyRefAssembly, Delete, Touch, WriteLinesToFile, WriteCodeFragment, GenerateDepsFile,
+GenerateRuntimeConfigurationFiles, CreateAppHost, GenerateSourceLinkFile, ResolvePackageAssets) **into a compile's
+output, reference output or error log** in either log (only WPF's own `CleanupTemporaryTargetAssembly` in the SDK's
+`Microsoft.WinFX.targets` may delete its `<Name>_wpftmp` assembly); and a **replayed** compile (`--replay-under src/`)
+that fails or does not give, byte for byte, the assembly on disk (an input or the output changed after the compile).
 `--self-test` proves each failure on planted facts.
+
+**Replay** (`BuildFacts --replay-under <folder>`): after reading the logs, the reader runs each `Csc` call of a project
+under that folder again with the SDK's own csc (any other compiler is never run; the facts then say "not replayed"),
+with the exact recorded arguments and response files, the original output paths (the PE records its PDB path and
+source generators name file-local types after the output folder, so only identical paths are deterministic) and the
+error log in a temporary folder. Every output file is saved before and put back after, so the build's files stay as
+they were. The facts get the replay's exit code, output hash and SARIF log. In `windows-ci` it replays the 8 `src/`
+compiles (about 7 minutes locally).
 
 `fixtures` builds nine fixtures (`scripts/quality/buildfacts/fixtures/`) and quotes the facts lines that show each
 bypass. **Four only have to SHOW the bypass in the facts** (their judges come in #28 and #32): per-folder
@@ -364,10 +494,12 @@ because they can hold environment values.
   (HANDOFF known issue 0); the first PR has no base-branch judge, so this PR's own copy judges it;
 - build code that lies to the logger: a task that writes files it does not log, or a compiler server or tool that is
   not what its path says; the facts record what MSBuild logged;
-- hashes are taken when the reader runs, after the build: a file changed **in place** after the compile by a step the task rule allows (an SDK task fed crafted items): the
-  hash trace compares the publish folder with the compile output as it is on disk when the reader runs, so an
-  overwrite of the compile output itself is caught only by the task rule; replaying the recorded `csc` command (the
-  build is deterministic) would close it;
+- hashes are taken when the reader runs, after the build. For the replayed (`src/`) compiles this is closed: the replay
+  must give the assembly on disk byte for byte, so a changed input or output fails. For other compiles (tests, tools) a
+  file changed **in place** after the compile by a step the task rule allows is caught only by the task rule and the
+  recorded writes;
+- recorded writes cover only the tasks listed above (their file parameters); a task that writes a file through
+  another parameter, or `Exec`, is caught by the task rule (unknown task) only if `known.json` does not allow it;
 - what the code does at run time (reflection, loading other assemblies, `Process.Start`) is not a build fact;
 - the reader and `build_facts.py` run from the PR's own tree and the repo's `Directory.Build.props` applies to the
   reader's build; a later PR runs the base branch's copy (like the ratchet's `--rise-only`);

@@ -204,15 +204,18 @@ sealed class PathTokens
     // -----------------------------------------------------------------------------------------------------------------
     // The guard: every string value in the facts, by its JSON path.
     // -----------------------------------------------------------------------------------------------------------------
-    // Any absolute-path shape, case-insensitive, at any position after any delimiter: a drive letter (also inside
-    // \\?\C:\), a UNC path (\\srv\, \\?\UNC\), //host/ (but not a URL's scheme://), a POSIX home (/home, /users, /root),
-    // an msys drive (/c/). A path character right before the shape means it is the middle of a relative path.
+    // Any absolute-path shape, case-insensitive, at any position: a drive letter followed by a backslash or a single
+    // slash, even glued right after a letter or digit (also inside \\?\C:\; a URL's scheme:// is not one); a URL-encoded
+    // drive (C%3A%5C, C%3A%2F, C%3A/); and after any delimiter a UNC path (\\srv\, \\?\UNC\), //host/ (but not a URL's
+    // scheme://), a POSIX root (/home, /users, /root, /opt, /tmp), an msys drive (/c/). For these last shapes a path
+    // character right before them means the middle of a relative path. A drive-relative C:Users is not refused.
     const string NotInPath = @"(?<![A-Za-z0-9_.~$>)\]\\/-])";
     static readonly Regex[] Shapes =
     [
-        new(@"(?<![A-Za-z0-9])[A-Za-z]:[\\/]", RegexOptions.Compiled),
+        new(@"[A-Za-z]:(?:\\|/(?!/))", RegexOptions.Compiled),
+        new(@"[A-Za-z]%3[Aa](?:%5[Cc]|%2[Ff]|[\\/])", RegexOptions.Compiled),
         new(NotInPath + @"\\\\[^\\/\s""'<>|]+[\\/]", RegexOptions.Compiled),
-        new(NotInPath + @"/(?:home|users|root)/[^/\s""']", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(NotInPath + @"/(?:home|users|root|opt|tmp)/[^/\s""']", RegexOptions.Compiled | RegexOptions.IgnoreCase),
         new(NotInPath + @"/[A-Za-z]/[^/\s""']", RegexOptions.Compiled),
     ];
 
