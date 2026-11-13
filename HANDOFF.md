@@ -224,6 +224,7 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | [#4](https://github.com/vikas53953/bluey/pull/4) | → `main` | merged 8 Nov (`384241a`) | FlaUI UI smoke in windows-ci. |
 | [#1](https://github.com/vikas53953/bluey/pull/1), [#2](https://github.com/vikas53953/bluey/pull/2), [#5](https://github.com/vikas53953/bluey/pull/5), [#6](https://github.com/vikas53953/bluey/pull/6) | lanes → `main` | closed 12 Nov | **Superseded**: all their commits are already in `lane/face`. |
 | [#44](https://github.com/vikas53953/bluey/pull/44) | `docs/vikas-decisions-13nov` → `lane/face` | **open** | Docs only: records Vikas's 13 Nov decisions (OpenAI only for chat and voice, Claude/Gemini out of scope; cheapest OpenAI models in tests; every notch state tested, plan row 2.11; phase gates, plan section 7; Vikas's 10-minute pre-release check). QA verdict in the PR body. |
+| #TBD | `docs/notch-journey-list` → `lane/face` | **open** | Docs only: new `.claude/skills/verify-boo/journeys.md`, the shared journey list (j0–j6 kept, j7–j18 new) that reaches every notch face and every row of the notch map (`docs/architecture/notch-lifecycle.md`), with the expected face sequence, the map rows covered and the evidence per journey; rows that cannot be driven from the UI are marked manual / not drivable yet. For the full-app QA suite and PRs #45 / #48. Nothing run against Boo. |
 
 Each PR's latest evidence table and verdict is in its own latest QA comment. This table only tracks state.
 
