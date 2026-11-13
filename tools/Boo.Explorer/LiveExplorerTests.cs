@@ -51,7 +51,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
             var panel = OpenPanel();
             Ask(panel, "Write a 120-word paragraph about the Moon, then end with the word BRAVO.", label: "l02 first (to be superseded)");
             RequireReplyPending(panel, "BRAVO", "l02 first question still pending");
-            Ask(panel, "Reply with exactly the word CHARLIE.", label: "l02 second (typed during the pending reply)");
+            Ask(panel, "Reply with exactly the word CHARLIE.", label: "l02 second (typed during the pending reply)", whilePending: true);
             WaitForBooRowContaining(panel, "CHARLIE", AnswerTimeout);
             Thread.Sleep(15_000); // a late BRAVO would land in this window
             var rows = Rows(panel);
