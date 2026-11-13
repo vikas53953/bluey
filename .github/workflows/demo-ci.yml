@@ -63,6 +63,13 @@ jobs:
           dotnet build tools/Boo.VerifyLive -c Release
           dotnet build tools/Boo.CaptureProof -c Release
 
+      # Video of the demo run (agent-trust plan 2.8): records this GitHub VM's desktop, never a personal PC (the script
+      # refuses unless RUNNER_ENVIRONMENT is github-hosted, BOO-SAFE-001). Pinned ffmpeg, SHA-256 checked.
+      - name: Start desktop video (GitHub VM only)
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./scripts/ci/Record-Desktop.ps1 -Start -OutFile artifacts/demo-video/demo.mp4
+
       # Runner-only redirect: api.openai.com -> loopback, trust the mock's self-signed certificate, then run the demos in
       # the SAME step so the mock process is guaranteed to outlive the probe (a process started in an earlier step is not
       # guaranteed to survive on the hosted runner; run 1 saw "Can't reach OpenAI" right after a successful probe).
@@ -118,6 +125,14 @@ jobs:
           Get-ChildItem $evidence -Filter *.txt | Where-Object { $_.Name -notlike 'mock-*' } | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName | Select-Object -First 20 }
           try { Stop-Process -Id $mock.Id -Force -ErrorAction SilentlyContinue } catch { }
           exit $testExit
+
+      # Runs on failed demos too, so a red run still has its video. Fails if the video is missing, broken or above
+      # 25 MB (an oversized video is deleted, never uploaded).
+      - name: Stop desktop video
+        if: ${{ !cancelled() }}
+        timeout-minutes: 3
+        shell: pwsh
+        run: ./scripts/ci/Record-Desktop.ps1 -Stop
 
       # No vacuous green: every [Fact] declared in tests/Boo.Demo.Tests must have run and passed (not skipped, not
       # filtered away, not undiscovered). Runs even if the step above failed, so the log says exactly what broke.
@@ -182,4 +197,27 @@ jobs:
           retention-days: 7
           name: demo-evidence
           path: artifacts/demo-evidence
+          if-no-files-found: warn
+
+      # BOO-SAFE-002: the same key scan, on exactly the video folder (generated from scripts/quality/key_scan.py).
+      - name: Key scan before upload (demo video)
+        id: keyscan_artifacts_demo_video
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/demo-video; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/demo-video' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/demo-video')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload demo video
+        if: ${{ !cancelled() && steps.keyscan_artifacts_demo_video.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: demo-video
+          path: artifacts/demo-video
           if-no-files-found: warn
