@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #34 merged**, with `lane/face` at `f3b2c32` (PR #34); docs PR "Vikas's 13 Nov decisions" (OpenAI only, cheap models, every notch state, phase gates) on top.
+Status last updated: **13 Nov 2026, after PR #34 merged**, with `lane/face` at `f3b2c32` (PR #34); PR #44 (Vikas's 13 Nov decisions) (OpenAI only, cheap models, every notch state, phase gates) on top.
 
 ---
 
@@ -221,7 +221,7 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | [#9](https://github.com/vikas53953/bluey/pull/9), [#8](https://github.com/vikas53953/bluey/pull/8), [#7](https://github.com/vikas53953/bluey/pull/7) | lanes → `lane/face` | merged 8 Nov | Perf budgets; Velopack installer + opt-in updates; security hardening. |
 | [#4](https://github.com/vikas53953/bluey/pull/4) | → `main` | merged 8 Nov (`384241a`) | FlaUI UI smoke in windows-ci. |
 | [#1](https://github.com/vikas53953/bluey/pull/1), [#2](https://github.com/vikas53953/bluey/pull/2), [#5](https://github.com/vikas53953/bluey/pull/5), [#6](https://github.com/vikas53953/bluey/pull/6) | lanes → `main` | closed 12 Nov | **Superseded**: all their commits are already in `lane/face`. |
-| PR decisions-13nov | `docs/vikas-decisions-13nov` → `lane/face` | **open** | Docs only: records Vikas's 13 Nov decisions (OpenAI only for chat and voice, Claude/Gemini out of scope; cheapest OpenAI models in tests; every notch state tested, plan row 2.11; phase gates, plan section 7; Vikas's 10-minute pre-release check). QA verdict in the PR body. |
+| [#44](https://github.com/vikas53953/bluey/pull/44) | `docs/vikas-decisions-13nov` → `lane/face` | **open** | Docs only: records Vikas's 13 Nov decisions (OpenAI only for chat and voice, Claude/Gemini out of scope; cheapest OpenAI models in tests; every notch state tested, plan row 2.11; phase gates, plan section 7; Vikas's 10-minute pre-release check). QA verdict in the PR body. |
 
 Each PR's latest evidence table and verdict is in its own latest QA comment. This table only tracks state.
 
