@@ -284,6 +284,44 @@ already press Ctrl+Alt+F12 and Ctrl+Alt+S on a running session; they do not read
 
 ---
 
+#### j19 — Pause after End must not invent a paused session (#70)
+
+| Field | Content |
+| --- | --- |
+| Preconditions | No key needed; speech off; pointer away from the notch |
+| Steps | Start a 25-minute focus session; Pause; End; record the Ended status and history. After Happy settles, invoke Pause again, then Resume and End. |
+| Required result | The session stays Ended, history is unchanged, and no Paused face is pinned by a click on an ended session. A disabled Pause control is acceptable. |
+| Known failure | Issue #70: Pause after End writes a false Paused status and pins Paused. This is a **failure**, never an accepted baseline. |
+| Covers | Fo3, Fo6, Fo7; extends j13 with terminal-state controls |
+| Evidence | Before/after focus status, history and enabled controls; face timeline; Boo-window screenshots. Existing explorer proof: [run 43468157115](https://github.com/vikas53953/bluey/actions/runs/43468157115), `x06-focus.txt`. Re-run on the tested head; old proof is not current-head proof. |
+| Live / mock | No AI required; current-head execution **UNVERIFIED** |
+
+#### j20 — Stop clears the panel's busy status (#71)
+
+| Field | Content |
+| --- | --- |
+| Preconditions | Real OpenAI; speech off; panel open; pointer away from notch |
+| Steps | Send a question; confirm it is pending; press Ctrl+Alt+F12 before completion. Read status and transcript immediately and for at least five seconds. Repeat for other pending request types when reachable, reporting each independently. If the reply finishes first, report that substep UNVERIFIED; do not retry silently. |
+| Required result | The status stops claiming work is pending, cancelled work adds no late answer or action, and the face returns according to active focus/hover state. A resting face alone is insufficient. |
+| Known failure | Issue #71: the face rests but status remains Thinking about the selected context. Count this as FAIL. |
+| Covers | F21, G2, G4; extends j12 with panel-status assertions |
+| Evidence | Timestamped Stop, status/transcript reads and face timeline plus Boo-window screenshots. Existing explorer failure: [run 43468157115](https://github.com/vikas53953/bluey/actions/runs/43468157115), `l04-stop-mid-reply-FAILED.txt`; current-head execution **UNVERIFIED**. |
+| Live / mock | Real-provider execution is live; a held local proxy is a separately labelled mock regression proof, never real-provider evidence |
+
+#### j21 — Duplicate conversation rows stay individually accessible (#73)
+
+| Field | Content |
+| --- | --- |
+| Preconditions | Fresh disposable runner profile, no key saved; panel open |
+| Steps | Send the identical question twice; wait for each no-key result. Read every Conversation item through UI Automation, preserving duplicate items and their order. Inspect the screenshot too. |
+| Required result | Both visible You rows have separate accessible items with the same text. Scrolling to the newest row reaches the second item. Never deduplicate the UI Automation results before comparing counts. |
+| Known failure | Issue #73: two visible equal rows expose only one automation item. Count this as FAIL. |
+| Covers | Conversation screen accessibility and newest-row scrolling; complements j2 and j18 |
+| Evidence | Ordered raw automation items, item identities/counts, scroll observation and panel screenshot. Existing explorer proof: [run 43469967627](https://github.com/vikas53953/bluey/actions/runs/43469967627), `b01-wrong-key.txt` and its capture index; current-head execution **UNVERIFIED**. |
+| Live / mock | No AI required; repeat with real-provider duplicate answers only as separate live coverage |
+
+These bug journeys add required outcomes; they do not claim the bugs are fixed or that this document executed them.
+
 ## 3. Transition coverage
 
 Every row of the map, and the journey(s) that drive it. **manual** = a person must do it on a throwaway VM (or it
@@ -371,7 +409,7 @@ on the runner; without one they are **BLOCKED**, never green.
 
 ## 4. How to reuse this list
 
-- **Refer to journeys by id** (`j0` … `j18`, sub-steps like `j12f`). Ids are stable: a journey that is dropped keeps its
+- **Refer to journeys by id** (`j0` … `j21`, sub-steps like `j12f`). Ids are stable: a journey that is dropped keeps its
   id retired; a new journey takes the next free number. Change a step here, in the same PR, when the behaviour it
   checks changes on purpose.
 - **Full-app QA suite** (branch `qa/full-app-suite`, PR 2.12 "Phase 2 gate"): run every journey; report one evidence row
