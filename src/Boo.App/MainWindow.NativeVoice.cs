@@ -20,7 +20,7 @@ public partial class MainWindow
         _realtimeTranscript.Reset();
         _realtimeTranscriptRows.Clear();
         var generation = _generation;
-        realtime.Received += value => Realtime_OnReceived(realtime, generation, value);
+        realtime.Received += value => UiAction.Run(() => Realtime_OnReceivedAsync(realtime, generation, value));
         AttachVoiceCommands(realtime);
         _realtime = realtime;
         return _realtime;

@@ -146,7 +146,9 @@ public partial class MainWindow
             : OutcomeFor(decision));
     }
 
-    private async void CheckUpdatesButton_OnClick(object sender, RoutedEventArgs e)
+    private void CheckUpdatesButton_OnClick(object sender, RoutedEventArgs e) => UiAction.Run(CheckUpdatesAsync);
+
+    private async Task CheckUpdatesAsync()
     {
         var token = LoadUpdateToken();
         var install = _updates?.InstallKind ?? UpdateInstallKind.Portable;
@@ -195,7 +197,9 @@ public partial class MainWindow
         }
     }
 
-    private async void InstallUpdateButton_OnClick(object sender, RoutedEventArgs e)
+    private void InstallUpdateButton_OnClick(object sender, RoutedEventArgs e) => UiAction.Run(InstallUpdateAsync);
+
+    private async Task InstallUpdateAsync()
     {
         if (_updates is not { } service || _availableVersion is null || _updateBusy)
             return;

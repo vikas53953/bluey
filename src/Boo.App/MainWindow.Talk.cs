@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.Windows;
 using System.Windows.Threading;
 using Boo.Core;
 using Boo.Providers;
@@ -11,7 +12,8 @@ namespace Boo.App;
 /// <summary>
 /// Hold-to-talk glue (plan unit U4): Ctrl+Alt+Space via a low-level keyboard hook, or holding Boo's eyes,
 /// drives <see cref="HoldToTalkController"/>; its commands run a push-to-talk Realtime turn (server VAD off,
-/// commit + response.create on release). Logic lives in Boo.Core; this file only carries commands out.
+/// commit + response.create on release), plus the Talk button's open-microphone turn. Logic lives in Boo.Core;
+/// this file only carries commands out.
 /// </summary>
 public partial class MainWindow
 {
@@ -177,7 +179,7 @@ public partial class MainWindow
                     InterruptPlayback();
                     break;
                 case TalkCommand.StartListening:
-                    StartPushToTalk();
+                    UiAction.Run(StartPushToTalkAsync);
                     break;
                 case TalkCommand.StopAndSend:
                     _ = SendPushToTalkAsync();
@@ -222,7 +224,66 @@ public partial class MainWindow
         }
     }
 
-    private async void StartPushToTalk()
+    private void TalkButton_OnClick(object sender, RoutedEventArgs e) => UiAction.Run(TalkAsync);
+
+    private async Task TalkAsync()
+    {
+        if (_listening)
+        {
+            StopListening();
+            return;
+        }
+
+        var lease = BeginRequest();
+        try
+        {
+            var realtime = EnsureRealtime();
+            await realtime.ConnectAsync(lease.Token);
+            if (!IsCurrent(lease.Generation))
+            {
+                return;
+            }
+            _realtimeConnected = true;
+            _voiceTaskAuthorized = false;
+            var uploads = new AudioUploadQueue(realtime.SendAudioAsync, lease.Token);
+            _audioUploads = uploads;
+            uploads.Failed += message => PostAudioFailure(message, lease.Generation, uploads);
+            _audio?.Dispose();
+            _audio = CreateAudio(uploads, lease.Generation);
+            if (!_audio.TryStart(_settings.MicrophoneDevice, out var micFailure))
+            {
+                StopListening();
+                ListeningStatus.Text = "Microphone unavailable. You can still type a request.";
+                StatusText.Text = micFailure;
+                return;
+            }
+            _listening = true;
+            _onMicrophoneActivity(true);
+            TalkButton.Content = "Stop talk";
+            ListeningStatus.Text = "Listening… press Stop talk or the global Stop to interrupt.";
+            StatusText.Text = "Microphone active by explicit request.";
+        }
+        catch (OperationCanceledException)
+        {
+            if (IsCurrent(lease.Generation))
+            {
+                StopListening();
+                _onMicrophoneActivity(false);
+                ListeningStatus.Text = "Listening stopped.";
+            }
+        }
+        catch (Exception ex)
+        {
+            if (IsCurrent(lease.Generation))
+            {
+                StopListening();
+                ListeningStatus.Text = "Microphone unavailable. You can still type a request.";
+                StatusText.Text = SanitizedError(ex, "Microphone or realtime setup failed.");
+            }
+        }
+    }
+
+    private async Task StartPushToTalkAsync()
     {
         CancelPendingSleep();
         PushToTalkUplink? uplink = null;
