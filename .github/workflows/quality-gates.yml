@@ -1,9 +1,13 @@
 name: quality-gates
 
-# Phase 1 of docs/plans/agent-trust-plan.md: deterministic checks that refuse a repeat mistake. Cheap: Linux, no .NET
-# build, no artifacts (nothing to upload, so storage quota cannot turn it red).
+# Phase 1 of docs/plans/agent-trust-plan.md: deterministic checks that refuse a repeat mistake. Linux, no artifacts
+# (nothing to upload, so storage quota cannot turn it red).
 #   - ratchet: today's count of each known-bad pattern in src/ (docs/quality/baseline.json) may only go DOWN.
 #     A self-test first proves every rule fires on a planted sample, so a broken rule cannot pass vacuously.
+#   - banned APIs (RS0030): the list is regenerated from the .NET reference packs, the canary proves every line fires,
+#     every src/ project builds with only its AnalyzerBaseline.cs hits (exact per member), and the canary compiled
+#     inside each src/ project proves nothing there silences the ban. WPF compiles on Linux (EnableWindowsTargeting).
+#   - compile list: what MSBuild compiles in src/ is exactly what the ratchet reads.
 # Rule texts and fixes: docs/quality/RULES.md. Job name `quality` is meant to become a required check.
 
 on:
@@ -18,7 +22,7 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,6 +31,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
 
       - name: Ratchet self-test (every rule fires on a planted sample)
         run: python -I scripts/quality/ratchet.py --self-test
@@ -48,4 +56,36 @@ jobs:
             python -I "$RUNNER_TEMP/base_ratchet.py" --root "$GITHUB_WORKSPACE" --baseline "$RUNNER_TEMP/base_baseline.json" --rise-only
           else
             echo "The base branch ($BASE_REF) has no ratchet yet: this PR introduces it, so there is no older gate to apply."
+          fi
+
+      - name: Banned APIs and compile list self-tests (the judging logic on planted samples)
+        run: |
+          python -I scripts/quality/banned_apis.py --self-test
+          python -I scripts/quality/compile_list.py --self-test
+
+      - name: Banned list matches the .NET reference packs (no hand edits, no new overload missed)
+        run: python -I scripts/quality/banned_apis.py list-check
+
+      - name: Banned-API canary (each banned line fires exactly once, as an error)
+        run: python -I scripts/quality/banned_apis.py canary
+
+      - name: Banned APIs in src/ (only baselined hits, exact per member; the canary fires inside every project)
+        run: python -I scripts/quality/banned_apis.py product
+
+      - name: Compile list (MSBuild compiles exactly what the ratchet reads)
+        run: python -I scripts/quality/compile_list.py
+
+      # Same idea as the ratchet above: the BASE branch's copy judges whether this PR removed a ban, added a baseline
+      # entry or raised a count, so editing the PR's own banned_apis.py or AnalyzerBaseline.cs changes nothing.
+      - name: Banned APIs judged by the base branch's own copy (a PR cannot loosen the ban)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          if git cat-file -e FETCH_HEAD:scripts/quality/banned_apis.py 2>/dev/null; then
+            git show FETCH_HEAD:scripts/quality/banned_apis.py > "$RUNNER_TEMP/base_banned_apis.py"
+            python -I "$RUNNER_TEMP/base_banned_apis.py" rise-check --root "$GITHUB_WORKSPACE" --base-rev FETCH_HEAD
+          else
+            echo "The base branch ($BASE_REF) has no banned_apis.py yet: this PR introduces it, so there is no older gate to apply."
           fi

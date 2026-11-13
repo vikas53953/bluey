@@ -4,4 +4,25 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors><AnalysisLevel>latest</AnalysisLevel>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
+
+  <!-- Banned APIs (docs/quality/RULES.md#banned-apis-rs0030): product code under src/ may not call the members listed
+       in src/BannedSymbols.txt; RS0030 is an error through TreatWarningsAsErrors. The condition reads only reserved
+       MSBuild properties, so a project cannot switch it off by setting a property. tests/ and tools/ are not judged
+       (tests/ is the frozen oracle). BooBannedApiCanary is set only by scripts/quality/canary/Canary.csproj, which
+       proves every line fires; BooBannedApiProbe is set only by scripts/quality/banned_apis.py, which compiles the
+       same canary calls inside every src/ project to prove nothing in that project silences them. -->
+  <ItemGroup Condition="$([MSBuild]::MakeRelative('$(MSBuildThisFileDirectory)', '$(MSBuildProjectDirectory)').Replace('\', '/').ToLowerInvariant().StartsWith('src/')) Or '$(BooBannedApiCanary)' == 'true'">
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0" PrivateAssets="all" />
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)src/BannedSymbols.txt" />
+  </ItemGroup>
+  <!-- Not in WPF's temporary markup-pass copy (*_wpftmp): it would fail first and stop the real compile. -->
+  <ItemGroup Condition="'$(BooBannedApiProbe)' == 'true' And !$(MSBuildProjectName.EndsWith('_wpftmp'))">
+    <Compile Include="$(MSBuildThisFileDirectory)scripts/quality/canary/Canary.Core.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)scripts/quality/canary/Canary.Wpf.cs" Condition="'$(UseWPF)' == 'true'" />
+    <Compile Include="$(MSBuildThisFileDirectory)scripts/quality/canary/Canary.WinForms.cs" Condition="'$(UseWindowsForms)' == 'true'" />
+  </ItemGroup>
+  <!-- One SARIF error log per project when BooSarifDir is set (scripts/quality/banned_apis.py reads them). -->
+  <PropertyGroup Condition="'$(BooSarifDir)' != ''">
+    <ErrorLog>$(BooSarifDir)/$(MSBuildProjectName).sarif,version=2.1</ErrorLog>
+  </PropertyGroup>
 </Project>
