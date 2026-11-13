@@ -33,7 +33,7 @@ public static class RealtimeProtocol
     /// input_audio_buffer.commit + response.create when the user releases hold-to-talk.
     /// </param>
     /// <param name="transcriptionModel">Speech-to-text model for the user's words; null = <see cref="DefaultTranscriptionModel"/>.</param>
-    public static string SessionUpdate(ProviderSettings settings, bool pushToTalk = false, string? transcriptionModel = null)
+    public static string SessionUpdate(ProviderSettings settings, bool pushToTalk = false, string? transcriptionModel = null, int? maxOutputTokens = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         object? turnDetection = pushToTalk ? null : new { type = "server_vad" };
@@ -105,7 +105,13 @@ public static class RealtimeProtocol
                 tool_choice = "auto"
             }
         };
-        return JsonSerializer.Serialize(update);
+        var json = JsonSerializer.Serialize(update);
+        if (maxOutputTokens is null) return json;
+        if (maxOutputTokens is < 1 or > 256) throw new ArgumentOutOfRangeException(nameof(maxOutputTokens));
+        var bounded = System.Text.Json.Nodes.JsonNode.Parse(json)!;
+        bounded["session"]!["max_output_tokens"] = maxOutputTokens.Value;
+        bounded["session"]!["tool_choice"] = "none";
+        return bounded.ToJsonString();
     }
 
     private static object VoiceTool(string name, string description, object? parameters = null) => new
@@ -285,6 +291,8 @@ public sealed class RealtimeClient : IAsyncDisposable
     private readonly ProviderSettings _settings;
     private readonly bool _pushToTalk;
     private readonly string? _transcriptionModel;
+    private readonly int? _maxOutputTokens;
+    private int _responseRequests;
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly object _stateGate = new();
@@ -300,13 +308,22 @@ public sealed class RealtimeClient : IAsyncDisposable
     public static readonly TimeSpan KeepAliveTimeout = TimeSpan.FromSeconds(10);
 
     /// <param name="transcriptionModel">Speech-to-text model for the user's words; null = Boo's default.</param>
-    public RealtimeClient(Func<string?> credential, ProviderSettings settings, bool pushToTalk = false, string? transcriptionModel = null)
+    public RealtimeClient(Func<string?> credential, ProviderSettings settings, bool pushToTalk = false, string? transcriptionModel = null, int? maxOutputTokens = null)
     {
         _pushToTalk = pushToTalk;
         _transcriptionModel = transcriptionModel;
+        _maxOutputTokens = maxOutputTokens;
         _credential = credential ?? throw new ArgumentNullException(nameof(credential));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
     }
+
+    /// <summary>Compose a native voice client; hosted device options bound the real session, without replacing its provider.</summary>
+    public static RealtimeClient ForNativeVoice(Func<string?> credential, ProviderSettings settings, bool pushToTalk,
+        HostedVoiceOptions? qaVoice) => new(credential, settings, pushToTalk, qaVoice?.TranscriptionModel,
+            maxOutputTokens: qaVoice is null ? null : 128);
+
+    /// <summary>The exact session.update payload sent by ConnectAsync.</summary>
+    public string CreateSessionUpdate() => RealtimeProtocol.SessionUpdate(_settings, _pushToTalk, _transcriptionModel, _maxOutputTokens);
 
     public event Action<RealtimeEvent>? Received
     {
@@ -358,7 +375,7 @@ public sealed class RealtimeClient : IAsyncDisposable
             await socket.ConnectAsync(uri, connectDeadline.Token).ConfigureAwait(false);
             var readiness = _readiness!;
             _receiveTask = ReceiveLoopAsync(socket, _lifetime.Token, readiness);
-            await SendJsonAsync(RealtimeProtocol.SessionUpdate(_settings, _pushToTalk, _transcriptionModel), connectDeadline.Token).ConfigureAwait(false);
+            await SendJsonAsync(CreateSessionUpdate(), connectDeadline.Token).ConfigureAwait(false);
             try
             {
                 await readiness.Task.WaitAsync(ConnectTimeout, cancellationToken).ConfigureAwait(false);
@@ -414,7 +431,7 @@ public sealed class RealtimeClient : IAsyncDisposable
     public async Task SendTextAsync(string text, CancellationToken cancellationToken)
     {
         await SendJsonAsync(RealtimeProtocol.TextTurn(text), cancellationToken).ConfigureAwait(false);
-        await SendJsonAsync("{\"type\":\"response.create\"}", cancellationToken).ConfigureAwait(false);
+        await RequestResponseAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task CompleteToolAsync(string callId, string result, CancellationToken cancellationToken)
@@ -423,7 +440,7 @@ public sealed class RealtimeClient : IAsyncDisposable
             throw new ArgumentException("A function call id is required.", nameof(callId));
         ArgumentNullException.ThrowIfNull(result);
         await SendJsonAsync(FunctionCallOutput(callId, result), cancellationToken).ConfigureAwait(false);
-        await SendJsonAsync("{\"type\":\"response.create\"}", cancellationToken).ConfigureAwait(false);
+        await RequestResponseAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static string FunctionCallOutput(string callId, string result) => JsonSerializer.Serialize(new
@@ -445,7 +462,7 @@ public sealed class RealtimeClient : IAsyncDisposable
         foreach (var (callId, output) in outputs)
             await SendJsonAsync(FunctionCallOutput(callId, output), cancellationToken).ConfigureAwait(false);
         if (followUp)
-            await SendJsonAsync("{\"type\":\"response.create\"}", cancellationToken).ConfigureAwait(false);
+            await RequestResponseAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>True when this session was configured for push-to-talk (server VAD off).</summary>
@@ -455,7 +472,14 @@ public sealed class RealtimeClient : IAsyncDisposable
     public async Task CommitAudioTurnAsync(CancellationToken cancellationToken)
     {
         await SendJsonAsync("{\"type\":\"input_audio_buffer.commit\"}", cancellationToken).ConfigureAwait(false);
-        await SendJsonAsync("{\"type\":\"response.create\"}", cancellationToken).ConfigureAwait(false);
+        await RequestResponseAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private Task RequestResponseAsync(CancellationToken cancellationToken)
+    {
+        if (_maxOutputTokens is not null && Interlocked.Increment(ref _responseRequests) != 1)
+            throw new InvalidOperationException("Bounded voice session permits exactly one response request.");
+        return SendJsonAsync("{\"type\":\"response.create\"}", cancellationToken);
     }
 
     /// <summary>Push-to-talk cancel: drop audio appended since the last commit.</summary>
