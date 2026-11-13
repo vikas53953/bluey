@@ -49,6 +49,29 @@ PLAIN = {
     'J5': 'j5 Apply then Undo, only after approval',
     'J6': 'j6 25-minute focus session (Developer Mode clock)',
 }
+# PR #50's journey list (.claude/skills/verify-boo/journeys.md): each journey -> the checks that drive it today.
+# A journey is live only if every listed check ran and passed in this run; voice journeys are BLOCKED until PR #47.
+JOURNEYS = [
+    ('j0', 'Hotkey opens the panel', ['J0', 'S0']),
+    ('j1', 'Hover reveals and retracts', ['J1', 'S1']),
+    ('j2', 'Typed chat, plain-text path', ['J2', 'S2']),
+    ('j3', 'Screen explain: pointer and ring', ['J3']),
+    ('j4', 'Research with sources', ['J4']),
+    ('j5', 'Apply then Undo', ['J5']),
+    ('j6', '25-minute focus on the Developer Mode clock', ['J6']),
+    ('j7', 'Hover edge timings', []),
+    ('j8', 'Typed question handed to voice', 'voice'),
+    ('j9', 'Hold-to-talk with Ctrl+Alt+Space', 'voice'),
+    ('j10', 'The eyes: tap and hold', []),
+    ('j11', 'Panel Talk button', 'voice'),
+    ('j12', 'Stop from every busy state (only j12d, Stop during a typed answer, is driven: S3)', []),
+    ('j13', 'Focus pause, resume, end, restart (S4 drives all but restart)', []),
+    ('j14', 'Focus nudge (off task)', []),
+    ('j15', 'Approval card edges', []),
+    ('j16', 'Second undo', []),
+    ('j17', 'Voice ends itself and drives focus', 'voice'),
+    ('j18', 'Newer request wins', []),
+]
 STATES = ['Hidden', 'Hover', 'Idle', 'Listening', 'Thinking', 'Responding', 'Capture', 'Nudge', 'Paused', 'Happy']
 
 
@@ -112,6 +135,20 @@ def build(folder, run_url='', app_sha='', harness_sha='', models=''):
     if not any(r[0] == 'smoke' and 'voice' in r[1].lower() for r in rows):
         table.append(f'| Voice: real OpenAI voice round trip | BLOCKED | no live voice test exists on this harness yet; it '
                      f'arrives with PR #47. Not a pass. | {link} |')
+    ran = {short_id(r[1]): r[2] for r in rows if short_id(r[1])}
+    voice_ran = any(r[0] == 'smoke' and 'voice' in r[1].lower() for r in rows)
+    for jid, title, checks in JOURNEYS:
+        if checks == 'voice' and voice_ran:
+            table.append(f'| Journey {jid}: {title} | UNVERIFIED | voice works live, but this journey is not driven yet | {link} |')
+        elif checks == 'voice':
+            table.append(f'| Journey {jid}: {title} | BLOCKED | needs the live voice test (PR #47). Not a pass. | {link} |')
+        elif checks and all(ran.get(c) == 'Passed' for c in checks):
+            table.append(f'| Journey {jid}: {title} | live | passed ({", ".join(checks)}) | {link} |')
+        elif checks:
+            got = ', '.join(c + '=' + ran.get(c, 'not run') for c in checks)
+            table.append(f'| Journey {jid}: {title} | live | FAILED or not run ({got}) | {link} |')
+        else:
+            table.append(f'| Journey {jid}: {title} | UNVERIFIED | not driven by the suite yet (follow-up after PRs #47, #48, #50) | {link} |')
     seen = states_seen(folder)
     for s in STATES:
         if s in seen:
@@ -155,6 +192,9 @@ def self_test():
         check('voice missing -> BLOCKED row, still not counted as a pass', '| Voice: real OpenAI voice round trip | BLOCKED |' in text)
         check('seen state -> live', '| Notch state Thinking | live |' in text)
         check('unseen state -> UNVERIFIED', '| Notch state Listening | UNVERIFIED |' in text)
+        check('journey with no driving check -> UNVERIFIED', '| Journey j7: Hover edge timings | UNVERIFIED |' in text)
+        check('voice journey -> BLOCKED', '| Journey j9: Hold-to-talk with Ctrl+Alt+Space | BLOCKED |' in text)
+        check('journey whose checks did not run -> not live-passed', '| Journey j3: Screen explain: pointer and ring | live | FAILED or not run' in text)
         check('no "Hidden" substring false hit for Idle', '| Notch state Idle | UNVERIFIED |' in text)
         trx(root / 'errors' / 'trx', [('Boo.QaSuite.E.T.E3_Net', 'Failed', 'Boo did not show | the message')])
         text, green = build(root)
@@ -174,7 +214,7 @@ def self_test():
         trx(root / 'smoke' / 'trx', [('Boo.LiveSmoke.LiveVoiceRoundTripTests.Voice_X', 'Passed', '')])
         text, green = build(root)
         check('voice test present -> live row, no BLOCKED row', green and '| Voice: real OpenAI voice round trip | live | passed' in text
-              and 'BLOCKED' not in text)
+              and '| BLOCKED |' not in text and '| Journey j9: Hold-to-talk with Ctrl+Alt+Space | UNVERIFIED |' in text)
     print('QA_REPORT_SELF_TEST_OK' if ok else 'QA_REPORT_SELF_TEST_FAILED')
     return 0 if ok else 1
 

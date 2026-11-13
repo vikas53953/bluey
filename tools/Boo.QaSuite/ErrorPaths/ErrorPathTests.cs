@@ -17,13 +17,18 @@ internal static class Expect
     public const string NoKey = "No OpenAI key yet. Add it in Settings, then try again.";
     public static readonly string[] Timeout = ["OpenAI response timed out. Try again.", ProviderFailureClassifier.TimeoutMessage];
 
-    public static void Status(BooAppFixture boo, Window panel, string step, IReadOnlyCollection<string> expected, TimeSpan timeout, string extra = "")
+    public static void Status(BooAppFixture boo, Window panel, string step, IReadOnlyCollection<string> expected, TimeSpan timeout, string extra = "", double minSeconds = 0)
     {
+        // Timed here, from just after Send to the message, so the evidence says how long Boo took (run 43429436322
+        // logged 0.1 s for the timeout check because its clock was read before the wait).
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         var (matched, last, seen) = QaUi.WaitForStatus(panel, expected, timeout);
+        var seconds = clock.Elapsed.TotalSeconds;
         boo.CaptureScreen(step);
-        boo.WriteObservation(step, $"expected one of: {string.Join(" | ", expected)}\nmatched={matched}\nlast='{last}'\nseen='{string.Join(" > ", seen)}'\nreplies={QaUi.BooRows(panel).Count}{extra}");
+        boo.WriteObservation(step, $"expected one of: {string.Join(" | ", expected)}\nmatched={matched} secondsAfterSend={seconds:0.0}\nlast='{last}'\nseen='{string.Join(" > ", seen)}'\nreplies={QaUi.BooRows(panel).Count}{extra}");
         Assert.True(matched, $"Boo did not show the expected message. Expected one of [{string.Join(" | ", expected)}], last status '{last}', seen '{string.Join(" > ", seen)}'.");
         Assert.Empty(QaUi.BooRows(panel));
+        Assert.True(seconds >= minSeconds, $"Boo showed '{last}' after {seconds:0.0} s, sooner than the {minSeconds:0} s a real wait needs.");
     }
 }
 
@@ -93,12 +98,12 @@ public sealed class TimeoutErrorTests(FakeKeyFixture boo, ITestOutputHelper outp
     {
         var panel = QaUi.OpenPanel(boo);
         var log = new List<string>();
-        var clock = System.Diagnostics.Stopwatch.StartNew();
         using (Faults.SilentProvider(s => { log.Add(s); output.WriteLine(s); }))
         {
             QaUi.Ask(boo, panel, "What is two plus three?");
+            // Boo's own limit is 45 s; a "timed out" message much sooner would not be this timeout.
             Expect.Status(boo, panel, "qa-e4-timeout", Expect.Timeout, TimeSpan.FromSeconds(100),
-                $"\nsecondsUntilMessage={clock.Elapsed.TotalSeconds:0.0}\n" + string.Join("\n", log));
+                "\n" + string.Join("\n", log), minSeconds: 20);
         }
         QaUi.Ask(boo, panel, "What is two plus three?");
         Expect.Status(boo, panel, "qa-e4-provider-back", [ProviderFailureClassifier.InvalidCredentialMessage], TimeSpan.FromSeconds(60),

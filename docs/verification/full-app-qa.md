@@ -22,6 +22,13 @@ The report step writes an evidence table (`summary.md`, also the job summary): e
 **BLOCKED** or **UNVERIFIED**, with the run link. Each of the 10 notch states is listed: **live** if this run saw it
 (the suite records every notch face change), otherwise **UNVERIFIED** (driving every state is plan row 2.11).
 
+It also lists every journey of PR #50's list (j0–j18): **live** when a suite check drives it and passed in that run
+(j0–j6 today), **BLOCKED** for the voice journeys (j8, j9, j11, j17) until PR #47's live voice test exists, otherwise
+**UNVERIFIED**. Driving j7, j10 and j12–j18 is a follow-up once PRs #47, #48 and #50 merge.
+
+Why FlaUI and not Playwright: Playwright drives web pages and Electron apps; Boo is a native WPF app with no browser
+inside. FlaUI drives the real `Boo.exe` through Windows UI Automation, the way a user (or a screen reader) does.
+
 Faults (firewall rule, hosts entry) are undone by each check and again by an always-run clean-up step. They refuse to
 run anywhere but a GitHub-hosted VM.
 
