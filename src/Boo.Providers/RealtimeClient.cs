@@ -14,6 +14,7 @@ public static class RealtimeProtocol
     {
         "session.created", "session.updated", "error",
         "conversation.item.input_audio_transcription.delta", "conversation.item.input_audio_transcription.completed",
+        "conversation.item.input_audio_transcription.failed",
         "input_audio_buffer.speech_started", "input_audio_buffer.speech_stopped", "input_audio_buffer.committed",
         "response.output_audio.delta", "response.output_audio.done",
         "response.output_audio_transcript.delta", "response.output_audio_transcript.done",

@@ -19,7 +19,8 @@ namespace Boo.LiveSmoke;
 /// and no error or disconnect. Microphone capture and speaker playback are not exercised (a GitHub VM has neither);
 /// everything between them is.
 ///
-/// Refuses to run anywhere but a GitHub-hosted runner (RUNNER_ENVIRONMENT=github-hosted), and runs the same anti-mock
+/// Refuses to run anywhere but a GitHub-hosted runner (RUNNER_ENVIRONMENT=github-hosted) or a throwaway VM the local
+/// verify-boo runner declared with -ThrowawayVm (BOO_THROWAWAY_VM=1), never a personal PC, and runs the same anti-mock
 /// guard as the typed round trip, so the answer must come from the real api.openai.com. Voice is always OpenAI: it
 /// uses BOO_LIVE_OPENAI_KEY whatever text provider the run chose.
 /// Models are set per run: BOO_LIVE_REALTIME_MODEL (default: the cheapest realtime model) and
@@ -31,6 +32,7 @@ public sealed class LiveVoiceRoundTripTests
     public const string TranscribeModelVariable = "BOO_LIVE_TRANSCRIBE_MODEL";
     public const string DefaultRealtimeModel = "gpt-realtime-2.1-mini";
     public const string QuestionFile = "Voice/what-is-two-plus-three.wav";
+    public const string ThrowawayVmVariable = "BOO_THROWAWAY_VM";
 
     private const int SampleRate = 24000;                  // Boo's session: audio/pcm, rate 24000, 16-bit mono
     private const int BytesPerSecond = SampleRate * 2;
@@ -45,11 +47,11 @@ public sealed class LiveVoiceRoundTripTests
     [Fact]
     public async Task SpokenQuestion_GetsASpokenAnswerFromRealOpenAiVoice()
     {
-        if (!BooAppFixture.OnGitHubHostedRunner())
+        if (!BooAppFixture.OnGitHubHostedRunner() && Environment.GetEnvironmentVariable(ThrowawayVmVariable) != "1")
         {
             throw new InvalidOperationException(
                 "LIVE VOICE FAILED CLOSED: the live voice round trip runs only on a GitHub-hosted runner " +
-                "(RUNNER_ENVIRONMENT=github-hosted), never on a personal PC.");
+                "(RUNNER_ENVIRONMENT=github-hosted) or a throwaway VM (verify-boo -ThrowawayVm), never on a personal PC.");
         }
         var accepted = RealAiHostGuard.EnsureRealProviderHosts();
 
@@ -83,14 +85,17 @@ public sealed class LiveVoiceRoundTripTests
         }
         await client.CommitAudioTurnAsync(deadline.Token);
 
-        // Done when the answer is complete AND the question's transcript arrived (they can come in either order).
+        // Done when the answer is complete AND the question's transcript arrived (they can come in either order), or
+        // as soon as anything fails. Then a short grace period, so an error sent right after the answer is still seen.
         while (!deadline.IsCancellationRequested &&
                !(events.Any(e => e.Kind == "response.done") &&
-                 events.Any(e => e.Kind == "conversation.item.input_audio_transcription.completed")) &&
-               !events.Any(e => e.Kind is "error" or "disconnect"))
+                 events.Any(e => e.Kind is "conversation.item.input_audio_transcription.completed"
+                     or "conversation.item.input_audio_transcription.failed")) &&
+               !events.Any(e => e.Kind is "error" or "disconnect" or "conversation.item.input_audio_transcription.failed"))
         {
             await Task.Delay(100, CancellationToken.None);
         }
+        await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None);
         var seconds = (DateTime.UtcNow - started).TotalSeconds;
 
         var heard = events.LastOrDefault(e => e.Kind == "conversation.item.input_audio_transcription.completed")?.Text ?? string.Empty;
@@ -98,6 +103,11 @@ public sealed class LiveVoiceRoundTripTests
                      ?? string.Concat(events.Where(e => e.Kind == "response.output_audio_transcript.delta").Select(e => e.Text));
         var answerAudio = events.Where(e => e.Kind == "response.output_audio.delta" && e.Audio is not null).SelectMany(e => e.Audio!).ToArray();
         var problems = events.Where(e => e.Kind is "error" or "disconnect").Select(e => $"{e.Kind}: {e.Text}").ToList();
+        if (events.Any(e => e.Kind == "conversation.item.input_audio_transcription.failed"))
+            problems.Add("speech-to-text of the question failed (conversation.item.input_audio_transcription.failed)");
+        // Boo's session offers tools (screen_help, focus); a plain question must be answered aloud, not with a tool call.
+        foreach (var call in events.Where(e => e.Kind == "response.function_call_arguments.done"))
+            problems.Add($"the model called a tool instead of answering aloud (call {call.ItemId})");
         var done = events.LastOrDefault(e => e.Kind == "response.done");
         if (done?.Text is { } status) problems.Add($"response.done: {status}");
         var questionSeconds = (double)pcm.Length / BytesPerSecond;

@@ -17,8 +17,8 @@ buttons work, but not that Boo can talk to the real AI. This test is the missing
 `main`): then a PR cannot merge unless a real round trip passed on its newest commit (Vikas, 12 Nov 2026, 11:20 PM IST). A newer push to the same PR cancels the older run.
 
 **What it costs:** two small paid requests per run, on the cheapest OpenAI models that do each job (section 6):
-about **US$0.01 per run**. At about 400 runs a month (13 Nov 2026 pace: 173 runs in the first 13 days) that is about
-US$4 a month, under the US$10 monthly cap. A run cancelled by a newer push may already have spent its requests. GitHub's standard runners are free
+about **US$0.003 per run**. At about 400 runs a month (13 Nov 2026 pace: 173 runs in the first 13 days) that is about
+US$1.20 a month, well under the US$10 monthly cap. A run cancelled by a newer push may already have spent its requests. GitHub's standard runners are free
 because the repository is public (since 13 Nov 2026); each run takes about 10–14 minutes of a Windows VM.
 
 **Known limits:**
@@ -128,7 +128,8 @@ run, scroll to **Artifacts**.
 ## 5. The live user journeys (journeys = true)
 
 Ticking **journeys** adds a second step on the same machine, with the same key and the same evidence folder (so the
-key scan covers it too). It drives Boo like a user through seven steps, in order, on one Boo:
+key scan covers it too). It runs Boo's own shipped models (not the cheap CI defaults of section 6) unless `model`
+is set, because it proves what users get. It drives Boo like a user through seven steps, in order, on one Boo:
 
 | Step | What it proves | Pass means |
 | --- | --- | --- |
@@ -153,7 +154,7 @@ model exists for the key; a retired or misspelled model fails there in seconds, 
 
 | Job | Default in CI | Why this one | Override |
 | --- | --- | --- | --- |
-| Typed answer about a screenshot (needs vision) | `gpt-5.4-mini` | cheapest current model that reads images (US$0.75 / 4.50 per 1M input / output tokens) | `model` |
+| Typed answer about a screenshot | `gpt-6-luna` | the cheapest model that does Boo's typed path: it reads images and takes Boo's `reasoning` setting and structured (JSON schema) output, and Boo already sends it screenshots for its focus checks (US$0.10 / 0.50 per 1M input / output tokens) | `model` |
 | Voice conversation | `gpt-realtime-2.1-mini` | cheapest realtime model (audio US$10 / 20 per 1M input / output tokens) | `realtime_model` |
 | Speech-to-text of the user's words | `gpt-4o-mini-transcribe` | Boo's own, and the cheapest (US$0.003 per minute) | `transcribe_model` |
 
@@ -165,10 +166,19 @@ Prices: OpenAI's pricing page, 13 Nov 2026 (https://developers.openai.com/api/do
 
 | Part | Estimate | Assumption |
 | --- | --- | --- |
-| Typed answer | about US$0.005 | about 4,500 input tokens (screenshot plus prompt) and 300 output tokens on `gpt-5.4-mini` |
+| Typed answer | about US$0.0006 | about 4,500 input tokens (screenshot plus prompt) and 300 output tokens on `gpt-6-luna` |
 | Voice turn | about US$0.003 | 4.7 s of question audio (about 10 tokens/s), a few seconds of answer audio (about 20 tokens/s), about 2,000 text tokens of instructions and tool schemas, plus speech-to-text |
-| **One run** | **about US$0.01** | |
-| A month | about US$4 | about 400 runs (every PR push); the journeys (section 5) add about 45 requests each time they are ticked |
+| **One run** | **about US$0.003** | |
+| A month | about US$1.20 | about 400 runs (every PR push); the journeys (section 5) add about 45 requests, on Boo's own costlier models, each time they are ticked |
 
-The cap is US$10 a month. If PR volume grows past about 800 runs a month, or journeys are run often, check OpenAI's
+**CI models are not the models users get.** Boo ships `gpt-6.1-sol` for typed answers and `gpt-realtime-2.1` for voice
+(`src/Boo.Core/Contracts.cs`). The two round trips above prove Boo's paths work with real OpenAI on the cheapest
+models; the live journeys (section 5) run Boo's shipped models unless `model` is set. To check the shipped voice model,
+run the workflow by hand with `realtime_model=gpt-realtime-2.1`.
+
+**What the voice test checks, and what it does not:** OpenAI's speech-to-text of the question must say "two plus three",
+the model's own transcript of its spoken answer must say "five", and at least half a second of answer audio must
+arrive. It does not run speech-to-text on the answer audio, and it does not cover the microphone or the speakers.
+
+The cap is US$10 a month. If PR volume grows past about 2,000 runs a month, or journeys are run often, check OpenAI's
 usage page and raise it with Vikas before the cap is reached.
