@@ -2640,7 +2640,13 @@ public partial class MainWindow : Window
         };
     }
 
-    private sealed record TranscriptLine(string Speaker, string Text);
+    // A class, not a record: every row must be its own item. Two equal records collapsed into ONE row for screen readers
+    // (WPF keys a list item's automation peer by the item) and made ScrollIntoView jump to the older copy (issue #73).
+    private sealed class TranscriptLine(string speaker, string text)
+    {
+        public string Speaker { get; } = speaker;
+        public string Text { get; } = text;
+    }
 
     private sealed class NativeWindowOwner : Forms.IWin32Window
     {
