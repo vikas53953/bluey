@@ -229,6 +229,7 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | [#4](https://github.com/vikas53953/bluey/pull/4) | → `main` | merged 8 Nov (`384241a`) | FlaUI UI smoke in windows-ci. |
 | [#1](https://github.com/vikas53953/bluey/pull/1), [#2](https://github.com/vikas53953/bluey/pull/2), [#5](https://github.com/vikas53953/bluey/pull/5), [#6](https://github.com/vikas53953/bluey/pull/6) | lanes → `main` | closed 12 Nov | **Superseded**: all their commits are already in `lane/face`. |
 | [#44](https://github.com/vikas53953/bluey/pull/44) | `docs/vikas-decisions-13nov` → `lane/face` | **open** | Docs only: records Vikas's 13 Nov decisions (OpenAI only for chat and voice, Claude/Gemini out of scope; cheapest OpenAI models in tests; every notch state tested, plan row 2.11; phase gates, plan section 7; Vikas's 10-minute pre-release check). QA verdict in the PR body. |
+| PR TBD | `quality/live-pass3` → `lane/face` | **open** | pass^3 (rule BOO-LIVE-003): new non-required workflow `live-pass3.yml` runs the typed live round trip k times (3 to 5, default 3) as independent attempts on one build; `scripts/ci/pass_k.py` prints `PASS^k: P/k`, writes a JSON pass-rate summary, fails unless all k passed. Triggers: PRs touching the AI paths, and by hand. About US$0.012 per run. Doc: `docs/quality/live-pass3.md`. Evidence in the PR body. |
 
 Each PR's latest evidence table and verdict is in its own latest QA comment. This table only tracks state.
 
