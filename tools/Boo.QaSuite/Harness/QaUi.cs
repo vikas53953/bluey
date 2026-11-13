@@ -169,6 +169,12 @@ public sealed class NotchStateRecorder : IDisposable
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly object _gate = new();
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+    private readonly List<(long At, string State)> _events = new();
+    public long Mark() { lock (_gate) return _events.Count; }
+    public bool HasSeenSince(string state, long mark)
+    {
+        lock (_gate) return _events.Skip(checked((int)mark)).Any(e => e.State == state);
+    }
     private volatile bool _stop;
 
     public NotchStateRecorder(BooAppFixture boo, string label)
@@ -214,7 +220,11 @@ public sealed class NotchStateRecorder : IDisposable
             if (state.Length > 0 && state != last)
             {
                 last = state;
-                lock (_gate) _seen.Add(state);
+                lock (_gate)
+                {
+                    _seen.Add(state);
+                    _events.Add((_clock.ElapsedMilliseconds, state));
+                }
                 try
                 {
                     File.AppendAllText(_file, $"{_clock.ElapsedMilliseconds} {state}{Environment.NewLine}");

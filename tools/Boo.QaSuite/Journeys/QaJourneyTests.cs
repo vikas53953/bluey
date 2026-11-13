@@ -101,12 +101,13 @@ public sealed class QaJourneyTests : IClassFixture<LiveAppFixture>
     {
         Evidence("qa-s2-chat", () =>
         {
-            // A code made now, at run time: no scripted mock can know it, so only a real model can send it back.
+            // A runtime nonce rejects canned replies; the independent host/TLS/build guards establish provider provenance.
             const string letters = "bcdfghjkmnpqrstvwxz";
             var code = new string(Enumerable.Range(0, 8).Select(_ => letters[RandomNumberGenerator.GetInt32(letters.Length)]).ToArray()).ToUpperInvariant();
             var panel = QaUi.OpenPanel(_boo);
             var before = QaUi.BooRows(panel).Count;
             var faces = new List<string>();
+            var turnStarted = s_recorder!.Mark();
             QaUi.Ask(_boo, panel, $"Copy the following eight-character token verbatim. Preserve every character in order, with no inserted spaces or punctuation. Return only the token: {code}");
 
             string? reply = null;
@@ -138,9 +139,9 @@ public sealed class QaJourneyTests : IClassFixture<LiveAppFixture>
             // Boo shows Capture (its screenshot) for the whole typed request, which outranks Thinking (run 43425302356:
             // Capture>Responding). Either one proves the notch showed Boo working; whether Thinking itself is ever
             // visible is reported per state (UNVERIFIED if never seen), not assumed here.
-            Assert.True(faces.Any(QaUi.IsWorkingFace) || s_recorder.HasSeen("Thinking") || s_recorder.HasSeen("Capture"),
+            Assert.True(faces.Any(QaUi.IsWorkingFace) || s_recorder.HasSeenSince("Thinking", turnStarted) || s_recorder.HasSeenSince("Capture", turnStarted),
                 $"The notch never showed Boo working (Thinking or Capture) during the turn ({string.Join(">", faces)}).");
-            Assert.True(faces.Contains("Responding") || s_recorder.HasSeen("Responding"), $"The notch never showed Responding after the reply ({string.Join(">", faces)}).");
+            Assert.True(faces.Contains("Responding") || s_recorder.HasSeenSince("Responding", turnStarted), $"The notch never showed Responding after the reply ({string.Join(">", faces)}).");
         });
     }
 

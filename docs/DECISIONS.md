@@ -121,3 +121,5 @@ PC shows the face below ~30 fps. Measure again with the perf suite on a real PC 
 
 **Why.** The shipped spec now chooses face D. The face B tests keep every assertion and now load the shipped spec with
 face B selected. Tests and assertion counts did not drop. Full per-file record: `docs/verification/test-oracle-revision-20.md`.
+
+| 13 Nov 2026 | Full-app evidence must belong to the action being asserted. Earlier test faces and expected state names in prose cannot satisfy a later journey or state row. Partial journey branches remain partial and required coverage stays red. | Independent Codex review of PR #54 identified cross-test face reuse and prose parsing as false-positive risks. | PR #54 reviewer corrections | implemented; new native check UNVERIFIED pending GitHub |

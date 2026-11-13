@@ -36,6 +36,7 @@ PLAIN = {
     'S3': 'Stop while an answer is coming: face clears, no answer lands',
     'S4': 'Focus Start / Pause (notch Paused) / Resume / End',
     'S5': 'Settings saved to file; a new Boo starts with the same choices',
+    'Q13': 'Focus edges: End from Paused and replace Running (no AI key; partial j13)',
     'E0': 'Empty question: "Type a question first."',
     'E1': 'No key: "No OpenAI key yet..."',
     'E2': 'Bad key: real OpenAI 401, "OpenAI rejected the API key..."',
@@ -95,14 +96,13 @@ def short_id(test_name):
 
 def states_seen(folder):
     seen = {}
-    for f in folder.rglob('*.txt'):
-        if not (f.name.startswith('qa-notch-states') or 'face-timeline' in f.name or f.name.startswith('j6-focus')
-                or f.name.startswith('j1-hover')):
-            continue
-        text = f.read_text(encoding='utf-8', errors='replace')
-        for s in STATES:
-            if re.search(rf'(?<![A-Za-z]){s}(?![A-Za-z])', text):
-                seen.setdefault(s, f.name)
+    for f in folder.rglob('qa-notch-states-*.txt'):
+        # Recorder contract: elapsed milliseconds followed by exactly one observed face.
+        # Expectations, error messages and prose are not observations.
+        for line in f.read_text(encoding='utf-8', errors='replace').splitlines():
+            match = re.fullmatch(r'(\d+) ([A-Za-z]+)', line.strip())
+            if match and match.group(2) in STATES:
+                seen.setdefault(match.group(2), f.name)
     return seen
 
 
@@ -190,11 +190,12 @@ def self_test():
         root = pathlib.Path(d)
         for g in GROUPS:
             trx(root / g / 'trx', [(f'Boo.QaSuite.X.T{g}.S0_Thing', 'Passed', '')])
-        (root / 'journeys' / 'qa-notch-states-journeys.txt').write_text('10 Hidden\n20 Thinking\n', encoding='utf-8')
+        (root / 'journeys' / 'qa-notch-states-journeys.txt').write_text('# expected Listening and Happy\n10 Hidden\n20 Thinking\ninvalid 30 Nudge\n', encoding='utf-8')
         text, green = build(root)
         check('missing required coverage prevents green', not green and 'SUITE RED' in text)
         check('voice missing -> BLOCKED row, still not counted as a pass', '| Voice: real OpenAI voice round trip | BLOCKED |' in text)
         check('seen state -> live', '| Notch state Thinking | live |' in text)
+        check('expectations cannot count as observations', '| Notch state Happy | UNVERIFIED |' in text and '| Notch state Nudge | UNVERIFIED |' in text)
         check('unseen state -> UNVERIFIED', '| Notch state Listening | UNVERIFIED |' in text)
         check('journey with no driving check -> UNVERIFIED', '| Journey j7: Hover edge timings | UNVERIFIED |' in text)
         check('voice journey -> BLOCKED', '| Journey j9: Hold-to-talk with Ctrl+Alt+Space | BLOCKED |' in text)
