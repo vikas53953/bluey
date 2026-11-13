@@ -2116,21 +2116,6 @@ public partial class MainWindow : Window
         return controls;
     }
 
-    private IScreenAssistant EnsureResponses()
-    {
-        if (_responses is not null)
-        {
-            return _responses;
-        }
-
-        var providerSettings = _settings.Provider ?? new ProviderSettings();
-        var provider = providerSettings.TextProvider;
-        _http ??= new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
-        _responses = AssistantProviders.CreateScreenAssistant(provider, _http, () => StoreFor(provider).Load(), providerSettings,
-            () => !string.IsNullOrWhiteSpace(_settings.FileRoot));
-        return _responses;
-    }
-
     private RealtimeClient EnsureRealtime(bool pushToTalk = false)
     {
         if (_realtime is not null)
