@@ -12,7 +12,8 @@ buttons work, but not that Boo can talk to the real AI. This test is the missing
 `main`): then a PR cannot merge unless a real round trip passed on its newest commit (Vikas, 12 Nov 2026, 11:20 PM IST). A newer push to the same PR cancels the older run.
 
 **What it costs:** one small paid AI request per run (a screenshot and a short answer), so one per PR push plus any
-manual runs. A run cancelled by a newer push may already have spent its request. GitHub's standard runners are free
+manual runs. It uses the **cheapest OpenAI models** by default, about a tenth of a cent per run (an estimate; see
+section 6). A run cancelled by a newer push may already have spent its request. GitHub's standard runners are free
 because the repository is public (since 13 Nov 2026); each run takes about 10–14 minutes of a Windows VM.
 
 **Known limits:**
@@ -39,6 +40,7 @@ green only when both the key check and the real round trip succeeded. A PR from 
 | `tests/Boo.Demo.Tests/BooAppFixture.cs` | The existing demo harness (start Boo in a clean temp folder, take screenshots). Linked in, not copied. Its screenshots are of Boo's own windows only unless it runs on a GitHub VM (and never for this test). |
 | `tools/Boo.LiveSmoke/LiveAppFixture.cs` | Reads the key (fails closed), seeds it into Boo's own protected key file, turns speech off. Shared with the live journeys. |
 | `tools/Boo.VerifyLive/LiveJourneyTests.cs` | Optional (**journeys** box): the seven live user journeys of the verify-boo skill. See section 5. |
+| `tools/Boo.VerifyLive/FaceTimeline.cs` | Records which face the notch shows, about every 25 ms, during j1, j2 and j6, and writes it as `j*-face-timeline.txt`. Evidence only: it never fails a journey. |
 | `scripts/ci/assert-tests-ran.ps1` | Refuses a "green" where no test actually ran. |
 | `scripts/ci/check_runners.py` | Fails `windows-ci` if any workflow could run on a machine that is not GitHub's own VM. |
 
@@ -94,7 +96,8 @@ thing a workflow edit on some branch could still reach.
 
 1. On GitHub: **Actions** tab → **live-ai-smoke** (left list) → **Run workflow**.
 2. Choose the branch and the **text provider** (`openai` unless you added another key).
-3. Leave **model** empty unless you want to try a specific model id.
+3. Leave the three **model** boxes as they are (the cheapest models, section 6) unless you want to try a specific
+   model id. Clear a box to use Boo's own default for that model.
 4. Press **Run workflow**.
 
 From a terminal instead: `gh workflow run live-ai-smoke.yml --ref <branch> -f text_provider=openai`
@@ -136,3 +139,48 @@ Extra cost: about 45 paid requests (most are small focus checks during j6). Extr
 journeys have their own test gate ("every live journey ran and passed"); screenshots are Boo's own windows only
 (`j*.boo-<n>.png`, never the desktop) in the **live-ai-evidence** artifact under `journeys/`. What this does **not** prove: voice, a real-time 25 minutes, pointer
 accuracy at other display scalings, second monitors. Those stay manual (runbook). Full list: `docs/FEATURE_MAP.md`.
+
+Each of j1 (hover), j2 (chat) and j6 (focus) also writes a **face timeline** (`j1-hover-face-timeline.txt`,
+`j2-chat-face-timeline.txt`, `j6-focus-face-timeline.txt`): every face the notch showed, with the time it started and
+how long it lasted, read from Boo's notch about every 25 ms. j2's observation also lists the faces seen during the chat
+turn (for example `Thinking>Responding`). The timelines add evidence only; they never make a journey pass or fail. A
+face shown for less than one reading (about 25–35 ms) can be missed.
+
+## 6. Which AI models the tests use, and what they cost
+
+Boo is OpenAI-only for testing, and the tests use the **cheapest OpenAI models**, chosen in the workflow, never written
+into the test code (Vikas, 13 Nov 2026; `docs/DECISIONS.md`). Boo's normal defaults (`src/Boo.Core/Contracts.cs`) stay
+as they are for real users.
+
+| Box on the Run workflow form | Setting it fills in Boo | Default for tests | Boo's own default | Price per 1M tokens (in / out) |
+| --- | --- | --- | --- | --- |
+| **model** | chat model: screen help, research, nudges (`BOO_LIVE_MODEL`) | `gpt-6-luna` | `gpt-6.1-sol` ($2.00 / $10.00) | $0.10 / $0.50 |
+| **focus_model** | focus-check model (`BOO_LIVE_FOCUS_MODEL`) | `gpt-6-luna` | `gpt-6-luna` | $0.10 / $0.50 |
+| **realtime_model** | voice model, always OpenAI (`BOO_LIVE_REALTIME_MODEL`) | `gpt-realtime-2.1-mini` | `gpt-realtime-2.1` | text $0.60 / $2.40, audio $10 / $20 |
+
+Prices: OpenAI's pricing page, read 13 Nov 2026 (standard tier). Check it again before relying on them.
+
+- **Every pull request** uses these three defaults (a PR run has no form, so the workflow's `env:` block supplies them).
+- **A manual run** uses what is in the three boxes. A blank box means Boo's own default for that model.
+- **Claude or Gemini:** the chat and focus models belong to the chosen text provider. Clear those two boxes (or type
+  that provider's model ids); the key check refuses an OpenAI model id for another provider.
+- **Why not `gpt-5-nano` (cheaper, $0.05 / $0.40):** OpenAI marks it *deprecated* (13 Nov 2026). Every PR's required live
+  run would go red the day it is removed, so the tests use the cheapest model that is not deprecated, `gpt-6-luna`, for
+  chat and focus (about $0.0005 more per PR run). `gpt-6-luna` is also the model Boo's focus checks already pass with
+  on the decisions endpoint, which OpenAI's page does not list for `gpt-5-nano`.
+- **Voice is not tested live** (speech stays off in every live run), so the realtime model is set but not used yet.
+- **When prices or models change:** update the `model` / `focus_model` / `realtime_model` defaults and the matching
+  `env:` lines in `.github/workflows/live-ai-smoke.yml` together, to the cheapest model that is not deprecated.
+
+Which ids a run really used is in its log (the `preflight` job prints them) and in the evidence file
+`live-00-models.txt` (ids only, never a key).
+
+**Cost per run (estimate until a run logs real usage):**
+
+| Run | Paid requests | Estimate with the test defaults | With Boo's own defaults |
+| --- | --- | --- | --- |
+| Per-PR round trip | 1 (a screenshot of about 1–2 thousand tokens, Boo's instructions, a short answer) | about $0.002 | about $0.03 |
+| Journeys (`journeys=true`) | about 45 (about 38 small focus checks, a few chats, one research with web search) | about $0.02–0.05 (web search is charged per search on top of tokens) | about $0.10–0.20 |
+
+These are estimates from the prices above and guessed token counts. OpenAI's usage page (or a future run that logs
+token usage) is the real number.

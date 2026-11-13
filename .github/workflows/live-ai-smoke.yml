@@ -3,7 +3,7 @@ name: live-ai-smoke
 # ONE real AI round trip against the published Boo.exe (no mock): typed question -> screen capture -> real provider ->
 # answer row in Boo's transcript. Runs on EVERY pull request (its final job `live-ai-smoke` is meant to be a required
 # check once added to branch protection) and by hand
-# (workflow_dispatch). Each run spends one small paid request. How to add the key and run it: docs/LIVE_AI_SMOKE.md.
+# (workflow_dispatch). Each run spends one small paid request (cheapest OpenAI models by default, see `env:`). How to add the key and run it: docs/LIVE_AI_SMOKE.md.
 #
 # RUNS ONLY ON GITHUB'S OWN WINDOWS VM (windows-latest), never on the owner's PC: the test drives the mouse and
 # keyboard, and Boo sends a picture of the screen to the AI. A step refuses any runner that is not GitHub-hosted, and
@@ -27,11 +27,23 @@ on:
         type: choice
         options: [openai, anthropic, gemini]
         default: openai
+      # Model ids (Vikas, 13 Nov 2026: tests use the CHEAPEST OpenAI models, set here, never in test code). The
+      # defaults below must equal the pull_request defaults in the workflow-level env further down.
       model:
-        description: Optional model id override for the chosen provider (blank = Boo's default)
+        description: "Chat model for the chosen provider (screen help, research, nudges). Default gpt-6-luna = cheapest OpenAI chat model that is not deprecated (gpt-5-nano is cheaper but deprecated). Blank = Boo's own default. For anthropic or gemini, clear it or type that provider's model id."
         type: string
         required: false
-        default: ''
+        default: gpt-6-luna
+      focus_model:
+        description: "Focus-check model for the chosen provider. Default gpt-6-luna = cheapest model that is Boo's own focus default. Blank = Boo's own default. For anthropic or gemini, clear it or type that provider's model id."
+        type: string
+        required: false
+        default: gpt-6-luna
+      realtime_model:
+        description: "OpenAI Realtime (voice) model. Default gpt-realtime-2.1-mini = cheapest realtime model. Blank = Boo's own default. Unused while the live tests keep speech off."
+        type: string
+        required: false
+        default: gpt-realtime-2.1-mini
       journeys:
         description: "Also run the verify-boo LIVE user journeys (tools/Boo.VerifyLive: hotkey + hover wake, chat, explain ring, research, Apply/Undo, 25-min Developer Mode focus). About 15 more minutes and ~45 paid requests."
         type: boolean
@@ -45,6 +57,14 @@ concurrency:
   group: live-ai-smoke-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Which model ids Boo is seeded with (tools/Boo.LiveSmoke/LiveAppFixture.cs reads these three; empty = Boo's default).
+# A pull_request run has no inputs, so it gets the cheapest ids here; a manual run uses what was typed in the form.
+# The run logs the ids it used (preflight, and live-00-models.txt in the evidence); never a key.
+env:
+  BOO_LIVE_MODEL: ${{ github.event_name == 'pull_request' && 'gpt-6-luna' || inputs.model }}
+  BOO_LIVE_FOCUS_MODEL: ${{ github.event_name == 'pull_request' && 'gpt-6-luna' || inputs.focus_model }}
+  BOO_LIVE_REALTIME_MODEL: ${{ github.event_name == 'pull_request' && 'gpt-realtime-2.1-mini' || inputs.realtime_model }}
+
 jobs:
   # Runs on a cheap Linux VM so a missing secret fails in seconds, before the Windows VM starts.
   preflight:
@@ -55,7 +75,6 @@ jobs:
         shell: bash
         env:
           PROVIDER: ${{ inputs.text_provider || 'openai' }}
-          MODEL: ${{ inputs.model }}
           OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
           ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
           GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
@@ -79,12 +98,24 @@ jobs:
             echo "::error title=Live AI smoke FAILED CLOSED::Repository secret $NAME is too short (${#VALUE} characters) to be a real key."
             exit 1
           fi
-          if [ -n "$MODEL" ] && ! printf '%s' "$MODEL" | grep -Eq '^[A-Za-z0-9._:-]{1,128}$'; then
-            echo "::error title=Live AI smoke FAILED CLOSED::Model override '$MODEL' is not a valid model id."
-            exit 1
+          for PAIR in "BOO_LIVE_MODEL=$BOO_LIVE_MODEL" "BOO_LIVE_FOCUS_MODEL=$BOO_LIVE_FOCUS_MODEL" "BOO_LIVE_REALTIME_MODEL=$BOO_LIVE_REALTIME_MODEL"; do
+            VAR="${PAIR%%=*}"; MODEL="${PAIR#*=}"
+            if [ -n "$MODEL" ] && ! printf '%s' "$MODEL" | grep -Eq '^[A-Za-z0-9._:-]{1,128}$'; then
+              echo "::error title=Live AI smoke FAILED CLOSED::$VAR '$MODEL' is not a valid model id."
+              exit 1
+            fi
+          done
+          # The chat and focus models belong to the text provider; an OpenAI id there would make Claude or Gemini fail.
+          if [ "$PROVIDER" != "openai" ]; then
+            for MODEL in "$BOO_LIVE_MODEL" "$BOO_LIVE_FOCUS_MODEL"; do
+              case "$MODEL" in
+                gpt-*|o[0-9]*) echo "::error title=Live AI smoke FAILED CLOSED::Text provider is $PROVIDER but the chat or focus model is the OpenAI id '$MODEL'. Clear the model boxes or type $PROVIDER model ids."; exit 1 ;;
+              esac
+            done
           fi
-          # Lengths only, never values.
+          # Lengths only for the key, never its value. Model ids are not secret.
           echo "Text provider: $PROVIDER. Secret $NAME is present (${#VALUE} characters)."
+          echo "Models: chat='${BOO_LIVE_MODEL:-<Boo default>}' focus='${BOO_LIVE_FOCUS_MODEL:-<Boo default>}' realtime='${BOO_LIVE_REALTIME_MODEL:-<Boo default>}' (event: $GITHUB_EVENT_NAME)."
 
   smoke:
     needs: preflight
@@ -175,7 +206,6 @@ jobs:
           BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\live-evidence
           BOO_LIVE_TEXT_PROVIDER: ${{ inputs.text_provider || 'openai' }}
-          BOO_LIVE_MODEL: ${{ inputs.model }}
           BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
           BOO_LIVE_ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
           BOO_LIVE_GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
@@ -201,7 +231,6 @@ jobs:
           BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\live-evidence\journeys
           BOO_LIVE_TEXT_PROVIDER: ${{ inputs.text_provider || 'openai' }}
-          BOO_LIVE_MODEL: ${{ inputs.model }}
           BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
           BOO_LIVE_ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
           BOO_LIVE_GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
