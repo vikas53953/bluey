@@ -1365,7 +1365,9 @@ public partial class MainWindow : Window
 
     private void FocusPauseButton_OnClick(object sender, RoutedEventArgs e)
     {
-        if (_focus is null)
+        // Pause applies only to a running session. On an ended (or already paused) session it used to claim "Paused"
+        // and pin the notch on the Paused face with nothing to resume or end (issue #70).
+        if (_focus is not { Status: Boo.Core.FocusStatus.Running })
         {
             return;
         }
@@ -1377,7 +1379,7 @@ public partial class MainWindow : Window
             SaveFocusSnapshot();
             UpdateFocusView();
             FocusStatus.Text = "Paused. Resume is explicit; unlock/reconnect will not resume it.";
-            SetFace(_faceInputs with { FocusPaused = true });
+            SetFace(WithFocusFace(_faceInputs));
         }
         catch (Exception ex)
         {
@@ -1416,7 +1418,7 @@ public partial class MainWindow : Window
             _focusTimer.Start();
             UpdateFocusView();
             FocusStatus.Text = "Running after explicit Resume.";
-            SetFace(_faceInputs with { FocusPaused = false });
+            SetFace(WithFocusFace(_faceInputs));
         }
         catch (Exception ex)
         {
@@ -1459,7 +1461,7 @@ public partial class MainWindow : Window
                 SaveFocusSnapshot();
                 UpdateFocusView();
                 FocusStatus.Text = "Paused after sleep. Press Resume to continue.";
-                SetFace(_faceInputs with { FocusPaused = true });
+                SetFace(WithFocusFace(_faceInputs));
                 return;
             }
             _focus.Tick(tick.Seconds); // Focus_OnSessionEnded stops, saves and updates on completion.
@@ -1489,7 +1491,7 @@ public partial class MainWindow : Window
                 }
                 SaveFocusSnapshot();
                 UpdateFocusView();
-                SetFace(_faceInputs with { FocusPaused = true });
+                SetFace(WithFocusFace(_faceInputs));
             }
             catch (Exception)
             {
@@ -1710,6 +1712,13 @@ public partial class MainWindow : Window
     }
 
     private void RefreshHistoryButton_OnClick(object sender, RoutedEventArgs e) => LoadHistory();
+
+    /// <summary>
+    /// The notch's Paused face always follows the session's REAL status, never the button or event that asked for a
+    /// pause: a pause request on a session that is not running (ended, or already paused) changes nothing (issue #70).
+    /// </summary>
+    private FaceInputs WithFocusFace(FaceInputs inputs) =>
+        inputs with { FocusPaused = _focus is { Status: Boo.Core.FocusStatus.Paused } };
 
     private void UpdateFocusView()
     {
@@ -2316,7 +2325,7 @@ public partial class MainWindow : Window
                             _focusTimer.Stop();
                             StopFocusMonitoring();
                             SaveFocusSnapshot();
-                            SetFace(_faceInputs with { FocusPaused = true });
+                            SetFace(WithFocusFace(_faceInputs));
                         }
                         StatusText.Text = realtimeEvent.Kind == "error" && realtimeEvent.Text is { Length: > 0 } errorText
                                           && errorText != RealtimeProtocol.GenericErrorText
