@@ -16,8 +16,11 @@ internal sealed class WindowsFrameCaptureBackend : IFrameCaptureBackend, IDispos
     // 30 s for 25 minutes. ScreenCapture serialises captures through its lifetime gate, so this needs no lock
     // beyond the dispose flag; any failure after the device stage drops it so the next capture starts clean
     // (device removed, driver reset, GPU switch).
+    private readonly TimeProvider _clock;
     private NativeCaptureDevice? _device;
     private bool _disposed;
+
+    public WindowsFrameCaptureBackend(TimeProvider? clock = null) => _clock = clock ?? TimeProvider.System;
 
     public async Task<CapturedFrame> CaptureAsync(
         DisplayInfo display,
@@ -103,7 +106,7 @@ internal sealed class WindowsFrameCaptureBackend : IFrameCaptureBackend, IDispos
                 frame.ContentSize.Width,
                 frame.ContentSize.Height,
                 target,
-                DateTimeOffset.UtcNow);
+                _clock.GetUtcNow());
             stage = "finish native capture cleanup";
             return new CapturedFrame(context, jpeg);
         }
