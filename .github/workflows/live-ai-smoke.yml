@@ -1,8 +1,9 @@
 name: live-ai-smoke
 
 # ONE real AI round trip against the published Boo.exe (no mock): typed question -> screen capture -> real provider ->
-# answer row in Boo's transcript. Manual only (workflow_dispatch): it spends real money and needs a real key, so it
-# never runs on push or pull_request. How to add the key and run it: docs/LIVE_AI_SMOKE.md.
+# answer row in Boo's transcript. Runs on EVERY pull request (its final job `live-ai-smoke` is meant to be a required
+# check once added to branch protection) and by hand
+# (workflow_dispatch). Each run spends one small paid request. How to add the key and run it: docs/LIVE_AI_SMOKE.md.
 #
 # RUNS ONLY ON GITHUB'S OWN WINDOWS VM (windows-latest), never on the owner's PC: the test drives the mouse and
 # keyboard, and Boo sends a picture of the screen to the AI. A step refuses any runner that is not GitHub-hosted, and
@@ -16,6 +17,9 @@ name: live-ai-smoke
 # they cannot appear in a screenshot. A final scan refuses to upload any evidence file that contains a key.
 
 on:
+  # REQUIRED on every pull request (Vikas, 12 Nov 2026, 11:20 PM IST): every PR gets one real round trip on its head.
+  # The required check is the final `live-ai-smoke` job below. PRs from forks get no secrets, so they fail closed.
+  pull_request:
   workflow_dispatch:
     inputs:
       text_provider:
@@ -36,9 +40,10 @@ on:
 permissions:
   contents: read
 
+# One run per PR (or ref) at a time; a newer push to the same PR cancels the older run, since only the head counts.
 concurrency:
-  group: live-ai-smoke
-  cancel-in-progress: false
+  group: live-ai-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Runs on a cheap Linux VM so a missing secret fails in seconds, before the Windows VM starts.
@@ -49,7 +54,7 @@ jobs:
       - name: Require the key for the chosen provider (fail closed)
         shell: bash
         env:
-          PROVIDER: ${{ inputs.text_provider }}
+          PROVIDER: ${{ inputs.text_provider || 'openai' }}
           MODEL: ${{ inputs.model }}
           OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
           ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
@@ -159,7 +164,7 @@ jobs:
         env:
           BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\live-evidence
-          BOO_LIVE_TEXT_PROVIDER: ${{ inputs.text_provider }}
+          BOO_LIVE_TEXT_PROVIDER: ${{ inputs.text_provider || 'openai' }}
           BOO_LIVE_MODEL: ${{ inputs.model }}
           BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
           BOO_LIVE_ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
@@ -185,7 +190,7 @@ jobs:
         env:
           BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\live-evidence\journeys
-          BOO_LIVE_TEXT_PROVIDER: ${{ inputs.text_provider }}
+          BOO_LIVE_TEXT_PROVIDER: ${{ inputs.text_provider || 'openai' }}
           BOO_LIVE_MODEL: ${{ inputs.model }}
           BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
           BOO_LIVE_ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
@@ -268,3 +273,22 @@ jobs:
           path: artifacts/live-evidence
           if-no-files-found: warn
           retention-days: 7
+
+  # THE REQUIRED CHECK. GitHub counts a skipped required job as passing, so `smoke` (skipped when `preflight` fails)
+  # must never be the required check itself. This job always runs and is green only when both jobs really succeeded.
+  live-ai-smoke:
+    needs: [preflight, smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Both the key check and the real round trip succeeded
+        env:
+          PREFLIGHT: ${{ needs.preflight.result }}
+          SMOKE: ${{ needs.smoke.result }}
+        run: |
+          echo "preflight: $PREFLIGHT, smoke: $SMOKE"
+          if [ "$PREFLIGHT" != "success" ] || [ "$SMOKE" != "success" ]; then
+            echo "::error title=live-ai-smoke::The real-key round trip did not pass on this head (preflight: $PREFLIGHT, smoke: $SMOKE). A skip, a cancel or a missing key is never a pass."
+            exit 1
+          fi

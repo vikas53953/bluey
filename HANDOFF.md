@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #18 merged (05:17 IST)**, with `lane/face` at `00a1fc2`.
+Status last updated: **13 Nov 2026, after PR #20 merged**, with `lane/face` at `e1d4b5c`.
 
 ---
 
@@ -106,7 +106,7 @@ create symbolic links. Turn on Windows Developer Mode or run elevated.
 | `windows-ci.yml` | every push and PR (and manual) | `build-test-publish` | oracle + static gate → build → Core / Integration / Providers tests (+ trx gate) → publish → notch gallery → UI smoke (FlaUI) → perf budgets | no |
 | `demo-ci.yml` | every push and PR (and manual) | `demos` | setup + the 4 demos (5 tests), end to end, against `Boo.QaMockAi` (hosts-file entry + a self-signed root certificate on the runner) | **no: mock** |
 | `release.yml` | push to `main`, `v*` tags, PRs (and manual) | `package`, `github-release` | Core / Integration / Providers tests, then Velopack installer + portable ZIP; a `v*` tag publishes a GitHub Release | no |
-| `live-ai-smoke.yml` | **manual only** (`workflow_dispatch`), **GitHub's `windows-latest` VM only** | `preflight`, `smoke` | one real round trip: typed question → screenshot → real provider → answer in Boo. Fails closed without a key. Refuses any non-GitHub runner; evidence screenshots are Boo's windows only (PR #18). | **yes** |
+| `live-ai-smoke.yml` | **every pull request** + manual (`workflow_dispatch`), **GitHub's `windows-latest` VM only** | `preflight`, `smoke`, **`live-ai-smoke` (required, PR #20)** | one real round trip: typed question → screenshot → real provider → answer in Boo. Fails closed without a key. Refuses any non-GitHub runner; evidence screenshots are Boo's windows only (PR #18). | **yes** |
 
 Run the live smoke: GitHub → Actions → live-ai-smoke → Run workflow, `text_provider=openai`, and an optional `model`
 override (blank = Boo's default). There is no runner choice: it always runs on GitHub's `windows-latest` VM, never on
@@ -139,7 +139,10 @@ screenshot a key; logs record lengths only.
   - branch must be up to date before merging;
   - force pushes and branch deletion blocked;
   - no required approvals (Vikas is the only reviewer); admins not enforced (Vikas can override).
-  - `live-ai-smoke` is **not** a required check: it only runs by hand, so it would block every merge.
+  - `live-ai-smoke` is **not yet** a required check. PR #20 makes it run on every pull request with a final always-run
+    job `live-ai-smoke` that is green only if the key check and the real round trip both succeeded (GitHub counts a
+    skipped required job as passing). After PR #20 merges, the context `live-ai-smoke` (GitHub Actions) is added to
+    `lane/face` protection (Grok Bot, 13 Nov: only tightens the gate).
 - **Merging, tagging and releasing stay with Vikas**, and agents never merge, tag, release, or push to `lane/face` or
   `main`. Exception, recorded by PR #18: since 13 Nov 12:15 AM IST the verifying bot (Grok Bot) merges PR #17, PR #18 and the
   agent-trust Phase 1–3 PRs once every gate passes; tags and releases stay with Vikas either way.
@@ -184,14 +187,15 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 PRs into `lane/face` must be **up to date** with it to merge, so every merge makes the others BEHIND. Sync by merging
 `origin/lane/face` into the branch (no force push), then re-run CI and one live smoke on the new head.
 
-| PR | Branch → base | State (13 Nov, after PR #18) | Notes |
+| PR | Branch → base | State (13 Nov, after PR #20) | Notes |
 | --- | --- | --- | --- |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
 | [#22](https://github.com/vikas53953/bluey/pull/22) | `fix/demo-step4-state-race` → `lane/face` | **merged 13 Nov** (`af241fa`) | Demo Step 4 test race fix: re-read the notch state after the button search; oracle revisions 22–23 (`docs/verification/test-oracle-revision-22.md`). |
-| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open**, synced with `00a1fc2` (PR #18); the QA verdict for the current head is in the PR description | `verify-boo` skill (`.claude/skills/verify-boo`), live journeys j0–j6 (`tools/Boo.VerifyLive`), `docs/FEATURE_MAP.md`, prove-it rule (AGENTS.md, CLAUDE.md), `journeys` input on `live-ai-smoke`. Also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks). After PR #18: no runner choice anywhere, the journeys capture Boo's windows only (j3 reads the ring and pointer from Boo's overlay rendered from its own content; "target in front" is asked of Windows, not read from the screen), and the skill's local runner refuses to run on a personal PC. Previous QA PASS at `87a1442` (live [43319490629](https://github.com/vikas53953/bluey/actions/runs/43319490629); fresh reviewer REVIEW PASS). |
+| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open**, synced with `e1d4b5c` (PR #20); the QA verdict for the current head is in the PR description | `verify-boo` skill (`.claude/skills/verify-boo`), live journeys j0–j6 (`tools/Boo.VerifyLive`), `docs/FEATURE_MAP.md`, prove-it rule (AGENTS.md, CLAUDE.md), `journeys` input on `live-ai-smoke` (journeys run only on a manual dispatch with `journeys=true`, never on the per-PR run). Also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks). Since PR #18 the journeys capture Boo's windows only (j3 reads the ring and pointer from Boo's overlay rendered from its own content; "target in front" is asked of Windows), and the skill's local runner refuses to run on a personal PC. Last QA PASS at `87a1442` (live [43319490629](https://github.com/vikas53953/bluey/actions/runs/43319490629)). |
 | [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **open** | 3-phase agent trust plan (`docs/plans/agent-trust-plan.md`). |
-| [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | merged 13 Nov 05:17 IST (`00a1fc2`) | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option; runner check in windows-ci; overlay capture proof in demo-ci; oracle revision 24 (3 capture fixtures). Latest completed QA: **QA PASS at `b590f92`** (live [43313942831](https://github.com/vikas53953/bluey/actions/runs/43313942831), windows-ci [43313897620](https://github.com/vikas53953/bluey/actions/runs/43313897620), demo-ci [43313897674](https://github.com/vikas53953/bluey/actions/runs/43313897674)); the head after this sync is re-QA'd in the PR body. |
-| [#20](https://github.com/vikas53953/bluey/pull/20) → #18's branch, [#21](https://github.com/vikas53953/bluey/pull/21) → #20's branch | stacked | **open** | Live smoke as a required check on every PR; a ratchet of known-bad code patterns. |
+| [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **merged 13 Nov** (`00a1fc2`) | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option; runner check in windows-ci; overlay capture proof in demo-ci; oracle revision 24 (3 capture fixtures). Latest completed QA: **QA PASS at `b590f92`** (live [43313942831](https://github.com/vikas53953/bluey/actions/runs/43313942831), windows-ci [43313897620](https://github.com/vikas53953/bluey/actions/runs/43313897620), demo-ci [43313897674](https://github.com/vikas53953/bluey/actions/runs/43313897674)); the head after this sync is re-QA'd in the PR body. |
+| [#20](https://github.com/vikas53953/bluey/pull/20) | `ci/live-smoke-required` → `lane/face` (retargeted 13 Nov after #18 merged) | merged 13 Nov (`e1d4b5c`) | Live smoke on every pull request with a final required `live-ai-smoke` job; per-PR concurrency; docs on cost, fork/Dependabot PRs and the gate-edit hole. Latest completed QA: none yet on lane/face base (stacked QA PASS at `ed7ed61`). |
+| [#21](https://github.com/vikas53953/bluey/pull/21) → #20's branch | stacked | **open** | A ratchet of known-bad code patterns (`quality-gates.yml`). |
 | [#19](https://github.com/vikas53953/bluey/pull/19) | `docs/scrub-local-paths` → `lane/face` | merged 13 Nov 03:17 IST (`b765f0f`) | Replaces the owner's Windows username and home paths in old docs (and in files that arrived later, e.g. the Living ink evidence notes) with `%USERPROFILE%` / `<user>_<machine>`. Old commits keep the old text (no history rewrite). |
 | [#16](https://github.com/vikas53953/bluey/pull/16) | `docs/project-handoff` → `lane/face` | merged 13 Nov 02:46 IST (`e0fb7b3`) | This handoff (HANDOFF.md, docs/DECISIONS.md, CONTRIBUTING.md). Merged with the PR #12 session notes and decision records. |
 | [#15](https://github.com/vikas53953/bluey/pull/15) | `ci/artifact-retention-7d` → `lane/face` | merged 13 Nov 01:40 IST (`95e9718`) | `retention-days: 7` on every upload. |
@@ -208,9 +212,16 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 
 ### Known issues
 
-1. **Live-smoke queue.** `live-ai-smoke` has `concurrency: group: live-ai-smoke` (no cancel-in-progress). GitHub keeps
-   only ONE waiting run per group, so a new dispatch cancels an older *waiting* run before it starts (no AI request is
-   made). Dispatch only when no live run is waiting. Live runs cost real money; keep to one per PR head (the Grok Bot pipeline note of 13 Nov, 12:45 AM IST, gives the OpenAI cap as $10/month; the cap itself is UNVERIFIED in the repo).
+0. **A PR can change the gates that judge it** (independent reviews of PRs #20 and #21, 13 Nov 2026). A
+   `pull_request` run uses the PR's own workflow files, so a PR could make `live-ai-smoke` (or any check) pass without
+   doing its job. Only a GitHub setting closes it: a `CODEOWNERS` file covering `.github/workflows/**`, `scripts/ci/**`,
+   `scripts/quality/**`, `scripts/test_*.py`, `docs/quality/**` and `docs/verification/test-oracle*` (with
+   `test-oracle-history/**`), plus "Require review from Code Owners" on `lane/face` and `main`. **Decision pending with
+   Vikas.** Until then the verifying bot treats any PR touching those paths as needing Vikas's review.
+
+1. **Live-smoke queue.** Before PR #20: one global queue (`concurrency: group: live-ai-smoke`, no cancel-in-progress),
+   where a new dispatch cancels an older *waiting* run. With PR #20: one queue per PR (or ref), and a newer push to the
+   same PR cancels the older run, which may already have spent its AI request. Dispatch only when no live run is waiting. Live runs cost real money; keep to one per PR head (the Grok Bot pipeline note of 13 Nov, 12:45 AM IST, gives the OpenAI cap as $10/month; the cap itself is UNVERIFIED in the repo).
 2. **Anti-mock guard** (PR #14, merged): rejects loopback, private/LAN, link-local, unique-local, CGNAT and fake-IP
    addresses and proxies. Still not detected: a planted trusted root certificate, or a mock on the PC's own
    public-looking address.
@@ -233,8 +244,7 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    panel has been opened, and repeat hovers (~0.7 MB each, same on the old build).
 6. **SF-006 symlink cases** fail on a dev PC without Windows Developer Mode, same on unchanged `lane/face` (never skipped); they pass in CI.
 7. **Merge order / oracle revisions.** `lane/face` is at oracle revision 23 (PR #22, merged `af241fa`, took 22–23 on
-   top of PR #14's 21). PR #18 has re-synced and re-frozen its 3 capture fixtures on top as **revision 24**. PR #18 merged
-   (`00a1fc2`), so `lane/face` is at revision 24; PR #13 dropped every `-f runner=` use when it synced with it. Still-open PRs that edit the same workflows: #13 and #18 edit `live-ai-smoke.yml` and
+   top of PR #14's 21). PR #18 has re-synced and re-frozen its 3 capture fixtures on top as **revision 24**. PR #13 dropped every `-f runner=` use when it synced with PR #18. Still-open PRs that edit the same workflows: #13 and #18 edit `live-ai-smoke.yml` and
    `demo-ci.yml`; #18 also edits `windows-ci.yml`. #20 and #21, stacked on #18, carry #18's edits; #20 also edits
    `live-ai-smoke.yml` and #21 adds `quality-gates.yml`.
 8. The notch memory guard (`NotchDrawingMemoryTests`) has now run in CI: windows-ci on `8474556`
@@ -246,8 +256,12 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 11. **PR #13 follow-ups (low, from its reviews).** `Test-FeatureMap.ps1` does not catch a map row typed without its
    leading `|` or a lowercase ID; a failed restore of Windows animation effects after a live run is only written
    to stderr; Boo's `AnnotationValidator` still drops a whole explanation when one mark is invalid (run 43196068202:
-   "The annotation mark bounds are invalid"; PR #13 only tells the AI the mark rules); `docs/DECISIONS.md` showed
-   PR #22's decision as proposed after it merged.
+   "The annotation mark bounds are invalid"; PR #13 only tells the AI the mark rules).
+12. **Explain requests sometimes hit Boo's 45 s OpenAI limit** (`HttpClient { Timeout = 45 s }`, `MainWindow.xaml.cs`).
+   In PR #13's live journeys, 2 of 12 runs that made a j3 explain request ended with "OpenAI response timed out. Try again."
+   (43202679653, 43333049693); chat, research and Apply/Undo never did. The request is Boo's own (its capture of the
+   display plus the question), so the test's screenshot method cannot cause it. Raising the limit (longer waits vs fewer
+   timeouts) is a product decision for Vikas; j3 now records how long each explain answer took.
 
 ### UNVERIFIED (not proven on `lane/face`)
 

@@ -143,6 +143,7 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
 
             // Send, then get out of the way like a user would: hide Boo's panel (on a small screen it covers everything)
             // and bring the target forward, so Boo explains (and the AI sees) the target.
+            var explainClock = Stopwatch.StartNew(); // Boo gives up on OpenAI after 45 s (HttpClient timeout); record how long it took
             Find(panel, "SendButton").AsButton().Invoke();
             Find(panel, "CloseButton").AsButton().Invoke();
             Assert.True(BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, UiTimeout), "TEST SETUP: Boo's panel did not hide.");
@@ -164,6 +165,7 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
                 overlay = OverlayRender.Capture(_boo);
                 return overlay is not null && overlay.Find(search, ColourProbe.Ring, 12, out centre, out pixels);
             }, TimeSpan.FromSeconds(90));
+            var marksAfterSeconds = found ? explainClock.Elapsed.TotalSeconds : -1;
             var pointer = Point.Empty;
             var pointerPixels = 0;
             var pointerFound = false;
@@ -200,7 +202,7 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             var reply = BooRows(panel).Skip(before).LastOrDefault() ?? string.Empty;
             _boo.CaptureScreen("j3-explain-panel");
             _boo.WriteObservation("j3-explain",
-                $"detail='{detail}' overlay={overlayRect} ringFound={found} ringPixels={pixels} ringCentre={centre} button={targetRect} window={windowRect} " +
+                $"detail='{detail}' marksAfterSeconds={marksAfterSeconds:0.0} overlay={overlayRect} ringFound={found} ringPixels={pixels} ringCentre={centre} button={targetRect} window={windowRect} " +
                 $"ringOnButton={ringOnButton} ringPixelsAtButtonEdges={string.Join(",", edgeHits.Select(h => $"{h.Item1}:{h.Item2}"))} onWindow={onWindow} " +
                 $"pointerFound={pointerFound} pointerPixels={pointerPixels} pointerCentre={pointer} pointerOnButton={pointerOnButton}\n" +
                 $"reply='{Shorten(reply, 600)}'\nstatus='{StatusText(panel)}'");
