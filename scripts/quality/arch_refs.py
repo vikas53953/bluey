@@ -433,13 +433,14 @@ def check(base, layers_path, dotnet, rise_only=False, pr_layers_path=None):
         print(f'{label} FAILED: {error}')
         return 1
     if findings:
-        print(f'{label} FAILED: {len(findings)} finding(s). Fix the cause in the project files.\n')
+        print(f'{label} FAILED: {len(findings)} finding(s). Each one says what to fix.\n')
         print('\n\n'.join(f.text() for f in findings))
         return 1
     edges = sum(len(seen['project_refs']) for seen in evaluated.values())
     packages = sum(len(seen['packages']) for seen in evaluated.values())
     print(f'{label} OK: {len(evaluated)} projects, {edges} project references, {packages} package references, '
-          f'all allowed by {layers_path.name} and all of it in use (read by MSBuild evaluation)'
+          f'all allowed by {layers_path.name}' + ('' if rise_only else ' and all of it in use') +
+          ' (read by MSBuild evaluation)'
           + ('; the PR\'s layers.json allows nothing more' if pr_layers_path is not None else ''))
     return 0
 
