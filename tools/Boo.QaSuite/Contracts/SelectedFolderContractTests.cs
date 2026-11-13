@@ -10,15 +10,21 @@ namespace Boo.QaSuite.Contracts;
 public sealed class SelectedFolderContractTests
 {
     [Theory]
-    [InlineData(true, true, true)]
-    [InlineData(true, false, false)]
-    [InlineData(false, true, false)]
-    public async Task C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot(bool allowActions, bool selectedRoot, bool expected)
+    [InlineData(true, true, true, false)]
+    [InlineData(true, true, true, true)]
+    [InlineData(true, false, false, false)]
+    [InlineData(true, false, false, true)]
+    [InlineData(false, true, false, false)]
+    [InlineData(false, true, false, true)]
+    public async Task C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot(bool allowActions, bool selectedRoot, bool expected, bool withFrame)
     {
         using var handler = new RecordingHandler();
         using var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.openai.com/") };
         var client = AssistantProviders.CreateScreenAssistant(AiProvider.OpenAI, http, () => "fixture-key", new ProviderSettings(), () => selectedRoot);
-        var reply = await client.RespondAsync(new AssistantRequest("create note.txt in the task folder", 1,
+        var frame = withFrame ? new CapturedFrame(new ScreenContext(Guid.NewGuid(), 1,
+            new DisplayInfo("fixture", "Fixture display", new RectD(0, 0, 100, 100), 1), 100, 100,
+            new WindowIdentity(1, 2, "fixture", new RectD(0, 0, 100, 100)), DateTimeOffset.UtcNow), [1, 2, 3]) : null;
+        var reply = await client.RespondAsync(new AssistantRequest("create note.txt in the task folder", 1, frame,
             AllowActions: allowActions), CancellationToken.None);
         Assert.Equal("ok", reply.Text);
         Assert.NotNull(handler.Body);
@@ -31,6 +37,10 @@ public sealed class SelectedFolderContractTests
         if (expected)
         {
             Assert.Contains("relative filename", instructions, StringComparison.Ordinal);
+            Assert.Contains("Authorized relative file proposals are permitted without screen target evidence", instructions, StringComparison.Ordinal);
+            Assert.DoesNotContain("Do not invent observations, targets, coordinates, or actions.", instructions, StringComparison.Ordinal);
+            Assert.DoesNotContain("Marks must use image pixel coordinates and actions must refer only to this submitted target evidence.", instructions, StringComparison.Ordinal);
+            Assert.Contains("screen/UI actions", instructions, StringComparison.Ordinal);
             Assert.Contains("requires approval before writing", instructions, StringComparison.Ordinal);
         }
     }
