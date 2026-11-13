@@ -67,7 +67,7 @@ Scope: eyes and notch only. A new Figma session again rejected a bounded read be
 
 The root used the frontend concept-direction workflow to produce an interactive local design preview, following plan-only advisor approval. A separate test author froze `artifacts/notch-v2/acceptance.md` before the preview was built. The root authored the preview; separate agents perform behavior QA and visual review.
 
-Preview source: `C:/Users/vikasmit/.codex/visualizations/2026/11/06/01a1b1c5-839f-70b2-a0a8-12b733c0b40b/boo-notch-interactive.html`.
+Preview source: `%USERPROFILE%/.codex/visualizations/2026/11/06/01a1b1c5-839f-70b2-a0a8-12b733c0b40b/boo-notch-interactive.html`.
 
 Two proposals share the settled black/white, no-name, hover-reveal and full-window-entry requirements:
 

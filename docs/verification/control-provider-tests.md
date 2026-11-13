@@ -27,7 +27,7 @@ unchanged and ran them before provider implementation. This is genuine provider
 RED: 10 failed, 1 legacy compatibility test passed, no factory setup failures.
 Failures show missing control JSON, missing context rejection, and unfiltered
 action proposals. Canonical TRX:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_14_11_32_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_14_11_32_net10.0.trx`.
 Raw output: `artifacts/control-provider-red.log`.
 
 The current Core factory is intentional compile-time scaffolding and throws

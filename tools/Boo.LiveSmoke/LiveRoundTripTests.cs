@@ -97,6 +97,8 @@ public sealed class LiveAppFixture : BooAppFixture
     {
     }
 
+    public const string CaptureScopeVariable = "BOO_CAPTURE_SCOPE";
+
     private static LiveConfig? s_config;
 
     // Not a static initializer: a throw there would surface as a bare TypeInitializationException.
@@ -104,6 +106,20 @@ public sealed class LiveAppFixture : BooAppFixture
 
     private static void Seed(string dataDirectory)
     {
+        // Screenshots of Boo's own windows only, never the whole desktop, wherever this runs (BooAppFixture.CaptureScreen).
+        Environment.SetEnvironmentVariable(CaptureScopeVariable, "boo-windows");
+        // Anti-mock guard, before Boo starts: every AI host must resolve only to public internet addresses and no proxy
+        // may sit in between. Loopback, LAN/private, link-local, unique-local, CGNAT, IPv6-wrapped forms of them or a
+        // proxy fail the run closed. What it accepted goes into the evidence (the workflow prints every .txt there).
+        var accepted = RealAiHostGuard.EnsureRealProviderHosts();
+        var evidence = Environment.GetEnvironmentVariable("BOO_UI_ARTIFACTS");
+        if (!string.IsNullOrWhiteSpace(evidence))
+        {
+            Directory.CreateDirectory(evidence);
+            File.WriteAllLines(Path.Combine(evidence, "live-00-anti-mock-guard.txt"),
+                new[] { "anti-mock guard ran before Boo started: no proxy, every AI host public" }.Concat(accepted));
+        }
+
         new CredentialStore(Path.Combine(dataDirectory, AiProviders.CredentialFileName(Config.TextProvider))).Save(Config.Key);
         new SettingsStore(Path.Combine(dataDirectory, "settings.json"))
             .Save(new AppSettings(SpeechEnabled: false, Provider: Config.ProviderSettings()));
@@ -177,7 +193,7 @@ public sealed class LiveRoundTripTests : IClassFixture<LiveAppFixture>
             Assert.False(string.IsNullOrWhiteSpace(reply), "Boo's answer row is empty.");
             Assert.True(annotation.Length > 0,
                 $"An answer arrived but Boo wrote no screen-explanation line, so the answer is not proven to come from " +
-                $"{provider} with the screenshot (most likely the screen capture failed; check live-01-after-answer.png). " +
+                $"{provider} with the screenshot (most likely the screen capture failed; check the live-01-after-answer.boo-*.png screenshots). " +
                 $"Status: '{status}'");
             Assert.True(answered, "Answer and screen-explanation line were not both present at the same time.");
             // The CI mock (tools/Boo.QaMockAi) prefixes every scripted answer with "QA-". A real model never does.

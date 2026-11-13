@@ -12,7 +12,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Actio
 
 The wrapper used the canonical workspace-local .NET SDK `10.0.403`, restored successfully, built the referenced projects, discovered one test assembly, and ran both additive cases. No provider credential or live API call was used.
 
-Raw test result: `C:\Users\vikasmit\.codex\worktrees\boo-providers-audio\blue--fo\TestResults\vikasmit_VIKASMIT_2026-11-07_10_28_03_net10.0.trx`.
+Raw test result: `%USERPROFILE%\.codex\worktrees\boo-providers-audio\blue--fo\TestResults\<user>_<machine>_2026-11-07_10_28_03_net10.0.trx`.
 
 ## Result before provider repair
 

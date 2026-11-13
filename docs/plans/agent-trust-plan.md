@@ -14,6 +14,20 @@ Written 12 Nov 2026 on `lane/face` at `f244e47`. Source idea: poteto's AIE talk 
 > the baseline again on its own head, so these numbers only change targets, not the plan. Also changed since
 > `f244e47`: the repo is **public** (by 13 Nov) and CI uploads work again (section 1.6).
 
+> **Progress, 13 Nov 2026 (`lane/face` at `1c82af8`).** Vikas approved the order in section 5 on 12 Nov, 10:02 PM IST
+> (`docs/DECISIONS.md`). Done so far, each with full QA (separate reviewer, a real-key live run, evidence table):
+> - **Step 1, storage:** PR #15 (7-day artifact retention) merged; the repo went public, so CI runs and uploads again.
+> - **Step 2, screen-capture risk:** PR #18 merged (`00a1fc2`). The live smoke runs only on GitHub's VM; test screenshots
+>   show Boo's windows only (proved with the explanation overlay open over a decoy, in demo-ci); a runner check fails any
+>   workflow that could run elsewhere.
+> - **Phase 1, added by Vikas (12 Nov, 11:20 PM IST):** PR #20 merged (`e1d4b5c`). `live-ai-smoke` runs on every PR and
+>   is a **required check** on `lane/face` (pinned to GitHub Actions). The `main` step waits until `lane/face` reaches `main`.
+> - **Phase 1, PR 1.1 (ratchet):** PR #21 merged (`1c82af8`). 16 patterns, 554 hits on `lane/face`, may only go down;
+>   the base branch's own ratchet judges every PR.
+> - **Still open in Phase 1:** PRs 1.2–1.12 in section 2.9, plus the queued follow-ups from the reviews. Owner review of
+>   workflow and gate files (CODEOWNERS) is a pending decision for Vikas (`HANDOFF.md`, known issue 0).
+> - Phases 2 and 3 have **not started**; they wait for Vikas's explicit go after Phase 1.
+
 ## The idea in one picture
 
 poteto's "inverse pyramid": the widest, most trusted layer is the one a machine checks the same way every time.

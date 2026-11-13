@@ -1,5 +1,5 @@
 {
-  "revision": 20,
+  "revision": 24,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -86,8 +86,8 @@
     "tests/Boo.Core.Tests/UpdateVersionGateTests.cs": "4b0c027b856bf5c358687986ccbd5aad7bfa8b6b5c7a6a2c9923b9a3e9dbe4b3",
     "tests/Boo.Core.Tests/VoiceCommandTests.cs": "13decf186040e3e49ec0280e9afa5cc08f87ed1e3a062e48d77e0cdc3eedf0b4",
     "tests/Boo.Demo.Tests/Boo.Demo.Tests.csproj": "f3fad7e22de0b6b19a8b5bb208a3a6dcb4d76db4befa792f289ef188ed955d7b",
-    "tests/Boo.Demo.Tests/BooAppFixture.cs": "57bdf4b30195b07b3fa7f46bff65e6b94d49e8a2829c041da89829da54041c36",
-    "tests/Boo.Demo.Tests/DemoTests.cs": "aa8454f63744ddaebd591eda97f922daddbb6b109fcf1fbd86f0a0430b3afeef",
+    "tests/Boo.Demo.Tests/BooAppFixture.cs": "3674257f2b56f26ae5c1fb537e3d7498cd633d23b466988c7c45e91e06ec2179",
+    "tests/Boo.Demo.Tests/DemoTests.cs": "dcb58a575f973cd6d58f97af7612b97f6b1c4b0ab7c22f0c1b32f37e04611dac",
     "tests/Boo.Demo.Tests/OrderedSteps.cs": "306e9963f703f5d3110060f5a03f66272dfda4959eba07c238be328da40776e2",
     "tests/Boo.Demo.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Integration.Tests/AppearanceReadFailureTests.cs": "71a6aa267746f1f5124cde57204258a4d6c62351d620e963b30eeec95c585a70",
@@ -111,11 +111,13 @@
     "tests/Boo.Integration.Tests/SessionRecoveryTests.cs": "604ff4bb833ce2be64718fc82650417dca2091517d4d33a71359fd5fd9d62e36",
     "tests/Boo.Integration.Tests/StoragePrivacyTests.cs": "dd188faa6dd2e0e92b039971fef54aadcbf37176d43ca0ec71ee2363d3982811",
     "tests/Boo.Integration.Tests/VoiceToolProtocolTests.cs": "c95200c7c8ae01709e3f2f2aa5a8a5b223b831c86da47a874fe31e1e07f3bb72",
+    "tests/Boo.LiveGuard.Tests/Boo.LiveGuard.Tests.csproj": "60db626ed4d77856c6f35ffb5cf2000827e486d016f505e55733f5fbcb52e981",
+    "tests/Boo.LiveGuard.Tests/RealAiHostGuardTests.cs": "0f5a1b2b02d692058bcc5637d9667a45eafd36048bd91ffbc72f2dbe2af1b536",
     "tests/Boo.Perf.Tests/Boo.Perf.Tests.csproj": "ef2df8fde46266721d7affba05ca8d59d083a5949b509d163956e347a6d13168",
     "tests/Boo.Perf.Tests/BooPerfBudgetTests.cs": "ce2fccccd4c53f15f44e5bee159236db5f238a3a6815ad7eecd6434ad0ab5757",
     "tests/Boo.Perf.Tests/DiagSnapshot.cs": "cbb9c990e3b576a955cafe14826a0bad8347ad5e20107e249a2bd88373b2ece9",
     "tests/Boo.Perf.Tests/NotchDrawingMemoryTests.cs": "a1b56be64e4f0c950cd98d01545822cdb13e97b5bf8c08422443ca0057b7dcd7",
-    "tests/Boo.Perf.Tests/PerfAppFixture.cs": "96e9661505f2be9ff063cf4549cc7e36dc10e3a312600d371883012c5081b501",
+    "tests/Boo.Perf.Tests/PerfAppFixture.cs": "0148ea5b49c40c9215246179ce7c4ed490ac940a2a11ed4469e97ddf7c6622a3",
     "tests/Boo.Perf.Tests/PerfBudgets.cs": "16d9943706daa07e7fb3c9769b40bbcc14b2dc8a47301a4d05d096f0d24ed7b2",
     "tests/Boo.Perf.Tests/budgets.json": "2263e65000ba2ad3fe55dcb51c5e1e6539db8c28399d1ecd4b047e78726e7527",
     "tests/Boo.Perf.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
@@ -130,7 +132,7 @@
     "tests/Boo.Providers.Tests/SmokeTests.cs": "612081b6ffe0ec94ddad95aff43e5c33ab6e353039650a2360b9f0e54866f0b4",
     "tests/Boo.Providers.Tests/StructuredReplyFuzzTests.cs": "611ba9f0013fe1587ba5ef762fec7d8c8d7ed4333d633409e07d1f7ce325b905",
     "tests/Boo.Ui.Tests/Boo.Ui.Tests.csproj": "1f2bc76c58ebe16aee50f459b595afe8ae2c3201f412eae3aa80bfa6beb96ada",
-    "tests/Boo.Ui.Tests/BooAppFixture.cs": "40c6aabd84bd634b919fd06117644d15feea00461cd67cf881f5b5dac30dc676",
+    "tests/Boo.Ui.Tests/BooAppFixture.cs": "a1014e3386411a12944425fc931b099ce824863622971c5e80d04b1db740fee1",
     "tests/Boo.Ui.Tests/BooSmokeTests.Accessibility.cs": "8c788d23767137f71950c125f3f3e3b0f2da8b3ef83a9278b38a8d6bb5106396",
     "tests/Boo.Ui.Tests/BooSmokeTests.Hardening.cs": "66dedf2e39dd9ee3299b64a622f4e22c52344d9ee40106e7dc75f235a7d66e8f",
     "tests/Boo.Ui.Tests/BooSmokeTests.U8.cs": "17851cdf564b55372185a097f15c2992d9321c4368a36e1ca9a6d0ad9a7d0d47",
@@ -145,19 +147,15 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-19.json",
-  "previousManifestSha256": "8d37156ab9eaedf25d842c0437c934274b1bc1f8b98b1884ade81c0b553bddde",
-  "revisionReason": "Reviewed rebaseline, see docs/verification/test-oracle-revision-20.md: shipped notch spec now chooses face D (Living ink); face B tests load the shipped spec with face B selected (same assertions), the shipped-face test asserts D; freeze LivingInkTests and the new NotchDrawingMemoryTests. No test removed, no Skip, no assertion loosened.",
-  "addedFiles": [
-    "tests/Boo.Core.Tests/LivingInkTests.cs",
-    "tests/Boo.Perf.Tests/NotchDrawingMemoryTests.cs"
-  ],
-  "revisionCommit": "a4e28e9e669ab1e06eddff0a740b613aabfcee41",
+  "previousManifest": "docs/verification/test-oracle-history/revision-23.json",
+  "previousManifestSha256": "cb082fe330b55aa5b72a3fa6e3ffeec7baafe1bef68449f135e4554d7fd0ed0b",
+  "revisionReason": "Revision 24 (13 Nov 2026; written as revision 20 on PR #18, renumbered after PR #12 took 20, PR #14 took 21 and PR #22 took 22-23). Vikas decision 12 Nov 2026 10:02 PM IST: CaptureScreen takes the whole desktop only on a GitHub-hosted runner with BOO_CAPTURE_SCOPE unset, otherwise renders Boo windows with PrintWindow; CaptureRectangle only on GitHub-hosted runners. Harness files only, no test changed. See docs/verification/test-oracle-revision-24.md",
+  "addedFiles": [],
+  "revisionCommit": "b590f927eb89708c9b4d5e6625aa370873af739c",
   "changedFiles": [
-    "tests/Boo.Core.Tests/FaceMotionTests.cs",
-    "tests/Boo.Core.Tests/FaceSpecTests.cs",
-    "tests/Boo.Core.Tests/NotchFaceGeometryTests.cs",
-    "tests/Boo.Core.Tests/NotchLayoutTests.cs"
+    "tests/Boo.Demo.Tests/BooAppFixture.cs",
+    "tests/Boo.Perf.Tests/PerfAppFixture.cs",
+    "tests/Boo.Ui.Tests/BooAppFixture.cs"
   ],
   "removedFiles": []
 }

@@ -12,7 +12,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Actio
 
 The wrapper used the canonical workspace-local .NET SDK `10.0.403`, restored successfully, built all referenced Boo projects, discovered one test assembly, and executed all three additive cases.
 
-Raw test result: `C:\Users\vikasmit\.codex\worktrees\boo-providers-audio\blue--fo\TestResults\vikasmit_VIKASMIT_2026-11-07_10_09_21_net10.0.trx`.
+Raw test result: `%USERPROFILE%\.codex\worktrees\boo-providers-audio\blue--fo\TestResults\<user>_<machine>_2026-11-07_10_09_21_net10.0.trx`.
 
 ## Oracle correction and rerun
 
@@ -20,7 +20,7 @@ The first draft incorrectly allowed `actions[].arguments.additionalProperties` t
 
 The corrected test was rerun before any provider repair with the same result: `2 failed, 1 passed, 0 skipped`. The failures remained the missing Responses `instructions` field and the Realtime `item_id`/`call_id` precedence bug; the transcript completion guard remained passing.
 
-Corrected-run raw result: `C:\Users\vikasmit\.codex\worktrees\boo-providers-audio\blue--fo\TestResults\vikasmit_VIKASMIT_2026-11-07_10_11_25_net10.0.trx`.
+Corrected-run raw result: `%USERPROFILE%\.codex\worktrees\boo-providers-audio\blue--fo\TestResults\<user>_<machine>_2026-11-07_10_11_25_net10.0.trx`.
 
 ## Result before provider repair
 

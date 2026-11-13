@@ -38,7 +38,7 @@ Focused frozen suite:
 ```
 
 Result: **0 failed, 13 passed, 0 skipped, 13 total**. TRX:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_12_49_22_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_12_49_22_net10.0.trx`.
 
 Existing provider contract/regression/action tests:
 
@@ -47,7 +47,7 @@ Existing provider contract/regression/action tests:
 ```
 
 Result: **0 failed, 17 passed, 0 skipped, 17 total**. TRX:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_12_49_31_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_12_49_31_net10.0.trx`.
 
 Full Release build:
 
@@ -65,8 +65,8 @@ Full Release suite:
 
 Result: **0 failed, 157 passed, 1 skipped, 158 total** across the two test
 assemblies. TRX receipts:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_12_49_54_net10.0.trx` and
-`TestResults/vikasmit_VIKASMIT_2026-11-07_12_49_54_net10.0[1].trx`.
+`TestResults/<user>_<machine>_2026-11-07_12_49_54_net10.0.trx` and
+`TestResults/<user>_<machine>_2026-11-07_12_49_54_net10.0[1].trx`.
 
 Frozen oracle:
 

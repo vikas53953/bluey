@@ -45,7 +45,7 @@ Failed: 24, Passed: 0, Skipped: 0, Total: 24
 System.NotImplementedException: Control observation implementation awaits independently authored tests.
 ```
 
-TRX: `TestResults/vikasmit_VIKASMIT_2026-11-07_14_04_27_net10.0.trx`
+TRX: `TestResults/<user>_<machine>_2026-11-07_14_04_27_net10.0.trx`
 
 The duplicate/limit case uses a public `IEnumerable<ControlCandidate>` that
 throws if the factory tries to enumerate beyond the first 512 candidates. The
