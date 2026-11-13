@@ -54,9 +54,13 @@ public sealed class ApprovalEdgeTests : IClassFixture<LiveAppFixture>
             Assert.True(BooAppFixture.WaitUntil(() => Visible("ActionPreview"), TimeSpan.FromSeconds(120)),
                 $"No pending write card. Status: {QaUi.NameOf(panel, "StatusText")}");
             var title = QaUi.NameOf(panel, "ActionPreviewText");
-            Assert.Contains(filename, title, StringComparison.Ordinal);
+            Assert.Contains("Write file", title, StringComparison.Ordinal);
+            var destination = panel.FindFirstDescendant(cf => cf.ByName("Resolved destination"))?.AsTextBox().Text;
+            Assert.False(string.IsNullOrWhiteSpace(destination), "Write proposal has no resolved destination.");
+            Assert.True(string.Equals(Path.GetFullPath(path), Path.GetFullPath(destination!), StringComparison.OrdinalIgnoreCase),
+                $"Write proposal targets '{destination}', expected '{path}'.");
             Assert.False(File.Exists(path), "File exists before any approval.");
-            Record($"pending card title='{title}'; visible=true; file absent");
+            Record($"pending card title='{title}' destination='{destination}'; visible=true; file absent");
             _boo.CaptureScreen("qa-q15-" + branch + "-pending");
 
             if (branch == "cancel")
@@ -83,7 +87,7 @@ public sealed class ApprovalEdgeTests : IClassFixture<LiveAppFixture>
                     "Replacement question received no answer.");
                 var reply = QaUi.BooRows(panel)[^1];
                 Record("replacement reply=" + reply);
-                Assert.Contains(token, reply, StringComparison.Ordinal);
+                Assert.Equal(token, reply.Trim());
             }
             Assert.True(BooAppFixture.WaitUntil(() => !Visible("ActionPreview"), TimeSpan.FromSeconds(5)),
                 "Pending proposal was not dismissed.");

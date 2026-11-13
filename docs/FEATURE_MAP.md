@@ -142,3 +142,4 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | F13 | Focus: End from Paused and replace Running; remaining j13 timing/event branches pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FocusEdgeTests.cs::Q13_EndFromPaused_AndReplaceRunningSession_KeepHistoryAndFacesHonest` |
 | F14 | j7 hover edges: leave during reveal, re-enter during delay/retract, Paused pin | UNVERIFIED | `tools/Boo.QaSuite/Journeys/HoverEdgeTests.cs::Q7_HoverEdges_AllFourBranches_OnTheRealClock` |
 | A15 | j15 a-c: Cancel, Escape and replacement invalidate unapproved file proposals; d-e pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/ApprovalEdgeTests.cs::Q15_CancelEscapeOrReplacement_CannotApplyAnOldProposal` |
+| A16 | j16 file branch: second approved Undo recreates original file; field branch pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FileUndoEdgeTests.cs::Q16_SecondApprovedFileUndo_RecreatesTheOriginalContents` |

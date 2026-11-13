@@ -37,6 +37,7 @@ PLAIN = {
     'S4': 'Focus Start / Pause (notch Paused) / Resume / End',
     'S5': 'Settings saved to file; a new Boo starts with the same choices',
     'Q7': 'Hover edges: all four real-clock branches (no AI key)',
+    'Q16': 'Second approved file Undo restores exact contents (partial j16; field pending)',
     'Q15': 'Approval Cancel / Escape / replacement (partial j15 a-c)',
     'Q13': 'Focus edges: End from Paused and replace Running (no AI key; partial j13)',
     'E0': 'Empty question: "Type a question first."',
@@ -71,7 +72,7 @@ JOURNEYS = [
     ('j13', 'Focus lifecycle (S4 and Q13 cover subsets; full sequence and event proof pending)', []),
     ('j14', 'Focus nudge (off task)', []),
     ('j15', 'Approval card edges (a-c driven by Q15; d-e pending)', []),
-    ('j16', 'Second undo', []),
+    ('j16', 'Second undo (file branch Q16; field branch pending)', []),
     ('j17', 'Voice ends itself and drives focus', 'voice'),
     ('j18', 'Newer request wins', []),
 ]
@@ -138,10 +139,13 @@ def build(folder, run_url='', app_sha='', harness_sha='', models=''):
         table.append(f'| Voice provider: real OpenAI synthetic audio round trip (component; no Boo.exe UI) | BLOCKED | no live voice test exists on this harness yet; it '
                      f'arrives with PR #47. Not a pass. | {link} |')
     ran = {short_id(r[1]): r[2] for r in rows if short_id(r[1])}
-    voice_ran = any(r[0] == 'smoke' and 'voice' in r[1].lower() for r in rows)
+    voice_results = [r for r in rows if r[0] == 'smoke' and 'voice' in r[1].lower()]
+    voice_passed = bool(voice_results) and all(r[2] == 'Passed' for r in voice_results)
     for jid, title, checks in JOURNEYS:
-        if checks == 'voice' and voice_ran:
+        if checks == 'voice' and voice_passed:
             table.append(f'| Journey {jid}: {title} | UNVERIFIED | provider round trip passed; this app UI journey is not driven yet | {link} |')
+        elif checks == 'voice' and voice_results:
+            table.append(f'| Journey {jid}: {title} | BLOCKED | provider component did not pass; app UI journey is not driven | {link} |')
         elif checks == 'voice':
             table.append(f'| Journey {jid}: {title} | BLOCKED | needs the live voice test (PR #47). Not a pass. | {link} |')
         elif checks and all(ran.get(c) == 'Passed' for c in checks):
@@ -223,6 +227,16 @@ def self_test():
         text, green = build(root)
         check('voice alone cannot satisfy undriven journeys', not green and '| Voice provider: real OpenAI synthetic audio round trip (component; no Boo.exe UI) | live | passed' in text
               and '| BLOCKED |' not in text and '| Journey j9: Hold-to-talk with Ctrl+Alt+Space | UNVERIFIED |' in text)
+        for outcome in ('Failed', 'NotExecuted'):
+            trx(root / 'smoke' / 'trx', [('Boo.LiveSmoke.LiveVoiceRoundTripTests.Voice_X', outcome, '')])
+            text, green = build(root)
+            check(f'{outcome} voice must never be described as passed', not green
+                  and 'provider round trip passed' not in text
+                  and 'provider component did not pass' in text)
+        trx(root / 'smoke' / 'trx', [('Boo.LiveSmoke.LiveVoiceRoundTripTests.Voice_X', 'Passed', ''),
+                                    ('Boo.LiveSmoke.LiveVoiceRoundTripTests.Voice_Y', 'Failed', '')])
+        text, green = build(root)
+        check('mixed voice outcomes cannot imply component pass', not green and 'provider round trip passed' not in text)
     print('QA_REPORT_SELF_TEST_OK' if ok else 'QA_REPORT_SELF_TEST_FAILED')
     return 0 if ok else 1
 
