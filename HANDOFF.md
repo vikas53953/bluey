@@ -230,6 +230,25 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 
 Each PR's latest evidence table and verdict is in its own latest QA comment. This table only tracks state.
 
+### Phase 1: still left before the Phase 1 gate
+
+Checked with `gh pr view` on 13 Nov 2026 (lane/face `4e92aec`).
+
+| Item | State |
+| --- | --- |
+| 1.2 architecture references | [#32](https://github.com/vikas53953/bluey/pull/32) open; being rebuilt on the build facts, after #28 |
+| 1.3 banned APIs | [#28](https://github.com/vikas53953/bluey/pull/28) open (this PR) |
+| 1.4 analyzers (threading, catch) | not opened; after #28 |
+| 1.5 no-suppress + gate manifest | not opened; after #28 |
+| 1.6 comment lint | [#51](https://github.com/vikas53953/bluey/pull/51) open, in QA |
+| C1 async void | being checked / started (`cleanup/async-void`); no PR yet |
+| C2 Dispatcher, C4 delays | not opened; after #28 (they change the `AnalyzerBaseline.cs` counts) |
+| C5 static state | waits for [#40](https://github.com/vikas53953/bluey/pull/40) / [#43](https://github.com/vikas53953/bluey/pull/43): needs a reviewed oracle revision of BOO_ARCH_005's allowlist |
+| `quality` and `comments` as required checks | Vikas's branch-protection decision |
+
+Done: 1.1 (#21, #23), 1.7 (#26), 1.8 / 1.9 (via #18), 1.10 (#34), 1.11 (#31), 1.12 (#36), C3 (via #33, TimeProvider),
+build facts (#37).
+
 ### Known issues
 
 0. **A PR can change the gates that judge it** (independent reviews of PRs #20 and #21, 13 Nov 2026). A
