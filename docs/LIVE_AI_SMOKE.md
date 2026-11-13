@@ -49,7 +49,8 @@ green only when both the key check and the real round trip succeeded. A PR from 
 1. On GitHub open the repo **vikas53953/bluey** → **Settings** → **Secrets and variables** → **Actions**.
 2. Press **New repository secret**.
 3. Name: `BOO_LIVE_OPENAI_KEY`. Value: your OpenAI API key (starts with `sk-`). Press **Add secret**.
-4. Optional, only if you want to test those services too:
+4. Not needed: Claude and Gemini are out of scope since 13 Nov 2026 (Boo uses only OpenAI). The old optional secrets,
+   kept here only so an existing setup is recognised:
    - `BOO_LIVE_ANTHROPIC_KEY` — an Anthropic (Claude) API key.
    - `BOO_LIVE_GEMINI_KEY` — a Google Gemini API key.
 
@@ -62,8 +63,8 @@ evidence file — a text file containing a key is deleted and the run goes red. 
 screenshots, which is one more reason the test runs only on GitHub's empty test machine (section 2).
 
 **Only the chosen provider's key is used.** Boo is started with only that one key and with speech turned off, and the
-test checks the answer came through Boo's screen-help path. So a run with `anthropic` really tests Claude, not
-OpenAI.
+test checks the answer came through Boo's screen-help path. So a run with `anthropic` would really test Claude, not
+OpenAI. (Out of scope since 13 Nov 2026: use `openai`.)
 
 ## 2. Where it runs: GitHub's own Windows machine, never your PC
 
@@ -93,7 +94,7 @@ thing a workflow edit on some branch could still reach.
 ## 3. Run it
 
 1. On GitHub: **Actions** tab → **live-ai-smoke** (left list) → **Run workflow**.
-2. Choose the branch and the **text provider** (`openai` unless you added another key).
+2. Choose the branch and the **text provider** (`openai`; the others are out of scope since 13 Nov 2026).
 3. Leave **model** empty unless you want to try a specific model id.
 4. Press **Run workflow**.
 
