@@ -263,8 +263,8 @@ def scan(path, secret_envs=(), delete=False, out=print, oracle=None):
     count, bad = 0, {}
     for f in files_under(path):
         count += 1
-        hits = [(k, label, 'file name', o, n)
-                for k, label, _, o, n in scan_bytes(str(f).encode('utf-8', errors='ignore'), allowed, secrets)]
+        hits = [(k, label, 'file name', o, n) for part in f.parts         # each folder and file name on its own
+                for k, label, _, o, n in scan_bytes(part.encode('utf-8', errors='ignore'), allowed, secrets)]
         hits += scan_bytes(f.read_bytes(), allowed, secrets)   # an unreadable file raises: the caller fails closed
         if hits:
             bad[f] = hits
@@ -404,8 +404,8 @@ def _yaml_steps(text):
 
         _NoDuplicates.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping)
         doc = yaml.load(text, Loader=_NoDuplicates)  # noqa: S506 (a SafeLoader subclass)
-    except yaml.YAMLError:
-        return 'invalid'
+    except Exception:                                 # noqa: BLE001 - any loader failure (a malformed !!int, !!timestamp,
+        return 'invalid'                              # ...) is "not valid YAML", reported as a problem, never a traceback
     out = []
     jobs = doc.get('jobs') if isinstance(doc, dict) else None
     for job, body in (jobs or {}).items():
@@ -566,8 +566,9 @@ def scan_diff(base, out=print, cwd=None, oracle=None):
         return EXIT_FAIL_CLOSED
     file, line_no, in_hunk, hits = None, 0, False, []
     for name in filter(None, names.stdout.split(b'\0')):          # a key in an added or renamed file NAME
-        for _, label, _, _, length in scan_bytes(name, allowed, ()):
-            hits.append((name.decode('utf-8', errors='replace'), 0, label, length))
+        for part in name.split(b'/'):                             # each folder and file name on its own
+            for _, label, _, _, length in scan_bytes(part, allowed, ()):
+                hits.append((name.decode('utf-8', errors='replace'), 0, label, length))
     for raw in diff.stdout.split(b'\n'):
         if raw.startswith(b'diff --git '):
             file, in_hunk = None, False
@@ -677,7 +678,8 @@ def self_test(out=print):
                 elif form == 'name':
                     if label in ('private key block', 'bearer token'):
                         continue                    # cannot be a file name on Windows
-                    (case / f'{fake}.txt').write_text('x', encoding='utf-8')
+                    (case / 'sub').mkdir()          # inside a folder: the separator must not hide the key
+                    (case / 'sub' / f'{fake}.txt').write_text('x', encoding='utf-8')
                 else:
                     if label in ('private key block', 'bearer token'):
                         continue
@@ -785,6 +787,13 @@ def self_test(out=print):
         for bad in ('out/**/*.log', 'out/[ab].log', 'one two'):
             proc = cli('--delete', bad)
             check(f'a wildcard or list path is refused ({bad})', proc.returncode == EXIT_FAIL_CLOSED)
+        for args in (['--bogus', clean], ['--help', clean], ['--delete', '--Delete', clean], ['--secret-env'],
+                     ['--secret-env', clean], ['--secret-env', 'lower', clean], ['-x'], ['--self-test', 'extra'],
+                     ['--check-workflows', clean], ['--diff'], ['--diff', 'a', 'b'], ['--preflight', '--help']):
+            proc = cli(*args)
+            check(f'the command line {[a if isinstance(a, str) else "PATH" for a in args]} is refused (non-zero, '
+                  'never a pass)', proc.returncode not in (0, EXIT_HIT))
+        check('--help alone prints usage and exits 2', cli('--help').returncode == 2)
 
         # workflow check: the scan step (id + exact run) right before the upload in the same job, upload gated on safe
         def wf_text(variant='', path='out/x', uses='actions/upload-artifact@v4', guard=True, scan_path='out/x'):
@@ -909,6 +918,14 @@ def self_test(out=print):
             (wf / 'a.yml').write_text(text, encoding='utf-8')
             check(f'workflow check fails: {name}', check_workflows(wf, out=quiet) == 1)
             check(f'the PyYAML meaning layer alone catches: {name}', check_workflows(wf, out=quiet, use_grammar=False) == 1)
+        for name, tagged in (('!!int', 'x: !!int abc\n'), ('!!float', 'x: !!float abc\n'),
+                             ('!!timestamp', 'x: !!timestamp xx\n'), ('!!int key', '!!int abc: 1\n')):
+            (wf / 'a.yml').write_text(wf_text() + tagged, encoding='utf-8')
+            try:
+                check(f'a malformed {name} value is reported as not valid YAML (no crash)',
+                      check_workflows(wf, out=quiet, use_grammar=False) == 1)
+            except Exception:                         # noqa: BLE001
+                check(f'a malformed {name} value is reported as not valid YAML (no crash)', False)
         (wf / 'a.yml').write_text(wf_text(), encoding='utf-8')
         check('generated scan step passes the PyYAML layer alone', check_workflows(wf, out=quiet, use_grammar=False) == 0)
         check('the grammar alone accepts the generated scan step', grammar_problems(wf_text()) == [])
@@ -928,10 +945,14 @@ def self_test(out=print):
             check('PowerShell is available to test the scan wrapper', bool(shell))
         if shell:
             invocation = re.search(r'python -I scripts/quality/key_scan\.py[^;]*', step_run('out/x')).group(0)
-            for label, fake_call, want_safe, want_files in (('exit 0', 'cmd /c exit 0', True, 1),
-                                                            ('exit 10', 'cmd /c exit 10', True, 1),
-                                                            ('exit 3', 'cmd /c exit 3', False, 0),
-                                                            ('exit 1 (python traceback)', 'cmd /c exit 1', False, 0),
+            exe = sys.executable.replace("'", "''")
+
+            def exits(n):
+                return f"& '{exe}' -I -c 'import sys; sys.exit({n})'"
+            for label, fake_call, want_safe, want_files in (('exit 0', exits(0), True, 1),
+                                                            ('exit 10', exits(10), True, 1),
+                                                            ('exit 3', exits(3), False, 0),
+                                                            ('exit 1 (python traceback)', exits(1), False, 0),
                                                             ('python missing', 'no-such-python-xyz', False, 0)):
                 w = tmp / ('wrap-' + re.sub(r'\W', '', label))
                 (w / 'out' / 'x').mkdir(parents=True)
@@ -992,6 +1013,8 @@ def self_test(out=print):
             (g / 'q"uote.txt').write_text(fakes['Google API key'] + '\n', encoding='utf-8')
         (g / 'back\\slash.txt').write_text(fakes['Google API key'] + '\n', encoding='utf-8') if os.name != 'nt' else None
         (g / (fakes['JSON Web Token'] + '.txt')).write_text('innocent\n', encoding='utf-8')
+        (g / 'dir').mkdir()
+        (g / 'dir' / (fakes['OpenAI/Anthropic API key'] + '.txt')).write_text('innocent\n', encoding='utf-8')
         git('add', '.')
         git('commit', '-q', '-m', 'pr')
         lines = []
@@ -1003,6 +1026,8 @@ def self_test(out=print):
         check('PR diff: binary file is scanned', 'blob.bin' in text)
         check('PR diff: UTF-16 file is scanned', 'wide.txt' in text)
         check('PR diff: a key in an added file NAME fails', '(in the file name)' in text)
+        check('PR diff: a key-named file inside a folder fails (sk- after the / separator)',
+              sum('(in the file name)' in x and 'OpenAI/Anthropic' in x for x in lines) >= 1)
         check('PR diff never prints a value', not any(f.split()[-1] in text for f in fakes.values()))
         check('git C-quoted names are decoded', _unquote(b'"q\\"uote\\tx\\303\\244.txt"') == 'q"uote\tx\u00e4.txt'.encode())
         check('PR diff against a missing base fails closed',
@@ -1029,27 +1054,38 @@ def main(argv):
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
     except (AttributeError, ValueError):
         pass
-    if argv[:1] == ['--self-test']:
+    if not argv or argv in (['--help'], ['-h']):
+        print(__doc__)
+        return 2                                      # usage is never a pass
+    if argv == ['--self-test']:
         return self_test()
-    if argv[:1] == ['--check-workflows']:
+    if argv == ['--check-workflows']:
         return check_workflows()
     if argv[:1] == ['--diff']:
-        return scan_diff(argv[1]) if len(argv) > 1 else 2
-    secret_envs, paths, delete, preflight = [], [], False, False
+        if len(argv) != 2 or argv[1].startswith('-'):
+            print(f'::error::{RULE} usage: key_scan.py --diff BASE (exactly one base); failing closed')
+            return EXIT_FAIL_CLOSED
+        return scan_diff(argv[1])
+    secret_envs, paths, delete, preflight, bad = [], [], False, False, []
     it = iter(argv)
     for arg in it:
         if arg == '--secret-env':
-            secret_envs.append(next(it, ''))
+            name = next(it, '')
+            if re.fullmatch(r'[A-Z][A-Z0-9_]*', name):
+                secret_envs.append(name)
+            else:
+                bad.append('--secret-env needs an environment variable name')
         elif arg == '--delete':
             delete = True
         elif arg == '--preflight':
             preflight = True
+        elif arg.startswith('-'):
+            bad.append(f'unknown option {arg[:40]!r}')    # --help with other words, a typo, a mode flag out of place
         else:
             paths.append(arg)
-    if not paths:
-        print(__doc__)
-        return 2
     try:
+        if bad:
+            raise ValueError('; '.join(bad))
         if len(paths) != 1 or GLOB.search(paths[0]) or ' ' in paths[0]:
             raise ValueError('scan exactly one literal path (no list, wildcard or spaces)')
         if os.environ.get('BOO_KEYSCAN_SELFTEST_CRASH') == '1':
@@ -1060,6 +1096,9 @@ def main(argv):
     except BaseException as e:                       # fail closed on anything: crash, unreadable path, bad encoding
         code = getattr(e, 'errno', None)            # never the exception text: it can hold a path with a key
         print(f'::error::{RULE} key scan failed ({type(e).__name__}{f" errno {code}" if code else ""}); failing closed')
+        if bad:
+            print(f'::error::{RULE} the command line was not understood ({len(bad)} problem(s), e.g. an unknown '
+                  'option); usage: key_scan.py [--preflight] [--secret-env NAME] [--delete] PATH')
         if delete:
             for p in paths:
                 if not GLOB.search(p):

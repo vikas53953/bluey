@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #33 merged (1:39 PM IST)**, with `lane/face` at `2433397`; PR #31 (agent-trust PR 1.11) synced on top.
+Status last updated: **13 Nov 2026, after PR #31 merged**, with `lane/face` at `a3ba89e` (PR #31); the key-scan follow-up PR (`quality/key-scan-followups`) on top.
 
 ---
 

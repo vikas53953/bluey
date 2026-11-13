@@ -215,7 +215,8 @@ whose name contains `upload` counts as an upload.
 
 Each scan first proves itself (`--self-test`: every pattern, the word edges, the failure paths and the PowerShell wrapper's own logic, on fakes built at run time), then reads
 every file as raw bytes (binaries, screenshots and the published app included), as UTF-16 LE at both byte offsets (BE
-when marked), URL-decoded, and every file name, following folder links. Output never shows a value: a file or folder
+when marked), URL-decoded, and every folder and file name on its own (so a path separator never sits in front of
+a key, on Linux or Windows), following folder links. Output never shows a value: a file or folder
 name that holds a key in any form prints as `<hidden name sha256:...>`, and errors print only their type and errno,
 never their text. `--diff BASE` scans the lines and file names a PR adds (text, binary and UTF-16 files, git-quoted
 names) and prints file:line (for the `quality` workflow, see Known gaps).
@@ -235,6 +236,11 @@ names) and prints file:line (for the `quality` workflow, see Known gaps).
 **Fix:** key-shaped text: find what wrote it and redact it at the source. Real secret: revoke and rotate the key, then
 fix the code that wrote it (log lengths, never values). **Do NOT** skip the scan, narrow a pattern, move the file out
 of the upload path, add an allow-list, rename the secret or drop `--secret-env`.
+
+The command line is strict: anything it does not understand (an unknown option, `--help` with other words, a
+missing `--secret-env` name, extra words after a mode) fails closed, so a typo can never turn into a passing scan of a
+folder that does not exist. `--help` alone prints the usage and exits 2. A malformed YAML value in a workflow (a bad
+`!!int`, `!!timestamp`, ...) is reported as "not valid YAML", never a traceback.
 
 Known gaps of the key scan:
 - a process still running from an earlier step could write into the upload folder after the scan;
