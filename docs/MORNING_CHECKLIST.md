@@ -25,7 +25,7 @@ For Vikas, first thing at the PC. Build: `lane/face` (PR #3), head `47b6d9f` or 
 
 ## Only if time allows
 
-- **Settings > Text AI**: switch to Anthropic Claude or Google Gemini, paste that key, repeat item 7. Voice stays on OpenAI either way. Neither provider has been hit live yet.
+- ~~Settings > Text AI: switch to Anthropic Claude or Google Gemini~~ — out of scope since 13 Nov 2026 (Boo uses only OpenAI, for chat and voice). Skip it.
 - **Settings > Updates**: paste a fine-grained GitHub token (Contents: read), tick the daily check, press **Check for updates**. Expect "no newer release" until a `v*` tag exists.
 - **Start with Windows** (9.1 to 9.3): tick it, sign out and in, Boo should return as tray icon and notch only.
 - **Perf**: in a Developer Mode focus session, watch Boo's private bytes in Task Manager stay flat; CI budget is 160 MB working set.

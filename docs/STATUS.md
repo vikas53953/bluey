@@ -48,7 +48,7 @@ Native checklists for each lane: docs/verification/2026-11-08-*-native-checklist
 
 | Area | What it adds | Evidence | Not yet proven by hand on Windows |
 | --- | --- | --- | --- |
-| Text AI provider choice | `IScreenAssistant` / `IFocusClassifier` behind `AssistantProviders`; OpenAI stays the default; Anthropic Claude and Google Gemini selectable in Settings > Text AI for screen explain, research, nudges and focus classification, with editable model ids; one DPAPI key file per provider; voice stays on OpenAI Realtime; "No {vendor} key yet" status per provider | Core + Providers build on Linux; Claude and Gemini clients are source-tested with mocked HTTP | Neither Claude nor Gemini has been exercised natively against the live APIs; the Settings UI (provider combo, model boxes, two new key boxes) has not been opened on Windows |
+| Text AI provider choice (**out of scope since 13 Nov 2026**: OpenAI only; kept as history) | `IScreenAssistant` / `IFocusClassifier` behind `AssistantProviders`; OpenAI stays the default; Anthropic Claude and Google Gemini selectable in Settings > Text AI for screen explain, research, nudges and focus classification, with editable model ids; one DPAPI key file per provider; voice stays on OpenAI Realtime; "No {vendor} key yet" status per provider | Core + Providers build on Linux; Claude and Gemini clients are source-tested with mocked HTTP | Neither Claude nor Gemini has been exercised natively against the live APIs; the Settings UI (provider combo, model boxes, two new key boxes) has not been opened on Windows |
 
 ---
 

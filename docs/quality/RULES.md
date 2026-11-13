@@ -215,8 +215,11 @@ whose name contains `upload` counts as an upload.
 
 Each scan first proves itself (`--self-test`: every pattern, the word edges, the failure paths and the PowerShell wrapper's own logic, on fakes built at run time), then reads
 every file as raw bytes (binaries, screenshots and the published app included), as UTF-16 LE at both byte offsets (BE
-when marked), URL-decoded, and every file name, following folder links. Output never shows a value: a file or folder
-name that holds a key in any form prints as `<hidden name sha256:...>`, and errors print only their type and errno,
+when marked), URL-decoded, and every folder and file name on its own (so a path separator never sits in front of
+a key, on Linux or Windows) and the whole path joined with `/` (so a key that spans a `/`, such as a bearer token split
+over a folder and a file name, is found too), following folder links. Output never shows a value: a file or folder
+name that holds a key in any form (in one folder or file name, or across a `/`) makes the whole path print as
+`<hidden path sha256:...>`, cleanup after a failure never raises, and errors print only their type and errno,
 never their text. `--diff BASE` scans the lines and file names a PR adds (text, binary and UTF-16 files, git-quoted
 names) and prints file:line (for the `quality` workflow, see Known gaps).
 
@@ -236,7 +239,15 @@ names) and prints file:line (for the `quality` workflow, see Known gaps).
 fix the code that wrote it (log lengths, never values). **Do NOT** skip the scan, narrow a pattern, move the file out
 of the upload path, add an allow-list, rename the secret or drop `--secret-env`.
 
+The command line is strict: anything it does not understand (an unknown option, `--help` with other words, a
+missing `--secret-env` name, extra words after a mode) fails closed, and the path must be one relative path of
+letters, digits and `._/-` (the whole string) with no empty part and no part ending in `.` (so `""`, `.`, `..` and
+Windows trailing-dot names are refused and never purged). `--help` alone prints the usage and exits 2. A malformed YAML value in a workflow (a bad
+`!!int`, `!!timestamp`, ...) is reported as "not valid YAML", never a traceback.
+
 Known gaps of the key scan:
+- inside file CONTENT, an `sk-` or `AIza` key right after a `/` (for example in a URL path `.../sk-proj-...`) is not a
+  hit: their leading edge excludes `/` to avoid false hits in base64 text and paths;
 - a process still running from an earlier step could write into the upload folder after the scan;
 - a folder link that points at a folder already scanned is not scanned again under its own name (a key in that
   link's NAME would be missed); theoretical on the Windows runners;
@@ -463,3 +474,78 @@ reviewed oracle revision. **Fix:** move the feature into `MainWindow.<Feature>.c
 **One feature, one partial.** `Boo.App` is already sliced by feature (`MainWindow.Talk.cs`, `.Voice.cs`, `.Edits.cs`,
 `.Focus.cs`, `.Updates.cs`, `.Accessibility.cs`, `.Shortcuts.cs`). A new feature gets its own file. Checked by review;
 BOO-ARCH-006 is what makes skipping it fail.
+
+## Evidence table in every PR body (PR 1.10)
+
+Workflow `pr-evidence` (job `evidence`, Linux, well under a minute, no artifacts) runs `scripts/quality/pr_evidence.py`
+on every pull request when it is opened, edited or pushed to, so fixing the body re-runs only this check. It reads the
+body from the event file, never from a `${{ }}` expression pasted into a shell. Step order: the **base branch's** copy
+of the checker (read from git) judges the body first, before any code from the PR runs, so a PR cannot loosen the
+checker script it is judged by; then the PR's own copy runs its self-test (every rule on HTML samples), its render test
+(the known tricks, sent through GitHub's real renderer) and the check.
+
+**GitHub renders the body, the check reads the result.** The script does not parse Markdown itself: it sends the body
+to GitHub's Markdown API (the same renderer as the PR page) and reads only the rendered tables and the real link
+targets (`<a href>`). What GitHub does not show as a table or a link does not count: HTML comments, code blocks, text
+inside HTML attributes, a run URL that is only a link's hover title. If GitHub cannot render the body, the check fails
+closed.
+
+What the check guarantees:
+- **Every table is a plain Markdown pipe table.** A table written in raw HTML can be drawn in a different order than it
+  is written (merged cells, rows before the header, a footer, a table inside a table), and raw HTML inside a cell
+  (`<details>`, `<ruby>`, `<span>`, ...) can hide text or links. So a table without exactly the shape GitHub gives a
+  pipe table, or with anything in a cell other than text, links, bold, italic, strikethrough, code, emoji, images and
+  line breaks, fails (footnotes and math in a cell fail too).
+- **The Label column reads as shown.** A Label cell holds only the label word and plain words after it (bold, italic,
+  strikethrough, code, emoji); an image, link or line break there fails. Struck-out text is not read, as a reader
+  would not read it: `~~mock~~ live` is a live row. Header rows and Label cells may hold only plain ASCII plus everyday
+  dashes, quotes, arrows, comparison and currency signs, check marks and common emoji: a look-alike letter (Cyrillic
+  `а`, circled `ⓛ`, Roman-numeral `ⅼ`, full-width or squared letters) fails there. Other cells of an evidence table
+  are free text.
+- **Every live row has a readable run link** (see BOO-EVID-001).
+
+Best effort, not a guarantee: a table without a `Label` column is not evidence, and a cell there that starts with
+`live` (header row included; also `Iive`, `LlVE`, `L1VE`) fails, as does any character outside the allowed set in such
+a table, to catch a misspelled or look-alike `Label` header. Claims written in prose, a list or a code block are not
+checked and do not count.
+
+## BOO-EVID-001
+**A claim without evidence.** The PR body must have a Markdown table with a column headed `Label`, one row per claim:
+
+| Claim | Label | Proof |
+| --- | --- | --- |
+| Real AI round trip on this head | **live** | [run 123](https://github.com/vikas53953/bluey/actions/runs/123) |
+| Demo journeys (mock AI) | mock | [run 124](https://github.com/vikas53953/bluey/actions/runs/124) |
+| Voice | UNVERIFIED | not tested |
+
+- Each label (the first word of the cell; bold and plain words after it are fine) is one of `live`, `mock`, `manual`,
+  `UNVERIFIED`, `BLOCKED`, `review`.
+- Every `live` row has a real link whose text has a letter or digit (not an image, not an invisible character) to a
+  GitHub Actions run of this repository, written as a full `https://github.com/...` address (a run, a job or an
+  attempt of it). No run link means it is not live.
+- A PR that changes anything under `src/` or `tools/` has at least one `live` row, or a `BLOCKED` row that says what
+  blocks the live run (after the label, in the same cell or a column to its right).
+
+**Fix:** add or correct the table in the PR body (edit the body; the check re-runs). A local run is `manual` or
+`mock`, never `local`; a claim that was not checked is `UNVERIFIED`, never `—`. **Do NOT** label a mock run `live`,
+link an unrelated run, or hide the table or a link in a code block or an HTML comment (neither is counted).
+
+What this check is for: it catches a missing or sloppy evidence table and every trick its reviews found (listed in
+the self-test and the render test). It cannot prove an author is honest: a claim outside the Label column (`tested
+live` in a Status table, a badge image in a table without a Label column, prose), or a link to a run that proves
+nothing, can pass it. The separate reviewer and the QA PASS line remain the judge of whether the evidence is true.
+
+Known gaps: the check needs GitHub's Markdown API (it fails closed when that is down; re-run the job). A table inside
+a collapsed `<details>` counts (a reader can open it). It proves a table and links exist, not that each linked run is
+green, is on the PR's head, or proves the claim next to it (the separate reviewer and the QA PASS line cover that). A
+PR can edit `pr-evidence.yml` itself; like every gate here, that is caught by review and the required-check settings
+(Vikas's decision), not by the workflow.
+
+## BOO-TEST-001
+**A skipped or empty test outside `tests/`.** `scripts/test_gate.py static` (in `windows-ci`) checks every xUnit
+test project in the repository, wherever it lives (a test fixture project that references xUnit is checked too) (today the 8 under `tests/` and `tools/Boo.CaptureProof`,
+`tools/Boo.LiveSmoke`, `tools/Boo.VerifyLive`): no empty `.cs` file, every `*Tests.cs` file declares a `[Fact]` or
+`[Theory]`, every test project declares a test, and no `Skip =` on any test attribute.
+
+**Fix:** make the test run, or delete it in a reviewed change. **Do NOT** add `Skip =`, empty the file, or move the
+test into a project the gate does not recognise as a test project (one without xUnit).
