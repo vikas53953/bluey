@@ -249,9 +249,9 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    panel has been opened, and repeat hovers (~0.7 MB each, same on the old build).
 6. **SF-006 symlink cases** fail on a dev PC without Windows Developer Mode, same on unchanged `lane/face` (never skipped); they pass in CI.
 7. **Merge order / oracle revisions.** `lane/face` is at oracle revision 23 (PR #22, merged `af241fa`, took 22–23 on
-   top of PR #14's 21). PR #18 has re-synced and re-frozen its 3 capture fixtures on top as **revision 24**. PR #13 dropped every `-f runner=` use when it synced with PR #18. Still-open PRs that edit the same workflows: #13 and #18 edit `live-ai-smoke.yml` and
-   `demo-ci.yml`; #18 also edits `windows-ci.yml`. #20 and #21, stacked on #18, carry #18's edits; #20 also edits
-   `live-ai-smoke.yml` and #21 adds `quality-gates.yml`.
+   top of PR #14's 21). PR #18 has re-synced and re-frozen its 3 capture fixtures on top as **revision 24**. PR #13 dropped every `-f runner=` use when it synced with PR #18. PRs #13, #18, #20 and #21, which edited the same
+   workflows, have all merged (by `13e5484`); a new PR that edits `live-ai-smoke.yml`, `demo-ci.yml`, `windows-ci.yml` or
+   `quality-gates.yml` syncs with `lane/face` first.
 8. The notch memory guard (`NotchDrawingMemoryTests`) has now run in CI: windows-ci on `8474556`
    ([43287434389](https://github.com/vikas53953/bluey/actions/runs/43287434389)) passed UI smoke, perf budgets and the gate.
 9. Residuals listed in [docs/STATUS.md](docs/STATUS.md) ("Known residuals") still apply unless a later PR says
@@ -277,7 +277,7 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 - **Claude (Anthropic) and Gemini** text providers against the live APIs (no keys set; by choice).
 - **Voice** (OpenAI Realtime, hold-to-talk) as a live round trip on `lane/face`. PR #12's builder reports one live
   voice turn on `feat/living-ink`; not re-verified independently.
-- **Pointer + ring with a real model, beyond PR #13's one target.** Once PR #13 merges, its live journey j3 proves the
+- **Pointer + ring with a real model, beyond PR #13's one target.** Since PR #13 merged (`13e5484`), its live journey j3 proves the
   ring runs through a known button's edges and the pointer lands on it (passed on `de9492f`, `7c5af8d`, `60930b9`,
   `e86a107`, `87a1442` and, reading Boo's own overlay render, `d2f9827`), on one 1024x768 VM screen. Still
   UNVERIFIED: other targets, other DPI or multiple monitors, and **Windows animation effects off**: Boo then hides the
