@@ -188,7 +188,7 @@ static class SelfTest
         Expect("copies (relative to a project)", t.NormPath(@"obj\Release\Boo.dll", @"D:\a\my repo\bluey\src\Boo.App"),
             "src/Boo.App/obj/Release/Boo.dll");
         Expect("editorConfigItems (above the repo)", t.NormPath(@"D:\a\my repo\.editorconfig"), "<repo-parent-1>/.editorconfig");
-        Expect("analyzerConfigs.content",
+        Expect("editorConfigItems (drive root)", t.NormPath(@"D:\.globalconfig"), "<repo-parent-3>/.globalconfig");        Expect("analyzerConfigs.content",
             t.Norm("build_property.ProjectDir = D:\\a\\my repo\\bluey\\src\\Boo.App\\\r\n[D:/a/my repo/bluey/src/**.cs]\r\n"),
             "build_property.ProjectDir = src\\Boo.App\\\r\n[src/**.cs]\r\n");
         Expect("responseFiles.content", t.Norm(@"/reference:""C:\Program Files\dotnet\packs\a.dll"""),

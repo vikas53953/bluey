@@ -137,6 +137,20 @@ sealed class PathTokens
             // keep the text as given
         }
 
+        // A file directly in a folder ABOVE the repository, up to the drive root (MSBuild probes every parent folder for
+        // .editorconfig / .globalconfig / Directory.Build.*): keep how far up it is and its name. The drive root is too
+        // short to be a token root, so it is handled here.
+        var directory = Path.GetDirectoryName(full)?.TrimEnd('\\', '/');
+        var up = 0;
+        for (var d = Path.GetDirectoryName(repo.TrimEnd('\\', '/')); repo.Length > 0 && d is not null; d = Path.GetDirectoryName(d))
+        {
+            up++;
+            if (directory is not null && string.Equals(d.TrimEnd('\\', '/'), directory, StringComparison.OrdinalIgnoreCase))
+            {
+                return $"<repo-parent-{up}>/" + Path.GetFileName(full);
+            }
+        }
+
         return Norm(full).Replace('\\', '/');
     }
 
