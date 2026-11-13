@@ -13,8 +13,11 @@ each pattern below **per project, every match on a line**, and compares with [`b
 - a count that goes **up** fails (new problem);
 - a count that goes **down** also fails until you run `python -I scripts/quality/ratchet.py --lower` and commit the
   lower baseline, so every gain is locked in; `--lower` refuses to raise any number;
-- `--list <RULE>` prints every hit; `--self-test` checks 59 snippets (including tricky strings that could hide code) with exact expected counts, that clean code stays
-  quiet, and the pass/fail logic itself (equal passes, rise fails, fall fails until lowered).
+- `--list <RULE>` prints every hit; `--self-test` checks 83 snippets with exact expected counts (including tricky
+  strings, interpolation format clauses and `#` directive lines that could hide code), that clean code stays quiet,
+  and the pass/fail logic itself (equal passes, rise fails, fall fails until lowered, a vanished or renamed project).
+  Each lexer rule has at least one snippet whose count changes if that rule breaks (checked by switching each rule off
+  in a scratch copy: 17 of 17 caught, 13 Nov 2026).
 
 **A PR cannot loosen its own gate.** On a pull request, the workflow
 [`quality-gates.yml`](../../.github/workflows/quality-gates.yml) (job `quality`, Linux, about a minute, no uploads)
@@ -114,8 +117,10 @@ ordering bugs. **Fix:** an instance member owned by one object, or `readonly`. *
 
 ## BOO-CMT-001
 **Comment that is not `///`** (`////` counts). Agents use comments to justify workarounds, and rules written in comments
-are not checked. Not counted: whole-line comments of the form `// INVARIANT: ... see TestClass.TestName`,
-`// SECURITY: ... see TestClass.TestName` and `// TODO(#123): ...`. **Fix:** fix the cause instead of explaining it; if it states a rule, write the test and use
+are not checked. Not counted: whole-line comments of the form `// INVARIANT: ... see NameTests.Method` or
+`// SECURITY: ... see NameTests.Method`, where a class `NameTests` with a method `Method(` really exists under `tests/`,
+and whole-line `// TODO(#123): ...`. The same text at the end of a code line, or naming a test that does not exist,
+counts. **Fix:** fix the cause instead of explaining it; if it states a rule, write the test and use
 the INVARIANT tag; API docs use `///`. **Do NOT** reword the comment to dodge the count.
 
 ## BOO-CMT-002
@@ -129,6 +134,9 @@ the INVARIANT tag; API docs use `///`. **Do NOT** reword the comment to dodge th
 - A static field declared over two lines, or with a tuple type plus `=>` initializer.
 - `///` comments written inside a method body count as documentation.
 - Identity: a swap (one removed, one added, same rule and project) passes, as explained above.
-- Scope: only `src/<Project>/` folders that hold a `.csproj` are scanned; `bin/` and `obj/` are skipped; files compiled in
-  from outside `src/` (`<Compile Include="../..">`) are not scanned. A baselined project that disappears from the scan
-  fails the check instead of silently dropping its counts.
+- Scope: only `src/<Project>/` folders that hold a `.csproj` are scanned; only the project's own top-level `bin/` and
+  `obj/` are skipped (a nested `Sub/bin/` is scanned, as the build compiles it); files compiled in from outside `src/`
+  (`<Compile Include="../..">`) are not scanned.
+- Renames: a baselined project that disappears fails the PR's own check, so the PR that moves or renames a project
+  writes the new per-project baseline with `--lower`. The base branch's check then compares **per-rule totals** across
+  all projects (nothing may rise in total), so a legitimate rename can pass without an admin override.

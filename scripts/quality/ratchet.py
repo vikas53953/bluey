@@ -45,9 +45,16 @@ def lex(text):
     def line_of(index):
         return text.count('\n', 0, index) + 1
 
+    def at_line_start(i):
+        """True when only spaces/tabs precede index i on its line."""
+        j = text.rfind('\n', 0, i) + 1
+        return not text[j:i].strip()
+
     def scan_code(i, stop_at_brace=False):
-        """Scan code from i. With stop_at_brace, return at the unmatched '}' that closes an interpolation hole."""
+        """Scan code from i. With stop_at_brace, return at the unmatched '}' that closes an interpolation hole; a
+        top-level ':' there starts the format clause (literal text up to that '}')."""
         depth = 0
+        parens = 0
         while i < n:
             c = text[i]
             if c == '/' and text.startswith('//', i):
@@ -55,7 +62,7 @@ def lex(text):
                 end = n if end < 0 else end
                 body = text[i:end]
                 kind = 'doc' if body.startswith('///') and not body.startswith('////') else 'line'
-                comments.append((line_of(i), body, kind))
+                comments.append((line_of(i), body, kind, at_line_start(i)))
                 blank(i, end)
                 i = end
                 continue
@@ -64,10 +71,23 @@ def lex(text):
                 end = n if end < 0 else end + 2
                 first = line_of(i)
                 for offset, part in enumerate(text[i:end].split('\n')):
-                    comments.append((first + offset, part, 'block'))
+                    comments.append((first + offset, part, 'block', False))
                 blank(i, end)
                 i = end
                 continue
+            if c == '#' and not stop_at_brace and at_line_start(i):
+                # Preprocessor directive (#region, #if, #error ...): its text is not code and holds no strings.
+                end = text.find('\n', i)
+                end = n if end < 0 else end
+                blank(i, end)
+                i = end
+                continue
+            if stop_at_brace and depth == 0 and parens == 0 and c == ':' and not text.startswith('::', i) \
+                    and (i == 0 or text[i - 1] != ':'):
+                end = text.find('}', i)
+                end = n if end < 0 else end
+                blank(i, end)
+                return end
             if c == "'":
                 j = i + 1
                 while j < n and text[j] != "'" and text[j] != '\n':
@@ -89,6 +109,10 @@ def lex(text):
                     if depth == 0:
                         return i
                     depth -= 1
+                elif c in '([':
+                    parens += 1
+                elif c in ')]':
+                    parens = max(parens - 1, 0)
             i += 1
         return i
 
@@ -203,21 +227,35 @@ def static_mutable(source):
     return hits
 
 
-ALLOWED_COMMENT = re.compile(r'^//\s*(INVARIANT|SECURITY):.*\bsee\s+\w+\.\w+|^//\s*TODO\(#\d+\):')
+TAGGED_RULE = re.compile(r'^//\s*(INVARIANT|SECURITY):.*\bsee\s+(?P<cls>[A-Z]\w*Tests)\.(?P<method>[A-Z]\w*)\b')
+TRACKED_TODO = re.compile(r'^//\s*TODO\(#\d+\):')
+# Test classes found under tests/ ({class: source text}); filled by scan(). A tag naming a missing test is not exempt.
+KNOWN_TESTS = {}
+
+
+def exempt_comment(body):
+    body = body.strip()
+    if TRACKED_TODO.search(body):
+        return True
+    match = TAGGED_RULE.search(body)
+    if not match:
+        return False
+    source = KNOWN_TESTS.get(match.group('cls'))
+    return bool(source) and re.search(r'\b' + re.escape(match.group('method')) + r'\s*\(', source) is not None
 TODO = re.compile(r'\b(TODO|FIXME|HACK|XXX)\b(?!\(#\d+\))')
 
 
 def comment_lines(source):
     lines = set()
-    for line, body, kind in source.comments:
-        if kind == 'doc' or not body.strip() or (kind == 'line' and ALLOWED_COMMENT.search(body.strip())):
+    for line, body, kind, whole in source.comments:
+        if kind == 'doc' or not body.strip() or (kind == 'line' and whole and exempt_comment(body)):
             continue
         lines.add(line)
     return sorted(lines)
 
 
 def untracked_todos(source):
-    return [line for line, body, _ in source.comments for _ in TODO.finditer(body)]
+    return [line for line, body, _, _ in source.comments for _ in TODO.finditer(body)]
 
 
 class Rule:
@@ -291,7 +329,26 @@ RULES = [
                                                     ('var s = $"{(x ? "}" : "{")}"; GC.Collect();', 1),
                                                     ('var s = $$"""{{x}} { """; GC.Collect();', 1),
                                                     ('var s = "GC.Collect();"; var r = """\n GC.Collect()\n """;', 0),
-                                                    ('var s = $"{GC.Collect}";', 1)]),
+                                                    ('var s = $"{GC.Collect}";', 1),
+                                                    ('var s = "\\""; GC.Collect();', 1),
+                                                    ('var s = @"C:\\"; GC.Collect();', 1),
+                                                    ('var s = @"x"" GC.Collect() ""y";', 0),
+                                                    ('var s = $"{F(() => { return 1; })} GC.Collect()";', 0),
+                                                    ('var s = "a\n GC.Collect();', 1),
+                                                    ('/* GC.Collect();\n GC.Collect(); */ var z = 1;', 0),
+                                                    ('var s = $"{x:it\'s}"; GC.Collect();', 1),
+                                                    ('var s = $"{d:dd//MM}"; GC.Collect();', 1),
+                                                    ('var s = $"{d:/*}"; GC.Collect(); var t = $"{d:*/}";', 1),
+                                                    ('var s = $@"{d:it\'s}"; GC.Collect();', 1),
+                                                    ('var s = $"{(a ? b : c)}"; GC.Collect();', 1),
+                                                    ('var s = $"{global::System.String.Empty}"; GC.Collect();', 1),
+                                                    ('#region it\'s @" "\"\n GC.Collect();', 1),
+                                                    # each of these changes count if one lexer rule breaks:
+                                                    ('var s = @"a""" + GC.Collect();', 1),
+                                                    ('var s = $"{ new { A = 1 }.A + " GC.Collect() "}";', 0),
+                                                    ('var s = $"{(x ? 0 : GC.Collect())}";', 1),
+                                                    ('#region @"\n GC.Collect();\n var q = "x";', 1),
+                                                    ('var s = @"a""\n GC.Collect(); b";', 0)]),
     Rule('BOO-RT-002', 'Environment.GetEnvironmentVariable',
          'Hidden switches (for example BOO_QA_CAPTURABLE) change privacy behaviour and must be auditable.',
          'Read environment variables in one place and pass the value in.', 'Do NOT add another reader.',
@@ -327,6 +384,12 @@ RULES = [
          'Do NOT reword the comment to dodge the count.', comment_lines,
          [('// retry because it is flaky', 1), ('/* a\n b */', 2), ('//// four slashes', 1),
           ('// INVARIANT: undo restores bytes, see UndoJournalTests.Roundtrip', 0),
+          ('// INVARIANT: undo restores bytes, see MissingTests.Roundtrip', 1),
+          ('// INVARIANT: retry because flaky, see e.g. above', 1),
+          ('// INVARIANT: no reference', 1),
+          ('Go(); // INVARIANT: undo restores bytes, see UndoJournalTests.Roundtrip', 1),
+          ('// TODO(#12): tracked', 0),
+          ('Go(); // TODO(#12): tracked', 1),
           ('var u = "http://a//b /* x */";', 0), ('var r = """\n // not a comment\n """;', 0)]),
     Rule('BOO-CMT-002', 'TODO / FIXME / HACK / XXX without an issue link',
          'Untracked debt is invisible.', 'Open a GitHub issue and write TODO(#123): ...', 'Do NOT delete the note '
@@ -340,14 +403,27 @@ def projects(base):
     return sorted(p for p in (base / 'src').iterdir() if p.is_dir() and any(p.glob('*.csproj')))
 
 
+def load_tests(base):
+    KNOWN_TESTS.clear()
+    tests = base / 'tests'
+    if tests.is_dir():
+        for path in tests.rglob('*.cs'):
+            if path.relative_to(tests).parts and set(path.relative_to(tests).parts) & GENERATED_PARTS:
+                continue
+            text = path.read_text(encoding='utf-8-sig', errors='replace')
+            for name in re.findall(r'\bclass\s+([A-Z]\w*Tests)\b', text):
+                KNOWN_TESTS[name] = KNOWN_TESTS.get(name, '') + text
+
+
 def scan(base):
     """{rule: {project: [(relative file, line), ...]}}"""
+    load_tests(base)
     result = {rule.id: {} for rule in RULES}
     for project in projects(base):
         for rule in RULES:
             result[rule.id][project.name] = []
         for path in sorted(project.rglob('*.cs')):
-            if GENERATED_PARTS.intersection(path.relative_to(project).parts):
+            if path.relative_to(project).parts[0] in GENERATED_PARTS:
                 continue
             source = Source(path.read_text(encoding='utf-8-sig'))
             relative = path.relative_to(base).as_posix()
@@ -365,11 +441,23 @@ def compare(result, baseline, rise_only=False):
     now = counts(result)
     rose, fell = [], []
     scanned = {project for by_project in now.values() for project in by_project}
+    baselined = {project for by_project in baseline.values() for project in by_project}
+    if rise_only and scanned != baselined:
+        # The PR moved, renamed or removed a project. The base branch's gate still holds the line, on per-rule totals:
+        # nothing may rise in total; the PR's own check makes the PR write the new per-project baseline.
+        for rule in RULES:
+            allowed = sum(baseline.get(rule.id, {}).values())
+            count = sum(now[rule.id].values())
+            if rule.id in baseline and count > allowed:
+                rose.append(f'{rule.id}  all projects: {allowed} -> {count} (projects changed, judged on totals)\n'
+                            f'  What:  {rule.what}\n  Fix:   {rule.fix}\n  Rule:  {RULES_DOC}#{rule.id.lower()}')
+        return rose, []
     for rule_id, by_project in baseline.items():
         for project, allowed in by_project.items():
             if allowed and project not in scanned:
                 rose.append(f'{rule_id}  {project}: baselined at {allowed}, but the project is no longer scanned (moved, '
-                            f'renamed or its .csproj removed). Restore it under src/, or lower the baseline in a reviewed PR.')
+                            f'renamed or its .csproj removed). Restore it under src/, or write the new baseline with '
+                            f'--lower in the PR that moves it.')
     for rule in RULES:
         if rule.id not in baseline:
             if not rise_only:
@@ -430,6 +518,8 @@ def lower(base, baseline_path):
 
 def self_test():
     failures = []
+    KNOWN_TESTS.clear()
+    KNOWN_TESTS['UndoJournalTests'] = 'public void Roundtrip() { }'
     for rule in RULES:
         for snippet, expected in rule.samples:
             source = Source('class C {\n  void M() {\n    ' + snippet + '\n  }\n}\n')
@@ -457,6 +547,14 @@ def self_test():
             code.write_text('class A { void M() { Thread.Sleep(1); Thread.Sleep(2); } }', encoding='utf-8')
             steps += [('check rise fails', check(tree, baseline_path), 1), ('lower refuses rise', lower(tree, baseline_path), 1),
                       ('rise-only also fails a rise', check(tree, baseline_path, rise_only=True), 1)]
+            code.write_text('class A { void M() { } }', encoding='utf-8')
+            (tree / 'src' / 'P').rename(tree / 'src' / 'Q')
+            steps += [('renamed project fails the PR\'s own check', check(tree, baseline_path), 1),
+                      ('renamed project, same total: rise-only passes', check(tree, baseline_path, rise_only=True), 0)]
+            (tree / 'src' / 'Q' / 'A.cs').write_text('class A { void M() { Thread.Sleep(1); Thread.Sleep(2); Thread.Sleep(3); } }',
+                                                    encoding='utf-8')
+            steps += [('renamed project, higher total: rise-only fails', check(tree, baseline_path, rise_only=True), 1)]
+            (tree / 'src' / 'Q').rename(tree / 'src' / 'P')
             code.write_text('class A { void M() { } }', encoding='utf-8')
             steps += [('check fall fails until lowered', check(tree, baseline_path), 1),
                       ('rise-only accepts a fall', check(tree, baseline_path, rise_only=True), 0),
