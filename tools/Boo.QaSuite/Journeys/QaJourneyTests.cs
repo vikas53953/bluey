@@ -103,11 +103,11 @@ public sealed class QaJourneyTests : IClassFixture<LiveAppFixture>
         {
             // A code made now, at run time: no scripted mock can know it, so only a real model can send it back.
             const string letters = "bcdfghjkmnpqrstvwxz";
-            var code = new string(Enumerable.Range(0, 8).Select(_ => letters[RandomNumberGenerator.GetInt32(letters.Length)]).ToArray());
+            var code = new string(Enumerable.Range(0, 8).Select(_ => letters[RandomNumberGenerator.GetInt32(letters.Length)]).ToArray()).ToUpperInvariant();
             var panel = QaUi.OpenPanel(_boo);
             var before = QaUi.BooRows(panel).Count;
             var faces = new List<string>();
-            QaUi.Ask(_boo, panel, $"Reply with only this code written in capital letters, nothing else: {code}");
+            QaUi.Ask(_boo, panel, $"Copy the following eight-character token verbatim. Preserve every character in order, with no inserted spaces or punctuation. Return only the token: {code}");
 
             string? reply = null;
             var answered = BooAppFixture.WaitUntil(() =>
