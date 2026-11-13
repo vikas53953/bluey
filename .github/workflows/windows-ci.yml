@@ -32,6 +32,8 @@ jobs:
 
       # No empty test file, no *Tests.cs file without a [Fact]/[Theory], no test project without tests,
       # no Skip = on any test. (8185c1d once emptied a 474-line test file and CI stayed green.)
+      - name: Test gate (source)
+        run: python -I scripts/test_gate.py static
 
       # Never the owner's PC: every job must run on one literal GitHub-hosted label (no self-hosted, no expressions),
       # because the UI/demo/live tests take screenshots and the live smoke sends one to a real AI.
