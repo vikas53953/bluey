@@ -37,6 +37,7 @@ PLAIN = {
     'S4': 'Focus Start / Pause (notch Paused) / Resume / End',
     'S5': 'Settings saved to file; a new Boo starts with the same choices',
     'Q7': 'Hover edges: all four real-clock branches (no AI key)',
+    'Q15': 'Approval Cancel / Escape / replacement (partial j15 a-c)',
     'Q13': 'Focus edges: End from Paused and replace Running (no AI key; partial j13)',
     'E0': 'Empty question: "Type a question first."',
     'E1': 'No key: "No OpenAI key yet..."',
@@ -67,9 +68,9 @@ JOURNEYS = [
     ('j10', 'The eyes: tap and hold', []),
     ('j11', 'Panel Talk button', 'voice'),
     ('j12', 'Stop from every busy state (only j12d, Stop during a typed answer, is driven: S3)', []),
-    ('j13', 'Focus pause, resume, end, restart (S4 drives all but restart)', []),
+    ('j13', 'Focus lifecycle (S4 and Q13 cover subsets; full sequence and event proof pending)', []),
     ('j14', 'Focus nudge (off task)', []),
-    ('j15', 'Approval card edges', []),
+    ('j15', 'Approval card edges (a-c driven by Q15; d-e pending)', []),
     ('j16', 'Second undo', []),
     ('j17', 'Voice ends itself and drives focus', 'voice'),
     ('j18', 'Newer request wins', []),
@@ -125,7 +126,7 @@ def build(folder, run_url='', app_sha='', harness_sha='', models=''):
             sid = short_id(name)
             what = PLAIN.get(sid, name.split('.')[-1])
             if group == 'smoke' and 'voice' in name.lower():
-                what = 'Voice: real OpenAI voice round trip'
+                what = 'Voice provider: real OpenAI synthetic audio round trip (component; no Boo.exe UI)'
             elif name.endswith('TypedQuestion_GetsAnAnswerFromTheRealProvider'):
                 what = 'Live round trip: typed question + screenshot, real OpenAI answer'
             ok = outcome == 'Passed'
@@ -134,13 +135,13 @@ def build(folder, run_url='', app_sha='', harness_sha='', models=''):
             result = 'passed' if ok else f'FAILED ({outcome}): {message}'.replace('|', '/')
             table.append(f'| {what} | live | {result} | {link} |')
     if not any(r[0] == 'smoke' and 'voice' in r[1].lower() for r in rows):
-        table.append(f'| Voice: real OpenAI voice round trip | BLOCKED | no live voice test exists on this harness yet; it '
+        table.append(f'| Voice provider: real OpenAI synthetic audio round trip (component; no Boo.exe UI) | BLOCKED | no live voice test exists on this harness yet; it '
                      f'arrives with PR #47. Not a pass. | {link} |')
     ran = {short_id(r[1]): r[2] for r in rows if short_id(r[1])}
     voice_ran = any(r[0] == 'smoke' and 'voice' in r[1].lower() for r in rows)
     for jid, title, checks in JOURNEYS:
         if checks == 'voice' and voice_ran:
-            table.append(f'| Journey {jid}: {title} | UNVERIFIED | voice works live, but this journey is not driven yet | {link} |')
+            table.append(f'| Journey {jid}: {title} | UNVERIFIED | provider round trip passed; this app UI journey is not driven yet | {link} |')
         elif checks == 'voice':
             table.append(f'| Journey {jid}: {title} | BLOCKED | needs the live voice test (PR #47). Not a pass. | {link} |')
         elif checks and all(ran.get(c) == 'Passed' for c in checks):
@@ -194,7 +195,7 @@ def self_test():
         (root / 'journeys' / 'qa-notch-states-journeys.txt').write_text('# expected Listening and Happy\n10 Hidden\n20 Thinking\ninvalid 30 Nudge\n', encoding='utf-8')
         text, green = build(root)
         check('missing required coverage prevents green', not green and 'SUITE RED' in text)
-        check('voice missing -> BLOCKED row, still not counted as a pass', '| Voice: real OpenAI voice round trip | BLOCKED |' in text)
+        check('voice missing -> BLOCKED row, still not counted as a pass', '| Voice provider: real OpenAI synthetic audio round trip (component; no Boo.exe UI) | BLOCKED |' in text)
         check('seen state -> live', '| Notch state Thinking | live |' in text)
         check('expectations cannot count as observations', '| Notch state Happy | UNVERIFIED |' in text and '| Notch state Nudge | UNVERIFIED |' in text)
         check('unseen state -> UNVERIFIED', '| Notch state Listening | UNVERIFIED |' in text)
@@ -220,7 +221,7 @@ def self_test():
             trx(root / g / 'trx', [(f'Boo.QaSuite.X.T.S0_A', 'Passed', '')])
         trx(root / 'smoke' / 'trx', [('Boo.LiveSmoke.LiveVoiceRoundTripTests.Voice_X', 'Passed', '')])
         text, green = build(root)
-        check('voice alone cannot satisfy undriven journeys', not green and '| Voice: real OpenAI voice round trip | live | passed' in text
+        check('voice alone cannot satisfy undriven journeys', not green and '| Voice provider: real OpenAI synthetic audio round trip (component; no Boo.exe UI) | live | passed' in text
               and '| BLOCKED |' not in text and '| Journey j9: Hold-to-talk with Ctrl+Alt+Space | UNVERIFIED |' in text)
     print('QA_REPORT_SELF_TEST_OK' if ok else 'QA_REPORT_SELF_TEST_FAILED')
     return 0 if ok else 1
