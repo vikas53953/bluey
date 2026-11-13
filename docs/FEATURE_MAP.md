@@ -56,7 +56,7 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | T3 | Hold **Ctrl+Alt+Space** to talk; release sends; tap under 0.2 s shows "Hold to talk" | automated mock + manual | `tests/Boo.Core.Tests/HoldToTalkControllerTests.cs`; `tests/Boo.Core.Tests/PushToTalkUplinkTests.cs`; runbook 3.1, 3.2 |
 | T4 | Hold the eyes to talk | manual | runbook 3.3 |
 | T5 | Talk button (continuous voice), interruption, 3-turn memory | manual | runbook 3.4, 5.1; `docs/verification/2026-11-08-talk-native-checklist.md` |
-| T6 | Spoken replies (OpenAI Realtime voice) | UNVERIFIED | No automated live voice test exists (FlaUI cannot speak into a mic). Runbook 3.1 is the manual path once run. |
+| T6 | Spoken replies (OpenAI Realtime voice) | UNVERIFIED (native app voice path) + manual | Provider-level real-AI evidence only: `tools/Boo.LiveSmoke/LiveVoiceRoundTripTests.cs::SpokenQuestion_GetsASpokenAnswerFromRealOpenAiVoice` sends a synthetic WAV through RealtimeClient on GitHub windows-latest. This does not drive published Boo.exe through FlaUI and does not prove native voice controls, microphone capture or speaker playback. Native proof: runbook 3.1, pending a dated result. |
 | T7 | Voice latency target (median <= 1.5 s, p95 <= 3 s over 20 warm turns) | automated mock + manual | `tests/Boo.Core.Tests/LatencyRecorderTests.cs`; runbook 3.5 |
 | T8 | Voice commands (start / pause / resume / end focus, "how's my focus", "bye") | automated mock | `tests/Boo.Core.Tests/VoiceCommandTests.cs`; `tests/Boo.Integration.Tests/VoiceToolProtocolTests.cs`. Live voice: UNVERIFIED |
 | T9 | Typed requests are classified (Undo / Action / Research / Explain) from their first words | automated mock | `tests/Boo.Core.Tests/RequestIntentTests.cs` |
