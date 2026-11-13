@@ -13,6 +13,9 @@ namespace Boo.App;
 /// (frames rendered, whether the CompositionTarget.Rendering subscription is live, face state, pacer skips) and how
 /// Windows draws the notch ("SoftwareOnly" or "Default"; added 2026-11-12, readers that do not know it ignore it).
 /// Unset (every normal launch) nothing is created: no timer, no file, no allocations.
+/// The timer runs at <see cref="DispatcherPriority.Background"/>, not ApplicationIdle: while the notch is revealed the
+/// render loop keeps the dispatcher busy and an ApplicationIdle tick can starve for seconds, which left the file stale
+/// mid-measurement (CI 13 Nov 2026: 0 and 11 fps reported over a 2 s window while 222 frames had rendered).
 /// Schema (version 1), all numbers cumulative since process start:
 /// <code>
 /// { "schema": 1, "writtenAtUtc": "...", "uptimeMs": 1234, "gen0": 3, "gen1": 1, "gen2": 0,
@@ -39,7 +42,7 @@ internal sealed class PerfDiagnostics
         _path = path;
         _tempPath = path + ".tmp";
         _notch = notch;
-        _timer = new DispatcherTimer(DispatcherPriority.ApplicationIdle, dispatcher) { Interval = Interval };
+        _timer = new DispatcherTimer(DispatcherPriority.Background, dispatcher) { Interval = Interval };
         _timer.Tick += (_, _) => Write();
     }
 
