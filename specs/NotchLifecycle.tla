@@ -54,7 +54,7 @@ VARIABLES
     micInd,      \* notch microphoneActive indicator (= MainWindow._listening)
     chord,       \* HoldToTalkController: Ctrl+Alt+Space holder
     eyes,        \* HoldToTalkController: eyes holder
-    voice,       \* realtime voice session: "Off" | "Ptt" (push-to-talk) | "Other" (Talk button / typed hand-off)
+    voice,       \* realtime voice session: "Off" | "Ptt" (push-to-talk) | "Other" (Talk button) | "Text" (typed hand-off, no audio)
     typed,       \* in-flight typed request, or None
     vtool,       \* in-flight voice tool call (screen_help), or None
     vundo,       \* in-flight spoken "undo", or None
@@ -326,7 +326,7 @@ TypedReply ==
 TypedHandOff ==
     /\ typed # None /\ typed.kind = "Ask" /\ typed.cur /\ typed.cap # "Pre"
     /\ typed' = None
-    /\ voice' = IF voice = "Off" THEN "Other" ELSE voice
+    /\ voice' = IF voice = "Off" THEN "Text" ELSE voice
     /\ UNCHANGED <<hovered, flagV, micDev, micInd, chord, eyes, vtool, vundo, fcheck, applyV, focusV>>
     /\ Fin("Other")
 
@@ -352,16 +352,20 @@ TypedEnd ==
 
 VoiceOpen == voice # "Off"
 
+\* A session that carried microphone audio. Speech started/stopped and a spoken "undo" (an input audio
+\* transcription, MainWindow.xaml.cs:2252-2275) can only come from one; a typed hand-off never opens the mic.
+AudioSession == voice \in {"Ptt", "Other"}
+
 \* [F7] speech started: Thinking off.
 VSpeechStarted ==
-    /\ VoiceOpen
+    /\ AudioSession
     /\ thinking' = FALSE
     /\ UNCHANGED <<hovered, responding, nudge, happy, micV, workV, applyV, focusV>>
     /\ Fin("Other")
 
 \* [F7] speech stopped / committed: Thinking on.
 VSpeechStopped ==
-    /\ VoiceOpen
+    /\ AudioSession
     /\ thinking' = TRUE
     /\ UNCHANGED <<hovered, responding, nudge, happy, micV, workV, applyV, focusV>>
     /\ Fin("Other")
@@ -431,7 +435,7 @@ VToolDone ==
 \* [U1] spoken "undo" (MainWindow.Edits.cs:129-182): the FOURTH capture source. The capture operation opens
 \* at once and Thinking is NOT set first.
 VUndoStart ==
-    /\ VoiceOpen /\ vundo = None
+    /\ AudioSession /\ vundo = None
     /\ vundo' = [cur |-> TRUE]
     /\ UNCHANGED <<hovered, flagV, micV, typed, vtool, fcheck, applyV, focusV>>
     /\ Fin("Other")
@@ -722,7 +726,7 @@ TypeOK ==
     /\ alive \in BOOLEAN /\ hovered \in BOOLEAN /\ phase \in Phases
     /\ thinking \in BOOLEAN /\ responding \in BOOLEAN /\ nudge \in BOOLEAN /\ happy \in BOOLEAN
     /\ micDev \in {"Off", "Hold", "Button"} /\ micInd \in BOOLEAN
-    /\ chord \in BOOLEAN /\ eyes \in BOOLEAN /\ voice \in {"Off", "Ptt", "Other"}
+    /\ chord \in BOOLEAN /\ eyes \in BOOLEAN /\ voice \in {"Off", "Ptt", "Other", "Text"}
     /\ typed \in {None} \cup TypedReqs
     /\ vtool \in {None} \cup ToolReqs
     /\ vundo \in {None} \cup UndoReqs

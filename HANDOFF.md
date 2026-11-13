@@ -282,7 +282,7 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    marks arrive in about 4 to 6 s (`marksAfterSeconds`: 6.2 s in 43335756258, 4.2 s in 43339557570). Raising the limit
    (longer waits vs fewer timeouts) is a product decision for Vikas; nothing in the code was changed.
 
-13. **The microphone can keep recording while the mic indicator is off** (finding F10 in `docs/architecture/notch-lifecycle.md`; found by the PR #29 model; code reading, UNVERIFIED by any run). Hold Ctrl+Alt+Space, click Talk twice (or Send, then Talk), release the chord: the Talk-button microphone keeps streaming while the notch shows nothing. A privacy bug; fix planned as its own small PR.
+13. **The microphone can keep recording while the mic indicator is off** (finding F10 in `docs/architecture/notch-lifecycle.md`; found by the PR #29 model; code reading, UNVERIFIED by any run). Hold Ctrl+Alt+Space, click Talk twice (or Send, then Talk), release the chord: the Talk-button microphone keeps streaming while the mic indicator is off (the notch hides, or later shows only Thinking/Responding). A privacy bug; fix planned as its own small PR.
 14. **`formal` (TLC) is not a required check.** It is path-filtered, so as a required check it would stay pending on PRs that do not touch its paths. To make it required later, switch to an always-running job that exits early when nothing relevant changed. Like every workflow, a PR can edit `formal.yml` itself (known issue 0). Its nightly `schedule` only fires from
    the default branch (`main`), so it does not run nightly until `lane/face` reaches `main`.
 

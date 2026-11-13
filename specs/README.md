@@ -56,6 +56,15 @@ it yet. It is finding F10 in `docs/architecture/notch-lifecycle.md` (section 5) 
   field-only paths, and the file gap's trace has no field edits). Also approximated: a reply that arrives while a
   card is up keeps the old card (the code replaces it), and a field undo can be planned without a frame (the code
   refuses).
+- A typed question handed to voice opens a text-only session (`"Text"`): no speech events and no spoken undo can
+  come from it, because the microphone is never opened.
+- A stale approval that is still executing blocks a new card in the model; in the code the new card appears but its
+  Approve stays disabled until the old approval's finally, so nothing can be approved earlier either way. A
+  multi-step undo is one Apply step in the model (the code queues its steps).
+- The hold-to-talk keyboard hook runs on its own thread and posts StartListening to the UI thread
+  (`MainWindow.Talk.cs:89-154`); the model makes TalkDown one atomic step. A Stop that runs between the key going
+  down and the posted start could leave the microphone on with the indicator visible and no hold to release it
+  (code reading, UNVERIFIED; a window of milliseconds). `INV_TALK_1` does not cover that race.
 - Local steps with no provider wait (taking or skipping the screenshot, planning a typed undo, a typed request's
   finally, which the 45 s HTTP timeout bounds) are fair; the provider is not. The end of a spoken undo is not fair:
   it may await a network interrupt with no timeout of its own.
