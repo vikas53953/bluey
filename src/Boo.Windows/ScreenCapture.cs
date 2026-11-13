@@ -15,8 +15,8 @@ public sealed class ScreenCapture : IDisposable
     private volatile bool _disposeDeferred;
     private int _backendDisposed;
 
-    public ScreenCapture()
-        : this(new WindowsFrameCaptureBackend(), DefaultTimeout)
+    public ScreenCapture(TimeProvider? clock = null)
+        : this(new WindowsFrameCaptureBackend(clock), DefaultTimeout)
     {
     }
 
