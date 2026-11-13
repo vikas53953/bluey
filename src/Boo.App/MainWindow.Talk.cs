@@ -327,7 +327,7 @@ public partial class MainWindow
             }
             _endOfSpeech = endOfSpeech;
             await realtime.CommitAudioTurnAsync(CancellationToken.None);
-            StatusText.Text = "Voice turn sent; waiting for the reply…";
+            ShowBusyStatus("Voice turn sent; waiting for the reply…");
         }
         catch (OperationCanceledException)
         {
