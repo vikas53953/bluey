@@ -169,21 +169,20 @@ public sealed class NotchStateRecorder : IDisposable
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly object _gate = new();
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
-    private readonly List<(long At, string State)> _events = new();
     private readonly List<(long Start, long End, string State)> _observations = new();
-    public long Mark() { lock (_gate) return _events.Count; }
+    public long Mark() => _clock.ElapsedMilliseconds;
     public bool HasSeenSince(string state, long mark)
     {
-        lock (_gate) return _events.Skip(checked((int)mark)).Any(e => e.State == state);
+        lock (_gate) return _observations.Any(o => o.Start > mark && o.State == state);
     }
-    public long MarkObservationWindow() => _clock.ElapsedMilliseconds;
     public string? ObservationFailureSince(long start)
     {
         var end = _clock.ElapsedMilliseconds;
         (long Start, long End, string State)[] observations;
-        lock (_gate) observations = _observations.Where(o => o.End >= start && o.Start <= end).ToArray();
+        lock (_gate) observations = _observations.Where(o => o.Start > start && o.End <= end).ToArray();
         File.WriteAllLines(Path.ChangeExtension(_file, ".health.txt"),
-            observations.Select(o => $"read [{o.Start},{o.End}] observed {o.State}"));
+            new[] { $"# action window [{start},{end}], maximum read/gap 100 ms" }
+                .Concat(observations.Select(o => $"read [{o.Start},{o.End}] observed {o.State}")));
         if (observations.Length < 2) return "Insufficient recorder observations.";
         if (observations[0].Start > start + 100 || observations[^1].End < end - 100)
             return "Recorder did not cover both action-window boundaries within 100 ms.";
@@ -249,7 +248,6 @@ public sealed class NotchStateRecorder : IDisposable
                 lock (_gate)
                 {
                     _seen.Add(state);
-                    _events.Add((_clock.ElapsedMilliseconds, state));
                 }
                 try
                 {

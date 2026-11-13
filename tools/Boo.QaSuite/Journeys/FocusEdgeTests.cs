@@ -22,11 +22,13 @@ public sealed class FocusEdgeTests : IClassFixture<NoKeyFixture>
         void Status(string prefix) => Assert.True(BooAppFixture.WaitUntil(
             () => QaUi.NameOf(panel, "FocusStatus").StartsWith(prefix, StringComparison.Ordinal),
             TimeSpan.FromSeconds(5)), $"Expected {prefix}; got {QaUi.NameOf(panel, "FocusStatus")}");
-        void Start(string task)
+        void Start(string task, Action? beforeStart = null)
         {
             QaUi.Find(_boo, panel, "FocusTaskBox").AsTextBox().Text = task;
             QaUi.Find(_boo, panel, "FocusDurationBox").AsTextBox().Text = "25";
-            Press("FocusStartButton");
+            var startButton = QaUi.Find(_boo, panel, "FocusStartButton").AsButton();
+            beforeStart?.Invoke();
+            startButton.Invoke();
             Status("Running");
         }
         try
@@ -46,12 +48,12 @@ public sealed class FocusEdgeTests : IClassFixture<NoKeyFixture>
 
             Start("j13 replaced session");
             var replaced = Assert.Single(store.List(), s => s.Task == "j13 replaced session");
-            var observationStart = recorder.MarkObservationWindow();
-            var replacing = recorder.Mark();
-            Start("j13 replacement session");
+            long observationStart = 0;
+            long replacing = 0;
+            Start("j13 replacement session", () => replacing = observationStart = recorder.Mark());
             var happy = BooAppFixture.WaitUntil(() => recorder.HasSeenSince("Happy", replacing), TimeSpan.FromSeconds(3));
-            var sessions = store.List();
             var health = recorder.ObservationFailureSince(observationStart);
+            var sessions = store.List();
             _boo.WriteObservation("qa-q13-observation-health", health ?? "Healthy: action boundaries, read durations and observation gaps within 100 ms.");
             Assert.Null(health);
             Assert.False(happy, "Replacing a running session emitted the completed-session Happy face.");
