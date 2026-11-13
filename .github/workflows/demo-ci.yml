@@ -145,6 +145,24 @@ jobs:
         shell: pwsh
         run: ./scripts/ci/Record-Desktop.ps1 -Stop
 
+      # Visual acceptance (Codex review P2 on PR #39): passing tests are not enough if the screen showed a blank
+      # window. The checker first proves itself on synthetic pictures and MP4s (blank white and black windows must
+      # fail; a drawn panel, a small tooltip and a one-frame first-paint flash must pass), using the recorder's pinned
+      # ffmpeg. Then every full-desktop demo screenshot and the demo video (two frames a second) are checked: one flat
+      # rectangle covering 40 % of the screen, in a screenshot or for more than 1 s of video, fails the job and names
+      # the demo and file. Report: artifacts/demo-evidence/visual-check.txt. Runs on failed demos too.
+      - name: Visual check self-test (blank-window detector)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./scripts/ci/Test-DemoVisual.ps1 -SelfTest
+
+      - name: Visual acceptance (no demo shows a blank window)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        shell: pwsh
+        run: ./scripts/ci/Test-DemoVisual.ps1 -EvidenceDir artifacts/demo-evidence -VideoFile artifacts/demo-video/demo.mp4
+
       # No vacuous green: every [Fact] declared in tests/Boo.Demo.Tests must have run and passed (not skipped, not
       # filtered away, not undiscovered). Runs even if the step above failed, so the log says exactly what broke.
       - name: Test gate (every demo ran and passed)
