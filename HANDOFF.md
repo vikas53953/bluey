@@ -342,3 +342,10 @@ Packaging for real use. What exists and what is missing:
   `2026-11-08-feat-boo-video-parity-plan.md`)
 - Evidence and native checklists: `docs/verification/`
 - Security review: `docs/security/2026-11-08-security-review.md`
+
+### Blocker sprint: native voice E2E (13 Nov, proposed)
+
+- `qa/native-voice-e2e`, based on lane/face b7e3e80: separate `tools/Boo.NativeVoice` + `native-voice-e2e.yml`; no #54 suite/workflow edits. #54 coordination: https://github.com/vikas53953/bluey/pull/54#issuecomment-6858672215.
+- CI-gated synthetic PTT uses the normal published app controls, upload queue, Realtime client, transcript UI and AudioSession.Play buffer. HostedVoiceAudio substitutes only audio devices: validated <=8s PCM WAV in, consuming virtual output device out. Environment checks are policy signals, not host attestation. Never invoke on a personal PC.
+- One response per bounded session, 128 output-token ceiling, tools disabled; configurable cheap realtime/transcription defaults. No retries. Estimate <$0.01 per dispatch, not an enforced monthly dollar cap; actual billing UNVERIFIED. Positive and deliberate wrong-answer red runs pending.
+- Physical microphone/speakers, shipped default model and other voice journeys stay UNVERIFIED/manual. Existing provider-only #47 smoke remains unchanged and separate. No native voice PASS claimed before artifacts/screenshots and independent final-head review.

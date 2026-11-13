@@ -2138,7 +2138,9 @@ public partial class MainWindow : Window
         }
 
         _credentialStore ??= StoreFor(AiProvider.OpenAI);
-        var realtime = new RealtimeClient(() => _credentialStore.Load(), _settings.Provider ?? new ProviderSettings(), pushToTalk);
+        var qaVoice = HostedVoiceOptions.FromEnvironment();
+        var realtime = RealtimeClient.ForNativeVoice(() => _credentialStore.Load(),
+            _settings.Provider ?? new ProviderSettings(), pushToTalk, qaVoice);
         _realtimePushToTalk = pushToTalk;
         _realtimeTranscript.Reset();
         _realtimeTranscriptRows.Clear();

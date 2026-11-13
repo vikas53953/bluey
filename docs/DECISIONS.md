@@ -121,3 +121,5 @@ PC shows the face below ~30 fps. Measure again with the perf suite on a real PC 
 
 **Why.** The shipped spec now chooses face D. The face B tests keep every assertion and now load the shipped spec with
 face B selected. Tests and assertion counts did not drop. Full per-file record: `docs/verification/test-oracle-revision-20.md`.
+
+| 13 Nov 2026 | Add a separate hosted synthetic voice E2E, with opt-in PCM input and a virtual playback-buffer consumer; use FlaUI to activate published Boo.exe PTT and real OpenAI. Require full WAV capture, UI answer and consumed non-silent output; red oracle only after normal assertions pass. | Close the provider-only evidence gap without personal devices or editing #54 ownership. Env gates are CI policy signals, not host attestation. Bound each session to one 128-token response with tools disabled, cheap configurable models, no retries. Physical audio remains UNVERIFIED/manual. | Blocker sprint item 3; tools/Boo.NativeVoice; native-voice-e2e.yml | proposed |
