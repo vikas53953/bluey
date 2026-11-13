@@ -12,9 +12,10 @@ name: app-explorer
 # (tools/Boo.VerifyLive/Regressions, no AI calls) so a bug's regression test can be shown failing before its fix. RUNS ONLY ON GITHUB'S OWN WINDOWS VM (windows-latest), never a personal PC: it
 # drives the mouse and keyboard, and Boo sends a picture of the screen to the AI. Screenshots are Boo's own windows only.
 #
-# MONEY: real OpenAI on the cheapest chat model (gpt-6-luna), HARD CAP 20 billed requests per run, enforced in code
-# (ExplorerLedger refuses the 21st). No retries anywhere (Boo has none; the explorer never re-asks; xunit does not
-# rerun). The planned run uses 11. explorer-ledger.txt lists every billed and unbilled (401 / blocked) request.
+# MONEY: real OpenAI on the cheapest chat model (gpt-6-luna), HARD CAP 20 real-key requests per run, counted at Boo's
+# own network boundary (RequestMeter reads Boo's System.Net.Http events): the harness refuses to ask past the cap and
+# the meter kills Boo if it ever sends a 21st. No retries anywhere (Boo has none; the explorer never re-asks; xunit does not
+# rerun). The planned run uses 11. explorer-ledger.txt lists every request Boo really sent, and what the harness asked.
 # The key is only read from the repository secret, seeded through Boo's own DPAPI file, never typed or printed.
 
 on:
@@ -62,7 +63,16 @@ jobs:
           persist-credentials: false
           clean: true
 
-      - name: Require the OpenAI key (fail closed), mask it, empty evidence folder
+      - name: Start with an empty evidence folder
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts\explorer-evidence'
+          if (Test-Path $evidence) { Remove-Item $evidence -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+
+      # The regressions-only mode makes no AI call, so it needs neither the key nor OpenAI to be up.
+      - name: Require the OpenAI key (fail closed) and mask it
+        if: env.REGRESSIONS_ONLY != 'true'
         shell: pwsh
         env:
           OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
@@ -73,11 +83,9 @@ jobs:
           }
           Write-Output "::add-mask::$($env:OPENAI_KEY.Trim())"
           "OpenAI key present ($($env:OPENAI_KEY.Trim().Length) characters)."
-          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts\explorer-evidence'
-          if (Test-Path $evidence) { Remove-Item $evidence -Recurse -Force }
-          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 
       - name: The cheap model exists (free check, before any paid call)
+        if: env.REGRESSIONS_ONLY != 'true'
         shell: pwsh
         env:
           OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
@@ -157,8 +165,13 @@ jobs:
         if: always()
         shell: pwsh
         run: |
+          # The fixture normally removed the rule already; netsh then exits 1 ("no rule"), which is the goal, not an error.
+          # Fail only if the rule is still there after the delete.
           netsh advfirewall firewall delete rule name="Boo explorer: no network for Boo.exe" | Out-Null
-          'firewall rule cleanup done'
+          netsh advfirewall firewall show rule name="Boo explorer: no network for Boo.exe" | Out-Null
+          if ($LASTEXITCODE -eq 0) { '::error title=App explorer::the no-network firewall rule for Boo.exe is still present'; exit 1 }
+          'firewall rule absent'
+          exit 0
 
       - name: Test gate (the explorer ran; no empty or skipped run)
         if: ${{ !cancelled() && env.REGRESSIONS_ONLY != 'true' }}
