@@ -23,8 +23,12 @@ Written 12 Nov 2026 on `lane/face` at `f244e47`. Source idea: poteto's AIE talk 
 > - **Phase 1, added by Vikas (12 Nov, 11:20 PM IST):** PR #20 merged (`e1d4b5c`). `live-ai-smoke` runs on every PR and
 >   is a **required check** on `lane/face` (pinned to GitHub Actions). The `main` step waits until `lane/face` reaches `main`.
 > - **Phase 1, PR 1.1 (ratchet):** PR #21 merged (`1c82af8`). 16 patterns, 554 hits on `lane/face`, may only go down;
->   the base branch's own ratchet judges every PR.
-> - **Still open in Phase 1:** PRs 1.2–1.12 in section 2.9, plus the queued follow-ups from the reviews. Owner review of
+>   the base branch's own ratchet judges every PR. Its job `quality` is **not yet a required check** on any branch.
+> - **PRs 1.8 and 1.9 are largely done by PR #18:** the live smoke runs only on GitHub's VM (no runner choice, a refuse
+>   step), `scripts/ci/check_runners.py` fails any workflow that could run elsewhere, and the 3 frozen fixtures were
+>   re-frozen with window-only capture (oracle revision 24 by now). Not done from 1.8: the `CaptureGuard.cs` file name
+>   and `workflow_lint.py` as planned; the same protection ships under the names above.
+> - **Still open in Phase 1:** PRs 1.2–1.7 and 1.10–1.12 in section 2.9, plus the queued follow-ups from the reviews. Owner review of
 >   workflow and gate files (CODEOWNERS) is a pending decision for Vikas (`HANDOFF.md`, known issue 0).
 > - Phases 2 and 3 have **not started**; they wait for Vikas's explicit go after Phase 1.
 
@@ -116,10 +120,10 @@ removed in cleanup C10 (2.8).
 | 2 Tests | No-vacuous-pass gate: no empty test file, no test project without tests, no `Skip =`; every `.trx` must show tests ran and none skipped | `scripts/test_gate.py` (static + trx), `scripts/ci/assert-tests-ran.ps1` | `test_gate.py static` only scans `tests/`, not `tools/Boo.LiveSmoke` / `tools/Boo.VerifyLive` (the trx check does cover them in `live-ai-smoke`). |
 | 3 Runtime | UI smoke + perf budgets on the published `Boo.exe` (FlaUI) | `windows-ci` | Skipped at `f244e47` (storage quota); running again since 13 Nov (see 1.6). |
 | 3 Runtime | 4 end-to-end demos on the published `Boo.exe` against a mock OpenAI (blocking) | `demo-ci`, `tools/Boo.QaMockAi`, `tests/Boo.Demo.Tests` | No video. |
-| 3 Runtime | Live real-key round trip, fails closed when the key is missing; keys masked twice; evidence scanned for keys before upload | `live-ai-smoke.yml` (manual `workflow_dispatch`) | Manual only; not a required check. |
+| 3 Runtime | Live real-key round trip, fails closed when the key is missing; keys masked twice; evidence scanned for keys before upload | `live-ai-smoke.yml` (manual `workflow_dispatch`) | Manual only; not a required check. *(Since PR #20, 13 Nov: runs on every PR and is required on `lane/face`; see Progress.)* |
 | 3 Runtime | Anti-mock guard: refuses to run if any AI host is pinned in `hosts` or resolves to loopback | `live-ai-smoke.yml` step "Refuse if any AI host is redirected"; PR #14 (open) widens it to every private/LAN address and moves it into `tools/Boo.LiveSmoke/RealAiHostGuard.cs` | PR #14 not merged. |
 | 3 Runtime | Notch face gallery: every face state rendered offscreen to PNG | `Boo.exe --notch-gallery`, `windows-ci` | Skipped at `f244e47`; running again since 13 Nov (1.6). |
-| Process | Branch protection on `lane/face` and `main`: required checks `demos` and `build-test-publish`, strict (branch must be up to date) | GitHub settings | No required reviews, admins not enforced, no rulesets. |
+| Process | Branch protection on `lane/face` and `main`: required checks `demos` and `build-test-publish`, strict (branch must be up to date) | GitHub settings | No required reviews, admins not enforced, no rulesets. *(Since 13 Nov `lane/face` also requires `live-ai-smoke`; see Progress.)* |
 | Process | Separate reviewer, evidence table with live / mock / manual / UNVERIFIED labels | Vikas's pipeline; PR bodies | Lives only in prompts and PR habits. Nothing fails if the table is missing. |
 | Process | verify-boo skill: 7 live journeys (j0–j6) on the real `Boo.exe`, a feature map of 68 features, a prove-it rule, a map drift checker | PR #13 (open, `test/verify-boo-skill`): `.claude/skills/verify-boo/`, `tools/Boo.VerifyLive/`, `docs/FEATURE_MAP.md`, `AGENTS.md` | Not merged; j3 (screen explain) failed 2 of 3 live runs; not a required check. |
 | 4 Prose | `AGENTS.md` / `CLAUDE.md` rules (PR #13), the standing orders in Vikas's own Claude settings | prompts | See 1.4: most of these can become code. |
@@ -486,7 +490,7 @@ Each cleanup PR is **behaviour-preserving** and must keep `demo-ci` and the live
 
 | # | PR | Files | Size | Done when |
 | --- | --- | --- | --- | --- |
-| 0 | (prerequisite) Merge PR #15, artifact retention 7 days, and wait for storage to recalculate | workflows | exists | `windows-ci` reaches UI smoke and perf again on one run. **Already met** (run 43287422701, 13 Nov); PR #15 is still worth merging for retention |
+| 0 | (prerequisite) Merge PR #15, artifact retention 7 days, and wait for storage to recalculate | workflows | exists | `windows-ci` reaches UI smoke and perf again on one run. **Already met** (run 43287422701, 13 Nov); PR #15 merged 13 Nov (`95e9718`) |
 | 1.1 | Quality workflow + ratchet + rule catalog | `.github/workflows/quality-gates.yml`, `scripts/quality/ratchet.py`, `docs/quality/baseline.json`, `docs/quality/RULES.md` | S | Red proof: a throwaway commit adding `Thread.Sleep` makes `quality` fail with `BOO-ASYNC-001`; green on the real head |
 | 1.2 | Architecture refs | `docs/architecture/layers.json`, `scripts/quality/arch_refs.py` | S | Red proof: adding `Boo.Windows → Boo.Providers` fails |
 | 1.3 | Banned APIs + canary + baselines | `Directory.Build.props`, `src/BannedSymbols.txt`, `src/*/AnalyzerBaseline.cs`, `scripts/quality/canary/` | M | Canary shows one `RS0030` per banned line; real build green with only baselined hits |
@@ -495,7 +499,7 @@ Each cleanup PR is **behaviour-preserving** and must keep `demo-ci` and the live
 | 1.6 | Comment lint | `scripts/quality/comment_lint.py` | S | Red proof: an added `// retry because flaky` fails |
 | 1.7 | Key scan everywhere | `scripts/quality/key_scan.py`, 3 workflows | S | Red proof with a fake key-shaped string in a temp file; no real key involved |
 | 1.8 | No-real-screen guard (tools + workflow lint + live-smoke default runner) | `tools/Boo.LiveSmoke/CaptureGuard.cs`, `scripts/quality/workflow_lint.py`, `live-ai-smoke.yml` | S | Red proof: guard throws when `RUNNER_ENVIRONMENT` is not `github-hosted`; live smoke still green on `windows-latest` |
-| 1.9 | Same guard in the 3 frozen fixtures | `tests/*/BooAppFixture.cs`, `PerfAppFixture.cs`, oracle `--rebaseline` | S | Next oracle revision (21 or later; PR #12 used 20) with reason; reviewer approves the exact 3 files |
+| 1.9 | Same guard in the 3 frozen fixtures | `tests/*/BooAppFixture.cs`, `PerfAppFixture.cs`, oracle `--rebaseline` | S | Next oracle revision (done by PR #18: revision 24 after PRs #12, #14 and #22 took 20–23) with reason; reviewer approves the exact 3 files |
 | 1.10 | Evidence-table check + tools in static test gate | `scripts/quality/pr_evidence.py`, `scripts/test_gate.py` | S | A PR body without a table fails `quality` |
 | 1.11 | NetArchTest project | `tests/Boo.Architecture.Tests/`, oracle `--extend` | M | 6 rules, baselined counts match section 1.5 |
 | 1.12 | Trust-metrics baseline (start measuring now, see Phase 3) | `scripts/quality/trust_metrics.py`, `docs/quality/trust-metrics.md` | S | First table published with numbers from git + Actions history |
@@ -795,11 +799,11 @@ Each has a recommendation. Asked one at a time.
 
 | # | Decision | Recommendation |
 | --- | --- | --- |
-| 1 | Live smoke default runner: keep "your own PC" (`self-hosted`) or switch to GitHub's VM (`windows-latest`)? | **Switch.** The own-PC runner takes full-desktop screenshots of your real screen. Use a separate VM or Windows user later if you want a local runner. |
-| 2 | Start Phase 1 now (after storage is fixed)? | **Yes.** It is cheap (about 1 Linux minute per run) and stops repeat mistakes immediately. |
+| 1 | **Decided 12 Nov, 10:02 PM IST: GitHub's VM only (PR #18, merged).** Live smoke default runner: keep "your own PC" (`self-hosted`) or switch to GitHub's VM (`windows-latest`)? | **Switch.** The own-PC runner takes full-desktop screenshots of your real screen. Use a separate VM or Windows user later if you want a local runner. |
+| 2 | **Decided 12 Nov, 10:02 PM IST: yes, in the order of section 5.** Start Phase 1 now (after storage is fixed)? | **Yes.** It is cheap (about 1 Linux minute per run) and stops repeat mistakes immediately. |
 | 3 | Comment policy: block **new** non-doc comments and ratchet old ones, or delete old ones too? | **Block new, ratchet old.** Many old comments are real rules that should become tests first. |
 | 4 | Turn on `enforce_admins` and require 1 approving review on `lane/face` and `main`? | **Yes.** Today an admin token can push past the checks. |
-| 5 | Live journeys required on every PR, or only PRs touching `src/`, `tools/`, `.github/`? | **Only those paths, once per head SHA.** Docs-only PRs do not need a paid live run. |
+| 5 | Live journeys required on every PR, or only PRs touching `src/`, `tools/`, `.github/`? | **Only those paths, once per head SHA.** Docs-only PRs do not need a paid live run. *(This is about the multi-step live journeys of PR #13. The single live round trip, `live-ai-smoke`, runs on every PR, docs-only included, per Vikas's 12 Nov decision.)* |
 | 6 | Run `windows-ci`/`demo-ci` on `push` only for `lane/face`/`main` (PRs use `pull_request`), and stop `release.yml` running on every PR? | **Yes.** Halves Windows minutes, and drops the ~267 MB of installer + ZIP uploaded per PR push. |
 | 7 | Formal model: TLA+ for the notch lifecycle only, or skip formal and rely on FsCheck? | **TLA+ for the lifecycle only.** It is the one place with real concurrency (talk, capture, replies, Stop). |
 | 8 | Fuzz cadence: nightly or weekly? | **Weekly + every release** until the minutes budget is known (nightly alone was about 1,800 billed min/month while the repo was private). |
