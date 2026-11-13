@@ -72,6 +72,7 @@ private memory:
 | lane/face, graphics card | 92–108 MB | 127–129 MB |
 | Living ink, graphics card | 92–94 MB | 137–144 MB |
 | Living ink, software (this decision) | 58–62 MB | 75–76 MB |
+| 13 Nov 2026 | **Diagnostic probes must not starve behind the work they measure:** the perf probe ticks at `DispatcherPriority.Background`, not `ApplicationIdle` (PR #25). | An idle-priority timer never fires while the notch render loop keeps the dispatcher busy, so `diag.json` went stale during the reveal sample and the `revealFramesPerSecond` budget failed on runs where the notch had rendered 222 frames. Fix the probe, not the budget or the frozen test. | `src/Boo.App/PerfDiagnostics.cs`; HANDOFF known issue 4 | **proposed** (PR #25) |
 
 How it was found, by elimination (two runs each): turning off the wake-up, its fading, its shape changes, the eye
 clip, the loose-ink layer, the shine's see-through, the wider window, or forcing a .NET cleanup after hiding changed
