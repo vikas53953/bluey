@@ -22,7 +22,7 @@ Changed frozen files: none. Removed: none. `Boo.sln` gains the project (not an o
 | BOO-ARCH-003 App: no network access (deny `System.Net.*` except harmless types, WebView2, WPF browser controls, other Windows Runtime areas, native network DLLs) | `Boo.App.MainWindow` | 3 references, all in this one type (`MainWindow.xaml.cs:65,1624,2123`) |
 | BOO-ARCH-004 Windows: no WPF controls / shapes / windows | none | 0 |
 | BOO-ARCH-005 no mutable statics | `Boo.App.AccessibilitySettings._uiSettings`, `Boo.App.App.StartedInBackground` | 2 (same two) |
-| BOO-ARCH-006 window code-behind <= 2,674 lines | budget 2,674 | 0 over (largest `MainWindow.xaml.cs`, 2,674) |
+| BOO-ARCH-006 window code-behind <= 2,679 lines | budget 2,679 | 2,674 in the plan; PR #33 (merged while this PR was open) added 5 lines to `MainWindow.xaml.cs`, so the budget is today's largest file on `lane/face` `2433397`, 2,679. From the merge of this PR on it may only go down |
 
 Each list is exact both ways: a new offender fails, and a fixed one fails until removed, in a reviewed
 `--rebaseline`. BOO-ARCH-006 is a budget: only a file over it fails.
@@ -53,6 +53,9 @@ Purely additive: no existing test, assertion, timeout or `Skip` is touched, and 
 
 ## Choices the reviewer should check
 
+- **Baselines follow `lane/face` until this PR merges.** Each sync re-runs the rules on the new tip. PR #33 added 5
+  lines to `MainWindow.xaml.cs`, so the BOO-ARCH-006 budget is 2,679 (today's largest file), not the plan's 2,674;
+  no other rule moved. After the merge every budget and allowlist may only go down.
 - **002 is an allowlist, 003 a deny rule.** Lists of bad types failed review three times (`FileInfo`; then
   `StreamWriter(path)`, `TcpListener`; then `Path.Exists`). Core is small, so it gets an allowlist of the framework types
   it may use (measured from today's code); a type with any risky member (`Path`, `Environment`, `Type`, `Delegate`,

@@ -12,7 +12,7 @@
     "docs/verification/acceptance-shell-failures.md": "d56e2b3b22eec4d986285de30cf37104c237496c94c4bf4f41b5d83d7836cec3",
     "docs/verification/public-contracts.md": "43918f2fdedcb39cc617434f2d07a0895a77c8195fbf9b197b0313a5292fa632",
     "src/Boo.Core/Contracts.cs": "035ec5798f7b09b89068cab1b42b0667a484a42eb2d28fa14852b12b3a850caf",
-    "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "7f3f1c2f91ae3872fa85c1dd09b5de6cf795b54bd875876acec7b1fc3a8ad003",
+    "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "50c7561b8c6ce94f879102b86c461ec200b4c53a0d8f3e792000213fb279f591",
     "tests/Boo.Architecture.Tests/Boo.Architecture.Tests.csproj": "8587ecb45245fa2141bed6746514e6097653c2751ffcd1a878b06ff2b5665029",
     "tests/Boo.Architecture.Tests/CecilScan.cs": "39cc420a5770f94d4a9a13a300e8b3edd95f803508295b54ddf2cd07482e29e3",
     "tests/Boo.Core.Tests/AccessibilityPreferencesTests.cs": "267b52de838c26b4549c27868f19a2f3655865c18ab0854c7ce69b89c7fd111a",
@@ -158,7 +158,7 @@
     "tests/Boo.Architecture.Tests/Boo.Architecture.Tests.csproj",
     "tests/Boo.Architecture.Tests/CecilScan.cs"
   ],
-  "revisionCommit": "3ff363dada9f9c2b7e4469b59ec1195eae6895a9",
+  "revisionCommit": "5952a2e31435bb1ed8f80cda5bb410dd4e1c1026",
   "changedFiles": [],
   "removedFiles": []
 }
