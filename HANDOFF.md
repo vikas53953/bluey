@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #25 merged**, with `lane/face` at `40e7828` (PR #25); PR 1.3 (banned APIs) synced on top.
+Status last updated: **13 Nov 2026, after PR #25 merged**, with `lane/face` at `40e7828` (PR #25); PR #28 (Phase 1 PR 1.3, banned APIs) synced on top.
 
 ---
 
@@ -194,7 +194,7 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 
 | PR | Branch → base | State (13 Nov, after PR #23) | Notes |
 | --- | --- | --- | --- |
-| PR 1.3 (banned APIs) | `quality/banned-apis` → `lane/face` | **open** | Phase 1 PR 1.3: `Microsoft.CodeAnalysis.BannedApiAnalyzers` on every `src/` project (`Directory.Build.props`); `src/BannedSymbols.txt` (86 lines, every overload, generated from the .NET reference packs by `scripts/quality/banned_apis.py generate`); today's 39 hits baselined per member in `src/*/AnalyzerBaseline.cs` with exact counts; canary (`scripts/quality/canary/`, one call per banned line, each must fire exactly once); the canary compiled inside every `src/` project; `scripts/quality/compile_list.py` (MSBuild's real compile list must equal what the ratchet reads). All run in `quality-gates.yml` on ubuntu-latest. Touches `src/` only by adding `AnalyzerBaseline.cs` files (no behaviour change), so it still needs the per-PR live smoke. See `docs/quality/RULES.md`. |
+| [#28](https://github.com/vikas53953/bluey/pull/28) | `quality/banned-apis` → `lane/face` | **open** | Phase 1 PR 1.3: `Microsoft.CodeAnalysis.BannedApiAnalyzers` on every `src/` project (`Directory.Build.props`); `src/BannedSymbols.txt` (86 lines, every overload, generated from the .NET reference packs by `scripts/quality/banned_apis.py generate`); today's 39 hits baselined per member in `src/*/AnalyzerBaseline.cs` with exact counts; canary (`scripts/quality/canary/`, one call per banned line, each must fire exactly once); the canary compiled inside every `src/` project; `scripts/quality/compile_list.py` (MSBuild's real compile list must equal what the ratchet reads). All run in `quality-gates.yml` on ubuntu-latest. Touches `src/` only by adding `AnalyzerBaseline.cs` files (no behaviour change), so it still needs the per-PR live smoke. See `docs/quality/RULES.md`. |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
 | [#22](https://github.com/vikas53953/bluey/pull/22) | `fix/demo-step4-state-race` → `lane/face` | **merged 13 Nov** (`af241fa`) | Demo Step 4 test race fix: re-read the notch state after the button search; oracle revisions 22–23 (`docs/verification/test-oracle-revision-22.md`). |
 | [#24](https://github.com/vikas53953/bluey/pull/24) | `docs/verify-boo-followups` → `lane/face` | **merged 13 Nov** (`673b38e`) | Docs-only follow-ups from PR #13's reviews: `SKILL.md` screenshot naming (the `.capture.txt` names each `boo-<n>` window; the panel is the title that starts with `Boo companion`), HANDOFF known issues 11–12 wording. No code change; the 45 s OpenAI timeout is untouched. |
