@@ -1,7 +1,8 @@
 name: live-ai-smoke
 
 # ONE real AI round trip against the published Boo.exe (no mock): typed question -> screen capture -> real provider ->
-# answer row in Boo's transcript. Runs on EVERY pull request (a required check, `live-ai-smoke`) and by hand
+# answer row in Boo's transcript. Runs on EVERY pull request (its final job `live-ai-smoke` is meant to be a required
+# check once added to branch protection) and by hand
 # (workflow_dispatch). Each run spends one small paid request. How to add the key and run it: docs/LIVE_AI_SMOKE.md.
 #
 # RUNS ONLY ON GITHUB'S OWN WINDOWS VM (windows-latest), never on the owner's PC: the test drives the mouse and
@@ -122,6 +123,11 @@ jobs:
 
       # A leftover hosts-file redirect (the demo-ci mock trick) would send Boo to a fake server and turn this into a
       # false green. Refuse to run unless every provider host resolves to a real, non-loopback address.
+      # This step is the early, coarse check (hosts-file pins and loopback). The full check runs inside the test before
+      # Boo starts: tools/Boo.LiveSmoke/RealAiHostGuard.cs rejects loopback, private/LAN, link-local, site-local,
+      # unique-local, CGNAT, fake-IP and NAT64/6to4 addresses (also IPv6-wrapped), hostnames that resolve to one, and any
+      # proxy in the way. It does not check for a planted trusted root certificate. Its behaviour tests run in
+      # windows-ci (tests/Boo.LiveGuard.Tests).
       - name: Refuse if any AI host is redirected (no mock may answer)
         shell: pwsh
         run: |
@@ -234,7 +240,7 @@ jobs:
           name: live-ai-evidence
           path: artifacts/live-evidence
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
 
   # THE REQUIRED CHECK. GitHub counts a skipped required job as passing, so `smoke` (skipped when `preflight` fails)
   # must never be the required check itself. This job always runs and is green only when both jobs really succeeded.

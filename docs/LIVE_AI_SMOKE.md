@@ -8,8 +8,8 @@ the real AI, and the test passes only if a real answer shows up in Boo's convers
 buttons work, but not that Boo can talk to the real AI. This test is the missing half.
 
 **When it runs:** on **every pull request**, automatically, and whenever you press the button. Its final job,
-`live-ai-smoke`, is a **required check** on `lane/face` and `main`: a PR cannot merge unless a real round trip
-passed on its newest commit (Vikas, 12 Nov 2026, 11:20 PM IST). A newer push to the same PR cancels the older run.
+`live-ai-smoke`, becomes a **required check** on `lane/face` once PR #20 merges (and on `main` when this reaches
+`main`): then a PR cannot merge unless a real round trip passed on its newest commit (Vikas, 12 Nov 2026, 11:20 PM IST). A newer push to the same PR cancels the older run.
 
 **What it costs:** one small paid AI request per run (a screenshot and a short answer), so one per PR push plus any
 manual runs. A run cancelled by a newer push may already have spent its request. GitHub's standard runners are free
@@ -23,7 +23,8 @@ because the repository is public (since 13 Nov 2026); each run takes about 10–
   commit and so a fresh run.
 - A pull request runs **its own copy** of this workflow, so a PR could change the check itself. Only a GitHub setting
   closes that (see HANDOFF.md, known issues); until then the verifying bot must treat any PR that touches
-  `.github/workflows/`, `scripts/ci/`, `scripts/quality/` or `docs/quality/` as needing Vikas's eyes.
+  `.github/workflows/`, `scripts/ci/`, `scripts/quality/`, `scripts/test_*.py`, `docs/quality/` or the oracle files
+  (`docs/verification/test-oracle*`, `test-oracle-history/`) as needing Vikas's eyes.
 
 **Why a separate final job:** GitHub counts a *skipped* required job as passing. When the key check fails, the
 Windows job is skipped, so it cannot be the required check itself. The final `live-ai-smoke` job always runs and is
@@ -105,7 +106,8 @@ From a terminal instead: `gh workflow run live-ai-smoke.yml --ref <branch> -f te
 | `smoke` red at **"Refuse unless this is GitHub's own VM"** | Someone changed `runs-on` to a machine that is not GitHub's. Put it back to `windows-latest`. |
 | `smoke` red only at an **Upload** step, with "Artifact storage quota has been hit" | The test itself ran (check the "Real AI round trip" step), but GitHub's storage for evidence is full, so the run stays red: no evidence, no green. Wait for storage to free up and run again. |
 | `smoke` red at **"Refuse if any AI host is redirected"** | The machine's hosts file points an AI address at a fake server. Remove that line and run again. |
-| `smoke` red at **"Real AI round trip"** | Boo did not get a real answer through the chosen provider. The log and `live-01-round-trip.txt` show Boo's own message (for example "OpenAI rejected the API key" or "quota is used up"). |
+| `smoke` red at **"Real AI round trip"** with **"an AI host points at a local, private or LAN address, or a proxy is in the way"** | An AI address resolves to this PC, the local network (10.x, 172.16–31.x, 192.168.x), a link-local, site-local or private IPv6 address, a 100.64.x overlay, a 198.18.x fake-IP proxy or an IPv6 translation of one; or a proxy (HTTPS_PROXY, HTTP_PROXY, ALL_PROXY or the Windows proxy setting) would carry the request. Either way a fake server could answer. The message names the host and the range or proxy. Fix the DNS, VPN, proxy or hosts setting and run again. Boo was never started. (On a green run the log shows the addresses the guard accepted, under `live-00-anti-mock-guard.txt`.) |
+| `smoke` red at **"Real AI round trip"** (any other message) | Boo did not get a real answer through the chosen provider. The log and `live-01-round-trip.txt` show Boo's own message (for example "OpenAI rejected the API key" or "quota is used up"). |
 | Both green | Boo sent a real question to the real AI and showed the real answer. |
 
 The evidence (screenshots, the answer text, test results) is attached to the run as **live-ai-evidence** — open the

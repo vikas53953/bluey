@@ -1,4 +1,4 @@
-# Test-oracle revision 21: reviewed rebaseline (2026-11-12, renumbered 13 Nov)
+# Test-oracle revision 24: reviewed rebaseline (2026-11-12, renumbered three times on 13 Nov)
 
 Branch `fix/live-smoke-off-desktop` (PR #18). Reason: Vikas's decision of 12 Nov 2026, 10:02 PM IST: the live AI smoke
 must never run on his PC, and test screenshots must be of Boo's own windows, never the whole desktop.
@@ -16,7 +16,10 @@ get the same change:
 Decision: ACCEPT.
 
 **Renumbered 13 Nov 2026:** written as revision 20 on PR #18; PR #12 (Living ink) merged first and took revision 20
-for its face tests (`test-oracle-revision-20.md`), so these same 3 fixture changes are now revision 21 on top of it.
+for its face tests (`test-oracle-revision-20.md`), so these same 3 fixture changes became revision 21; then PR #14
+(anti-mock guard) merged first with revision 21 (two new files under `tests/Boo.LiveGuard.Tests/`), so they became
+revision 22; then PR #22 (demo Step 4 state race) merged first with revisions 22 and 23 (`DemoTests.cs`), so they are
+now **revision 24**.
 The fixture contents did not change in the renumbering.
 
 ## Why this does not weaken any test

@@ -213,13 +213,19 @@ public sealed class DemoTests : IClassFixture<BooAppFixture>
             // Hide the panel so the notch is photographed alone; first check is due after 10 real seconds.
             Find(panel, "CloseButton").AsButton().Invoke();
             var seen = new List<string>();
+            // Only a state read taken AFTER the last separate UI Automation call may end the wait. Each FindFirstDescendant
+            // is its own round trip, and the notch can change state between two calls (Capture -> Nudge the moment the focus
+            // check's screenshot ends; CI shows the caption and "Back to it" in the next frame). Concluding on the button
+            // with a state sampled before the search lost "Nudge" (runs 43240958545, 43296734862).
             var nudge = _boo.WaitFor(() =>
             {
                 var notch = _boo.FindNotch();
                 if (notch is null) return null;
-                var state = ItemStatus(notch);
-                if (seen.Count == 0 || seen[^1] != state) seen.Add(state);
-                return notch.FindFirstDescendant(cf => cf.ByAutomationId("NudgeBackButton")) ?? (state == "Nudge" ? notch : null);
+                RecordState(seen, ItemStatus(notch));
+                _ = notch.FindFirstDescendant(cf => cf.ByAutomationId("NudgeBackButton"));
+                var after = ItemStatus(notch);
+                RecordState(seen, after);
+                return after == "Nudge" ? notch : null;
             }, TimeSpan.FromSeconds(150), "the focus nudge on the notch"); // two off-task checks 10 s apart plus the nudge round trip; run 2 saw one check in 60 s
             _boo.CaptureScreen("04-nudge-fullscreen");
             var notchWindow = _boo.WaitForNotch(UiTimeout);
@@ -227,8 +233,12 @@ public sealed class DemoTests : IClassFixture<BooAppFixture>
             _boo.WriteObservation("04-nudge", $"states={string.Join(">", seen)} notch={notchWindow.BoundingRectangle} help='{HelpText(notchWindow)}'");
             Assert.Contains("Nudge", seen);
 
-            var back = notchWindow.FindFirstDescendant(cf => cf.ByAutomationId("NudgeBackButton"))
+            // The pills appear once the nudge caption has finished typing, so wait for the button instead of assuming it.
+            AutomationElement? FindBack() => notchWindow.FindFirstDescendant(cf => cf.ByAutomationId("NudgeBackButton"))
                 ?? notchWindow.FindFirstDescendant(cf => cf.ByName("Back to it"));
+            // Keep the element the wait found: looking it up a second time could miss it if the 6 s nudge ends in between.
+            AutomationElement? back = null;
+            BooAppFixture.WaitUntil(() => (back = FindBack()) is not null, UiTimeout);
             Assert.NotNull(back);
             back!.AsButton().Invoke();
 
@@ -238,7 +248,7 @@ public sealed class DemoTests : IClassFixture<BooAppFixture>
                 var notch = _boo.FindNotch();
                 if (notch is null) return false;
                 var state = ItemStatus(notch);
-                if (seen[^1] != state) seen.Add(state);
+                RecordState(seen, state);
                 return state == "Happy";
             }, UiTimeout);
             _boo.CaptureScreen("04-happy-fullscreen");
@@ -402,6 +412,12 @@ public sealed class DemoTests : IClassFixture<BooAppFixture>
         {
             return null;
         }
+    }
+
+    /// <summary>Appends a notch state to the observed sequence unless it repeats the last one.</summary>
+    private static void RecordState(List<string> seen, string state)
+    {
+        if (seen.Count == 0 || seen[^1] != state) seen.Add(state);
     }
 
     private static string ItemStatus(AutomationElement element)

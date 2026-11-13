@@ -6,6 +6,10 @@ A local Windows desktop assistant with a top-center companion, screen explanatio
 
 New here? Read the [user guide](docs/USER_GUIDE.md). Recording a video? Use the [demo script](docs/DEMO_SCRIPT.md).
 
+**Working on Boo (people and agents): start with [HANDOFF.md](HANDOFF.md)**: architecture, build and test, branch
+model, pipeline rules and current status. Every PR updates HANDOFF.md's status and [docs/DECISIONS.md](docs/DECISIONS.md);
+see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## How to try
 
 This is the quickest path from download to the three demos and a focus session. It takes about 35 minutes, 25 of them for the focus session.

@@ -23,6 +23,6 @@ The plan is Deep: native overlays, sensitive screen/audio data, external APIs, a
 
 `status: blocked` for production execution handoff; `phase: document-review-dispatch`.
 
-Preserved artifact: `C:/Users/vikasmit/Downloads/blue--fo/docs/plans/2026-11-06-2242-feat-boo-windows-companion-plan.md`.
+Preserved artifact: `%USERPROFILE%/Downloads/blue--fo/docs/plans/2026-11-06-2242-feat-boo-windows-companion-plan.md`.
 
 Recovery: establish a supported Advisor route with the required provider identity, run the selected CE review lenses, resolve retained findings, and obtain the user's visual/plan approval. Do not confuse this tooling gap with a document-review timeout: no independent reviewers launched. The separately authorized visual preview proceeds without releasing an Executor.
