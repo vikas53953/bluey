@@ -55,7 +55,7 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       BOO_CAPTURE_SCOPE: boo-windows
       BOO_LIVE_TEXT_PROVIDER: openai
-      BOO_LIVE_MODEL: ${{ inputs.model || 'no-such-model' }}
+      BOO_LIVE_MODEL: ${{ inputs.model || 'gpt-6-luna' }}
       BOO_LIVE_REALTIME_MODEL: ${{ inputs.realtime_model || 'gpt-realtime-2.1-mini' }}
       BOO_LIVE_TRANSCRIBE_MODEL: gpt-4o-mini-transcribe
     steps:
