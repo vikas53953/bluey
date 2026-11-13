@@ -29,5 +29,5 @@ public sealed class CaptureExclusionPolicy
         ? null
         : "QA mode: Boo windows are capturable (BOO_QA_CAPTURABLE=1). Screenshots and screen shares will show Boo.";
 
-    public static CaptureExclusionPolicy FromEnvironment() => new(Environment.GetEnvironmentVariable);
+    public static CaptureExclusionPolicy FromEnvironment() => new(RuntimeEnvironment.Read);
 }
