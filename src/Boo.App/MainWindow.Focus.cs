@@ -105,10 +105,12 @@ public partial class MainWindow
         }
     }
 
+    /// <summary>
+    /// Pauses a RUNNING session only. On an ended (or already paused) session it does nothing: it used to claim
+    /// "Paused" and pin the notch on the Paused face with nothing to resume or end (issue #70).
+    /// </summary>
     private void FocusPauseButton_OnClick(object sender, RoutedEventArgs e)
     {
-        // Pause applies only to a running session. On an ended (or already paused) session it used to claim "Paused"
-        // and pin the notch on the Paused face with nothing to resume or end (issue #70).
         if (_focus is not { Status: Boo.Core.FocusStatus.Running })
         {
             return;
