@@ -179,30 +179,43 @@ and deliberate evasion is closed by the compiler, which sees the real names, typ
 ## Key scan before every upload (PR 1.7)
 
 [`scripts/quality/key_scan.py`](../../scripts/quality/key_scan.py) runs right before **every** `upload-artifact` step in
-`windows-ci`, `demo-ci` and `live-ai-smoke`, on exactly the path that step uploads, with the same `if:`. A file with a hit
-is deleted (so an `if: always()` upload cannot carry it) and the job fails. It reads every file as raw bytes (binaries,
-screenshots and the published app included), as UTF-16, and URL-decoded, plus every file name. It never prints a value:
-only the file (with any key-shaped part of the path masked), the rule, the byte offset and the length.
-`--self-test` (run by the first scan step of each job) proves every pattern in five forms on fakes built at run time,
-that clean files pass, and that no value is ever printed.
+`windows-ci`, `demo-ci` and `live-ai-smoke`, on exactly the path that step uploads, with the same `if:`
+(`--preflight --delete PATH`). Each run first proves itself (`--self-test`, every pattern and every failure path on fakes
+built at run time) and checks the workflows (`--check-workflows`: every upload step is preceded by a scan of the same
+path with the same `if:`; `release.yml` is the documented exception below). Then it reads every file as raw bytes
+(binaries, screenshots and the published app included), as UTF-16 LE at both byte offsets (and BE when the file is
+UTF-16 BE), URL-decoded, and every file name. A file with a hit is deleted (so an `if: always()` upload cannot carry
+it) and the job fails (exit 1). **Fail closed:** if the self-test, the workflow check or the scan itself fails for any
+reason (crash, unreadable folder, odd file name), every file under the upload path is deleted and the exit code is 3.
+It never prints a value: only the file (with any key-shaped part of the path masked), the byte offset and the length.
+`--diff BASE` scans the lines a PR adds and prints file:line (for the `quality` workflow, see Known gaps).
 
-## BOO-SEC-001
-**Key-shaped text in an upload**: OpenAI / Anthropic `sk-`, GitHub `ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_` and
-`github_pat_`, Google `AIza`, AWS access key ids, private-key blocks, Slack `xox?-` and Tailscale `tskey-` tokens, long
-bearer tokens. The only exception: text that appears verbatim inside a **frozen** test file (listed in
-`docs/verification/test-oracle.json`), i.e. the redaction tests' deliberate fakes, also when xUnit shortens them in a
-test name. That list can only change through a reviewed oracle revision, so there is no hand-kept allow-list.
-**Fix:** find what wrote the text and redact it at the source. **Do NOT** skip the scan, narrow a pattern, move the file
-out of the upload path, or add an allow-list.
+## BOO-SAFE-002
+**An API key in an upload (or in a PR's added lines).** Two kinds of hit:
+- **key-shaped text:** OpenAI / Anthropic `sk-`, GitHub `ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_` and `github_pat_`, Google
+  `AIza`, AWS access key ids, private-key blocks, Slack `xox?-`, Tailscale `tskey-` and Hugging Face `hf_` tokens, JSON
+  Web Tokens, long bearer tokens. The only exception: text that appears verbatim inside a **frozen** test file (listed
+  in `docs/verification/test-oracle.json`), i.e. the redaction tests' deliberate fakes, also when xUnit shortens them
+  in a test name. That list changes only through a reviewed oracle revision, so there is no hand-kept allow-list.
+- **real secret:** the exact value of a secret the job holds (`--secret-env`; `live-ai-smoke` passes the three
+  `BOO_LIVE_*_KEY` secrets), found plain, UTF-16 (LE or BE), URL-encoded, or base64 (standard or URL-safe, any byte
+  alignment). Never allowed, not even if the text is in a test.
 
-## BOO-SEC-002
-**The exact value of a secret the job holds** (`--secret-env`; `live-ai-smoke` passes the three `BOO_LIVE_*_KEY`
-secrets), found plain, UTF-16, URL-encoded or base64 (any alignment). Never allowed, not even if the text is in a test.
-**Fix:** revoke and rotate the key, then fix the code that wrote it (log lengths, never values). **Do NOT** allow-list
-it, rename the secret or drop `--secret-env`.
+**Fix:** key-shaped text: find what wrote it and redact it at the source. Real secret: revoke and rotate the key, then
+fix the code that wrote it (log lengths, never values). **Do NOT** skip the scan, narrow a pattern, move the file out
+of the upload path, add an allow-list, rename the secret or drop `--secret-env`.
 
-Known gaps of the key scan: a key shown as **pixels** in a screenshot is not text and is not found (Boo never draws its
-keys; the Settings key box is masked); a key-shaped string that is base64-encoded is found only for BOO-SEC-002 (exact
-secrets); `release.yml` uploads (installer, portable ZIP) are not scanned yet (not in PR 1.7's scope).
-Red proof: see the PR 1.7 evidence table (a throwaway branch writes a run-time-built fake key into the test results
-before upload; the scan fails the job and deletes the file).
+Known gaps of the key scan:
+- a key shown as **pixels** in a screenshot is not text and is not found (Boo never draws its keys; the Settings key
+  box is masked);
+- key-shaped text that is base64-encoded, gzip/zip-compressed, or an AWS *secret* key (a plain 40-character string)
+  is not detected; base64 is covered only for real secrets;
+- `release.yml` uploads (installer, portable ZIP, `gh release create`) are not scanned yet (not in PR 1.7's files);
+- the PR-diff scan (`--diff`) is ready but not wired: it needs one step in `quality-gates.yml`, which belongs to
+  another PR;
+- the plan's "high-entropy strings" check is not implemented: on uploads it would flag every hash, GUID, compressed
+  image and compiled file (see `docs/DECISIONS.md`).
+
+Red proof (13 Nov 2026): run [43359573803](https://github.com/vikas53953/bluey/actions/runs/43359573803) on a
+throwaway branch planted a run-time-built fake key in the test results; the scan before that upload reported
+`OpenAI/Anthropic API key ... The value is not shown`, deleted the file and failed the job (`KEY_SCAN_FAILED 1 of 7`).

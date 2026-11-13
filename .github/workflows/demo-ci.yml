@@ -154,15 +154,13 @@ jobs:
           for ($j = 0; $j -lt $b64.Length; $j += 3000) { $b64.Substring($j, [Math]::Min(3000, $b64.Length - $j)) }
           '=====DEMO-SHEET-END====='
 
-      # BOO-SEC-001/002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped
-      # string (or a real secret) is deleted so the upload cannot carry it, and the job fails.
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails; if the scan cannot prove itself it deletes everything (fail closed).
       - name: Key scan before upload (demo evidence)
         if: always()
         shell: pwsh
         run: |
-          python -I scripts/quality/key_scan.py --self-test
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          python -I scripts/quality/key_scan.py --delete artifacts/demo-evidence
+          python -I scripts/quality/key_scan.py --preflight --delete artifacts/demo-evidence
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Upload demo evidence

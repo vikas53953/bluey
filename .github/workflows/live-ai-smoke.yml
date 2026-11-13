@@ -250,8 +250,8 @@ jobs:
           Get-ChildItem artifacts/live-evidence -Recurse -Filter *.capture.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
           if ($bad -gt 0) { "::error title=Live AI smoke::$bad screenshot problem(s): copied from the screen, unreadable, or a capture with no real Boo window content"; exit 1 }
 
-      # BOO-SEC-001/002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped
-      # string (or a real secret) is deleted so the upload cannot carry it, and the job fails.
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails; if the scan cannot prove itself it deletes everything (fail closed).
       - name: Key scan before upload (live evidence)
         if: always()
         shell: pwsh
@@ -260,9 +260,7 @@ jobs:
           ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
           GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
         run: |
-          python -I scripts/quality/key_scan.py --self-test
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          python -I scripts/quality/key_scan.py --delete --secret-env OPENAI_KEY --secret-env ANTHROPIC_KEY --secret-env GEMINI_KEY artifacts/live-evidence
+          python -I scripts/quality/key_scan.py --preflight --delete --secret-env OPENAI_KEY --secret-env ANTHROPIC_KEY --secret-env GEMINI_KEY artifacts/live-evidence
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Upload live evidence (screenshots, observations, test results)

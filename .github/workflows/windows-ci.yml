@@ -76,14 +76,12 @@ jobs:
       - name: Publish app
         run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
 
-      # BOO-SEC-001/002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped
-      # string (or a real secret) is deleted so the upload cannot carry it, and the job fails.
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails; if the scan cannot prove itself it deletes everything (fail closed).
       - name: Key scan before upload (published app)
         shell: pwsh
         run: |
-          python -I scripts/quality/key_scan.py --self-test
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          python -I scripts/quality/key_scan.py --delete artifacts/ci
+          python -I scripts/quality/key_scan.py --preflight --delete artifacts/ci
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Upload published app
@@ -158,13 +156,13 @@ jobs:
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\ui-smoke
         run: dotnet test tests/Boo.Ui.Tests -c Release --no-build --logger trx --logger "console;verbosity=detailed" --results-directory artifacts/test-results/ui
 
-      # BOO-SEC-001/002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped
-      # string (or a real secret) is deleted so the upload cannot carry it, and the job fails.
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails; if the scan cannot prove itself it deletes everything (fail closed).
       - name: Key scan before upload (UI smoke screenshots)
         if: always()
         shell: pwsh
         run: |
-          python -I scripts/quality/key_scan.py --delete artifacts/ui-smoke
+          python -I scripts/quality/key_scan.py --preflight --delete artifacts/ui-smoke
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Upload UI smoke screenshots
@@ -191,13 +189,13 @@ jobs:
       - name: Test gate (UI smoke and perf results)
         run: python -I scripts/test_gate.py trx artifacts/test-results/ui artifacts/test-results/perf
 
-      # BOO-SEC-001/002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped
-      # string (or a real secret) is deleted so the upload cannot carry it, and the job fails.
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails; if the scan cannot prove itself it deletes everything (fail closed).
       - name: Key scan before upload (perf results)
         if: always()
         shell: pwsh
         run: |
-          python -I scripts/quality/key_scan.py --delete artifacts/ui-smoke/perf
+          python -I scripts/quality/key_scan.py --preflight --delete artifacts/ui-smoke/perf
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Upload perf results
@@ -209,13 +207,13 @@ jobs:
           path: artifacts/ui-smoke/perf
           if-no-files-found: warn
 
-      # BOO-SEC-001/002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped
-      # string (or a real secret) is deleted so the upload cannot carry it, and the job fails.
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails; if the scan cannot prove itself it deletes everything (fail closed).
       - name: Key scan before upload (test results)
         if: always()
         shell: pwsh
         run: |
-          python -I scripts/quality/key_scan.py --delete artifacts/test-results
+          python -I scripts/quality/key_scan.py --preflight --delete artifacts/test-results
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Upload test results
