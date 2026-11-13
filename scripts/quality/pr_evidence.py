@@ -26,6 +26,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import urllib.error
 import urllib.request
 
@@ -170,6 +171,13 @@ def check(rendered_html, changed_files, repo):
                             'footnotes or math in a cell, merged cells, a table inside it, rows before the header or a '
                             'footer): write every table as a Markdown pipe table with plain text, links, bold, italic, '
                             'strikethrough and code in its cells')
+            continue
+        foreign = [ch for text in header + [x for _, cells in rows for x, _ in cells] for ch in text
+                   if ord(ch) > 127 and unicodedata.category(ch).startswith('L')]
+        if foreign:
+            problems.append(f'table {k} has letters outside plain A-Z (for example "{foreign[0]}", '
+                            f'U+{ord(foreign[0]):04X}): a look-alike letter could hide a label from this check; use '
+                            'plain ASCII letters in tables')
             continue
         cols = [c for c, h in enumerate(header) if label_of(h) == 'label'
                 and len([w for w in h.split() if re.search(r'[A-Za-z]', w)]) == 1]
@@ -359,6 +367,13 @@ def self_test():
     expect('a cell starting with "live" in a table without a Label column fails',
            check(good + table([['real AI round trip', 'live (OpenAI)']], ('Claim', 'L\u0430bel')), ['src/a.cs'], repo)
            != [])
+    expect('a look-alike letter in a cell fails the table (Cyrillic i in "live")',
+           check(good + table([['real AI round trip', 'l\u0456ve (OpenAI)']], ('Claim', 'Status')), ['src/a.cs'], repo)
+           != [])
+    expect('full-width letters fail the table',
+           check(good + table([['rt', '\uff4c\uff49\uff56\uff45']], ('Claim', 'Status')), ['src/a.cs'], repo) != [])
+    expect('emoji and dashes are not letters: they pass',
+           check(table(rows + [['x \u2014 y', 'mock \u2705', 'z']]), ['src/a.cs'], repo) == [])
     expect('struck-out text is not read: "~~mock~~ live" is a live row and needs a run link',
            check(table([['rt', '<del>mock</del> live', 'trust me']]), [], repo) != [])
     expect('struck-out text is not read in a table without a Label column either',
@@ -460,6 +475,12 @@ RENDER_CASES = (
     ('struck-out word before live under a misspelled Label', '| Claim | Label | Proof |\n|---|---|---|\n'
      '| live run | BLOCKED | no runner today |\n\n| Claim | Lable | Proof |\n|---|---|---|\n'
      '| real AI round trip | ~~x~~ live | trust me |\n', False),
+    ('look-alike letters in both the header and the live cell', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| live run | BLOCKED | no runner today |\n\n| Claim | L\u0430bel | Proof |\n|---|---|---|\n'
+     '| real AI round trip | l\u0456ve (OpenAI) | trust me |\n', False),
+    ('full-width live in a Status table', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| live run | BLOCKED | no runner today |\n\n| Claim | Status | Proof |\n|---|---|---|\n'
+     '| real AI round trip | \uff4c\uff49\uff56\uff45 (OpenAI) | trust me |\n', False),
     ('a struck-out run link', '| Claim | Label | Proof |\n|---|---|---|\n'
      '| rt | live | ~~[run](https://github.com/{repo}/actions/runs/123)~~ |\n', False),
     ('commit and PR autolinks, emoji, code in cells pass', '| Claim | Label | Proof |\n|---|---|---|\n'
