@@ -10,8 +10,9 @@ namespace Boo.Explorer;
 
 /// <summary>
 /// REAL key, real OpenAI (cheapest chat model, set by the workflow): chat, then the variations that need a reply in
-/// flight. Planned: 11 real-key requests of the hard cap 20, counted at Boo's network boundary by RequestMeter (never by
-/// the asks themselves); nothing retries. Every "while Boo is answering" step first proves a request is on the wire.
+/// flight. Planned: 11 real-key requests of the cap 20; each is admitted before its question (ExplorerLedger) and
+/// checked at Boo's network boundary (RequestMeter); nothing retries. Every "while Boo is answering" step first proves
+/// THIS question's request is on the wire.
 /// Each answer carries a code word so a stale or misplaced reply is unambiguous. Replies the explorer interrupts are
 /// ~120 words long, so they are still on the wire when it acts (one-word replies finish within a second).
 /// </summary>
@@ -202,6 +203,8 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
                 var crashNotice = Status(p2);
                 Ask(p2, "Reply with exactly the word JULIET.", label: "l07 after relaunch");
                 var reply = Boo.WaitFor(() => BooRows(p2).LastOrDefault(r => r.Contains("JULIET", StringComparison.OrdinalIgnoreCase)), AnswerTimeout, "JULIET after relaunch");
+                // Before this Boo is closed, its last request's STOP must be in the ledger.
+                Assert.True(Meter.Drain(TimeSpan.FromSeconds(15)), $"The relaunched Boo still has {Meter.InFlight} request(s) in flight.");
                 again.CaptureScreen("l07-after-relaunch");
                 again.WriteObservation("l07-kill-relaunch", $"health='{string.Join("; ", health.DefaultIfEmpty("ok"))}' statusOnRelaunch='{crashNotice}' reply='{Shorten(reply, 120)}'");
                 Assert.Empty(health);

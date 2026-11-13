@@ -7,16 +7,26 @@ using Microsoft.Diagnostics.Tracing;
 namespace Boo.Explorer;
 
 /// <summary>
-/// Counts the HTTP requests a running Boo.exe REALLY sends, at Boo's own network boundary: .NET's built-in
+/// Watches the HTTP requests a running Boo.exe REALLY starts, at Boo's own network boundary: .NET's built-in
 /// "System.Net.Http" event source (RequestStart / RequestStop / RequestFailed), read from outside the process over the
-/// standard .NET diagnostics channel (EventPipe). Nothing in Boo changes, no proxy sits in between (the anti-mock guard
-/// forbids one), and every path is counted: typed chat, voice, focus checks, research, retries if any existed.
-/// TLS hides request bodies, never these events. One meter per Boo process; the totals are static for the whole run.
-/// In flight = the runtime's own "current-requests" counter (sent every second); the per-second counter event also makes
-/// EventPipe deliver the request events promptly (without it they arrived only when the NEXT event came, up to 15 s late,
-/// run 43485951548). A failed request raises RequestFailed AND RequestStop(-1): only RequestStop ends a request.
-/// A launch that holds the REAL key is "billable": if its requests would pass <see cref="ExplorerLedger.HardCap"/>,
-/// the meter kills that Boo at once (backstop; the harness also refuses to ask past the cap).
+/// standard .NET diagnostics channel (EventPipe). Nothing in Boo changes and no proxy sits in between (the anti-mock
+/// guard forbids one). TLS hides request bodies, never these events.
+///
+/// What it covers: every HTTP request Boo starts (typed chat, research, focus checks, update checks) AND the opening of
+/// a voice session, because the realtime WebSocket is opened with an HTTP request. What it does NOT see: voice turns sent
+/// over an already-open WebSocket. The explorer therefore keeps voice off (speech off in every launch, checked before
+/// each ask), and any request it did not admit (such as a voice session opening) ends the run.
+///
+/// The meter is the CHECK, not the gate: the gate is admission (<see cref="ExplorerLedger.Admit"/>). Each admitted ask
+/// allows exactly one request on that Boo; a request beyond what was admitted is UNADMITTED, and the meter kills that
+/// Boo at once and marks the run failed. Because events arrive asynchronously, a misbehaving Boo could start a few more
+/// requests before the kill: the guarantee is "at most the admitted count, plus what one surprise burst sends before it
+/// is seen", and every such request is listed.
+///
+/// Delivery: the 1 s System.Net.Http counters make EventPipe deliver promptly (without them events arrived only when the
+/// next event came, up to 15 s late, run 43485951548). A failed request raises RequestFailed AND RequestStop(-1): only
+/// RequestStop ends a request. Fails closed: a reader error or lost events set <see cref="Problem"/>, and no ask runs
+/// on a meter with a problem.
 /// </summary>
 public sealed class RequestMeter : IDisposable
 {
@@ -26,10 +36,13 @@ public sealed class RequestMeter : IDisposable
     private static int s_billableStarted;
 
     private readonly EventPipeSession _session;
+    private readonly EventPipeEventSource _source;
     private readonly Thread _reader;
     private readonly int _pid;
     private readonly bool _billable;
-    private int _started, _stopped, _currentRequests;
+    private int _started, _stopped, _admitted;
+    private volatile string? _problem;
+    private volatile bool _stopping;
 
     private RequestMeter(int pid, string launch, bool billable)
     {
@@ -54,12 +67,23 @@ public sealed class RequestMeter : IDisposable
             }
         }
         _session = session;
-        var source = new EventPipeEventSource(_session.EventStream);
-        source.Dynamic.All += OnEvent;
+        _source = new EventPipeEventSource(_session.EventStream);
+        _source.Dynamic.All += OnEvent;
         _reader = new Thread(() =>
         {
-            try { source.Process(); }
-            catch (Exception) { /* the process exited or the session stopped */ }
+            try
+            {
+                _source.Process();
+            }
+            catch (Exception ex) when (!_stopping && !ProcessGone())
+            {
+                _problem = $"meter reader failed while Boo was running: {ex.GetType().Name}: {ex.Message}";
+                Note(DateTime.UtcNow, "METER FAILED " + Launch + ": " + _problem);
+            }
+            catch (Exception)
+            {
+                // Boo exited (killed on purpose or by a crash the health check reports) or the session was stopped.
+            }
         }) { IsBackground = true, Name = "request-meter-" + pid };
         _reader.Start();
         Note(DateTime.UtcNow, $"attached to {launch} (pid {pid}, billable={billable})");
@@ -67,48 +91,64 @@ public sealed class RequestMeter : IDisposable
 
     public string Launch { get; }
 
-    /// <summary>Requests started by launches that hold the real key: the number that is billed, at most.</summary>
+    /// <summary>Requests started by launches that hold the real key, across the whole run.</summary>
     public static int BillableStarted => Volatile.Read(ref s_billableStarted);
 
     public static IReadOnlyCollection<string> Events => Log.ToArray();
 
-    /// <summary>
-    /// Requests this Boo has on the wire now: the larger of the runtime's "current-requests" counter (at most 1 s old)
-    /// and starts minus stops seen so far, so a request is never missed while its counter tick is still on the way.
-    /// </summary>
-    public int InFlight => Math.Max(Volatile.Read(ref _currentRequests), Volatile.Read(ref _started) - Volatile.Read(ref _stopped));
+    /// <summary>Every meter's problem, if any (reader failed, events lost, an unadmitted request).</summary>
+    public static IEnumerable<string> Problems => ByProcess.Values.Select(m => m.Problem).OfType<string>();
+
+    /// <summary>Why this meter can no longer be trusted, or null.</summary>
+    public string? Problem => _problem ?? (_source.EventsLost > 0 ? $"EventPipe lost {_source.EventsLost} event(s) for {Launch}" : null);
 
     public int Started => Volatile.Read(ref _started);
 
-    /// <summary>Attaches once per Boo process. Fails closed: a billable launch without a meter may not ask anything.</summary>
+    /// <summary>Started minus stopped, from the request events themselves (not the 1 s counter).</summary>
+    public int InFlight => Volatile.Read(ref _started) - Volatile.Read(ref _stopped);
+
+    /// <summary>Attaches once per Boo process.</summary>
     public static RequestMeter For(int pid, string launch, bool billable) =>
         ByProcess.GetOrAdd(pid, _ => new RequestMeter(pid, launch, billable));
+
+    /// <summary>Allows exactly one more request on this Boo (called by the ledger when it admits an ask).</summary>
+    public void AllowOne() => Interlocked.Increment(ref _admitted);
+
+    /// <summary>Waits until every request this Boo started has stopped (and its STOP reached the log).</summary>
+    public bool Drain(TimeSpan timeout)
+    {
+        var clock = Stopwatch.StartNew();
+        while (clock.Elapsed < timeout)
+        {
+            if (InFlight <= 0 || ProcessGone()) return InFlight <= 0;
+            Thread.Sleep(100);
+        }
+        return false;
+    }
+
+    private bool ProcessGone()
+    {
+        try { return Process.GetProcessById(_pid).HasExited; }
+        catch (ArgumentException) { return true; }
+    }
 
     private void OnEvent(TraceEvent e)
     {
         if (e.ProviderName != "System.Net.Http") return;
-        if (e.EventName == "EventCounters")
-        {
-            if (e.PayloadValue(0) is IDictionary<string, object> counter
-                && counter.TryGetValue("Name", out var name) && name as string == "current-requests"
-                && counter.TryGetValue("Mean", out var mean))
-            {
-                Volatile.Write(ref _currentRequests, (int)Math.Round(Convert.ToDouble(mean, System.Globalization.CultureInfo.InvariantCulture)));
-            }
-            return;
-        }
+        if (e.EventName == "EventCounters") return; // they exist to make delivery prompt; counts come from the events
         var at = e.TimeStamp.ToUniversalTime();
         switch ((int)e.ID)
         {
             case RequestStartId:
                 var host = e.PayloadByName("host") as string ?? "?";
                 var path = e.PayloadByName("pathAndQuery") as string ?? "";
-                Interlocked.Increment(ref _started);
+                var mine = Interlocked.Increment(ref _started);
                 var n = _billable ? Interlocked.Increment(ref s_billableStarted) : 0;
-                Note(at, $"START  {Launch}: {host}{TrimQuery(path)}" + (_billable ? $"  [billable #{n}]" : ""));
-                if (_billable && n > ExplorerLedger.HardCap)
+                Note(at, $"START  {Launch}: {host}{TrimQuery(path)}" + (_billable ? $"  [real-key #{n}]" : ""));
+                if (_billable && mine > Volatile.Read(ref _admitted))
                 {
-                    Note(at, $"BUDGET EXCEEDED: billable request #{n} > cap {ExplorerLedger.HardCap}; killing Boo (pid {_pid})");
+                    _problem = $"UNADMITTED request #{mine} on {Launch} ({host}{TrimQuery(path)}): only {_admitted} admitted; Boo killed";
+                    Note(at, _problem);
                     try { Process.GetProcessById(_pid).Kill(); } catch (Exception) { }
                 }
                 break;
@@ -128,10 +168,18 @@ public sealed class RequestMeter : IDisposable
     /// <summary>Logs with the EVENT's own time (when Boo raised it), not when the harness received it.</summary>
     private static void Note(DateTime at, string text) => Log.Enqueue($"{at:HH:mm:ss.fff} {text}");
 
+    /// <summary>Stops every session and waits for its reader, so the final ledger holds every delivered event.</summary>
+    public static void DrainAll()
+    {
+        foreach (var meter in ByProcess.Values) meter.Dispose();
+        ExplorerLedger.Flush();
+    }
+
     public void Dispose()
     {
+        _stopping = true;
         try { _session.Stop(); } catch (Exception) { }
+        _reader.Join(5000);
         try { _session.Dispose(); } catch (Exception) { }
-        _reader.Join(2000);
     }
 }

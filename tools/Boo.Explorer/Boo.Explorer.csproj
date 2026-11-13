@@ -7,8 +7,9 @@
     at most one panel, the notch settles, no stuck "Thinking") and writes xNN-*.txt + Boo-window screenshots.
 
     Runs ONLY on GitHub's windows-latest VM through .github/workflows/app-explorer.yml (workflow_dispatch). Real OpenAI
-    calls are capped at 20 per run, counted at Boo's own network boundary by RequestMeter (System.Net.Http events over
-    EventPipe); every request Boo sent is listed in explorer-ledger.txt. No retries.
+    calls are capped at 20 per run, admitted one by one before each question; RequestMeter checks Boo's own
+    System.Net.Http events (EventPipe) and ends the run on any request that was not admitted. explorer-ledger.txt lists
+    them. No retries.
 
     Lives in tools/, not tests/ (frozen oracle). REUSES the existing harness unchanged by linking it, like
     tools/Boo.VerifyLive does. Not part of Boo.sln. Does not touch PR #54's tools/Boo.QaSuite.
