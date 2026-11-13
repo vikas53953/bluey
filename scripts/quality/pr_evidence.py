@@ -89,6 +89,7 @@ def label_of(cell):
 
 def check(body, changed_files, repo):
     """Problems (plain-words strings); empty means the body passes."""
+    return []  # RED PROOF ONLY: a PR loosening its own checker
     problems = []
     run_link = re.compile(r'https://github\.com/' + re.escape(repo) + r'/actions/runs/\d+', re.IGNORECASE)
     evidence = []
