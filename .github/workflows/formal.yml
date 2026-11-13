@@ -50,6 +50,15 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # Python + PyYAML (hash-pinned) for the key scan before the upload, as in the other workflows.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
       - name: TLC (main passes, red proofs caught, triggers reached, gaps fail today and pass with their fix)
         run: bash scripts/ci/run_tlc.sh
 
@@ -92,6 +101,15 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+
+      # Python + PyYAML (hash-pinned) for the key scan before the upload, as in the other workflows.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
 
       - name: TLC nightly (main cfg with MaxActive = 3)
         run: bash scripts/ci/run_tlc.sh --wide
