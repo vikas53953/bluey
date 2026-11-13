@@ -259,11 +259,12 @@ throwaway branch planted a run-time-built fake key in the test results; the scan
 
 ## Evidence table in every PR body (PR 1.10)
 
-Workflow `pr-evidence` (job `evidence`, Linux, about 10 seconds, no artifacts) runs `scripts/quality/pr_evidence.py`
+Workflow `pr-evidence` (job `evidence`, Linux, well under a minute, no artifacts) runs `scripts/quality/pr_evidence.py`
 on every pull request when it is opened, edited or pushed to, so fixing the body re-runs only this check. It reads the
 body from the event file, never from a `${{ }}` expression pasted into a shell. A self-test first proves every rule
 fires on a planted sample. Then the PR's own copy of the checker judges the body, and so does the **base branch's**
-copy (read from git), so a PR cannot loosen its own gate.
+copy (read from git), so a PR cannot loosen the checker script it is judged by. It judges only what a reader of the
+rendered PR sees, by GitHub's Markdown rules: a table inside an HTML comment or a code block does not count.
 
 ## BOO-EVID-001
 **A claim without evidence.** The PR body must have a Markdown table with a column headed `Label`, one row per claim:
@@ -278,11 +279,11 @@ copy (read from git), so a PR cannot loosen its own gate.
   `UNVERIFIED`, `BLOCKED`, `review`.
 - Every `live` row links a GitHub Actions run of this repository. No run link means it is not live.
 - A PR that changes anything under `src/` or `tools/` has at least one `live` row, or a `BLOCKED` row that says what
-  blocks the live run.
+  blocks the live run (after the label, in the same cell or a column to its right).
 
 **Fix:** add or correct the table in the PR body (edit the body; the check re-runs). A local run is `manual` or
 `mock`, never `local`; a claim that was not checked is `UNVERIFIED`, never `—`. **Do NOT** label a mock run `live`,
-link an unrelated run, or put the table inside a code block (it is not counted there).
+link an unrelated run, or hide the table or a link in a code block or an HTML comment (neither is counted).
 
 Known gaps: the check proves a table and links exist, not that each linked run is green, is on the PR's head, or
 proves the claim next to it (the separate reviewer and the QA PASS line cover that). A PR can edit

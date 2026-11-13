@@ -3,7 +3,7 @@ name: pr-evidence
 # BOO-EVID-001 (docs/quality/RULES.md): every pull request body carries an evidence table (live / mock / manual /
 # UNVERIFIED / BLOCKED / review), every live row links an Actions run, and a PR that changes src/ or tools/ has a live
 # row or says why it is BLOCKED. Its own workflow (not quality-gates) so that editing the PR body re-runs only this
-# one-second check. Linux, no build, no artifacts. The body is read from the event file, never pasted into a shell.
+# short check. Linux, no build, no artifacts. The body is read from the event file, never pasted into a shell.
 
 on:
   pull_request:
@@ -37,11 +37,16 @@ jobs:
         run: python -I scripts/quality/pr_evidence.py --event "$GITHUB_EVENT_PATH"
 
       # A PR could loosen its own pr_evidence.py. So the BASE branch's copy (read from git, not from the PR) judges the
-      # body too. Until the base has the file (the PR that adds it), only the PR's own copy runs.
-      - name: Evidence table judged by the base branch's own checker (a PR cannot loosen its own gate)
+      # body too. Until the base has the file (the PR that adds it), only the PR's own copy runs. (A PR that edits this
+      # workflow file itself is a gap left to review: docs/quality/RULES.md.)
+      - name: Evidence table judged by the base branch's own checker (a PR cannot loosen its checker script)
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "::error::BOO-EVID-001 the base commit is not in the checkout, so the base branch's checker cannot run"
+            exit 1
+          fi
           if git cat-file -e "$BASE_SHA:scripts/quality/pr_evidence.py" 2>/dev/null; then
             git show "$BASE_SHA:scripts/quality/pr_evidence.py" > "$RUNNER_TEMP/pr_evidence_base.py"
             python -I "$RUNNER_TEMP/pr_evidence_base.py" --event "$GITHUB_EVENT_PATH"

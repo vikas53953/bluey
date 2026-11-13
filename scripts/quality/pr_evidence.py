@@ -11,6 +11,8 @@ The rule:
   3. Every `live` row links a GitHub Actions run of this repository (https://github.com/OWNER/REPO/actions/runs/N).
   4. A PR that changes anything under src/ or tools/ has at least one `live` row, or a `BLOCKED` row that says why.
 
+It judges only what a reader of the rendered PR sees, by GitHub's own Markdown rules: HTML comments, fenced and
+indented code blocks are not evidence, and table cells split on every unescaped `|` (also inside `code`).
 It reads the body only from the event file (never from a ${{ }} expression in a shell), and never runs it.
 """
 import json
@@ -23,55 +25,57 @@ import tempfile
 
 RULE = 'BOO-EVID-001'
 LABELS = {'live', 'mock', 'manual', 'unverified', 'blocked', 'review'}
-SEPARATOR_CELL = re.compile(r'^:?-{3,}:?$')
+SEPARATOR_CELL = re.compile(r'^:?-+:?$')          # GitHub accepts one dash or more
 DECORATION = re.compile(r'[*_`~]')
 
 
 def _cells(line):
-    """Cells of one Markdown table row; `\\|` is a literal pipe, so is a pipe inside `code`."""
+    """Cells of one table row, split as GitHub does: on every `|` not escaped as `\|` (inside `code` too)."""
     text = line.strip()
     if text.startswith('|'):
         text = text[1:]
     if text.endswith('|') and not text.endswith('\\|'):
         text = text[:-1]
-    cells, cur, in_code, i = [], '', False, 0
-    while i < len(text):
-        ch = text[i]
-        if ch == '\\' and i + 1 < len(text) and text[i + 1] == '|':
-            cur += '|'
-            i += 2
-            continue
-        if ch == '`':
-            in_code = not in_code
-        if ch == '|' and not in_code:
-            cells.append(cur.strip())
-            cur = ''
-        else:
-            cur += ch
-        i += 1
-    cells.append(cur.strip())
-    return cells
+    return [c.replace('\\|', '|').strip() for c in re.split(r'(?<!\\)\|', text)]
+
+
+def visible(body):
+    """The body as a reader sees it: HTML comments removed (an unclosed `<!--` hides everything after it)."""
+    text = (body or '').replace('\r\n', '\n').replace('\r', '\n')
+    text = re.sub(r'<!--.*?-->', lambda m: '\n' * m.group(0).count('\n'), text, flags=re.S)
+    cut = text.find('<!--')
+    return text if cut < 0 else text[:cut]
+
+
+def _indent(line):
+    return len(line) - len(line.lstrip(' '))
 
 
 def tables(body):
-    """Every Markdown table in the body as (header cells, [(line number, row cells)]). Fenced code is skipped."""
-    lines = (body or '').replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    """Every Markdown table a reader sees, as (header cells, [(line number, row cells)]). Fenced code (closed only by
+    the same character, at least as long, nothing after it) and indented code (4+ spaces) are not tables."""
+    lines = visible(body).split('\n')
     found, i, fence = [], 0, None
     while i < len(lines):
-        stripped = lines[i].strip()
-        marker = re.match(r'^(`{3,}|~{3,})', stripped)
-        if marker:
-            if fence is None:
-                fence = marker.group(1)[0]
-            elif stripped.startswith(fence * 3):
+        line = lines[i]
+        stripped = line.strip()
+        if fence is not None:
+            close = re.match(r'^(`{3,}|~{3,})\s*$', stripped)
+            if _indent(line) < 4 and close and close.group(1)[0] == fence[0] and len(close.group(1)) >= len(fence):
                 fence = None
             i += 1
             continue
-        if fence is None and '|' in stripped and i + 1 < len(lines):
-            header, sep = _cells(lines[i]), _cells(lines[i + 1])
+        opening = re.match(r'^(`{3,}|~{3,})', stripped)
+        if _indent(line) < 4 and opening and not (opening.group(1)[0] == '`'
+                                                   and '`' in stripped[len(opening.group(1)):]):
+            fence = opening.group(1)
+            i += 1
+            continue
+        if _indent(line) < 4 and '|' in stripped and i + 1 < len(lines) and _indent(lines[i + 1]) < 4:
+            header, sep = _cells(line), _cells(lines[i + 1])
             if len(sep) == len(header) and all(SEPARATOR_CELL.match(c.replace(' ', '')) for c in sep):
                 rows, j = [], i + 2
-                while j < len(lines) and lines[j].strip() and '|' in lines[j]:
+                while j < len(lines) and lines[j].strip() and '|' in lines[j] and _indent(lines[j]) < 4:
                     rows.append((j + 1, _cells(lines[j])))
                     j += 1
                 found.append((header, rows))
@@ -90,33 +94,37 @@ def label_of(cell):
 def check(body, changed_files, repo):
     """Problems (plain-words strings); empty means the body passes."""
     problems = []
-    run_link = re.compile(r'https://github\.com/' + re.escape(repo) + r'/actions/runs/\d+', re.IGNORECASE)
+    run_link = re.compile(r'https://github\.com/' + re.escape(repo) + r'/actions/runs/\d+(?![\w-])', re.IGNORECASE)
     evidence = []
     for header, rows in tables(body):
-        names = [label_of(h) for h in header]
-        if 'label' in names:
-            evidence.append((names.index('label'), rows))
+        cols = [k for k, h in enumerate(header) if label_of(h) == 'label']
+        if cols:
+            evidence.append((cols, rows))
     if not evidence:
-        return ['the PR body has no evidence table: add a Markdown table with a column headed "Label" '
-                '(values: live, mock, manual, UNVERIFIED, BLOCKED, review), one row per claim']
+        return ['the PR body has no evidence table a reader can see: add a Markdown table with a column headed '
+                '"Label" (values: live, mock, manual, UNVERIFIED, BLOCKED, review), one row per claim, outside code '
+                'blocks and HTML comments']
     labels_seen = []
-    for col, rows in evidence:
+    for cols, rows in evidence:
         if not rows:
             problems.append('the evidence table has a header but no rows')
         for line, cells in rows:
-            cell = cells[col] if col < len(cells) else ''
-            label = label_of(cell)
-            if label not in LABELS:
-                problems.append(f'body line {line}: label "{cell[:40]}" is not one of live, mock, manual, '
-                                'UNVERIFIED, BLOCKED, review')
-                continue
-            labels_seen.append(label)
-            other = ' '.join(c for k, c in enumerate(cells) if k != col)
-            if label == 'live' and not run_link.search(' '.join(cells)):
-                problems.append(f'body line {line}: a "live" row needs a link to a GitHub Actions run of {repo} '
-                                f'(https://github.com/{repo}/actions/runs/<id>); no run link means UNVERIFIED')
-            if label == 'blocked' and not re.search(r'[A-Za-z]{3,}', DECORATION.sub('', other)):
-                problems.append(f'body line {line}: a "BLOCKED" row must say why (what blocks the live run)')
+            for col in cols:
+                cell = cells[col] if col < len(cells) else ''
+                label = label_of(cell)
+                if label not in LABELS:
+                    problems.append(f'body line {line}: label "{cell[:40]}" is not one of live, mock, manual, '
+                                    'UNVERIFIED, BLOCKED, review')
+                    continue
+                labels_seen.append(label)
+                if label == 'live' and not run_link.search(' '.join(cells)):
+                    problems.append(f'body line {line}: a "live" row needs a link to a GitHub Actions run of {repo} '
+                                    f'(https://github.com/{repo}/actions/runs/<id>); no run link means UNVERIFIED')
+                if label == 'blocked':
+                    after = DECORATION.sub('', cell).strip().split(None, 1)[1:] + cells[col + 1:]
+                    if not re.search(r'[A-Za-z]{3,}', DECORATION.sub('', ' '.join(after))):
+                        problems.append(f'body line {line}: a "BLOCKED" row must say why, after the label (in the '
+                                        'same cell or the columns to its right)')
     touches_product = sorted(f for f in changed_files if f.startswith(('src/', 'tools/')))
     if touches_product and not ({'live', 'blocked'} & set(labels_seen)):
         problems.append(f'this PR changes {touches_product[0]}' + (f' and {len(touches_product) - 1} more file(s)'
@@ -168,13 +176,32 @@ def self_test():
     expect('docs-only change without live passes', check(no_live, ['docs/a.md'], repo) == [])
     blocked = no_live + '| live run | BLOCKED | no runner today, key missing |\n'
     expect('src/ change with a BLOCKED row that says why passes', check(blocked, ['src/a.cs'], repo) == [])
-    expect('a BLOCKED row without a reason fails',
-           check(no_live + '| x | BLOCKED |  |\n', ['src/a.cs'], repo) != [])
+    expect('a BLOCKED row without a reason fails, even with a long claim',
+           check(no_live + '| Real AI round trip | BLOCKED |  |\n', ['src/a.cs'], repo) != [])
+    expect('a BLOCKED reason in the label cell counts',
+           check(no_live + '| Real AI round trip | BLOCKED: no runner today |  |\n', ['src/a.cs'], repo) == [])
+    expect('a table inside an HTML comment does not count',
+           check('Nothing tested.\n<!--\n' + good + '-->\n', ['src/a.cs'], repo) != [])
+    expect('an unclosed HTML comment hides the rest', check('x\n<!--\n' + good, [], repo) != [])
+    expect('a live row whose only run link is inside a comment fails',
+           check(good.replace(f'[run]({run})', f'<!-- {run} -->'), [], repo) != [])
+    expect('a table inside a 4-backtick fence closed only by 3 backticks does not count',
+           check('````\n```\n' + good + '````\n', [], repo) != [])
+    expect('a fence line with words after it does not close the fence',
+           check('```\n``` words\n' + good + '```\n', [], repo) != [])
+    expect('a table in an indented code block does not count',
+           check('\n'.join('    ' + x for x in good.split('\n')), [], repo) != [])
+    expect('one-dash separators (valid on GitHub) make a table',
+           check(good.replace('| --- | :---: | --- |', '|-|:-:|-|'), ['src/a.cs'], repo) == [])
+    expect('every Label column is judged',
+           check('| Label | Claim | Label |\n| - | - | - |\n| mock | round trip | live |\n', [], repo) != [])
+    expect('a run link must end at the run number',
+           check(good.replace(f'[run]({run})', f'[run]({run}abc)'), [], repo) != [])
     expect('a table only inside a code fence does not count', check('```\n' + good + '```\n', [], repo) != [])
     expect('an escaped pipe stays inside its cell',
            check(good.replace('| demo |', '| a \\| b |'), ['src/a.cs'], repo) == [])
-    expect('a pipe inside `code` stays inside its cell',
-           check(good.replace('| demo |', '| `a|b` |'), ['src/a.cs'], repo) == [])
+    expect('a pipe inside `code` splits the cell, as on GitHub',
+           _cells('| `a|b` | mock |') == ['`a', 'b`', 'mock'])
     expect('a header-only evidence table fails', check('| Claim | Label |\n| --- | --- |\n', [], repo) != [])
     expect('CRLF bodies parse', check(good.replace('\n', '\r\n'), ['src/a.cs'], repo) == [])
     expect('Label header in bold is found', check(good.replace('| Label |', '| **Label** |'), ['src/a.cs'], repo) == [])
@@ -213,7 +240,7 @@ def main(argv):
         return run_event(argv[1], repo)
     if len(argv) in (2, 4) and argv[0] == '--body' and (len(argv) == 2 or argv[2] == '--changed'):
         body = pathlib.Path(argv[1]).read_text(encoding='utf-8')
-        changed = pathlib.Path(argv[3]).read_text(encoding='utf-8').split() if len(argv) == 4 else []
+        changed = pathlib.Path(argv[3]).read_text(encoding='utf-8').splitlines() if len(argv) == 4 else []
         return report(check(body, changed, repo))
     print(__doc__)
     return 2
