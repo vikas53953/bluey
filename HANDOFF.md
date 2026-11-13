@@ -344,3 +344,17 @@ Packaging for real use. What exists and what is missing:
   `2026-11-08-feat-boo-video-parity-plan.md`)
 - Evidence and native checklists: `docs/verification/`
 - Security review: `docs/security/2026-11-08-security-review.md`
+
+### Blocker sprint: native voice E2E (13 Nov, proposed)
+
+- `qa/native-voice-e2e`, based on lane/face b7e3e80: separate `tools/Boo.NativeVoice` + `native-voice-e2e.yml`; no #54 suite/workflow edits. #54 coordination: https://github.com/vikas53953/bluey/pull/54#issuecomment-6858672215.
+- CI-gated synthetic PTT uses the normal published app controls, upload queue, Realtime client, transcript UI and AudioSession.Play buffer. HostedVoiceAudio substitutes only audio devices: validated <=8s PCM WAV in, consuming virtual output device out. Environment checks are policy signals, not host attestation. Never invoke on a personal PC.
+- One response per bounded session, 128 output-token ceiling, tools disabled; configurable cheap realtime/transcription defaults. No retries. Estimate <$0.01 per dispatch, not an enforced monthly dollar cap; actual billing UNVERIFIED. Positive and deliberate wrong-answer red runs pending.
+- Physical microphone/speakers, shipped default model and other voice journeys stay UNVERIFIED/manual. Existing provider-only #47 smoke remains unchanged and separate. No native voice PASS claimed before artifacts/screenshots and independent final-head review.
+
+- First native runs on de77dc7 failed honestly before input: injected keyboard chord is intentionally ignored by the production hook (no PCM receipt, idle Boo screenshot). Journey now uses the existing notch-eyes mouse hold, leaving that safety guard intact. Mutation pass killed 5/6; a self-hosted mutant survived because the negative test also lacked an evidence path. The tools-only test now supplies valid remaining options and asserts the precise host-gate failure. New-head evidence pending.
+
+- Hosted synthetic native voice proof on `37f2a847742678a3a10b2218da496feb4ed4e1b8`: [positive 43466425398](https://github.com/vikas53953/bluey/actions/runs/43466425398) native 1/1 and boundary 7/7, zero skipped. FlaUI held notch eyes, all 226,056 PCM bytes entered normal PTT; OpenAI mini + mini-transcribe returned 5; UI/notch screenshots inspected, virtual output consumed 24,960 bytes (22,275 nonzero). [Red 43466455113](https://github.com/vikas53953/bluey/actions/runs/43466455113) first proved the same normal journey, then correctly failed the planted seven expectation. Physical audio stays UNVERIFIED/manual.
+- Mutation improvement: final six selected compiling mutants all killed (one assertion failure each), restored 7/7; [Codex report](https://github.com/vikas53953/bluey/pull/68#issuecomment-6859316959). No paid mutation calls. Windows CI rejected the two-line MainWindow growth (2681 > 2679); moved EnsureRealtime unchanged into MainWindow.NativeVoice.cs, no budget or frozen test changes. New final-head native evidence and separate review pending; no whole-PR QA PASS yet.
+
+- Final replay 43468001613 on396a29f failed honestly: real five and consumed audio arrived before input transcription; the test asserted the user row too early. Independent Codex review identified this observer race. The same 45s bounded wait now requires the question transcript as well as completed reply and consumed audio; the final question assertion is retained. No timeout increase, request retry, app behavior change, frozen edit or relabelled pass. Review/app source remains396a29f; new tools-only observer head needs hosted proof.
