@@ -49,3 +49,12 @@ jobs:
           else
             echo "The base branch ($BASE_REF) has no ratchet yet: this PR introduces it, so there is no older gate to apply."
           fi
+
+      # Architecture references (docs/quality/RULES.md, BOO-REF-001..008): the judging logic on planted build facts and
+      # the format of docs/architecture/layers.json. The judge itself runs in windows-ci on the build facts of the
+      # shipped build (its Release build and win-x64 publish), not here: an evaluation on Linux misses what the real
+      # build does (Release-only, publish-only and Windows-only references, package build code).
+      - name: Architecture references (self-test and layers.json format)
+        run: |
+          python -I scripts/quality/arch_refs.py --self-test
+          python -I scripts/quality/arch_refs.py format
