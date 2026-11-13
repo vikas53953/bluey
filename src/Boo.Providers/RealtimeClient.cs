@@ -25,7 +25,7 @@ public static class RealtimeProtocol
         "conversation.item.added", "conversation.item.done"
     };
 
-    /// <summary>The speech-to-text model that writes the transcript of what the user said (the cheapest OpenAI one).</summary>
+    /// <summary>The speech-to-text model Boo uses to write the transcript of what the user said.</summary>
     public const string DefaultTranscriptionModel = "gpt-4o-mini-transcribe";
 
     /// <param name="pushToTalk">
@@ -299,7 +299,7 @@ public sealed class RealtimeClient : IAsyncDisposable
     public static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(10);
     public static readonly TimeSpan KeepAliveTimeout = TimeSpan.FromSeconds(10);
 
-    /// <param name="transcriptionModel">Speech-to-text model for the user's words; null = Boo's default (the cheapest).</param>
+    /// <param name="transcriptionModel">Speech-to-text model for the user's words; null = Boo's default.</param>
     public RealtimeClient(Func<string?> credential, ProviderSettings settings, bool pushToTalk = false, string? transcriptionModel = null)
     {
         _pushToTalk = pushToTalk;

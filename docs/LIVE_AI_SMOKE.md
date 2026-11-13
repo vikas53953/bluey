@@ -150,8 +150,9 @@ accuracy at other display scalings, second monitors. Those stay manual (runbook)
 
 Every model is set per run (the **Run workflow** form, or `-f model=... -f realtime_model=... -f transcribe_model=...`).
 Blank means the default below. **Rule for the defaults:** the cheapest model Boo itself already uses for that kind of
-request (so CI tests a model Boo really calls), or the cheapest variant of it. A cheaper model Boo never calls is not
-used; today the only one is `gpt-5-nano`, which OpenAI also marks deprecated. Before any paid call, a free step asks OpenAI whether each
+request, or the cheapest variant of one (so CI tests a model Boo really calls, or a smaller sibling of it). A cheaper
+model that is neither Boo's own nor a variant of one is not used; today the only one is `gpt-5-nano`, which OpenAI
+also marks deprecated. Before any paid call, a free step asks OpenAI whether each
 model exists for the key; a retired or misspelled model fails there in seconds, with its name.
 
 | Job | Default in CI | Why this one | Override |
@@ -174,7 +175,7 @@ Prices: OpenAI's pricing page, 13 Nov 2026 (https://developers.openai.com/api/do
 | A month | about US$1.50 | about 400 runs (every PR push); the journeys (section 5) add about 45 requests, on Boo's own costlier models, each time they are ticked |
 
 **CI models are not the models users get.** Boo ships `gpt-6.1-sol` for typed answers and `gpt-realtime-2.1` for voice
-(`src/Boo.Core/Contracts.cs`). The two round trips above prove Boo's paths work with real OpenAI on the cheapest
+(`src/Boo.Core/Contracts.cs`). The two round trips above prove Boo's paths work with real OpenAI on cheap default
 models; the live journeys (section 5) run Boo's shipped models unless `model` is set. To check the shipped voice model,
 run the workflow by hand with `realtime_model=gpt-realtime-2.1`.
 

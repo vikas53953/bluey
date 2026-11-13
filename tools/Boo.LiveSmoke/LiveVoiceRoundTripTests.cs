@@ -23,8 +23,8 @@ namespace Boo.LiveSmoke;
 /// verify-boo runner declared with -ThrowawayVm (BOO_THROWAWAY_VM=1), never a personal PC, and runs the same anti-mock
 /// guard as the typed round trip, so the answer must come from the real api.openai.com. Voice is always OpenAI: it
 /// uses BOO_LIVE_OPENAI_KEY whatever text provider the run chose.
-/// Models are set per run: BOO_LIVE_REALTIME_MODEL (default: the cheapest realtime model) and
-/// BOO_LIVE_TRANSCRIBE_MODEL (default: Boo's own, the cheapest speech-to-text model).
+/// Models are set per run: BOO_LIVE_REALTIME_MODEL (default: gpt-realtime-2.1-mini, the mini variant of Boo's voice
+/// model) and BOO_LIVE_TRANSCRIBE_MODEL (default: Boo's own speech-to-text model). Rule: docs/LIVE_AI_SMOKE.md section 6.
 /// </summary>
 public sealed class LiveVoiceRoundTripTests
 {

@@ -30,17 +30,17 @@ on:
         options: [openai, anthropic, gemini]
         default: openai
       model:
-        description: Optional chat model id for the chosen provider (blank = round trip on the cheapest that does the job, OpenAI gpt-6-luna; journeys on Boo's own default)
+        description: Optional chat model id for the chosen provider (blank = round trip on the cheap CI default gpt-6-luna, rule in docs/LIVE_AI_SMOKE.md section 6; journeys on Boo's own default)
         type: string
         required: false
         default: ''
       realtime_model:
-        description: Optional OpenAI realtime (voice) model id (blank = gpt-realtime-2.1-mini, the cheapest)
+        description: Optional OpenAI realtime (voice) model id (blank = gpt-realtime-2.1-mini, the mini variant of Boo's voice model)
         type: string
         required: false
         default: ''
       transcribe_model:
-        description: Optional OpenAI speech-to-text model id (blank = gpt-4o-mini-transcribe, Boo's own and the cheapest)
+        description: Optional OpenAI speech-to-text model id (blank = gpt-4o-mini-transcribe, Boo's own)
         type: string
         required: false
         default: ''
@@ -118,7 +118,7 @@ jobs:
       # Evidence screenshots show Boo's own windows only, never the whole desktop (BooAppFixture.CaptureScreen).
       BOO_CAPTURE_SCOPE: boo-windows
       # Models for the two round trips, set per run (workflow_dispatch inputs). Rule: the cheapest model Boo itself
-      # already uses for that kind of request (so CI tests a model Boo really calls), cheapest variant where there is one:
+      # already uses for that kind of request, or the cheapest variant of one (a cheaper model that is neither is not used):
       # chat about a screenshot with reasoning and structured output: gpt-6-luna (Boo's focus-check model; the only
       # cheaper one, gpt-5-nano, is deprecated and unused by Boo); voice: gpt-realtime-2.1-mini (the mini variant of
       # Boo's voice model); speech-to-text: gpt-4o-mini-transcribe (Boo's own). A step below checks each exists before any paid call. The live journeys
