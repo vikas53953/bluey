@@ -1,7 +1,7 @@
 """Fail the build when tests can pass vacuously. Never read secrets.
 
   python -I scripts/test_gate.py static
-      Source check over every test project under tests/ (not fixtures):
+      Source check over every xUnit test project anywhere in the repo (tests/, tools/, ...; rule BOO-TEST-001):
       - no empty or whitespace-only .cs file (8185c1d emptied a 474-line test file and CI stayed green);
       - every *Tests.cs / *Tests.<part>.cs file declares at least one [Fact] or [Theory];
       - every test project declares at least one test;
@@ -25,7 +25,11 @@ BLOCK_COMMENT = re.compile(r'/\*.*?\*/', re.DOTALL)
 TEST_FILE_NAME = re.compile(r'Tests(\.[A-Za-z0-9_]+)?\.cs$')
 
 def test_projects():
-    for csproj in sorted((root / 'tests').glob('*/*.csproj')):
+    # Every project in the repo, not only tests/: a test project under tools/ (live smoke, verify-live) must not be
+    # able to skip or empty a test either (BOO-TEST-001).
+    for csproj in sorted(root.rglob('*.csproj')):
+        if GENERATED_PARTS.intersection(csproj.relative_to(root).parts) or '.git' in csproj.relative_to(root).parts:
+            continue
         text = csproj.read_text(encoding='utf-8-sig')
         if '<IsTestProject>true</IsTestProject>' in text or 'xunit' in text.lower():
             yield csproj.parent
@@ -54,6 +58,7 @@ def static_check():
             failures.append(f'{project.relative_to(root).as_posix()}: test project declares no tests')
     for name, files, tests in rows:
         print(f'  {name:<26} {files:>3} source files  {tests:>4} test attributes')
+    print(f'  {len(rows)} test project(s) checked')
     return failures
 
 def trx_check(directories):
