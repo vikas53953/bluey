@@ -61,7 +61,7 @@ with the run link and **closes** the issue. A cancelled run leaves the issue as 
 | `timeout-no-answer`, `answer-check-failed` | An answer did not come in time or did not pass the check; this may be an API shape change | Open the run and its evidence |
 | `build-failed`, `test-did-not-run` | The `lane/face` tip does not build, or the test was renamed | Fix on `lane/face` |
 | `key-missing-or-malformed`, `guard-refused`, `ai-host-redirected`, `runner-not-github-hosted` | A safety check refused to run | Fix the secret or the runner |
-| `key-found-in-evidence` | The key scan found a key-shaped string, so nothing was uploaded | Treat as a leak report: check the run, rotate the key if needed |
+| `key-scan-failed` | The key scan found a key-shaped string or could not run, so nothing was uploaded | Open the run: if it found a key, treat it as a leak and rotate the key |
 
 The class is a best guess from fixed patterns; the run log is the evidence.
 
