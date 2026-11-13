@@ -10,13 +10,16 @@ namespace Boo.Explorer;
 
 /// <summary>
 /// REAL key, real OpenAI (cheapest chat model, set by the workflow): chat, then the variations that need a reply in
-/// flight. Planned billed requests: 11 of the hard cap 20 (each Ask below spends one; nothing retries).
+/// flight. Planned: 11 real-key requests of the hard cap 20, counted at Boo's network boundary by RequestMeter (never by
+/// the asks themselves); nothing retries. Every "while Boo is answering" step first proves a request is on the wire.
 /// Answers are asked as single code words so a stale or misplaced reply is unambiguous.
 /// </summary>
 [TestCaseOrderer("Boo.Demo.Tests.StepOrderer", "Boo.Explorer")]
 public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixture<LiveAppFixture>
 {
     public LiveExplorerTests(LiveAppFixture boo, ITestOutputHelper output) : base(boo, output) { }
+
+    protected override bool BillableLaunch => true;
 
     private string WaitForBooRowContaining(Window panel, string word, TimeSpan timeout) =>
         Boo.WaitFor(() => BooRows(panel).LastOrDefault(r => r.Contains(word, StringComparison.OrdinalIgnoreCase)), timeout,
@@ -29,7 +32,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         {
             var panel = OpenPanel();
             SelectDisplay(panel);
-            Ask(panel, "Reply with exactly the word ALPHA.", billed: true, label: "l01 chat");
+            Ask(panel, "Reply with exactly the word ALPHA.", label: "l01 chat");
             var reply = WaitForBooRowContaining(panel, "ALPHA", AnswerTimeout);
             Boo.CaptureScreen("l01-chat");
             var settled = BooAppFixture.WaitUntil(() => !LooksBusy(Status(panel)), UiTimeout) && SettlesHidden(TimeSpan.FromSeconds(12));
@@ -44,9 +47,9 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         Explore("l02-newer-wins", faces =>
         {
             var panel = OpenPanel();
-            Ask(panel, "Reply with exactly the word BRAVO.", billed: true, label: "l02 first (to be superseded)");
-            Thread.Sleep(250);
-            Ask(panel, "Reply with exactly the word CHARLIE.", billed: true, label: "l02 second (typed during the pending reply)");
+            Ask(panel, "Reply with exactly the word BRAVO.", label: "l02 first (to be superseded)");
+            RequireReplyPending(panel, "BRAVO", "l02 first question still pending");
+            Ask(panel, "Reply with exactly the word CHARLIE.", label: "l02 second (typed during the pending reply)");
             WaitForBooRowContaining(panel, "CHARLIE", AnswerTimeout);
             Thread.Sleep(15_000); // a late BRAVO would land in this window
             var rows = Rows(panel);
@@ -66,8 +69,8 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         Explore("l03-settings-mid-chat", faces =>
         {
             var panel = OpenPanel();
-            Ask(panel, "Reply with exactly the word DELTA.", billed: true, label: "l03 settings saved mid-reply");
-            Thread.Sleep(300);
+            Ask(panel, "Reply with exactly the word DELTA.", label: "l03 settings saved mid-reply");
+            RequireReplyPending(panel, "DELTA", "l03 reply pending while settings are saved");
             var chirp = Find(panel, "ChirpMute").AsCheckBox();
             chirp.IsChecked = chirp.IsChecked != true;
             Find(panel, "SaveSettingsButton").AsButton().Invoke();
@@ -90,8 +93,8 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         {
             var panel = OpenPanel();
             var before = BooRows(panel).Count;
-            Ask(panel, "Write a 150-word story about a lighthouse keeper, and end it with the word ECHO.", billed: true, label: "l04 stopped mid-reply");
-            Thread.Sleep(1200);
+            Ask(panel, "Write a 150-word story about a lighthouse keeper, and end it with the word ECHO.", label: "l04 stopped mid-reply");
+            RequireReplyPending(panel, "lighthouse", "l04 reply pending when Stop is pressed");
             PressStop();
             var stopped = BooAppFixture.WaitUntil(() => !LooksBusy(Status(panel)), TimeSpan.FromSeconds(5));
             var statusAfterStop = Status(panel);
@@ -100,7 +103,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
             Boo.CaptureScreen("l04-25s-after-stop");
             var late = BooRows(panel).Skip(before).Any(r => r.Contains("lighthouse", StringComparison.OrdinalIgnoreCase) || r.Contains("ECHO", StringComparison.OrdinalIgnoreCase));
             var settled = SettlesHidden(TimeSpan.FromSeconds(8));
-            Ask(panel, "Reply with exactly the word FOXTROT.", billed: true, label: "l04 recovery after Stop");
+            Ask(panel, "Reply with exactly the word FOXTROT.", label: "l04 recovery after Stop");
             var reply = WaitForBooRowContaining(panel, "FOXTROT", AnswerTimeout);
             Boo.CaptureScreen("l04-after-stop");
             Boo.WriteObservation("l04-stop-mid-reply", $"stoppedWithin5s={stopped} statusAfterStop='{statusAfterStop}' statusAfter25s='{statusAfter25s}' lateAnswerShown={late} settled={settled} recoveryReply='{Shorten(reply, 120)}'");
@@ -116,7 +119,8 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         Explore("l05-storm", faces =>
         {
             var panel = OpenPanel();
-            Ask(panel, "Reply with exactly the word GOLF.", billed: true, label: "l05 hover/hotkey storm during reply");
+            Ask(panel, "Reply with exactly the word GOLF.", label: "l05 hover/hotkey storm during reply");
+            RequireReplyPending(panel, "GOLF", "l05 reply pending during the storm");
             var rng = Rng("l05");
             var hover = NotchHoverPoint();
             var away = AwayPoint();
@@ -149,7 +153,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
             Assert.True(BooAppFixture.WaitUntil(() => Status(panel).StartsWith("Settings saved", StringComparison.Ordinal), UiTimeout),
                 $"Settings were not saved: '{Status(panel)}'.");
 
-            Ask(panel, "create a file named boo-explorer.txt in the task folder containing exactly the text EXPLORER-OK", billed: true, label: "l06 file task (card)");
+            Ask(panel, "create a file named boo-explorer.txt in the task folder containing exactly the text EXPLORER-OK", label: "l06 file task (card)");
             var card = BooAppFixture.WaitUntil(() => Visible(TryFind(panel, "ActionPreview")) is not null, AnswerTimeout);
             Boo.CaptureScreen("l06-card");
             if (!card)
@@ -157,7 +161,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
                 Boo.WriteObservation("l06-card-then-new-question", $"AI-DEPENDENT: no Review card appeared; status='{Status(panel)}' lastRows='{string.Join(" || ", BooRows(panel).TakeLast(2))}'");
                 Assert.Fail("AI-DEPENDENT (not a Boo verdict): the model did not propose the file action, so the card edge was not reached.");
             }
-            Ask(panel, "Reply with exactly the word HOTEL.", billed: true, label: "l06 new question while the card shows");
+            Ask(panel, "Reply with exactly the word HOTEL.", label: "l06 new question while the card shows");
             var cardGone = BooAppFixture.WaitUntil(() => Visible(TryFind(panel, "ActionPreview")) is null, TimeSpan.FromSeconds(10));
             var reply = WaitForBooRowContaining(panel, "HOTEL", AnswerTimeout);
             var approveClickable = Visible(TryFind(panel, "ApproveButton")) is not null && IsEnabled(TryFind(panel, "ApproveButton"));
@@ -177,8 +181,8 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         Explore("l07-kill-relaunch", faces =>
         {
             var panel = OpenPanel();
-            Ask(panel, "Reply with exactly the word INDIA.", billed: true, label: "l07 killed mid-reply");
-            Thread.Sleep(1500);
+            Ask(panel, "Reply with exactly the word INDIA.", label: "l07 killed mid-reply");
+            RequireReplyPending(panel, "INDIA", "l07 reply pending when Boo is killed");
             KilledOnPurpose = true;
             Boo.App.Kill();
             Assert.True(BooAppFixture.WaitUntil(() => Boo.App.HasExited, TimeSpan.FromSeconds(10)), "Boo did not exit on kill.");
@@ -195,7 +199,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
                 Thread.Sleep(1500);
                 var health = HealthProblems(again);
                 var crashNotice = Status(p2);
-                Ask(p2, "Reply with exactly the word JULIET.", billed: true, label: "l07 after relaunch");
+                Ask(p2, "Reply with exactly the word JULIET.", label: "l07 after relaunch");
                 var reply = Boo.WaitFor(() => BooRows(p2).LastOrDefault(r => r.Contains("JULIET", StringComparison.OrdinalIgnoreCase)), AnswerTimeout, "JULIET after relaunch");
                 again.CaptureScreen("l07-after-relaunch");
                 again.WriteObservation("l07-kill-relaunch", $"health='{string.Join("; ", health.DefaultIfEmpty("ok"))}' statusOnRelaunch='{crashNotice}' reply='{Shorten(reply, 120)}'");

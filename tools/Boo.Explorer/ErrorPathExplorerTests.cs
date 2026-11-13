@@ -25,7 +25,7 @@ public sealed class WrongKeyExplorerTests : ExplorerSteps<BooAppFixture>, IClass
             for (var i = 1; i <= 2; i++)
             {
                 var clock = Stopwatch.StartNew();
-                Ask(panel, "What is the capital of France?", billed: false, label: $"b01 wrong key #{i}");
+                Ask(panel, "What is the capital of France?", label: $"b01 wrong key #{i}");
                 var done = BooAppFixture.WaitUntil(() => Status(panel) is { Length: > 0 } s && !LooksBusy(s), TimeSpan.FromSeconds(60));
                 var status = Status(panel);
                 notes.Add($"ask #{i}: done={done} afterMs={clock.ElapsedMilliseconds} status='{status}' booRows={BooRows(panel).Count}");
@@ -45,8 +45,10 @@ public sealed class WrongKeyExplorerTests : ExplorerSteps<BooAppFixture>, IClass
 }
 
 /// <summary>
-/// No network for Boo (firewall). Boo must report a network problem in reasonable time, not hang; Stop during the
-/// wait must end it at once; the notch must settle.
+/// No network for Boo (firewall). Boo must really try (the meter sees the request start and end without a status),
+/// report a network problem in plain words in reasonable time, never hang, and the notch must settle. Stop during a
+/// pending request is NOT tested here: blocked connections fail in under a second, so nothing stays pending (run
+/// 43469967627: 687 ms). L04 (real reply) and tools/Boo.VerifyLive/Regressions/StopStatusRegressionTests.cs cover it.
 /// </summary>
 [TestCaseOrderer("Boo.Demo.Tests.StepOrderer", "Boo.Explorer")]
 public sealed class NoNetworkExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixture<NoNetworkFixture>
@@ -54,7 +56,7 @@ public sealed class NoNetworkExplorerTests : ExplorerSteps<BooAppFixture>, IClas
     public NoNetworkExplorerTests(NoNetworkFixture boo, ITestOutputHelper output) : base(boo, output) { }
 
     [Fact, Step(1)]
-    public void N01_NoNetwork_ReportsIt_ThenStopEndsAWait()
+    public void N01_NoNetwork_ReportsIt_InPlainWords_AndSettles()
     {
         Explore("n01-no-network", faces =>
         {
@@ -65,7 +67,7 @@ public sealed class NoNetworkExplorerTests : ExplorerSteps<BooAppFixture>, IClas
             var notes = new List<string>();
 
             var clock = Stopwatch.StartNew();
-            Ask(panel, "What is the capital of France?", billed: false, label: "n01 blocked #1");
+            Ask(panel, "What is the capital of France?", label: "n01 blocked #1");
             var done = BooAppFixture.WaitUntil(() => Status(panel) is { Length: > 0 } s && !LooksBusy(s), TimeSpan.FromSeconds(130));
             var status = Status(panel);
             notes.Add($"ask #1: done={done} afterMs={clock.ElapsedMilliseconds} status='{status}'");
@@ -73,16 +75,12 @@ public sealed class NoNetworkExplorerTests : ExplorerSteps<BooAppFixture>, IClas
             Assert.True(done, $"With no network Boo still looks busy after 130 s: '{status}'.");
             Assert.DoesNotContain("401", status, StringComparison.Ordinal); // a 401 would mean the firewall block did not hold
 
-            clock.Restart();
-            Ask(panel, "Second try while offline", billed: false, label: "n01 blocked #2 then Stop");
-            Thread.Sleep(1500);
-            PressStop();
-            var stopped = BooAppFixture.WaitUntil(() => !LooksBusy(Status(panel)), TimeSpan.FromSeconds(5));
-            notes.Add($"ask #2 + Stop after 1.5 s: stoppedWithin5s={stopped} afterMs={clock.ElapsedMilliseconds} status='{Status(panel)}'");
+            // Boo really tried: the meter saw a request start, and it ended without an HTTP status (blocked).
+            var tried = BooAppFixture.WaitUntil(() => Meter.Started > 0 && Meter.InFlight == 0, TimeSpan.FromSeconds(10));
             var settled = SettlesHidden(TimeSpan.FromSeconds(10));
-            notes.Add($"settled={settled} face='{NotchFace()}'");
+            notes.Add($"meter: started={Meter.Started} inFlight={Meter.InFlight} tried={tried}; settled={settled} face='{NotchFace()}'");
             Boo.WriteObservation("n01-no-network", string.Join("\n", notes));
-            Assert.True(stopped, $"Stop did not end the offline wait within 5 s: '{Status(panel)}'.");
+            Assert.True(tried, "The meter never saw Boo try a request while offline, so the offline path was not reached.");
             Assert.True(settled, $"The notch stayed '{NotchFace()}' while offline.");
         });
     }

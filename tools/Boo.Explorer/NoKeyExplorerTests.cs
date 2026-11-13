@@ -129,6 +129,7 @@ public sealed class NoKeyExplorerTests : ExplorerSteps<BooAppFixture>, IClassFix
             panel = OpenPanel();
             var kept = Find(panel, "InputBox").AsTextBox().Text;
             notes.Add($"draft after close+reopen='{kept}'");
+            Assert.Equal("draft question kept?", kept);
             Boo.CaptureScreen("x04-after-wrong-order");
             var settled = SettlesHidden(TimeSpan.FromSeconds(6));
             notes.Add($"settledHidden={settled} face='{NotchFace()}'");
