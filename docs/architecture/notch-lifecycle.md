@@ -335,7 +335,7 @@ stateDiagram-v2
 
 | Id | Plain words | Today | Where |
 | --- | --- | --- | --- |
-| `INV-PRIV-1` | Mic or capture on ⇒ notch visible | **Enforced in the notch window, not by `PresenceController`.** Capture and Listening beat every other flag, including `UserHidden`, and pin the timeline out. The reveal takes 240 ms (Revealing) unless reduced motion. `PresenceController` (the class the plan names) is **not used by the app** (only by Core and tests). | `src/Boo.Core/NotchFace.cs:41-43`; `src/Boo.App/NotchWindow.xaml.cs:504-512`, reduced motion / wake-up shown at once `:683`, `:692-695`; `src/Boo.Core/NotchFace.cs:327-334`; unused: `src/Boo.Core/PresenceController.cs:3` |
+| `INV-PRIV-1` | Mic or capture on ⇒ notch visible | **Indicator on ⇒ notch visible: enforced in the notch window, not by `PresenceController`. Microphone recording ⇒ indicator on: NOT always (finding F10).** Capture and Listening beat every other flag, including `UserHidden`, and pin the timeline out. The reveal takes 240 ms (Revealing) unless reduced motion. `PresenceController` (the class the plan names) is **not used by the app** (only by Core and tests). | `src/Boo.Core/NotchFace.cs:41-43`; `src/Boo.App/NotchWindow.xaml.cs:504-512`, reduced motion / wake-up shown at once `:683`, `:692-695`; `src/Boo.Core/NotchFace.cs:327-334`; unused: `src/Boo.Core/PresenceController.cs:3` |
 | `INV-PRIV-2` | No capture starts while Hidden without approval | **Not enforced as written.** Captures need no approval: they start on a typed Send, a voice tool call, a spoken "undo", or a focus check. For a typed Send and a voice tool call, `Thinking` is set first (`:743`, `:2366`) and already pins the notch out before the capture starts; a spoken undo sets no flag itself, but the voice turn has usually set Thinking (F7) or Listening already (`src/Boo.App/MainWindow.Edits.cs:139-157`); for a focus check, starting the capture is what reveals the notch (`:1598`). In every path the indicator is set, then the code yields once to the UI before grabbing the frame. Whether the notch is already on screen at the moment of the grab is UNVERIFIED (timing). | `src/Boo.App/MainWindow.xaml.cs:2029-2037`, `:1598-1606` |
 | `INV-APPLY-1` | Apply only after Approve of the same proposal | **Enforced.** The ticket is a digest of the exact request (name, target, arguments, generation) and is re-checked before each effect. There is no separate proposal id; the digest plays that role. | `src/Boo.Core/ActionPolicy.cs:62-82`; `src/Boo.App/MainWindow.xaml.cs:1173`, `:1197`, `:1225`; `src/Boo.Windows/DesktopTools.cs:968-971` |
 | `INV-APPLY-2` | Undo only what was applied, only once; restores the before-state | **Fields: enforced** (plan needs a recorded edit, refuses newer changes, clears on verified undo). **Files: "only once" is not enforced**: the approved undo is journaled as a new edit, so a second undo reverses the undo (finding F6). | `src/Boo.Core/UndoJournal.cs:87-213`; `src/Boo.Core/FileUndoJournal.cs:31-59`; `src/Boo.App/MainWindow.Edits.cs:504-533` |
@@ -368,6 +368,14 @@ decision in its own PR, not here.
 8. **F8 Two talk paths.** The panel Talk button opens the mic without `HoldToTalkController`; a model of "Listening"
    must include both (`src/Boo.App/MainWindow.xaml.cs:853-908`). The voice session can also end itself (`go_to_sleep`, F10b) and drive focus (`focus_start/pause/resume/end`, `src/Boo.App/MainWindow.Voice.cs:43-66`); the model's event list needs these too.
 9. **F9 A focus session can end with no end event**: a session replaced by a new Start ends quietly, and one still open at quit is only paused (`INV-FOCUS-1` above). The model must either allow zero end events for these or the behaviour changes.
+10. **F10 The microphone can keep recording while the mic indicator is off** (found while writing the PR 2.2 model;
+    code reading, UNVERIFIED by any run). Hold Ctrl+Alt+Space, click Talk twice (or Send, then Talk), then release the
+    chord. The second Talk click opens a new microphone (`src/Boo.App/MainWindow.xaml.cs:861-885`; `BeginRequest`
+    disposes the push-to-talk one, `:1965`), but the hold-to-talk controller was never told, so the release still
+    sends `StopAndSend`. `StopPushToTalkMic` then turns the indicator off for every microphone but stops only the
+    push-to-talk one (`src/Boo.App/MainWindow.Talk.cs:383-398`). Result: the Talk-button microphone keeps recording and
+    streaming to the provider while the notch shows nothing. This breaks the privacy promise behind `INV-PRIV-1`. The model
+    records it as the gap `INV_PRIV_1_DEVICE` (`specs/NotchLifecycle_plan_gaps.cfg`).
 
 ## 6. Cross-check against a live run
 
