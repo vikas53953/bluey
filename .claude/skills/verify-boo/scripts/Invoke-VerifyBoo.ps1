@@ -134,6 +134,8 @@ if ($Suite -in 'live', 'all') {
     foreach ($n in 'live-smoke', 'live-journeys') { $results.Add([pscustomobject]@{ Suite = $n; Project = '-'; Result = 'BLOCKED'; Why = $liveBlocked }) }
   } else {
     $live = @{ BOO_LIVE_TEXT_PROVIDER = $Provider }
+    # The live voice test refuses anything but GitHub's VM or a declared throwaway VM (it never touches a mic or the screen).
+    if ($ThrowawayVm) { $live.BOO_THROWAWAY_VM = '1' }
     Invoke-Suite 'live-smoke' 'tools/Boo.LiveSmoke' $live
     Invoke-Suite 'live-journeys' 'tools/Boo.VerifyLive' $live
   }
