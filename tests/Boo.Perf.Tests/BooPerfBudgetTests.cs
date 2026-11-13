@@ -15,12 +15,6 @@ namespace Boo.Perf.Tests;
 [Collection("Boo perf (serial)")]
 public sealed class BooPerfBudgetTests : IClassFixture<PerfAppFixture>
 {
-    /// <summary>Probe-clock seconds the revealed render loop is sampled for before frames per second is judged.</summary>
-    private const int RevealSampleSeconds = 3;
-
-    /// <summary>Longest wall-clock wait for that sample; a probe that never advances fails the fps budget loudly.</summary>
-    private static readonly TimeSpan RevealSampleTimeout = TimeSpan.FromSeconds(10);
-
     private const string Hidden = "Hidden";
 
     private readonly PerfAppFixture _app;
@@ -141,23 +135,12 @@ public sealed class BooPerfBudgetTests : IClassFixture<PerfAppFixture>
             pass: !string.Equals(revealDiag.FaceState, Hidden, StringComparison.Ordinal));
         RecordFlag("revealNotchRendering", revealDiag.NotchRendering, expected: true, pass: revealDiag.NotchRendering);
 
-        // Frame rate over the probe's own clock (uptimeMs), not the test's wall clock: the probe writes from the
-        // UI dispatcher, so a write that lands late must shrink the measured time along with the frame count.
-        // The window is at least RevealSampleSeconds of probe time, however long that takes to arrive.
         var revealWall = Stopwatch.StartNew();
         var revealBefore = _app.ReadDiag();
-        var revealAfter = revealBefore;
-        var sampled = PerfAppFixture.WaitUntil(
-            () => (revealAfter = _app.ReadDiag()).UptimeMs - revealBefore.UptimeMs >= RevealSampleSeconds * 1000,
-            RevealSampleTimeout,
-            pollMs: 100);
-        var revealSeconds = (revealAfter.UptimeMs - revealBefore.UptimeMs) / 1000.0;
-        Record("revealSampleSeconds", Math.Round(revealSeconds, 2), null, Compare.None);
-        Record("revealWallSeconds", Math.Round(revealWall.Elapsed.TotalSeconds, 2), null, Compare.None);
-        RecordFlag("revealSampleComplete", sampled, expected: true, pass: sampled);
-        var revealFramesPerSecond = revealSeconds > 0
-            ? (revealAfter.NotchFrames - revealBefore.NotchFrames) / revealSeconds
-            : 0;
+        Thread.Sleep(TimeSpan.FromSeconds(2));
+        var revealAfter = _app.ReadDiag();
+        var revealSeconds = revealWall.Elapsed.TotalSeconds;
+        var revealFramesPerSecond = (revealAfter.NotchFrames - revealBefore.NotchFrames) / revealSeconds;
         Record("revealFramesPerSecond", Math.Round(revealFramesPerSecond, 2), budgets.RevealFramesPerSecondMin, Compare.AtLeast);
 
         var revealBounds = RefreshNotchBounds(notch);
