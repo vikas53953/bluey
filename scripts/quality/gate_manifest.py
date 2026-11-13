@@ -2,6 +2,7 @@
 import argparse
 import copy
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -119,7 +120,41 @@ def self_test():
             if result.returncode != expected_code or marker not in result.stdout:
                 print(f'SELF_TEST_FAILED {name}: {result.stdout} {result.stderr}')
                 return 1
-        print(f'GATE_MANIFEST_SELF_TEST_OK {len(cases)} CLI cases')
+        # The workflow block is a machine-consumed interface: execute it with real git base states.
+        source = pathlib.Path(__file__).resolve()
+        workflow = yaml.load((source.parents[2] / '.github/workflows/gate-manifest.yml').read_text(), Loader=UniqueLoader)
+        bootstrap = next(step['run'] for step in workflow['jobs']['gate-manifest']['steps']
+                         if step.get('name') == 'Trusted base gate manifest')
+        for index, (has_checker, has_manifest, missing_commit) in enumerate(
+                [(True, True, False), (False, False, False), (True, False, False),
+                 (False, True, False), (True, True, True)]):
+            repo = root / f'base-{index}'
+            repo.mkdir()
+            def git(*arguments):
+                return subprocess.run(['git', '-C', str(repo), *arguments], check=True,
+                                      capture_output=True, text=True).stdout.strip()
+            git('init')
+            (repo / '.github/workflows').mkdir(parents=True)
+            (repo / '.github/workflows/test.yml').write_text(yaml.safe_dump(valid), encoding='utf-8')
+            if has_checker:
+                (repo / 'scripts/quality').mkdir(parents=True)
+                (repo / 'scripts/quality/gate_manifest.py').write_text(source.read_text(), encoding='utf-8')
+            if has_manifest:
+                (repo / 'docs/quality').mkdir(parents=True)
+                (repo / 'docs/quality/gate-manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+            git('add', '.')
+            git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                '-c', 'commit.gpgsign=false', 'commit', '-m', 'base fixture')
+            environment = dict(os.environ, BASE_SHA='0' * 40 if missing_commit else git('rev-parse', 'HEAD'),
+                               RUNNER_TEMP=str(root))
+            result = subprocess.run(['pwsh', '-NoProfile', '-Command', bootstrap], cwd=repo, env=environment,
+                                    capture_output=True, text=True)
+            should_pass = has_checker == has_manifest and not missing_commit
+            marker = ('GATE_MANIFEST_OK' if has_checker else 'Base has no manifest') if should_pass else 'BOO-CI-001'
+            if (result.returncode == 0) != should_pass or marker not in result.stdout + result.stderr:
+                print(f'SELF_TEST_FAILED base-{index}: {result.stdout} {result.stderr}')
+                return 1
+        print(f'GATE_MANIFEST_SELF_TEST_OK {len(cases)} CLI cases + 5 real-git bootstrap cases')
         return 0
 
 
