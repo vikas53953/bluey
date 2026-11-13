@@ -15,24 +15,32 @@ anchor in docs/quality/RULES.md. Source is read with a small C# lexer (strings, 
 strings, char literals, line and block comments), and every match on a line counts. Known gaps are listed in RULES.md;
 the compiler-exact versions (banned APIs, analyzers) come in later Phase 1 PRs.
 """
+import bisect
 import json
 import pathlib
 import re
+import subprocess
 import sys
 import tempfile
+import unicodedata
+from collections import Counter
 
 root = pathlib.Path(__file__).resolve().parent.parent.parent
 BASELINE = root / 'docs' / 'quality' / 'baseline.json'
 RULES_DOC = 'docs/quality/RULES.md'
-GENERATED_PARTS = {'bin', 'obj'}
 
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Lexer: returns the source with string/char literal text and comments blanked (newlines kept, interpolation holes kept
 # as code), plus the comments found, as (line, text, kind) with kind 'doc' (exactly ///), 'line' or 'block'.
 # ---------------------------------------------------------------------------------------------------------------------
+STRING_START = re.compile(r'(\$*)(@?)(\$*)("{3,}|")')  # no length limit: a raw string may open with any number of quotes
+
+
 def lex(text):
-    text = text.replace('\r\n', '\n')
+    # Every C# line break (CR LF, lone CR, NEL, LINE SEPARATOR, PARAGRAPH SEPARATOR) becomes \n, so none can hide code
+    # inside a `//` comment.
+    text = re.sub('\r\n?|[\u0085\u2028\u2029]', '\n', text)
     out = list(text)
     comments = []
     n = len(text)
@@ -45,9 +53,16 @@ def lex(text):
     def line_of(index):
         return text.count('\n', 0, index) + 1
 
+    def at_line_start(i):
+        """True when only spaces/tabs precede index i on its line."""
+        j = text.rfind('\n', 0, i) + 1
+        return not text[j:i].strip()
+
     def scan_code(i, stop_at_brace=False):
-        """Scan code from i. With stop_at_brace, return at the unmatched '}' that closes an interpolation hole."""
+        """Scan code from i. With stop_at_brace, return at the unmatched '}' that closes an interpolation hole; a
+        top-level ':' there starts the format clause (literal text up to that '}')."""
         depth = 0
+        parens = 0
         while i < n:
             c = text[i]
             if c == '/' and text.startswith('//', i):
@@ -55,7 +70,7 @@ def lex(text):
                 end = n if end < 0 else end
                 body = text[i:end]
                 kind = 'doc' if body.startswith('///') and not body.startswith('////') else 'line'
-                comments.append((line_of(i), body, kind))
+                comments.append((line_of(i), body, kind, at_line_start(i)))
                 blank(i, end)
                 i = end
                 continue
@@ -64,10 +79,28 @@ def lex(text):
                 end = n if end < 0 else end + 2
                 first = line_of(i)
                 for offset, part in enumerate(text[i:end].split('\n')):
-                    comments.append((first + offset, part, 'block'))
+                    comments.append((first + offset, part, 'block', False))
                 blank(i, end)
                 i = end
                 continue
+            if c == '#' and not stop_at_brace and at_line_start(i):
+                # Preprocessor directive (#region, #if, #error ...): its text is not code and holds no strings. A `//`
+                # on it is a real comment (counted like any other), except on #region/#endregion, whose text is a name.
+                end = text.find('\n', i)
+                end = n if end < 0 else end
+                line = text[i:end]
+                slash = line.find('//')
+                if slash >= 0 and not re.match(r'#\s*(end)?region\b', line):
+                    comments.append((line_of(i), line[slash:], 'line', False))
+                blank(i, end)
+                i = end
+                continue
+            if stop_at_brace and depth == 0 and parens == 0 and c == ':' and not text.startswith('::', i) \
+                    and (i == 0 or text[i - 1] != ':'):
+                end = text.find('}', i)
+                end = n if end < 0 else end
+                blank(i, end)
+                return end
             if c == "'":
                 j = i + 1
                 while j < n and text[j] != "'" and text[j] != '\n':
@@ -75,12 +108,12 @@ def lex(text):
                 blank(i + 1, min(j, n))
                 i = j + 1
                 continue
-            m = re.match(r'(\$*)(@?)(\$*)("{3,}|")', text[i:i + 12]) if c in '$@"' else None
+            m = STRING_START.match(text, i) if c in '$@"' else None
             if m and (m.group(1) or m.group(2) or m.group(3) or c == '"'):
                 dollars = len(m.group(1)) + len(m.group(3))
                 verbatim = bool(m.group(2))
                 quote_count = 1 if verbatim else len(m.group(4))
-                i = scan_string(i + m.start(4) + quote_count, dollars, verbatim, quote_count)
+                i = scan_string(m.start(4) + quote_count, dollars, verbatim, quote_count)
                 continue
             if stop_at_brace:
                 if c == '{':
@@ -89,6 +122,10 @@ def lex(text):
                     if depth == 0:
                         return i
                     depth -= 1
+                elif c in '([':
+                    parens += 1
+                elif c in ')]':
+                    parens = max(parens - 1, 0)
             i += 1
         return i
 
@@ -132,26 +169,69 @@ def lex(text):
     return ''.join(out), comments
 
 
+# Static members the rules guard, by type: `using static System.GC;` then `Collect()` is still GC.Collect.
+STATIC_MEMBERS = {'GC': ['Collect'], 'Thread': ['Sleep'], 'Task': ['Delay', 'WaitAll', 'WaitAny'],
+                  'DateTime': ['Now', 'UtcNow', 'Today'], 'DateTimeOffset': ['Now', 'UtcNow', 'Today'],
+                  'Environment': ['GetEnvironmentVariable'], 'Process': ['Start']}
+# A using directive anywhere a statement can start (line start, or after ; { }), with spaces allowed around the dots.
+USING = re.compile(r'(?:^|(?<=[;{}]))\s*(global\s+)?using\s+(static\s+)?(?:(\w+)\s*=\s*)?(?:global\s*::\s*)?'
+                   r'(\w+(?:\s*\.\s*\w+)*)\s*(?:<[^;]*>)?\s*;', re.M)
+
+
+def plain_identifiers(code):
+    """Spell identifiers the plain way: `\\u0043ollect` -> `Collect`, `@GC` -> `GC`, and drop invisible formatting
+    characters (Unicode Cf, such as a soft hyphen), which the compiler ignores inside names. String text is blank."""
+    def decode(m):
+        char = chr(int(m.group(1) or m.group(2), 16))
+        if unicodedata.category(char) == 'Cf':
+            return ''
+        return char if char.isprintable() else ' '
+    code = ''.join(c for c in code if unicodedata.category(c) != 'Cf')
+    code = re.sub(r'\\u([0-9A-Fa-f]{4})|\\U([0-9A-Fa-f]{8})', decode, code)
+    return re.sub(r'@(?=[A-Za-z_])', '', code)
+
+
+def expand_usings(code, usings):
+    """Write aliases and `using static` members out in the full Type.Member form the rules look for."""
+    for _, static, alias, target in usings:
+        name = target.split('.')[-1]
+        if alias:
+            code = re.sub(r'(?<![\w.])' + re.escape(alias) + r'\b(?!\s*=[^=>])', name, code)
+        elif static and name in STATIC_MEMBERS:
+            code = re.sub(r'(?<![\w.])(' + '|'.join(STATIC_MEMBERS[name]) + r')\b', name + r'.\1', code)
+    return code
+
+
+class View:
+    def __init__(self, code, comments):
+        self.code, self.comments = code, comments
+        self.code_lines = code.split('\n')
+        self.line_starts = [0] + [k + 1 for k, c in enumerate(code) if c == '\n']
+
+    def line_of(self, index):
+        return bisect.bisect_right(self.line_starts, index)
+
+
 class Source:
-    def __init__(self, text):
-        self.code, self.comments = lex(text)
-        self.code_lines = self.code.split('\n')
-        self.using_static_thread = bool(re.search(r'using\s+static\s+(global::)?System\.Threading\.Thread\s*;', self.code))
+    """The lexed text as written is the floor (the base branch reads it the same way). The normalised spellings
+    (`\\u` escapes, `@`, invisible characters) and the written-out usings are EXTRA views: a rule's count is the
+    per-line maximum over all views, so a normalisation can only ADD hits, never hide one (see Rule.hits)."""
+    def __init__(self, text, project_usings=()):
+        code, self.comments = lex(text)
+        plain = plain_identifiers(code)
+        self.usings = [(bool(m.group(1)), bool(m.group(2)), m.group(3), re.sub(r'\s', '', m.group(4)))
+                       for m in USING.finditer(plain)]
+        expanded = expand_usings(plain, list(project_usings) + self.usings)
+        self.views = [View(view, self.comments) for view in dict.fromkeys([code, plain, expanded])]
 
 
 def pattern_hits(pattern):
+    """Every match in the whole text (so a call split over lines still counts), reported at the line it starts on."""
     compiled = re.compile(pattern)
 
-    def count(source):
-        return [number for number, line in enumerate(source.code_lines, 1) for _ in compiled.finditer(line)]
+    def count(view):
+        return [view.line_of(m.start()) for m in compiled.finditer(view.code)]
     return count
-
-
-def thread_sleep(source):
-    hits = pattern_hits(r'\bThread\s*\.\s*Sleep\b')(source)
-    if source.using_static_thread:
-        hits += pattern_hits(r'(?<![\w.])Sleep\s*\(')(source)
-    return hits
 
 
 def broad_catches(source):
@@ -203,21 +283,35 @@ def static_mutable(source):
     return hits
 
 
-ALLOWED_COMMENT = re.compile(r'^//\s*(INVARIANT|SECURITY):.*\bsee\s+\w+\.\w+|^//\s*TODO\(#\d+\):')
+TAGGED_RULE = re.compile(r'^//\s*(INVARIANT|SECURITY):.*\bsee\s+(?P<cls>[A-Z]\w*Tests)\.(?P<method>[A-Z]\w*)\b')
+TRACKED_TODO = re.compile(r'^//\s*TODO\(#\d+\):')
+# Test classes found under tests/ ({class: source text}); filled by scan(). A tag naming a missing test is not exempt.
+KNOWN_TESTS = {}
+
+
+def exempt_comment(body):
+    body = body.strip()
+    if TRACKED_TODO.search(body):
+        return True
+    match = TAGGED_RULE.search(body)
+    if not match:
+        return False
+    source = KNOWN_TESTS.get(match.group('cls'))
+    return bool(source) and re.search(r'\b' + re.escape(match.group('method')) + r'\s*\(', source) is not None
 TODO = re.compile(r'\b(TODO|FIXME|HACK|XXX)\b(?!\(#\d+\))')
 
 
 def comment_lines(source):
     lines = set()
-    for line, body, kind in source.comments:
-        if kind == 'doc' or not body.strip() or (kind == 'line' and ALLOWED_COMMENT.search(body.strip())):
+    for line, body, kind, whole in source.comments:
+        if kind == 'doc' or not body.strip() or (kind == 'line' and whole and exempt_comment(body)):
             continue
         lines.add(line)
     return sorted(lines)
 
 
 def untracked_todos(source):
-    return [line for line, body, _ in source.comments for _ in TODO.finditer(body)]
+    return [line for line, body, _, _ in source.comments for _ in TODO.finditer(body)]
 
 
 class Rule:
@@ -227,34 +321,49 @@ class Rule:
         self.samples = samples  # list of (snippet inside a method, expected hit count)
 
     def hits(self, source):
-        return self.counter(source)
+        """Per line, the most hits any view finds; the first view is the text as written, so nothing counts less."""
+        best = Counter()
+        for view in source.views:
+            for line, n in Counter(self.counter(view)).items():
+                best[line] = max(best[line], n)
+        return sorted(best.elements())
+
+    def floor_hits(self, source):
+        return self.counter(source.views[0])
 
 
 DISPATCHER = r'\b\w*[Dd]ispatcher\s*\??\.\s*'
 RULES = [
     Rule('BOO-ASYNC-001', 'Thread.Sleep', 'A sleep hides a race instead of fixing it.',
          'Await the thing you are waiting for (Task, TaskCompletionSource, SemaphoreSlim.WaitAsync) or inject TimeProvider.',
-         'Do NOT make the sleep longer.', thread_sleep,
+         'Do NOT make the sleep longer.', pattern_hits(r'\bThread\s*\.\s*Sleep\b'),
          [('Thread.Sleep(10);', 1), ('Thread .Sleep(1); System.Threading.Thread.Sleep(2);', 2),
-          ('Action a = Thread.Sleep;', 1)]),
+          ('Action a = Thread.Sleep;', 1),
+          ('using static System.Threading.Thread;\n Sleep(1); x.Sleep(2);', 1),
+          ('using T = System.Threading.Thread;\n T.Sleep(1);', 1),
+          ('Thread.\\u0053leep(1); @Thread.@Sleep(2);', 2),
+          ('using System; using static System.Threading.Thread;\n Sleep(1);', 1),
+          ('{ using static System . Threading . Thread;\n Sleep(1); }', 1)]),
     Rule('BOO-ASYNC-002', 'Blocking wait on async work (Task.Wait/WaitAll/WaitAny, .Result, GetAwaiter().GetResult())',
          'Blocking on a task from the WPF UI thread deadlocks.', 'Make the caller async and await it.',
          'Do NOT wrap it in Task.Run to hide the block.',
          pattern_hits(r'\bTask\s*\.\s*(WaitAll|WaitAny)\b|GetAwaiter\s*\(\s*\)\s*\.\s*GetResult\s*\('
                       r'|\b\w*[Tt]ask\w*\s*\.\s*(Wait\s*\(|Result\b)'),
          [('t.GetAwaiter().GetResult();', 1), ('Task.WaitAll(a, b);', 1), ('_task.Wait(); myTask.Wait(5);', 2),
-          ('var r = _pump.Task.Result;', 1), ('await _pump.Task.WaitAsync(ct);', 0)]),
+          ('var r = _pump.Task.Result;', 1), ('await _pump.Task.WaitAsync(ct);', 0),
+          ('using _task = System.Object;\n _task.Wait();', 1)]),
     Rule('BOO-ASYNC-003', 'async void (method or event-handler lambda)',
          'An exception in async void cannot be caught by its caller and can end the app.',
          'Return Task. For a WPF event, hand an async Func<Task> to one shared helper that awaits it and reports errors.',
          'Do NOT add a catch-everything block.', pattern_hits(r'\basync\s+void\b|\+=\s*async\b'),
-         [('async void Go() { }', 1), ('b.Click += async (s, e) => await Go();', 1)]),
+         [('async void Go() { }', 1), ('b.Click += async (s, e) => await Go();', 1),
+                                     ('using async = System.Object;\n async void M2() { }', 1)]),
     Rule('BOO-UI-001', 'Dispatcher.Invoke (synchronous)',
          'A synchronous cross-thread call deadlocks when the UI thread is itself waiting.',
          'Use await Dispatcher.InvokeAsync(...).', 'Do NOT add a timeout to "unstick" it.',
          pattern_hits(DISPATCHER + r'Invoke\b'),
          [('Dispatcher.Invoke(() => { });', 1), ('dispatcher.Invoke(Go); d?.Dispatcher.Invoke(Go);', 2),
-          ('await Dispatcher.InvokeAsync(Go);', 0)]),
+          ('await Dispatcher.InvokeAsync(Go);', 0), ('using Dispatcher = System.Object;\n Dispatcher.Invoke(Go);', 1)]),
     Rule('BOO-UI-002', 'Dispatcher.BeginInvoke (fire and forget)',
          'Exceptions thrown inside are lost and the ordering is a guess.',
          'Use Dispatcher.InvokeAsync and observe the result.', 'Do NOT add a delay to "fix" ordering.',
@@ -266,16 +375,21 @@ RULES = [
          'Do NOT wrap the clock in a static helper; that is the same hidden clock.',
          pattern_hits(r'\bDateTime(Offset)?\s*\.\s*(Now|UtcNow|Today)\b'),
          [('var t = DateTime.UtcNow;', 1), ('var s = $"{DateTime.Now:HH:mm} {DateTimeOffset.UtcNow}";', 2),
-          ('var s = "DateTime.Now";', 0)]),
+          ('var s = "DateTime.Now";', 0),
+          ('using static System.DateTime;\n var t = Now;', 1),
+          ('using static System.DateTimeOffset;\n var t = UtcNow;', 1)]),
     Rule('BOO-TIME-002', 'Task.Delay', 'A delay used to "let things settle" hides a race.',
          'Wait for the real signal; for a real timeout use the TimeProvider overload so tests control time.',
-         'Do NOT make the delay longer.', pattern_hits(r'\bTask\s*\.\s*Delay\b'), [('await Task.Delay(100);', 1)]),
+         'Do NOT make the delay longer.', pattern_hits(r'\bTask\s*\.\s*Delay\b'),
+         [('await Task.Delay(100);', 1), ('using static System.Threading.Tasks.Task;\n await Delay(1);', 1),
+          ('using L = System.Threading.Tasks.Task<int>;\n await L.Delay(1);', 1)]),
     Rule('BOO-TIME-003', 'new DispatcherTimer', 'Timers are a common "fix" for ordering bugs and are untestable '
          'without a fake clock.', 'Prefer an event or an awaited signal; keep real periodic timers in one owner class.',
          'Do NOT add a timer to wait for something to finish.',
          pattern_hits(r'\bnew\s+(?:[\w.]+\.)?DispatcherTimer\b|\bDispatcherTimer\s+\w+\s*=\s*new\s*\('),
          [('var x = new DispatcherTimer();', 1), ('DispatcherTimer t = new(DispatcherPriority.Normal);', 1),
-          ('var y = new System.Windows.Threading.DispatcherTimer();', 1)]),
+          ('var y = new System.Windows.Threading.DispatcherTimer();', 1),
+          ('using @new = System.Object;\n var t = new System.Windows.Threading.DispatcherTimer();', 1)]),
     Rule('BOO-RT-001', 'GC.Collect', 'Forcing a garbage collection hides a leak.',
          'Find what holds the memory and dispose it.', 'Do NOT call it "just in case".',
          pattern_hits(r'\bGC\s*\.\s*Collect\b'), [('GC.Collect();', 1), ('Action a = GC.Collect;', 1),
@@ -291,21 +405,66 @@ RULES = [
                                                     ('var s = $"{(x ? "}" : "{")}"; GC.Collect();', 1),
                                                     ('var s = $$"""{{x}} { """; GC.Collect();', 1),
                                                     ('var s = "GC.Collect();"; var r = """\n GC.Collect()\n """;', 0),
-                                                    ('var s = $"{GC.Collect}";', 1)]),
+                                                    ('var s = $"{GC.Collect}";', 1),
+                                                    ('var s = "\\""; GC.Collect();', 1),
+                                                    ('var s = @"C:\\"; GC.Collect();', 1),
+                                                    ('var s = @"x"" GC.Collect() ""y";', 0),
+                                                    ('var s = $"{F(() => { return 1; })} GC.Collect()";', 0),
+                                                    ('var s = "a\n GC.Collect();', 1),
+                                                    ('/* GC.Collect();\n GC.Collect(); */ var z = 1;', 0),
+                                                    ('var s = $"{x:it\'s}"; GC.Collect();', 1),
+                                                    ('var s = $"{d:dd//MM}"; GC.Collect();', 1),
+                                                    ('var s = $"{d:/*}"; GC.Collect(); var t = $"{d:*/}";', 1),
+                                                    ('var s = $@"{d:it\'s}"; GC.Collect();', 1),
+                                                    ('var s = $"{(a ? b : c)}"; GC.Collect();', 1),
+                                                    ('var s = $"{global::System.String.Empty}"; GC.Collect();', 1),
+                                                    ('#region it\'s @" "\"\n GC.Collect();', 1),
+                                                    # each of these changes count if one lexer rule breaks:
+                                                    ('var s = @"a""" + GC.Collect();', 1),
+                                                    ('var s = $"{ new { A = 1 }.A + " GC.Collect() "}";', 0),
+                                                    ('var s = $"{(x ? 0 : GC.Collect())}";', 1),
+                                                    ('#region @"\n GC.Collect();\n var q = "x";', 1),
+                                                    ('var s = @"a""\n GC.Collect(); b";', 0),
+                                                    ('// GC.Collect();', 0),
+                                                    ('var s = $"{F(x):it\'s}"; GC.Collect();', 1),
+                                                    ('var s = $"{global::System.GC.Collect()}";', 1),
+                                                    ('var r = """"x""""; GC.Collect();', 1),
+                                                    ('// note\u2028GC.Collect(); // a\rGC.Collect(); // b\u0085GC.Collect();', 3),
+                                                    ('// c\u2029GC.Collect();', 1),
+                                                    ('GC.\\u0043ollect(); @GC.@Collect(); GC.\\U00000043ollect();', 3),
+                                                    ('using G = System.GC;\n G.Collect(); var s = "G.Collect()";', 1),
+                                                    ('using static System.GC;\n Collect();', 1),
+                                                    ('using G = System . GC;\n G.Collect();', 1),
+                                                    ('GC.Col\\u00ADlect(); GC.Col\u00adlect(); GC.\u200bCollect();', 3),
+                                                    ('var r = ' + '"' * 13 + 'x' + '"' * 13 + '; GC.Collect();', 1),
+                                                    ('var r = ' + '"' * 13 + 'a' + '"' * 11 + ' GC.Collect(); ' + '"' * 11
+                                                     + 'b' + '"' * 13 + ';', 0),
+                                                    ('var s = $"{ new { A = c ? 1 : GC.Collect() }.A }";', 1),
+                                                    ('var s = $"{ arr[c ? 1 : GC.Collect()] }";', 1),
+                                                    ('var s = $"{a[0]:GC.Collect}";', 0),
+                                                    ('using GC = Foo.Bar;\n GC.Collect();', 1),
+                                                    ('System.GC\n   .Collect();', 1),
+                                                    # corrections: directive text and long raw-string openings are not code
+                                                    ('#warning do not call GC.Collect', 0),
+                                                    ('var s = ' + '$' * 10 + '"""a" GC.Collect(); "b""";', 0),
+                                                    ('using static global::System.GC;\n Collect();', 1)]),
     Rule('BOO-RT-002', 'Environment.GetEnvironmentVariable',
          'Hidden switches (for example BOO_QA_CAPTURABLE) change privacy behaviour and must be auditable.',
          'Read environment variables in one place and pass the value in.', 'Do NOT add another reader.',
          pattern_hits(r'\bEnvironment\s*\.\s*GetEnvironmentVariable\b'),
-         [('Environment.GetEnvironmentVariable("X");', 1), ('Func<string, string?> f = Environment.GetEnvironmentVariable;', 1)]),
+         [('Environment.GetEnvironmentVariable("X");', 1), ('Func<string, string?> f = Environment.GetEnvironmentVariable;', 1),
+          ('using static System.Environment;\n GetEnvironmentVariable("X");', 1)]),
     Rule('BOO-SAFE-003', 'Process.Start', 'Launching a program is a permissioned, security-sensitive action.',
          'Go through the ActionPolicy gate (DesktopTools).', 'Do NOT call Process.Start directly.',
-         pattern_hits(r'\bProcess\s*\.\s*Start\b'), [('Process.Start("x");', 1)]),
+         pattern_hits(r'\bProcess\s*\.\s*Start\b'),
+         [('Process.Start("x");', 1), ('using static System.Diagnostics.Process;\n Start("x");', 1)]),
     Rule('BOO-ERR-001', 'Broad catch with an empty body (error thrown away)',
          'The failure vanishes; the next symptom shows up somewhere unrelated.',
          'Catch the specific exception you expect and handle it, or let it propagate.', 'Do NOT widen the catch.',
          lambda s: [line for line, kind in broad_catches(s) if kind == 'empty'],
          [('try { Go(); } catch (Exception) { }', 1), ('try { Go(); } catch { }', 1),
-          ('try { Go(); } catch (global::System.Exception) { }', 1), ('try { Go(); } catch (IOException) { }', 0)]),
+          ('try { Go(); } catch (global::System.Exception) { }', 1), ('try { Go(); } catch (IOException) { }', 0),
+          ('using @catch = System.Object;\n try { Go(); } catch { }', 1)]),
     Rule('BOO-ERR-002', 'Broad catch that handles and carries on (no rethrow)',
          'Catching every exception also catches the bugs you did not expect.',
          'Narrow the type, or add a `when (...)` filter for the exceptions you really expect.',
@@ -319,7 +478,9 @@ RULES = [
          'Make it an instance member owned by one object, or readonly.', 'Do NOT add a lock around it as the fix.',
          static_mutable, [('}\n private static int s_count;\n void N() {', 1),
                           ('}\n public static bool Started { get; private set; }\n void N() {', 1),
-                          ('}\n private static readonly int s_x = 1;\n void N() {', 0)]),
+                          ('}\n private static readonly int s_x = 1;\n void N() {', 0),
+                          # 2: the alias line itself also reads as a static field, as on the base branch (never less)
+                          ('}\n using @static = System.Object;\n private static int s_count;\n void N() {', 2)]),
     Rule('BOO-CMT-001', 'Comment line that is not an XML doc comment (///)',
          'Agents use comments to justify workarounds; rules written in comments are not checked.',
          'Fix the cause instead of explaining it. If it states a rule, write a test and use '
@@ -327,49 +488,118 @@ RULES = [
          'Do NOT reword the comment to dodge the count.', comment_lines,
          [('// retry because it is flaky', 1), ('/* a\n b */', 2), ('//// four slashes', 1),
           ('// INVARIANT: undo restores bytes, see UndoJournalTests.Roundtrip', 0),
+          ('// INVARIANT: undo restores bytes, see MissingTests.Roundtrip', 1),
+          ('// INVARIANT: undo restores bytes, see UndoJournalTests.NoSuchMethod', 1),
+          ('// INVARIANT: undo restores bytes, see UndoJournal.Roundtrip', 1),
+          ('// note TODO(#12): tracked only at the start', 1), ('//// TODO(#12): four slashes', 1),
+          ('#endregion // a name, not a comment', 0),
+          ('// TODO: fix later', 1), ('// TODO(12): no hash', 1),
+          ('#pragma warning disable CS0168 // TODO(#1): tracked here', 1),
+          ('// INVARIANT: retry because flaky, see e.g. above', 1),
+          ('// INVARIANT: no reference', 1),
+          ('Go(); // INVARIANT: undo restores bytes, see UndoJournalTests.Roundtrip', 1),
+          ('// TODO(#12): tracked', 0),
+          ('#pragma warning disable CS0168 // agent workaround, flaky', 1),
+          ('#region // a name, not a comment', 0),
+          ('Go(); // TODO(#12): tracked', 1),
           ('var u = "http://a//b /* x */";', 0), ('var r = """\n // not a comment\n """;', 0)]),
     Rule('BOO-CMT-002', 'TODO / FIXME / HACK / XXX without an issue link',
          'Untracked debt is invisible.', 'Open a GitHub issue and write TODO(#123): ...', 'Do NOT delete the note '
          'and keep the debt.', untracked_todos,
-         [('// TODO: fix later', 1), ('/* FIXME */', 1), ('// TODO(#12): tracked', 0), ('/// HACK in a doc', 1)]),
+         [('// TODO: fix later', 1), ('/* FIXME */', 1), ('// TODO(#12): tracked', 0), ('/// HACK in a doc', 1),
+          ('#endif // HACK', 1), ('#warning x /* TODO later */', 0)]),
 ]
 RULES_BY_ID = {rule.id: rule for rule in RULES}
 
 
-def projects(base):
-    return sorted(p for p in (base / 'src').iterdir() if p.is_dir() and any(p.glob('*.csproj')))
+def files(base, top):
+    """Every file git would commit under base/top (tracked, plus new files that are not ignored), as relative parts.
+    Build output (bin/, obj/) is skipped because it is git-ignored; a file forced into git there is judged."""
+    run = subprocess.run(['git', '-C', str(base), 'ls-files', '-z', '-c', '-o', '--exclude-standard', '--', top],
+                         capture_output=True)
+    if run.returncode:
+        raise SystemExit(f'RATCHET FAILED: cannot list files with git in {base} '
+                         f'({run.stderr.decode(errors="replace").strip()}).')
+    names = sorted({name for name in run.stdout.decode('utf-8').split('\0') if name and (base / name).is_file()})
+    return [tuple(name.split('/')) for name in names]
+
+
+def layout(base):
+    """(projects, problems): projects are src/<Name>/ folders that hold a .csproj directly; any C# project or file in
+    src/ that sits anywhere else is a problem, because the build compiles it but the ratchet would not judge it."""
+    listed = files(base, 'src')
+    projects = sorted({parts[1] for parts in listed if len(parts) == 3 and is_project(parts[2])})
+    problems = []
+    for parts in listed:
+        path = '/'.join(parts)
+        if is_project(parts[-1]) and len(parts) != 3:
+            problems.append(f'{path}: a project outside src/<Name>/ is not judged. Put it at src/<Name>/<Name>.csproj.')
+        elif is_csharp(parts[-1]) and (len(parts) < 3 or parts[1] not in projects):
+            problems.append(f'{path}: C# file outside a src/<Name>/ project is not judged. Move it into a project.')
+    for path in symlinks(base, 'src'):
+        problems.append(f'{path}: a symbolic link in src/ hides what it points to from the ratchet. Commit real files.')
+    return projects, problems
+
+
+def is_csharp(name):
+    return name.lower().endswith('.cs')  # MSBuild on Windows compiles Evil.CS too
+
+
+def is_project(name):
+    return name.lower().endswith('.csproj')
+
+
+def load_tests(base):
+    KNOWN_TESTS.clear()
+    for parts in files(base, 'tests'):
+        if is_csharp(parts[-1]):
+            text = (base / '/'.join(parts)).read_text(encoding='utf-8-sig', errors='replace')
+            for name in re.findall(r'\bclass\s+([A-Z]\w*Tests)\b', text):
+                KNOWN_TESTS[name] = KNOWN_TESTS.get(name, '') + text
+
+
+def symlinks(base, top):
+    """Tracked symbolic links (git mode 120000) under base/top: git lists a linked folder as one entry, so its files
+    would never be read."""
+    run = subprocess.run(['git', '-C', str(base), 'ls-files', '-s', '-z', '--', top], capture_output=True)
+    if run.returncode:
+        raise SystemExit(f'RATCHET FAILED: cannot list files with git in {base}.')
+    return sorted(entry.split('\t', 1)[1] for entry in run.stdout.decode('utf-8').split('\0')
+                  if entry.startswith('120000 '))
 
 
 def scan(base):
-    """{rule: {project: [(relative file, line), ...]}}"""
-    result = {rule.id: {} for rule in RULES}
-    for project in projects(base):
-        for rule in RULES:
-            result[rule.id][project.name] = []
-        for path in sorted(project.rglob('*.cs')):
-            if GENERATED_PARTS.intersection(path.relative_to(project).parts):
-                continue
-            source = Source(path.read_text(encoding='utf-8-sig'))
-            relative = path.relative_to(base).as_posix()
+    """({rule: {project: [(relative file, line), ...]}}, layout problems)"""
+    load_tests(base)
+    projects, problems = layout(base)
+    result = {rule.id: {project: [] for project in projects} for rule in RULES}
+    listed = files(base, 'src')
+    for project in projects:
+        paths = ['/'.join(parts) for parts in listed if parts[1:2] == (project,) and is_csharp(parts[-1])]
+        texts = {path: (base / path).read_text(encoding='utf-8-sig') for path in paths}
+        usings = [u for text in texts.values() for u in Source(text).usings if u[0]]  # `global using` lines
+        for path in paths:
+            source = Source(texts[path], usings)
             for rule in RULES:
-                result[rule.id][project.name].extend((relative, n) for n in rule.hits(source))
-    return result
+                result[rule.id][project].extend((path, n) for n in rule.hits(source))
+    return result, problems
 
 
 def counts(result):
     return {rule: {project: len(hits) for project, hits in by_project.items()} for rule, by_project in result.items()}
 
 
-def compare(result, baseline, rise_only=False):
+def compare(result, baseline, rise_only=False, problems=()):
     """Return (rose, fell) message lists."""
     now = counts(result)
-    rose, fell = [], []
+    rose, fell = list(problems), []
     scanned = {project for by_project in now.values() for project in by_project}
     for rule_id, by_project in baseline.items():
         for project, allowed in by_project.items():
             if allowed and project not in scanned:
                 rose.append(f'{rule_id}  {project}: baselined at {allowed}, but the project is no longer scanned (moved, '
-                            f'renamed or its .csproj removed). Restore it under src/, or lower the baseline in a reviewed PR.')
+                            f'renamed or its .csproj removed). Restore it under src/. A real rename needs the owner to override '
+                            f'this check once (see docs/quality/RULES.md, Renames).')
     for rule in RULES:
         if rule.id not in baseline:
             if not rise_only:
@@ -393,8 +623,8 @@ def check(base, baseline_path, rise_only=False):
         print(f'RATCHET FAILED: {baseline_path} is missing.')
         return 1
     baseline = json.loads(baseline_path.read_text(encoding='utf-8'))['counts']
-    result = scan(base)
-    rose, fell = compare(result, baseline, rise_only)
+    result, problems = scan(base)
+    rose, fell = compare(result, baseline, rise_only, problems)
     label = 'RATCHET (against the base branch\'s own ratchet and baseline)' if rise_only else 'RATCHET'
     if rose:
         print(f'{label} FAILED: a known-bad pattern went UP. Fix the cause in the code.\n')
@@ -406,13 +636,17 @@ def check(base, baseline_path, rise_only=False):
         print('\n'.join('  ' + line for line in fell))
         return 1
     total = sum(sum(by.values()) for by in counts(result).values())
-    print(f'{label} OK: {len(RULES)} rules, {len(projects(base))} projects, {total} hits, none above the baseline')
+    print(f'{label} OK: {len(RULES)} rules, {len(result[RULES[0].id])} projects, {total} hits, none above the baseline')
     return 0
 
 
 def lower(base, baseline_path):
     old = json.loads(baseline_path.read_text(encoding='utf-8')) if baseline_path.is_file() else {'counts': {}}
-    now = counts(scan(base))
+    result, problems = scan(base)
+    if problems:
+        print('REFUSED: fix the layout first:\n  ' + '\n  '.join(problems))
+        return 1
+    now = counts(result)
     for rule, by_project in now.items():
         for project, count in by_project.items():
             previous = old['counts'].get(rule, {}).get(project)
@@ -430,12 +664,19 @@ def lower(base, baseline_path):
 
 def self_test():
     failures = []
+    KNOWN_TESTS.clear()
+    KNOWN_TESTS['UndoJournalTests'] = 'public void Roundtrip() { }'
+    KNOWN_TESTS['UndoJournal'] = 'public void Roundtrip() { }'  # not a *Tests class: a tag naming it is not exempt
     for rule in RULES:
         for snippet, expected in rule.samples:
             source = Source('class C {\n  void M() {\n    ' + snippet + '\n  }\n}\n')
             got = len(rule.hits(source))
             if got != expected:
                 failures.append(f'{rule.id}: expected {expected} hit(s), got {got} for: {snippet!r}')
+            # Never counts less: no normalised view may hide a hit that the text as written shows, on any line.
+            floor, best = Counter(rule.floor_hits(source)), Counter(rule.hits(source))
+            if any(best[line] < n for line, n in floor.items()):
+                failures.append(f'{rule.id}: a normalised view counted less than the text as written for: {snippet!r}')
     clean = Source('class C {\n  /// <summary>Doc.</summary>\n  private static readonly int s_x = 1;\n'
                    '  private const string Url = "http://a//b /* not a comment */";\n'
                    '  async Task M() { try { await N(); } catch (IOException) { } }\n}\n')
@@ -445,6 +686,7 @@ def self_test():
     # The pass/fail logic itself, on a throwaway tree.
     with tempfile.TemporaryDirectory() as temp:
         tree = pathlib.Path(temp)
+        subprocess.run(['git', 'init', '-q', str(tree)], check=True)
         (tree / 'src' / 'P').mkdir(parents=True)
         (tree / 'src' / 'P' / 'P.csproj').write_text('<Project/>', encoding='utf-8')
         code = tree / 'src' / 'P' / 'A.cs'
@@ -458,6 +700,55 @@ def self_test():
             steps += [('check rise fails', check(tree, baseline_path), 1), ('lower refuses rise', lower(tree, baseline_path), 1),
                       ('rise-only also fails a rise', check(tree, baseline_path, rise_only=True), 1)]
             code.write_text('class A { void M() { } }', encoding='utf-8')
+            (tree / 'src' / 'P').rename(tree / 'src' / 'Q')
+            steps += [('renamed project fails the PR\'s own check', check(tree, baseline_path), 1),
+                      ('renamed project fails the base check too', check(tree, baseline_path, rise_only=True), 1)]
+            (tree / 'src' / 'Q').rename(tree / 'src' / 'P')
+            (tree / 'src' / 'Dummy').mkdir()
+            (tree / 'src' / 'Dummy' / 'Dummy.csproj').write_text('<Project/>', encoding='utf-8')
+            steps += [('an extra empty project changes nothing', check(tree, baseline_path, rise_only=True), 0)]
+            (tree / 'src' / 'P' / 'Sub' / 'bin').mkdir(parents=True)
+            (tree / 'src' / 'P' / 'Sub' / 'bin' / 'N.cs').write_text('class N { void M() { Thread.Sleep(8); Thread.Sleep(9); } }', encoding='utf-8')
+            steps += [('a nested bin/ folder is scanned', check(tree, baseline_path, rise_only=True), 1)]
+            (tree / 'src' / 'P' / 'Sub' / 'bin' / 'N.cs').unlink()
+            (tree / '.gitignore').write_text('bin/\nobj/\n', encoding='utf-8')
+            (tree / 'src' / 'P' / 'bin').mkdir()
+            (tree / 'src' / 'P' / 'bin' / 'Gen.cs').write_text('class G { void M() { Thread.Sleep(1); Thread.Sleep(2); } }', encoding='utf-8')
+            steps += [('ignored build output is skipped', check(tree, baseline_path, rise_only=True), 0)]
+            subprocess.run(['git', '-C', str(tree), 'add', '-f', 'src/P/bin/Gen.cs'], check=True)
+            steps += [('a file forced into git under bin/ is judged', check(tree, baseline_path, rise_only=True), 1)]
+            subprocess.run(['git', '-C', str(tree), 'rm', '-q', '--cached', 'src/P/bin/Gen.cs'], check=True)
+            for stray, body in [('src/Loose.cs', 'class L { }'), ('src/Shared/S.cs', 'class S { }'),
+                                ('src/Group/Hack/Hack.csproj', '<Project/>'), ('src/P/Inner/Inner.csproj', '<Project/>')]:
+                (tree / stray).parent.mkdir(parents=True, exist_ok=True)
+                (tree / stray).write_text(body, encoding='utf-8')
+                steps += [(f'{stray} outside a judged project fails', check(tree, baseline_path, rise_only=True), 1)]
+                (tree / stray).unlink()
+            (tree / 'src' / 'P' / 'Glob.cs').write_text('global using static System.GC;', encoding='utf-8')
+            code.write_text('class A { void M() { Collect(); } }', encoding='utf-8')
+            steps += [('a global using static in another file is followed', check(tree, baseline_path, rise_only=True), 1)]
+            (tree / 'src' / 'P' / 'Glob.cs').unlink()
+            code.write_text('class A { void M() { Collect(); } }', encoding='utf-8')
+            (tree / 'src' / 'P' / 'B.cs').write_text('using static System.GC;', encoding='utf-8')
+            steps += [('a plain (not global) using in another file is not applied', check(tree, baseline_path, rise_only=True), 0)]
+            (tree / 'src' / 'P' / 'B.cs').unlink()
+            code.write_text('class A { void M() { } }', encoding='utf-8')
+            blob = subprocess.run(['git', '-C', str(tree), 'hash-object', '-w', '--stdin'], input=b'../Elsewhere',
+                                  capture_output=True, check=True).stdout.decode().strip()
+            subprocess.run(['git', '-C', str(tree), 'update-index', '--add', '--cacheinfo', f'120000,{blob},src/P/Link'],
+                           check=True)
+            steps += [('a symbolic link in src/ fails', check(tree, baseline_path, rise_only=True), 1)]
+            subprocess.run(['git', '-C', str(tree), 'update-index', '--force-remove', 'src/P/Link'], check=True)
+            (tree / 'src' / 'P' / 'P.csproj').rename(tree / 'src' / 'P' / 'P.CSPROJ')
+            steps += [('an upper-case .CSPROJ is still the project', check(tree, baseline_path, rise_only=True), 0)]
+            (tree / 'src' / 'P' / 'P.CSPROJ').rename(tree / 'src' / 'P' / 'P.csproj')
+            (tree / 'src' / 'P' / 'Evil.CS').write_text('class E { void M() { GC.Collect(); } }', encoding='utf-8')
+            steps += [('an upper-case .CS file is judged', check(tree, baseline_path, rise_only=True), 1)]
+            (tree / 'src' / 'P' / 'Evil.CS').unlink()
+            (tree / 'src' / 'Loose.cs').write_text('class L { }', encoding='utf-8')
+            steps += [('--lower refuses while the layout has a problem', lower(tree, baseline_path), 1)]
+            (tree / 'src' / 'Loose.cs').unlink()
+            code.write_text('class A { void M() { } }', encoding='utf-8')
             steps += [('check fall fails until lowered', check(tree, baseline_path), 1),
                       ('rise-only accepts a fall', check(tree, baseline_path, rise_only=True), 0),
                       ('lower accepts fall', lower(tree, baseline_path), 0), ('check after lower passes', check(tree, baseline_path), 0)]
@@ -465,6 +756,13 @@ def self_test():
             sys.stdout.close()
             sys.stdout = quiet
         failures += [f'logic: {name} returned {got}, expected {want}' for name, got, want in steps if got != want]
+        (tree / 'tests' / 'T').mkdir(parents=True)
+        (tree / 'tests' / 'T' / 'UndoJournalTests.cs').write_text(
+            'public class UndoJournalTests { [Fact] public void Roundtrip() { } }', encoding='utf-8')
+        load_tests(tree)
+        tagged = Source('class C {\n  // INVARIANT: undo restores bytes, see UndoJournalTests.Roundtrip\n}\n')
+        if comment_lines(tagged):
+            failures.append('logic: load_tests did not register a real test class under tests/')
     if failures:
         print('SELF-TEST FAILED:\n  ' + '\n  '.join(failures))
         return 1
@@ -478,7 +776,7 @@ def list_rule(base, rule_id):
     if rule_id not in RULES_BY_ID:
         print('usage: --list RULE, one of: ' + ', '.join(RULES_BY_ID))
         return 1
-    for _, hits in scan(base)[rule_id].items():
+    for _, hits in scan(base)[0][rule_id].items():
         for relative, number in hits:
             print(f'{relative}:{number}')
     return 0
