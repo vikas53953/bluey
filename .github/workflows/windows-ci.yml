@@ -54,6 +54,22 @@ jobs:
       - name: Build
         run: dotnet build Boo.sln -c Release --no-restore -bl:artifacts/binlog/build.binlog
 
+      # BOO-CASS-001 (docs/quality/cassettes.md): replay the OpenAI cassettes (recorded replies and the hand-made bad-day
+      # set, with their latency and injected faults) through Boo's real OpenAI client. MOCK evidence: no key, no network;
+      # it never replaces the live-ai-smoke run. Both test gates must see every test run. The recorder (not in Boo.sln,
+      # used only by record-cassettes.yml) is built here so it cannot rot.
+      - name: Cassette replay tests (OpenAI client, mock)
+        shell: pwsh
+        run: |
+          dotnet test tools/Boo.Cassettes.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/cassettes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I scripts/test_gate.py trx artifacts/test-results/cassettes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh -NoProfile -File scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/test-results/cassettes -SourceDirectory tools/Boo.Cassettes.Tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tools/Boo.Cassettes.Record -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       # Provider tests use in-memory HTTP handlers; no OpenAI key or other secret is needed.
       - name: Core tests
         run: dotnet test tests/Boo.Core.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/core

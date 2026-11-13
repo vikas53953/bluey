@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "name": "research-prose-ok",
+  "origin": "synthetic",
+  "note": "Synthetic, hand-made from the documented OpenAI Responses API shape (not a real recording). First real recording: record-cassettes.yml after merge.",
+  "call": "research",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses",
+    "model": "gpt-5-mini",
+    "tools": [
+      "web_search"
+    ],
+    "bodyKeys": [
+      "model",
+      "store",
+      "reasoning",
+      "instructions",
+      "input",
+      "tools",
+      "include"
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headersDelayMs": 2100,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "chunks": [
+      {
+        "delayMs": 1400,
+        "text": "{\"id\":\"resp_redacted\",\"object\":\"response\",\"created_at\":1763020800,\"status\":\"completed\",\"background\":false,\"error\":null,\"incomplete_details\":null,\"instructions\":null,\"max_output_tokens\":null,\"model\":\"gpt-5-mini-2025-08-07\",\"output\":[{\"id\":\"ws_redacted\",\"type\":\"web_search_call\",\"status\":\"completed\",\"action\":{\"type\":\"search\",\"query\":\"latest release notes\",\"sources\":[{\"type\":\"url\",\"url\":\"https://example.com/release-notes\"},{\"type\":\"url\",\"url\":\"https://example.net/changelog\"}]}},{\"id\":\"msg_redacted\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"annotations\":[{\"type\":\"url_citation\",\"start_index\":48,\"end_index\":66,"
+      },
+      {
+        "delayMs": 60,
+        "text": "\"url\":\"https://example.com/release-notes\",\"title\":\"Release notes\"},{\"type\":\"url_citation\",\"start_index\":48,\"end_index\":66,\"url\":\"https://example.net/changelog\",\"title\":\"Changelog\"}],\"logprobs\":[],\"text\":\"Version 2.3 added offline mode and fixed the sync bug (example.com).\"}]}],\"parallel_tool_calls\":true,\"previous_response_id\":null,\"reasoning\":{\"effort\":\"low\",\"summary\":null},\"store\":false,\"temperature\":1.0,\"tool_choice\":\"auto\",\"tools\":[],\"top_p\":1.0,\"truncation\":\"disabled\",\"usage\":{\"input_tokens\":412,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":61,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":473},\"user\":null,\"metadata\":{}}"
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "reply",
+    "text": "Version 2.3 added offline mode and fixed the sync bug (example.com).",
+    "sources": 2
+  }
+}

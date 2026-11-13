@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "name": "bad-429-rate-limit-retry-after",
+  "origin": "synthetic",
+  "note": "Synthetic, hand-made from the documented OpenAI Responses API shape (not a real recording). First real recording: record-cassettes.yml after merge. Retry-After is sent; today the client does not read it (docs/quality/cassettes.md, known gaps).",
+  "call": "respond",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses",
+    "model": "gpt-5-mini",
+    "format": "boo_screen_help_result",
+    "tools": [],
+    "bodyKeys": [
+      "model",
+      "store",
+      "reasoning",
+      "instructions",
+      "input",
+      "text"
+    ]
+  },
+  "response": {
+    "status": 429,
+    "headersDelayMs": 40,
+    "headers": {
+      "content-type": "application/json",
+      "retry-after": "20"
+    },
+    "chunks": [
+      {
+        "delayMs": 0,
+        "json": {
+          "error": {
+            "message": "Rate limit reached for gpt-5-mini on requests per min (RPM): Limit 3, Used 3, Requested 1. Please try again in 20s.",
+            "type": "requests",
+            "param": null,
+            "code": "rate_limit_exceeded"
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "provider-failure",
+    "failureKind": "RateLimited",
+    "status": 429,
+    "retryable": true,
+    "message": "OpenAI is busy with too many requests. Wait a moment and try again."
+  }
+}
