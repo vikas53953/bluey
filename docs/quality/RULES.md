@@ -266,9 +266,11 @@ body from the event file, never from a `${{ }}` expression pasted into a shell.
 **GitHub renders the body, the check reads the result.** The script does not parse Markdown itself: it sends the body
 to GitHub's Markdown API (the same renderer as the PR page) and reads only the rendered tables and the real link
 targets (`<a href>`). So what GitHub does not show as a table or a link does not count: HTML comments, code blocks,
-text inside HTML attributes, a run URL that is only a link's hover title, a link with no text. An evidence table must
-be a plain grid (no merged cells, no table inside it), so its `Label` column is the column a reader sees. If GitHub
-cannot render the body, the check fails closed. A self-test first proves every rule on HTML samples, and a render test sends the known tricks through
+text inside HTML attributes, a run URL that is only a link's hover title. **Every table on the page must be a
+Markdown pipe table**: a table written in raw HTML can be drawn in a different order than it is written (merged cells,
+rows before the header, a footer, a table inside a table), so any table that does not have exactly the shape GitHub
+gives a pipe table fails the check. A `live` cell in a table without a `Label` column (for example a misspelled or
+look-alike header) also fails. If GitHub cannot render the body, the check fails closed. A self-test first proves every rule on HTML samples, and a render test sends the known tricks through
 GitHub's real renderer. Then the PR's own copy of the checker judges the body, and so does the **base branch's** copy
 (read from git), so a PR cannot loosen the checker script it is judged by.
 
@@ -283,8 +285,8 @@ GitHub's real renderer. Then the PR's own copy of the checker judges the body, a
 
 - Each label (the first word of the cell; bold and extra words after it are fine) is one of `live`, `mock`, `manual`,
   `UNVERIFIED`, `BLOCKED`, `review`.
-- Every `live` row has a real, visible link (text or an image, not just the address in an attribute) to a GitHub
-  Actions run of this repository, written as a full `https://github.com/...` address (a run, a job or an attempt of
+- Every `live` row has a real link whose text has a letter or digit (not an image, not an invisible character, not
+  folded inside `<details>`) to a GitHub Actions run of this repository, written as a full `https://github.com/...` address (a run, a job or an attempt of
   it). No run link means it is not live.
 - A PR that changes anything under `src/` or `tools/` has at least one `live` row, or a `BLOCKED` row that says what
   blocks the live run (after the label, in the same cell or a column to its right).

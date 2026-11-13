@@ -36,13 +36,21 @@ API = 'https://api.github.com/markdown'
 
 class _Table:
     def __init__(self):
-        self.rows, self.row, self.cell, self.plain = [], None, None, True
+        self.rows, self.row, self.cell, self.plain, self.shape = [], None, None, True, []
+
+
+# The only table shape a Markdown pipe table renders to on GitHub: one header row of <th> in <thead>, then (optionally)
+# body rows of <td> in one <tbody>; <table role="table">, cells may carry align. A table written in raw HTML that has
+# any other shape (rows before the header, a footer, a caption, merged cells, a table inside it, extra attributes) can
+# be drawn differently from the order it is written, so it is not accepted anywhere on the page.
+PIPE_TABLE_SHAPE = re.compile(r'^<thead><tr>(?:<th></th>)+</tr></thead>(?:<tbody>(?:<tr>(?:<td></td>)+</tr>)+</tbody>)?$')
+STRUCTURE = {'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col'}
+ALLOWED_ATTRS = {'table': {'role'}, 'th': {'align'}, 'td': {'align'}}
 
 
 class _Tables(html.parser.HTMLParser):
-    """Every table in rendered HTML, with open tables kept on a stack (a table inside a cell is its own table and
-    makes the outer one not plain). A cell is (text, hrefs of links that show something); a merged cell
-    (colspan/rowspan) also makes its table not plain, because its columns no longer line up with the header."""
+    """Every table in rendered HTML. Open tables are kept on a stack; each records its structure (checked against
+    PIPE_TABLE_SHAPE) and its cells as (text, hrefs of links whose text has a letter or digit)."""
 
     VOID = {'br', 'img', 'hr', 'input', 'meta', 'link', 'wbr', 'source', 'col', 'area', 'base', 'embed', 'track'}
 
@@ -56,33 +64,37 @@ class _Tables(html.parser.HTMLParser):
     def handle_starttag(self, tag, attrs):
         names = dict(attrs)
         top = self._top()
+        if top is not None and (tag in STRUCTURE or tag == 'table'):
+            if set(names) - ALLOWED_ATTRS.get(tag, set()):
+                top.plain = False
         if tag in self.VOID:
-            if top is not None and top.cell is not None:
-                if tag == 'br':
-                    top.cell[0].append(' ')
-                if tag == 'img':                          # an image shows something: its link is visible
-                    for link in self._links:
-                        link[1] = True
+            if tag == 'col' and top is not None:
+                top.plain = False
+            if tag == 'br' and top is not None and top.cell is not None:
+                top.cell[0].append(' ')
             return
         self._tags.append(tag)
         if tag == 'table':
             if top is not None:
-                top.plain = False                         # a table inside a table: the outer one is not a grid
+                top.plain = False                         # a table inside a table
             table = _Table()
+            if set(names) - ALLOWED_ATTRS['table']:
+                table.plain = False
             self.tables.append(table)
             self._open.append(table)
-        elif top is None:
             return
-        elif tag == 'tr':
+        if top is None:
+            return
+        if tag in STRUCTURE:
+            top.shape.append(f'<{tag}>')
+        if tag == 'tr':
             top.row = []
             top.rows.append(top.row)
         elif tag in ('td', 'th') and top.row is not None:
-            if names.get('colspan', '1') != '1' or names.get('rowspan', '1') != '1':
-                top.plain = False
             top.cell = ([], [])
             top.row.append(top.cell)
-        elif tag == 'a' and top.cell is not None and names.get('href'):
-            self._links.append([names['href'], False, top.cell])
+        elif tag == 'a' and top.cell is not None and names.get('href') and 'details' not in self._tags:
+            self._links.append([names['href'], [], top.cell])       # (a link folded inside <details> is hidden)
 
     def handle_endtag(self, tag):
         if tag not in self._tags:
@@ -90,16 +102,20 @@ class _Tables(html.parser.HTMLParser):
         while self._tags:
             open_tag = self._tags.pop()
             top = self._top()
-            if open_tag == 'a' and self._links:
-                href, shown, cell = self._links.pop()
-                if shown:
-                    cell[1].append(href)
-            elif open_tag in ('td', 'th') and top is not None:
-                top.cell = None
-            elif open_tag == 'tr' and top is not None:
-                top.row = None
-            elif open_tag == 'table' and self._open:
-                self._open.pop()
+            if open_tag == 'table':
+                if self._open:
+                    self._open.pop()
+            elif top is not None:
+                if open_tag in STRUCTURE:
+                    top.shape.append(f'</{open_tag}>')
+                if open_tag == 'a' and self._links:
+                    href, text, cell = self._links.pop()
+                    if re.search(r'[A-Za-z0-9]', ''.join(text)):   # a link a reader can see and read
+                        cell[1].append(href)
+                elif open_tag in ('td', 'th'):
+                    top.cell = None
+                elif open_tag == 'tr':
+                    top.row = None
             if open_tag == tag:
                 break
 
@@ -107,23 +123,24 @@ class _Tables(html.parser.HTMLParser):
         top = self._top()
         if top is not None and top.cell is not None:
             top.cell[0].append(data)
-            if data.strip():
-                for link in self._links:
-                    link[1] = True
+            for link in self._links:
+                link[1].append(data)
 
 
 def tables(rendered_html):
-    """[(header cell texts, [(row number, [(text, hrefs)])], plain)] for every table on the rendered page."""
+    """[(header cell texts, [(row number, [(text, hrefs)])], pipe_shaped)] for every table on the rendered page."""
     parser = _Tables()
     parser.feed(rendered_html or '')
     parser.close()
     out = []
     for table in parser.tables:
-        rows = [[(' '.join(''.join(text).split()), hrefs) for text, hrefs in r] for r in table.rows if r]
+        rows = [[(' '.join(''.join(text).split()), hrefs) for text, hrefs in r] for r in table.rows]
+        shaped = table.plain and bool(PIPE_TABLE_SHAPE.match(''.join(table.shape))) and rows \
+            and all(len(r) == len(rows[0]) for r in rows)
         if not rows:
+            out.append(([], [], False))
             continue
-        header, body = rows[0], rows[1:]
-        out.append(([text for text, _ in header], list(enumerate(body, 1)), table.plain))
+        out.append(([text for text, _ in rows[0]], list(enumerate(rows[1:], 1)), bool(shaped)))
     return out
 
 
@@ -140,16 +157,20 @@ def check(rendered_html, changed_files, repo):
     run_link = re.compile(r'^https://github\.com/' + re.escape(repo)
                           + r'/actions/runs/\d+(?:/job/\d+|/attempts/\d+)?/?(?:[?#][^/]*)?$', re.IGNORECASE)
     evidence = []
-    for k, (header, rows, plain) in enumerate(tables(rendered_html), 1):
+    for k, (header, rows, shaped) in enumerate(tables(rendered_html), 1):
+        if not shaped:
+            problems.append(f'table {k} is not a Markdown pipe table (raw HTML table, merged cells, a table inside '
+                            'it, rows before the header or a footer): write every table as a Markdown pipe table')
+            continue
         cols = [c for c, h in enumerate(header) if label_of(h) == 'label'
                 and len([w for w in h.split() if re.search(r'[A-Za-z]', w)]) == 1]
-        if not cols:
+        if cols:
+            evidence.append((k, cols, rows))
             continue
-        if not plain:
-            problems.append(f'evidence table {k} is not a plain grid (merged cells or a table inside it): write it '
-                            'as a Markdown pipe table')
-            continue
-        evidence.append((k, cols, rows))
+        for n, cells in rows:
+            if any(label_of(text) == 'live' and len(re.findall(r'[A-Za-z]+', text)) == 1 for text, _ in cells):
+                problems.append(f'table {k}, row {n}: a "live" cell in a table without a Label column (is the header '
+                                'misspelled?); put claims in the evidence table')
     if not evidence and problems:
         return problems
     if not evidence:
@@ -239,7 +260,8 @@ def self_test():
     def table(rows, header=('Claim', 'Label', 'Proof')):
         head = ''.join(f'<th>{h}</th>' for h in header)
         body = ''.join('<tr>' + ''.join(f'<td>{c}</td>' for c in r) + '</tr>' for r in rows)
-        return f'<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
+        return f'<table role="table"><thead><tr>{head}</tr></thead>' + (f'<tbody>{body}</tbody>' if rows else '') \
+            + '</table>'
 
     live = ['round trip', '<strong>live</strong> (OpenAI)', f'<a href="{run}">run</a>']
     rows = [live, ['demo', 'mock', f'<a href="{run}">r</a>'], ['Claude', 'UNVERIFIED', 'not tested'],
@@ -249,6 +271,7 @@ def self_test():
     expect('no table fails', check('<p>Just words.</p>', [], repo) != [])
     expect('an empty body fails', check('', [], repo) != [] and check(None, [], repo) != [])
     expect('a table without a Label column fails', check(table([['1', '2']], ('a', 'b')), [], repo) != [])
+    expect('a header-only table (no body rows) is a pipe table', tables(table([]))[0][2] is True)
     expect('a header "Labels" or "Label notes" is not the Label column',
            check(table(rows, ('Claim', 'Labels', 'Proof')), [], repo) != []
            and check(table(rows, ('Claim', 'Label notes', 'Proof')), [], repo) != [])
@@ -290,15 +313,40 @@ def self_test():
     expect('a table inside the evidence table makes it fail (rows after it cannot hide)',
            check(table([['Claude', 'BLOCKED', 'no key today<table><tr><td></td></tr></table>'],
                         ['real AI round trip', 'live', 'trust me']]), ['src/a.cs'], repo) != [])
-    expect('a table inside a table marks the outer one as not a plain grid',
-           [plain for _, _, plain in tables(table([['a', 'mock', '<table><tr><td>x</td></tr></table>']]))]
-           == [False, True])
+    expect('a table inside a table marks the outer one as not a pipe table',
+           [shaped for _, _, shaped in tables(table([['a', 'mock', '<table><tr><td>x</td></tr></table>']]))][0]
+           is False)
     expect('a link with no text does not count',
            check(table([['rt', 'live', f'trust me <a href="{run}"></a>']]), [], repo) != [])
     expect('a link with only whitespace does not count',
            check(table([['rt', 'live', f'<a href="{run}"> </a>']]), [], repo) != [])
-    expect('an image link counts', check(table([['rt', 'live', f'<a href="{run}"><img src="x.png"></a>']]), [], repo)
+    expect('a link folded inside <details> in the cell does not count',
+           check(table([['rt', 'live', f'trust me <details><summary></summary><a href="{run}">r</a></details>']]),
+                 [], repo) != [])
+    expect('an image-only link does not count (it may show nothing)',
+           check(table([['rt', 'live', f'<a href="{run}"><img src="x.png"></a>']]), [], repo) != [])
+    for name, invisible in (('a zero-width space', '\u200b'), ('a soft hyphen', '\u00ad'), ('a Braille blank', '\u2800')):
+        expect(f'a link whose only text is {name} does not count',
+               check(table([['rt', 'live', f'trust me <a href="{run}">{invisible}</a>']]), [], repo) != [])
+    expect('a header row after the body rows (drawn first by a browser) fails',
+           check('<table role="table"><tbody><tr><td>a</td><td>b</td><td>Label</td></tr></tbody>'
+                 '<thead><tr><th>Claim</th><th>Label</th><th>mock</th></tr></thead></table>', [], repo) != [])
+    expect('a table footer fails',
+           check(good.replace('</table>', '<tfoot><tr><td>x</td><td>mock</td><td>y</td></tr></tfoot></table>'),
+                 ['src/a.cs'], repo) != [])
+    expect('a blank first row before the header fails',
+           check(good + '<table><tr><td></td><td></td><td></td></tr><tr><th>Claim</th><th>Label</th><th>Proof</th>'
+                 '</tr><tr><td>rt</td><td>live</td><td>trust me</td></tr></table>', ['src/a.cs'], repo) != [])
+    expect('a look-alike Label header (Cyrillic a) with a live row fails',
+           check(good + table([['real AI round trip', 'live', 'trust me']], ('Claim', 'L\u0430bel', 'Proof')),
+                 ['src/a.cs'], repo) != [])
+    expect('an extra attribute on a cell fails', check(good.replace('<td>demo</td>', '<td title="x">demo</td>'),
+                                                       ['src/a.cs'], repo) != [])
+    expect('aligned columns (align attribute) pass',
+           check(good.replace('<th>', '<th align="center">').replace('<td>', '<td align="left">'), ['src/a.cs'], repo)
            == [])
+    expect('a non-evidence table with "live run" text passes (only a lone "live" cell fails)',
+           check(good + table([['live run', 'x']], ('a', 'b')), ['src/a.cs'], repo) == [])
     expect('an emoji before the label is fine', check(table([['rt', '\u2705 live', f'<a href="{run}">r</a>']]),
                                                      [], repo) == [])
     expect('a run link that walks out of the run fails',
@@ -358,6 +406,17 @@ RENDER_CASES = (
      '<tr><td>real AI round trip</td><td>live</td><td>trust me</td></tr></table>\n', False),
     ('a run link with no text', '| Claim | Label | Proof |\n|---|---|---|\n'
      '| rt | live | trust me <a href="https://github.com/{repo}/actions/runs/123"></a> |\n', False),
+    ('a run link whose text is a zero-width space', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| rt | live | trust me [\u200b](https://github.com/{repo}/actions/runs/123) |\n', False),
+    ('an image-only run link', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| rt | live | trust me <a href="https://github.com/{repo}/actions/runs/123"><img></a> |\n', False),
+    ('a header written after the body rows', '<table><tbody><tr><td>a</td><td>b</td><td>Label</td></tr>'
+     '<tr><td>real AI round trip</td><td>live</td><td>BLOCKED nothing</td></tr></tbody><thead><tr><th>Claim</th>'
+     '<th>Label</th><th>mock</th></tr></thead></table>\n', False),
+    ('a look-alike Label header', '| Claim | Label | Proof |\n|---|---|---|\n| live run | BLOCKED | no runner |\n\n'
+     '| Claim | L\u0430bel | Proof |\n|---|---|---|\n| real AI round trip | live | trust me |\n', False),
+    ('aligned columns and a job link pass', '| Claim | Label | Proof |\n|:--|:-:|--:|\n'
+     '| rt | \u2705 **live** (OpenAI) | [job](https://github.com/{repo}/actions/runs/1/job/2) |\n', True),
 )
 
 
