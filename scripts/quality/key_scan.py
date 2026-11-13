@@ -393,6 +393,9 @@ def _yaml_steps(text):
             seen = set()
             for key_node, _ in node.value:
                 key = loader.construct_object(key_node, deep=deep)
+                if isinstance(key, (list, dict, set)):     # a complex key: reported as a problem, not a crash
+                    raise yaml.constructor.ConstructorError(None, None, 'a list or mapping used as a key',
+                                                            key_node.start_mark)
                 folded = key.lower() if isinstance(key, str) else key
                 if folded in seen:
                     raise yaml.constructor.ConstructorError(None, None, f'duplicate key {key!r}', key_node.start_mark)
@@ -883,12 +886,18 @@ def self_test(out=print):
                                '        uses: actions/upload-artifact@v4\n        uses: actions/upload-artifact@v4\n')),
                            ('duplicate key differing only in case', wf_text().replace(
                                '          name: x\n', '          name: x\n          Name: y\n')),
+                           ('duplicate non-keyword key differing only in case', wf_text().replace(
+                               '          name: x\n', '          name: x\n          retention-days: 7\n          Retention-days: 7\n')),
                            ('reusable workflow job', wf_text() + '  b:\n    uses: org/repo/.github/workflows/up.yml@v1\n'),
                            ('local action step', wf_text() + '      - uses: ./.github/actions/up\n'),
                            ('non-ASCII letter in a key', wf_text('no-scan').replace('        uses:', '        u\u017fes:')),
                            ('Unicode space as indentation', wf_text().replace('        shell: pwsh\n', '\u3000       shell: pwsh\n'))):
             (wf / 'a.yml').write_text(text, encoding='utf-8')
             check(f'workflow check fails: {name}', check_workflows(wf, out=quiet) == 1)
+        (wf / 'a.yml').write_text(wf_text().replace('          name: x\n', '          name: x\n          ? [a]\n          : b\n'),
+                                  encoding='utf-8')
+        check('a list used as a key is a reported problem, not a crash (meaning layer alone)',
+              check_workflows(wf, out=quiet, use_grammar=False) == 1)
         for space in ('\t', '　', ' '):
             check(f'the grammar alone rejects indentation by {space!r}',
                   bool(grammar_problems(wf_text().replace('        shell: pwsh\n', '      ' + space + ' shell: pwsh\n'))))

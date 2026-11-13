@@ -204,9 +204,11 @@ workflow, and the upload's `if:` exactly as generated. It works in two layers, a
    PyYAML reads YAML 1.1 and GitHub reads YAML 1.2, and they disagree on some plain values: `08` is the text "08" to
    PyYAML but the number 8 to GitHub. That is why an upload path must start with a letter: no reading of such a value
    is a number, and `yes`/`no`/`true`/`null` fail because PyYAML does not read them as text. Every other value the
-   check relies on is generated (`id`, `run`, `if`) or a `${{ }}` expression.
+   check relies on is text to both readers: generated (`id`, `run`, `if`), a `${{ }}` expression, `shell: pwsh`, a
+   `NAME_KEY` env name, or a `uses:` containing `upload`.
 
-The self-test proves each piece on its own: the grammar, the PyYAML layer, the case rule and the missing-PyYAML failure
+The self-test proves each piece on its own: the grammar, the PyYAML layer, the case rule, the letter-first path rule,
+duplicate keys (also when they differ only in case), reusable workflows, local actions and the missing-PyYAML failure
 each have cases that only they catch, so switching any one off turns the self-test red. A local `--self-test` therefore
 needs PyYAML installed (`pip install --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt`). Any action
 whose name contains `upload` counts as an upload.
@@ -242,6 +244,9 @@ Known gaps of the key scan:
   box is masked);
 - key-shaped text that is base64-encoded, gzip/zip-compressed, or an AWS *secret* key (a plain 40-character string)
   is not detected; base64 is covered only for real secrets;
+- an upload the check cannot see as an upload step is not scanned: a remote action whose name does not contain
+  `upload` (a composite or docker action that uploads inside it), or a `run:` command that uploads
+  (`gh release upload`, `curl`); such steps need a human review;
 - `release.yml` uploads (installer, portable ZIP, `gh release create`) are not scanned yet (not in PR 1.7's files);
 - the PR-diff scan (`--diff`) is ready but not wired: it needs one step in `quality-gates.yml`, which belongs to
   another PR;
