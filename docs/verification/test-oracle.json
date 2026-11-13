@@ -12,9 +12,9 @@
     "docs/verification/acceptance-shell-failures.md": "d56e2b3b22eec4d986285de30cf37104c237496c94c4bf4f41b5d83d7836cec3",
     "docs/verification/public-contracts.md": "43918f2fdedcb39cc617434f2d07a0895a77c8195fbf9b197b0313a5292fa632",
     "src/Boo.Core/Contracts.cs": "035ec5798f7b09b89068cab1b42b0667a484a42eb2d28fa14852b12b3a850caf",
-    "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "8a916ffc9040717949f4568987ef970ffa11abaed0fb21710e4894483189ab40",
+    "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "9f1652570e047b84730aa008b93efd73ba410a1ccb6bee9b2e1e8d8cce2a3426",
     "tests/Boo.Architecture.Tests/Boo.Architecture.Tests.csproj": "8587ecb45245fa2141bed6746514e6097653c2751ffcd1a878b06ff2b5665029",
-    "tests/Boo.Architecture.Tests/CecilScan.cs": "e372717ba1e807aa6be1bd4693d93e6d0aa540bf99aa2f97a7f813288ea074b9",
+    "tests/Boo.Architecture.Tests/CecilScan.cs": "8c714c52baa9c8bfcdcc67c394c15f674e606705326df0db398c8ad478d6d0e4",
     "tests/Boo.Core.Tests/AccessibilityPreferencesTests.cs": "267b52de838c26b4549c27868f19a2f3655865c18ab0854c7ce69b89c7fd111a",
     "tests/Boo.Core.Tests/ActionPolicyTests.cs": "fd7bb663e0c1ce773d76760e49c7e2aac79efcb12d0db8f135e462168d063c15",
     "tests/Boo.Core.Tests/ActionPreviewTests.cs": "9b4fdc7645a68c482899bc1712e94cb7b6fa0d27e3da9b100b8e54391ff34148",
@@ -152,9 +152,9 @@
   },
   "previousManifest": "docs/verification/test-oracle-history/revision-25.json",
   "previousManifestSha256": "e6347b90077bb84eb87fd4325673ed4694a7a0acb298dfe06c5f47dfb496fb75",
-  "revisionReason": "PR #40: follow-ups from the final review of PR #31; a BOO-ARCH-002 approval only counts for the installed .NET runtime's own code (type found in the runtime folder, every framework reference loaded from it, plus a Microsoft key token), and CecilScan also scans parameter, return-value and generic-parameter attributes. Stricter only; no assertion, allowlist or budget changed. See docs/verification/test-oracle-revision-26.md",
+  "revisionReason": "PR #40: follow-ups from the final review of PR #31; a BOO-ARCH-002 approval only counts for the installed .NET runtime's own code (only Core's own code unchecked; every other type, built-ins included, found in the runtime folder; every framework reference loaded from it; Microsoft key token), and CecilScan also scans parameter, return-value and generic-parameter attributes. Stricter only; no assertion, allowlist or budget changed. See docs/verification/test-oracle-revision-26.md",
   "addedFiles": [],
-  "revisionCommit": "7885efc397da6ee8dcb8e6a762c549c0cf9d5a5d",
+  "revisionCommit": "f0b96288f727e29d0392bc0d72dac3e1c7f7db4e",
   "changedFiles": [
     "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs",
     "tests/Boo.Architecture.Tests/CecilScan.cs"

@@ -68,9 +68,10 @@ internal static class CecilScan
 
     /// <summary>Framework references of <paramref name="assembly"/> (names in <paramref name="frameworkNames"/>) whose copy
     /// actually loaded at run time is not the installed runtime's: a package can ship its own System.Linq.dll with a
-    /// higher version and Microsoft's public key, and the .NET host then loads that copy instead. The test process
-    /// resolves assemblies the same way the app does, so each reference is loaded here and its file must be in the
-    /// shared framework folder. A reference that cannot be loaded at all also counts.</summary>
+    /// higher version and Microsoft's public key, and the .NET host then loads that copy instead. The test project
+    /// references Core and the app, so every dependency that flows on to it (all of them today) is in its deps.json and
+    /// is loaded here the way the app would load it; its file must be in the shared framework folder. A dependency an
+    /// app project keeps private (PrivateAssets="all") would not flow here. A reference that cannot be loaded also counts.</summary>
     public static IReadOnlyCollection<string> FrameworkReferencesNotFromRuntime(Assembly assembly, IReadOnlyCollection<string> frameworkNames)
     {
         var offenders = new SortedSet<string>(StringComparer.Ordinal);

@@ -33,3 +33,8 @@ Decision: ACCEPT.
   99.0.0.0, public-signed with Microsoft's public key (token `b03f5f7f11d50a3a`, which passes the token check), referenced
   from Core: reported as `<System.Runtime.Intrinsics 99.0.0.0 not loaded from the installed .NET runtime>` (the .NET
   loader prefers the higher-version app copy, exactly as it would for Boo). With the probe removed all 6 rules pass.
+- **Local**, after the review of `f0b9628`: built-in type names were trusted by name alone (Mono.Cecil reports
+  `[Other]System.String` as a string). Now only Core's own code skips the checks. A probe project `RedFakeString`
+  declaring `System.String` and `System.Int32` with a disk-writing method, called from Core through an extern alias, is
+  reported as `Boo.Core.RedProbeFakeString uses (not approved for Core): System.Int32, System.String`. With the probe
+  removed all 6 rules pass.

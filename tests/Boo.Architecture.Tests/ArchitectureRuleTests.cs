@@ -175,15 +175,18 @@ public sealed class ArchitectureRuleTests
     private static bool CoreMayUse(TypeReference type)
     {
         // Own code: anything defined in Core itself (including compiler-generated regex classes, which use a System.*
-        // namespace). Never trusted by namespace name: a type from any other assembly, Boo.* included, must be approved.
-        // Built-in primitives (int, IntPtr, string, object, void) are fine.
-        if (type.Scope is ModuleDefinition || type.IsPrimitive) return true;
-        if (type.MetadataType is MetadataType.Void or MetadataType.String or MetadataType.Object or MetadataType.TypedByReference) return true;
+        // namespace) is the only thing trusted without a check. Every other type, Boo.* and the built-in ones (int,
+        // IntPtr, string, object, void) included, must come from an approved framework assembly with a Microsoft key
+        // token and really exist in the installed runtime: a type is never trusted by its name, which any assembly can
+        // reuse (Mono.Cecil reports [Other]System.String as a string just like the real one).
+        if (type.Scope is ModuleDefinition) return true;
         if (type.Scope is not AssemblyNameReference from || !CoreApprovedAssemblies.Contains(from.Name)) return false;
         if (!MicrosoftKeyTokens.Contains(Convert.ToHexString(from.PublicKeyToken ?? []).ToLowerInvariant())) return false;
         if (CoreDeniedTypes.Contains(type.FullName)) return false;
+        var builtIn = type.IsPrimitive
+                      || type.MetadataType is MetadataType.Void or MetadataType.String or MetadataType.Object or MetadataType.TypedByReference;
         var ns = CecilScan.NamespaceOf(type);
-        var approved = CoreApprovedNamespaces.Contains(ns) || CoreApprovedTypes.Contains(type.FullName) || CoreApprovedMembers.ContainsKey(type.FullName);
+        var approved = builtIn || CoreApprovedNamespaces.Contains(ns) || CoreApprovedTypes.Contains(type.FullName) || CoreApprovedMembers.ContainsKey(type.FullName);
         return approved && CecilScan.IsFromInstalledRuntime(type);
     }
 
