@@ -35,7 +35,7 @@ public sealed class FileUndoEdgeTests : IClassFixture<LiveAppFixture>
                 $"Missing {stage} review card. Status: {QaUi.NameOf(panel, "StatusText")}");
             var title = QaUi.NameOf(panel, "ActionPreviewText");
             Assert.Contains(stage == "first-undo" ? "Delete file" : "Write file", title, StringComparison.Ordinal);
-            var destination = panel.FindFirstDescendant(cf => cf.ByName("Resolved destination"))?.AsTextBox().Text;
+            var destination = panel.FindFirstDescendant(cf => cf.ByName("Resolved destination").And(cf.ByControlType(FlaUI.Core.Definitions.ControlType.Edit)))?.AsTextBox().Text;
             Assert.False(string.IsNullOrWhiteSpace(destination), "Review card has no resolved destination.");
             Assert.True(string.Equals(Path.GetFullPath(path), Path.GetFullPath(destination!), StringComparison.OrdinalIgnoreCase),
                 $"Review card targets '{destination}', expected '{path}'.");

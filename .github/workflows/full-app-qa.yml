@@ -196,6 +196,14 @@ jobs:
           python -I tools/Boo.QaSuite/qa_report.py --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Mock selected-folder request contract (not live AI proof)
+        shell: pwsh
+        run: |
+          & dotnet test tools/Boo.QaSuite -c Release --no-build --filter "FullyQualifiedName~Boo.QaSuite.Contracts" --logger trx --results-directory artifacts/qa-evidence/contracts/trx
+          $rc = $LASTEXITCODE
+          ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/qa-evidence/contracts/trx -SourceDirectory tools/Boo.QaSuite/Contracts
+          if ($rc -ne 0 -or $LASTEXITCODE -ne 0) { exit 1 }
+
       # PROBE RUN only: plant the classic mock trick (the demo-ci hosts redirect). Every real-AI check must now refuse.
       - name: Plant a mock (probe run only)
         if: ${{ inputs.plant_failure }}

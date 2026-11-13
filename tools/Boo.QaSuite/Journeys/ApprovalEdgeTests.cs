@@ -55,7 +55,7 @@ public sealed class ApprovalEdgeTests : IClassFixture<LiveAppFixture>
                 $"No pending write card. Status: {QaUi.NameOf(panel, "StatusText")}");
             var title = QaUi.NameOf(panel, "ActionPreviewText");
             Assert.Contains("Write file", title, StringComparison.Ordinal);
-            var destination = panel.FindFirstDescendant(cf => cf.ByName("Resolved destination"))?.AsTextBox().Text;
+            var destination = panel.FindFirstDescendant(cf => cf.ByName("Resolved destination").And(cf.ByControlType(FlaUI.Core.Definitions.ControlType.Edit)))?.AsTextBox().Text;
             Assert.False(string.IsNullOrWhiteSpace(destination), "Write proposal has no resolved destination.");
             Assert.True(string.Equals(Path.GetFullPath(path), Path.GetFullPath(destination!), StringComparison.OrdinalIgnoreCase),
                 $"Write proposal targets '{destination}', expected '{path}'.");

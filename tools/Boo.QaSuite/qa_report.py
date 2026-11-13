@@ -18,6 +18,7 @@ NS = {'t': 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}
 
 # group folder -> plain-words name; every one must have run (a missing group is a red, never a silent gap)
 GROUPS = {
+    'contracts': 'Mock selected-folder request contract',
     'antimock': 'Anti-mock checks',
     'journeys': 'Suite journeys (launch, hover, chat, Stop, focus, settings)',
     'smoke': 'Live round trip (and voice, once PR #47 lands)',
@@ -27,6 +28,7 @@ GROUPS = {
 OPTIONAL = {'verifylive'}  # skipped only when the dispatch says journeys=false; then listed as UNVERIFIED
 
 PLAIN = {
+    'C66': 'Selected-folder context gated by explicit task and configured root (mock HTTP)',
     'AM0': 'Shipped build holds no mock or test code',
     'AM1': 'No AI host redirected, no proxy, no hosts pin',
     'AM2': 'No planted root certificate; real OpenAI certificate validates',
@@ -121,7 +123,7 @@ def build(folder, run_url='', app_sha='', harness_sha='', models=''):
                 table.append(f'| {title} | UNVERIFIED | not run in this dispatch (journeys=false) | {link} |')
             else:
                 problems.append(f'{title}: no results (the group did not run)')
-                table.append(f'| {title} | live | FAILED: no results, the group did not run | {link} |')
+                table.append(f'| {title} | UNVERIFIED | FAILED: no results, the group did not run | {link} |')
             continue
         for _, name, outcome, message in mine:
             sid = short_id(name)
@@ -134,7 +136,8 @@ def build(folder, run_url='', app_sha='', harness_sha='', models=''):
             if not ok:
                 problems.append(f'{what}: {outcome} {message}')
             result = 'passed' if ok else f'FAILED ({outcome}): {message}'.replace('|', '/')
-            table.append(f'| {what} | live | {result} | {link} |')
+            label = 'mock' if group == 'contracts' else 'live'
+            table.append(f'| {what} | {label} | {result} | {link} |')
     if not any(r[0] == 'smoke' and 'voice' in r[1].lower() for r in rows):
         table.append(f'| Voice provider: real OpenAI synthetic audio round trip (component; no Boo.exe UI) | BLOCKED | no live voice test exists on this harness yet; it '
                      f'arrives with PR #47. Not a pass. | {link} |')
@@ -195,11 +198,12 @@ def self_test():
     with tempfile.TemporaryDirectory() as d:
         root = pathlib.Path(d)
         for g in GROUPS:
-            trx(root / g / 'trx', [(f'Boo.QaSuite.X.T{g}.S0_Thing', 'Passed', '')])
+            trx(root / g / 'trx', [('Boo.QaSuite.Contracts.X.C66_Folder' if g == 'contracts' else f'Boo.QaSuite.X.T{g}.S0_Thing', 'Passed', '')])
         (root / 'journeys' / 'qa-notch-states-journeys.txt').write_text('# expected Listening and Happy\n10 Hidden\n20 Thinking\ninvalid 30 Nudge\n', encoding='utf-8')
         text, green = build(root)
         check('missing required coverage prevents green', not green and 'SUITE RED' in text)
         check('voice missing -> BLOCKED row, still not counted as a pass', '| Voice provider: real OpenAI synthetic audio round trip (component; no Boo.exe UI) | BLOCKED |' in text)
+        check('mock contract cannot be labelled live', '| Selected-folder context gated by explicit task and configured root (mock HTTP) | mock | passed' in text)
         check('seen state -> live', '| Notch state Thinking | live |' in text)
         check('expectations cannot count as observations', '| Notch state Happy | UNVERIFIED |' in text and '| Notch state Nudge | UNVERIFIED |' in text)
         check('unseen state -> UNVERIFIED', '| Notch state Listening | UNVERIFIED |' in text)

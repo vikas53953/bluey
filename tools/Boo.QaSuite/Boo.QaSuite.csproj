@@ -28,6 +28,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Boo.Storage/Boo.Storage.csproj" />
+    <ProjectReference Include="../../src/Boo.Providers/Boo.Providers.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

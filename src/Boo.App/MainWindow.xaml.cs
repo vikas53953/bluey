@@ -2126,7 +2126,8 @@ public partial class MainWindow : Window
         var providerSettings = _settings.Provider ?? new ProviderSettings();
         var provider = providerSettings.TextProvider;
         _http ??= new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
-        _responses = AssistantProviders.CreateScreenAssistant(provider, _http, () => StoreFor(provider).Load(), providerSettings);
+        _responses = AssistantProviders.CreateScreenAssistant(provider, _http, () => StoreFor(provider).Load(), providerSettings,
+            () => !string.IsNullOrWhiteSpace(_settings.FileRoot));
         return _responses;
     }
 
