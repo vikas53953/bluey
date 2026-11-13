@@ -17,7 +17,8 @@ public sealed class FocusAutomationDiagnosticTests : IClassFixture<NoKeyFixture>
     public void Q67_CompactWindow_FocusStartPauseEnd_TenConsecutiveCyclesWithoutUiaErrors()
     {
         Assert.True(BooAppFixture.OnGitHubHostedRunner(), "Diagnostic runs only on GitHub's own VM.");
-        var panel = QaUi.OpenPanel(_boo);
+        Window? panel = null;
+        Exception? primaryFailure = null;
         var clock = Stopwatch.StartNew();
         var log = new List<string>();
         var phase = "setup";
@@ -25,10 +26,23 @@ public sealed class FocusAutomationDiagnosticTests : IClassFixture<NoKeyFixture>
         AutomationElement Find(string id)
         {
             Record("FindFirst begin " + id);
-            var element = panel.FindFirstDescendant(cf => cf.ByAutomationId(id));
+            var activePanel = panel ?? throw new InvalidOperationException("Diagnostic panel is not open.");
+            var element = activePanel.FindFirstDescendant(cf => cf.ByAutomationId(id));
             Assert.NotNull(element);
             Record("FindFirst end " + id);
             return element;
+        }
+        Window? FindPanelStrict() => _boo.App.GetAllTopLevelWindows(_boo.Automation)
+            .FirstOrDefault(w => w.Properties.Name.Value.StartsWith(BooAppFixture.PanelTitlePrefix, StringComparison.Ordinal));
+        Window OpenOnceStrict()
+        {
+            Assert.Null(FindPanelStrict());
+            Record("one Ctrl+Alt+B open press");
+            BooAppFixture.PressOpenShortcut();
+            Window? opened = null;
+            Assert.True(BooAppFixture.WaitUntil(() => (opened = FindPanelStrict()) is not null, TimeSpan.FromSeconds(8)),
+                "One Ctrl+Alt+B press did not open the panel; no retry was attempted.");
+            return opened!;
         }
         void WaitForStatus(Func<string, bool> matches, string expected)
         {
@@ -44,6 +58,10 @@ public sealed class FocusAutomationDiagnosticTests : IClassFixture<NoKeyFixture>
         }
         try
         {
+            Assert.True(BooAppFixture.WaitUntil(() => _boo.App.GetAllTopLevelWindows(_boo.Automation)
+                .Any(w => w.Properties.Name.Value is var name && (name == BooAppFixture.NotchName || name == BooAppFixture.NotchTitle)),
+                TimeSpan.FromSeconds(60)), "Notch did not appear; discovery errors are not suppressed.");
+            panel = OpenOnceStrict();
             var window = panel.Patterns.Window.Pattern;
             window.SetWindowVisualState(WindowVisualState.Normal);
             Assert.True(BooAppFixture.WaitUntil(() => window.WindowVisualState.Value == WindowVisualState.Normal, TimeSpan.FromSeconds(5)));
@@ -57,8 +75,8 @@ public sealed class FocusAutomationDiagnosticTests : IClassFixture<NoKeyFixture>
             Assert.True(BooAppFixture.WaitUntil(() => window.WindowVisualState.Value == WindowVisualState.Normal, TimeSpan.FromSeconds(5)));
             Record("compact/restored bounds=" + panel.BoundingRectangle);
             Find("CloseButton").AsButton().Invoke();
-            Assert.True(BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, TimeSpan.FromSeconds(5)));
-            panel = QaUi.OpenPanel(_boo);
+            Assert.True(BooAppFixture.WaitUntil(() => FindPanelStrict() is null, TimeSpan.FromSeconds(5)));
+            panel = OpenOnceStrict();
             Record("panel reopened after compact/maximize/restore setup");
             for (var cycle = 1; cycle <= 10; cycle++)
             {
@@ -81,6 +99,7 @@ public sealed class FocusAutomationDiagnosticTests : IClassFixture<NoKeyFixture>
         }
         catch (Exception ex)
         {
+            primaryFailure = ex;
             Record("FAILED: " + ex);
             try { _boo.CaptureScreen("qa-q67-FAILED"); }
             catch (Exception captureError) { Record("failure capture error: " + captureError); }
@@ -88,7 +107,11 @@ public sealed class FocusAutomationDiagnosticTests : IClassFixture<NoKeyFixture>
         }
         finally
         {
-            _boo.WriteObservation("qa-q67-focus-uia-diagnostic", string.Join("\n", log));
+            try { _boo.WriteObservation("qa-q67-focus-uia-diagnostic", string.Join("\n", log)); }
+            catch (Exception evidenceError) when (primaryFailure is not null)
+            {
+                Console.Error.WriteLine("Additional diagnostic evidence failure: " + evidenceError);
+            }
         }
     }
 }
