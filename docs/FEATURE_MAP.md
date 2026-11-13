@@ -140,3 +140,4 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | X7 | Idle memory, CPU and render-loop budgets | automated live | `tests/Boo.Perf.Tests/BooPerfBudgetTests.cs::Idle_startup_memory_cpu_and_render_loop_stay_within_budget` |
 | X8 | The always-on notch draws in software, and one hover-and-retract stays within its memory budget | automated live | `tests/Boo.Perf.Tests/NotchDrawingMemoryTests.cs::Notch_draws_in_software_and_one_hover_stays_within_memory_budget` (windows-ci perf step) |
 | F13 | Focus: End from Paused and replace Running; remaining j13 timing/event branches pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FocusEdgeTests.cs::Q13_EndFromPaused_AndReplaceRunningSession_KeepHistoryAndFacesHonest` |
+| F14 | j7 hover edges: leave during reveal, re-enter during delay/retract, Paused pin | UNVERIFIED | `tools/Boo.QaSuite/Journeys/HoverEdgeTests.cs::Q7_HoverEdges_AllFourBranches_OnTheRealClock` |

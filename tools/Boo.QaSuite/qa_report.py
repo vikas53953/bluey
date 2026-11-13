@@ -36,6 +36,7 @@ PLAIN = {
     'S3': 'Stop while an answer is coming: face clears, no answer lands',
     'S4': 'Focus Start / Pause (notch Paused) / Resume / End',
     'S5': 'Settings saved to file; a new Boo starts with the same choices',
+    'Q7': 'Hover edges: all four real-clock branches (no AI key)',
     'Q13': 'Focus edges: End from Paused and replace Running (no AI key; partial j13)',
     'E0': 'Empty question: "Type a question first."',
     'E1': 'No key: "No OpenAI key yet..."',
@@ -60,7 +61,7 @@ JOURNEYS = [
     ('j4', 'Research with sources', ['J4']),
     ('j5', 'Apply then Undo', ['J5']),
     ('j6', '25-minute focus on the Developer Mode clock', ['J6']),
-    ('j7', 'Hover edge timings', []),
+    ('j7', 'Hover edge timings', ['Q7']),
     ('j8', 'Typed question handed to voice', 'voice'),
     ('j9', 'Hold-to-talk with Ctrl+Alt+Space', 'voice'),
     ('j10', 'The eyes: tap and hold', []),
@@ -197,7 +198,8 @@ def self_test():
         check('seen state -> live', '| Notch state Thinking | live |' in text)
         check('expectations cannot count as observations', '| Notch state Happy | UNVERIFIED |' in text and '| Notch state Nudge | UNVERIFIED |' in text)
         check('unseen state -> UNVERIFIED', '| Notch state Listening | UNVERIFIED |' in text)
-        check('journey with no driving check -> UNVERIFIED', '| Journey j7: Hover edge timings | UNVERIFIED |' in text)
+        check('journey with no driving check -> UNVERIFIED', '| Journey j10: The eyes: tap and hold | UNVERIFIED |' in text)
+        check('mapped hover journey without result cannot pass', '| Journey j7: Hover edge timings | live | FAILED or not run (Q7=not run)' in text)
         check('voice journey -> BLOCKED', '| Journey j9: Hold-to-talk with Ctrl+Alt+Space | BLOCKED |' in text)
         check('journey whose checks did not run -> not live-passed', '| Journey j3: Screen explain: pointer and ring | live | FAILED or not run' in text)
         check('no "Hidden" substring false hit for Idle', '| Notch state Idle | UNVERIFIED |' in text)
