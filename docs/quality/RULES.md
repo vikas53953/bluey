@@ -186,26 +186,33 @@ revision 25), so removing a name, like adding a rule, goes through a reviewed `s
 Dependency offenders (001-004) count per outermost type (lambdas and async state machines count towards the type that
 wrote them); static-state offenders (005) are named per declaring type, nested types included.
 
-**Why two tools.** 001 and 004 are about whole namespaces and use NetArchTest. 002 and 003 are about a *class* of
-types (everything that touches the disk; every network client or handler) that cuts across namespaces, so the class
-is written out type by type and checked with `CecilScan` (Mono.Cecil, the library NetArchTest is built on): base
-types, interfaces, fields, properties, events, attributes, parameters, return values, locals and every member the
-code calls or constructs, including generic arguments. Swapping `File.Exists` for `new FileInfo(p).Exists`, or
-`HttpClient` for `SocketsHttpHandler`, is still caught.
+**Why two tools.** 001 and 004 are about whole namespaces and use NetArchTest. 002 and 003 are about a *kind of
+access* (touching the disk; talking to the network) and are **default-deny**, checked with `CecilScan` (Mono.Cecil,
+the library NetArchTest is built on): every type in the disk namespaces (`System.IO.*`, `System.Xml.*`, plus
+`Process` / `FileVersionInfo`) or the network namespaces (`System.Net.*`, `Windows.Networking.*`, `Windows.Web.*`,
+WebView2) counts, except a short list of harmless types (paths as text, in-memory streams, enums, exceptions, status
+codes). Native calls count too: Core may make none, and the app may only call `user32`, `kernel32`, `shcore`,
+`dwmapi` and `gdi32`. So an API nobody listed (`new StreamWriter(path)`, `ZipFile`, `XDocument.Load(path)`,
+`TcpListener`, `SslStream`, `Dns`, a `ws2_32` import) is caught, and a harmless type missing from the list fails loudly
+instead of slipping through. The scan covers base types, interfaces, fields, properties, events, attributes,
+parameters, return values, locals and every member the code calls, constructs, casts to or names, generic
+arguments included.
 
 **Known gaps.** (1) BOO-ARCH-005 sees fields and setters, not what a `readonly` field points to: a
 `static readonly List<T>` that is changed later (today `AccessibilitySettings.Listeners`, `.Add` at line 48) is
 shared mutable state the rule does not count; counting every `static readonly` collection or array would flood it
 with read-only tables. (2) BOO-ARCH-006 looks at `src/Boo.App/*Window*.cs` in the top folder, which holds every
-window code-behind today; a window elsewhere or not named `...Window` would be missed. (3) A type outside the
-lists in 002/003 (for example a new disk or network API in a future .NET) is not caught until it is added, in a
-reviewed oracle revision.
+window code-behind today; a window elsewhere or not named `...Window` would be missed. (3) 002/003 see what the
+compiled code names, not what it does at run time: reaching a type by reflection (`Type.GetType("...")`), through a
+library outside the listed namespaces, or through a function pointer is not caught. (4) 003 does not count Velopack's
+update download (`UpdateService`, release lane) or opening a link in the browser (`Process.Start`); neither is a
+chat or AI client.
 
 | Rule | Checks | How | Today (matches plan section 1.5) |
 | --- | --- | --- | --- |
 | [BOO-ARCH-001](#boo-arch-001) | `Boo.Core` uses nothing from `System.Net.Http`, `System.Net.WebSockets`, `Microsoft.Win32`, `Microsoft.Data.Sqlite`, `NAudio`, `Velopack` | NetArchTest, namespace match | 1: `ProviderFailureClassifier` (`ProviderFailure.cs`, `HttpRequestError`) |
-| [BOO-ARCH-002](#boo-arch-002) | `Boo.Core` uses no type that reads or writes the disk: `File`, `Directory`, `FileInfo`, `DirectoryInfo`, `FileSystemInfo`, `FileStream`, `FileSystemWatcher`, `DriveInfo`, `RandomAccess` | exact type list (Mono.Cecil); value-only types (`Path`, `FileAttributes`, `FileNotFoundException`) are not in it | 2: `ScopedFiles` (the second class in `ActionPolicy.cs`), `FileActionResolver` |
-| [BOO-ARCH-003](#boo-arch-003) | `Boo.App` uses no network client or handler: `HttpClient`, `HttpMessageInvoker`, `HttpMessageHandler`, `DelegatingHandler`, `HttpClientHandler`, `SocketsHttpHandler`, `WebSocket`, `ClientWebSocket`, `Socket`, `TcpClient`, `UdpClient` | exact type list (Mono.Cecil) | 1 type: `MainWindow` (its 3 references: `MainWindow.xaml.cs:65,1624,2123`) |
+| [BOO-ARCH-002](#boo-arch-002) | `Boo.Core` does not touch the disk: no type from `System.IO.*` / `System.Xml.*` except the harmless list (`Path`, in-memory streams, enums, exceptions), no `Process` / `FileVersionInfo`, no `Path.GetTempFileName`, no native call | default-deny (Mono.Cecil) | 2: `ScopedFiles` (the second class in `ActionPolicy.cs`), `FileActionResolver` |
+| [BOO-ARCH-003](#boo-arch-003) | `Boo.App` does not talk to the network: no type from `System.Net.*`, `Windows.Networking.*`, `Windows.Web.*` or WebView2 except the harmless list (`HttpStatusCode`, `WebUtility`, request errors, `NetworkCredential` as a password reader), no native call outside `user32`/`kernel32`/`shcore`/`dwmapi`/`gdi32` | default-deny (Mono.Cecil) | 1 type: `MainWindow` (its 3 references: `MainWindow.xaml.cs:65,1624,2123`) |
 | [BOO-ARCH-004](#boo-arch-004) | `Boo.Windows` uses nothing from `System.Windows.Controls` / `System.Windows.Shapes` and has no `Window` subclass | NetArchTest | 0 |
 | [BOO-ARCH-005](#boo-arch-005) | no static field that is not `readonly`/`const`, no static property with a setter, in all 5 `src` assemblies | reflection; compiler-made caches excluded; named per declaring type (`Outer+Inner.Field`) | 2: `AccessibilitySettings._uiSettings`, `App.StartedInBackground` |
 | [BOO-ARCH-006](#boo-arch-006) | every `src/Boo.App/*Window*.cs` file has at most 2,674 lines | line count | 0 over (largest: `MainWindow.xaml.cs`, 2,674) |
@@ -219,13 +226,15 @@ database, audio or installer types make it slow and hard to test. **Fix:** put t
 ## BOO-ARCH-002
 **Core does not touch disk.** File checks in Core make rules depend on the machine. **Fix:** an interface in Core (like
 `IStartupRegistry`) with the real implementation outside. **Do NOT** swap `File.Exists` for `FileInfo` to dodge the
-check; it is caught, and the rule is about touching the disk.
+check, or for `StreamReader(path)`, `ZipFile`, `XDocument.Load(path)` or a native call: every disk namespace is denied
+by default, so all are caught. **Do NOT** add a type to the harmless list unless it cannot reach the disk.
 
 ## BOO-ARCH-003
 **The window does not talk to the network.** Network calls belong in `Boo.Providers`, where timeouts, failures and
 keys are handled in one place (the 45 s timeout lives in `MainWindow` today for this reason). **Fix:** create the
 client in Providers and inject it. **Do NOT** hide a new `HttpClient` in a helper class in `Boo.App`, or swap it for a
-`SocketsHttpHandler` or a raw `Socket`: all are caught.
+`SocketsHttpHandler`, a `TcpListener`, `Dns` or a `ws2_32` import: every network namespace is denied by default, so
+all are caught. **Do NOT** add a type to the harmless list unless it cannot reach the network.
 
 ## BOO-ARCH-004
 **Boo.Windows is Windows integration, not UI.** Bitmaps (`System.Windows.Media`) and UI Automation are fine; controls,

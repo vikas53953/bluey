@@ -16,7 +16,7 @@
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
     <PackageReference Include="NetArchTest.Rules" Version="1.3.2" />
-    <!-- Same Mono.Cecil NetArchTest.Rules 1.3.2 brings, pinned: exact-type scans for BOO-ARCH-002/003 (CecilScan.cs). -->
+    <!-- Same Mono.Cecil NetArchTest.Rules 1.3.2 brings, pinned: default-deny reference scans for BOO-ARCH-002/003 (CecilScan.cs). -->
     <PackageReference Include="Mono.Cecil" Version="0.11.3" />
   </ItemGroup>
   <ItemGroup>

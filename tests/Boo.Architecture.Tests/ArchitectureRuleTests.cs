@@ -34,42 +34,76 @@ public sealed class ArchitectureRuleTests
         AssertExactOffenders("BOO-ARCH-001", Offenders(result), ["Boo.Core.ProviderFailureClassifier"]);
     }
 
-    // 002 and 003 are about a CLASS of types (everything that touches the disk; every network client or handler), and
-    // that class is listed type by type below, so swapping File.Exists for new FileInfo(p).Exists, or HttpClient for
-    // SocketsHttpHandler, is still caught. They use CecilScan (exact type names over every member kind it lists);
-    // value-only types such as FileAttributes, Path or FileNotFoundException are deliberately not in the lists.
+    // 002 and 003 are DEFAULT-DENY: every type in the disk namespaces (002) or the network namespaces (003) counts, except
+    // a short list of harmless value / in-memory types. A disk or network API that nobody thought of is therefore caught
+    // (StreamWriter(path), ZipFile, TcpListener, SslStream, Dns, ...); a harmless type missing from the list fails
+    // loudly instead of slipping through silently. Native calls (DllImport) are covered too. CecilScan does the scan.
 
-    /// <summary>System.IO types whose use reads or writes the disk.</summary>
-    public static readonly string[] FileSystemTypes =
+    /// <summary>002: namespaces whose types read or write files (System.IO.* includes Compression, MemoryMappedFiles,
+    /// Pipes, IsolatedStorage; System.Xml.* includes the loaders that take a path).</summary>
+    public static readonly string[] DiskNamespaces = ["System.IO", "System.Xml"];
+
+    /// <summary>002: types outside those namespaces that read the disk or start a program that can.</summary>
+    public static readonly string[] DiskTypesElsewhere =
     [
-        "System.IO.File", "System.IO.Directory", "System.IO.FileInfo", "System.IO.DirectoryInfo", "System.IO.FileSystemInfo",
-        "System.IO.FileStream", "System.IO.FileSystemWatcher", "System.IO.DriveInfo", "System.IO.RandomAccess",
+        "System.Diagnostics.Process", "System.Diagnostics.ProcessStartInfo", "System.Diagnostics.FileVersionInfo",
     ];
 
-    /// <summary>Types that open a network connection or carry HTTP / WebSocket / socket traffic.</summary>
-    public static readonly string[] NetworkClientTypes =
+    /// <summary>002: the only disk-namespace types Core may use: paths as text, in-memory streams, enums, exceptions.</summary>
+    public static readonly string[] HarmlessIoTypes =
     [
-        "System.Net.Http.HttpClient", "System.Net.Http.HttpMessageInvoker", "System.Net.Http.HttpMessageHandler",
-        "System.Net.Http.DelegatingHandler", "System.Net.Http.HttpClientHandler", "System.Net.Http.SocketsHttpHandler",
-        "System.Net.WebSockets.WebSocket", "System.Net.WebSockets.ClientWebSocket",
-        "System.Net.Sockets.Socket", "System.Net.Sockets.TcpClient", "System.Net.Sockets.UdpClient",
+        "System.IO.Path", "System.IO.FileAttributes", "System.IO.SearchOption", "System.IO.SeekOrigin",
+        "System.IO.Stream", "System.IO.MemoryStream", "System.IO.StringReader", "System.IO.StringWriter",
+        "System.IO.TextReader", "System.IO.TextWriter", "System.IO.BinaryReader", "System.IO.BinaryWriter",
+        "System.IO.IOException", "System.IO.FileNotFoundException", "System.IO.DirectoryNotFoundException",
+        "System.IO.PathTooLongException", "System.IO.EndOfStreamException", "System.IO.InvalidDataException",
     ];
+
+    /// <summary>002: members of a harmless type that still touch the disk.</summary>
+    public static readonly string[] DiskMembersOfHarmlessTypes = ["System.IO.Path::GetTempFileName"];
+
+    /// <summary>003: namespaces whose types talk to the network (System.Net.* includes Http, Sockets, Security,
+    /// WebSockets, Quic, Mail, NetworkInformation; plus the WinRT and WebView2 network surfaces).</summary>
+    public static readonly string[] NetworkNamespaces = ["System.Net", "Windows.Networking", "Windows.Web", "Microsoft.Web.WebView2"];
+
+    /// <summary>003: the only network-namespace types the app may use: status codes, errors, text helpers.</summary>
+    public static readonly string[] HarmlessNetTypes =
+    [
+        "System.Net.HttpStatusCode", "System.Net.WebUtility", "System.Net.Http.HttpRequestException",
+        "System.Net.Http.HttpRequestError", "System.Net.WebSockets.WebSocketException",
+        // Used only to read a pasted password out of a PasswordBox (MainWindow.Updates.cs, MainWindow.xaml.cs); no I/O.
+        "System.Net.NetworkCredential",
+    ];
+
+    /// <summary>003: the only native DLLs the app may call: windows, input, monitors, DPI. Anything else (ws2_32,
+    /// winhttp, wininet, ...) counts as a network client.</summary>
+    public static readonly string[] AppNativeDlls = ["user32.dll", "kernel32.dll", "shcore.dll", "dwmapi.dll", "gdi32.dll"];
 
     [Fact]
     public void BOO_ARCH_002_Core_does_not_touch_the_file_system()
     {
-        var offenders = CecilScan.TypesReferencing(Core, FileSystemTypes);
+        var offenders = CecilScan.TypesReferencing(Core,
+            t => DiskTypesElsewhere.Contains(t.FullName)
+                 || (CecilScan.InNamespace(CecilScan.NamespaceOf(t), DiskNamespaces) && !HarmlessIoTypes.Contains(t.FullName)),
+            m => DiskMembersOfHarmlessTypes.Contains($"{m.DeclaringType.FullName}::{m.Name}"));
+        var native = CecilScan.TypesCallingNative(Core, _ => true); // Core makes no native calls at all
         // ScopedFiles is the second class in ActionPolicy.cs (the plan's "ActionPolicy.cs:209").
-        AssertExactOffenders("BOO-ARCH-002", offenders, ["Boo.Core.FileActionResolver", "Boo.Core.ScopedFiles"]);
+        AssertExactOffenders("BOO-ARCH-002", offenders.Concat(native).Distinct().ToList(), ["Boo.Core.FileActionResolver", "Boo.Core.ScopedFiles"]);
     }
 
     [Fact]
     public void BOO_ARCH_003_App_does_not_create_network_clients()
     {
-        var offenders = CecilScan.TypesReferencing(App, NetworkClientTypes);
+        var offenders = CecilScan.TypesReferencing(App,
+            t => CecilScan.InNamespace(CecilScan.NamespaceOf(t), NetworkNamespaces) && !HarmlessNetTypes.Contains(t.FullName));
+        var native = CecilScan.TypesCallingNative(App, dll => !AppNativeDlls.Contains(NativeDllName(dll), StringComparer.OrdinalIgnoreCase));
         // MainWindow: the _http field and its two `new HttpClient` (the plan's 3 references, MainWindow.xaml.cs:65,1624,2123).
-        AssertExactOffenders("BOO-ARCH-003", offenders, ["Boo.App.MainWindow"]);
+        // Not counted on purpose: Velopack's update download (UpdateService), owned by the release lane, not a chat client.
+        AssertExactOffenders("BOO-ARCH-003", offenders.Concat(native).Distinct().ToList(), ["Boo.App.MainWindow"]);
     }
+
+    private static string NativeDllName(string module) =>
+        module.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? module : module + ".dll";
 
     [Fact]
     public void BOO_ARCH_004_Windows_layer_has_no_WPF_controls_shapes_or_windows()
