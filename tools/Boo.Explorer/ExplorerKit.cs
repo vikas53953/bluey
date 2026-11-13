@@ -256,6 +256,20 @@ public abstract class ExplorerSteps<TFixture> where TFixture : BooAppFixture
         return BooAppFixture.WaitUntil(() => NotchFace() == "Hidden", timeout);
     }
 
+    /// <summary>
+    /// Opens the panel the way a user does (Ctrl+Alt+B), but only once Boo's notch exists: the hotkey is registered by
+    /// the notch window, so a press before it appears is lost (a harness timing issue, not a Boo bug).
+    /// </summary>
+    protected Window OpenPanel() => OpenPanel(Boo);
+
+    protected static Window OpenPanel(BooAppFixture boo)
+    {
+        boo.WaitForNotch(TimeSpan.FromSeconds(60));
+        if (boo.FindPanel() is { } open) return open;
+        Thread.Sleep(1000);
+        return boo.EnsurePanel();
+    }
+
     protected void ClosePanel()
     {
         if (Boo.FindPanel() is { } panel && TryFind(panel, "CloseButton") is { } close)

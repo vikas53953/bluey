@@ -27,7 +27,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
     {
         Explore("l01-chat", faces =>
         {
-            var panel = Boo.EnsurePanel();
+            var panel = OpenPanel();
             SelectDisplay(panel);
             Ask(panel, "Reply with exactly the word ALPHA.", billed: true, label: "l01 chat");
             var reply = WaitForBooRowContaining(panel, "ALPHA", AnswerTimeout);
@@ -43,7 +43,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
     {
         Explore("l02-newer-wins", faces =>
         {
-            var panel = Boo.EnsurePanel();
+            var panel = OpenPanel();
             Ask(panel, "Reply with exactly the word BRAVO.", billed: true, label: "l02 first (to be superseded)");
             Thread.Sleep(250);
             Ask(panel, "Reply with exactly the word CHARLIE.", billed: true, label: "l02 second (typed during the pending reply)");
@@ -65,7 +65,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
     {
         Explore("l03-settings-mid-chat", faces =>
         {
-            var panel = Boo.EnsurePanel();
+            var panel = OpenPanel();
             Ask(panel, "Reply with exactly the word DELTA.", billed: true, label: "l03 settings saved mid-reply");
             Thread.Sleep(300);
             var chirp = Find(panel, "ChirpMute").AsCheckBox();
@@ -88,7 +88,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
     {
         Explore("l04-stop-mid-reply", faces =>
         {
-            var panel = Boo.EnsurePanel();
+            var panel = OpenPanel();
             var before = BooRows(panel).Count;
             Ask(panel, "Write a 150-word story about a lighthouse keeper, and end it with the word ECHO.", billed: true, label: "l04 stopped mid-reply");
             Thread.Sleep(1200);
@@ -96,12 +96,14 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
             var stopped = BooAppFixture.WaitUntil(() => !LooksBusy(Status(panel)), TimeSpan.FromSeconds(5));
             var statusAfterStop = Status(panel);
             Thread.Sleep(25_000); // the provider's answer would arrive in this window
+            var statusAfter25s = Status(panel);
+            Boo.CaptureScreen("l04-25s-after-stop");
             var late = BooRows(panel).Skip(before).Any(r => r.Contains("lighthouse", StringComparison.OrdinalIgnoreCase) || r.Contains("ECHO", StringComparison.OrdinalIgnoreCase));
             var settled = SettlesHidden(TimeSpan.FromSeconds(8));
             Ask(panel, "Reply with exactly the word FOXTROT.", billed: true, label: "l04 recovery after Stop");
             var reply = WaitForBooRowContaining(panel, "FOXTROT", AnswerTimeout);
             Boo.CaptureScreen("l04-after-stop");
-            Boo.WriteObservation("l04-stop-mid-reply", $"stoppedWithin5s={stopped} statusAfterStop='{statusAfterStop}' lateAnswerShown={late} settled={settled} recoveryReply='{Shorten(reply, 120)}'");
+            Boo.WriteObservation("l04-stop-mid-reply", $"stoppedWithin5s={stopped} statusAfterStop='{statusAfterStop}' statusAfter25s='{statusAfter25s}' lateAnswerShown={late} settled={settled} recoveryReply='{Shorten(reply, 120)}'");
             Assert.True(stopped, $"Stop did not end the pending reply within 5 s: '{statusAfterStop}'.");
             Assert.False(late, "The stopped question's answer still appeared after Stop.");
             Assert.True(settled, $"After Stop the notch stayed '{NotchFace()}'.");
@@ -113,7 +115,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
     {
         Explore("l05-storm", faces =>
         {
-            var panel = Boo.EnsurePanel();
+            var panel = OpenPanel();
             Ask(panel, "Reply with exactly the word GOLF.", billed: true, label: "l05 hover/hotkey storm during reply");
             var rng = Rng("l05");
             var hover = NotchHoverPoint();
@@ -138,7 +140,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
     {
         Explore("l06-card-then-new-question", faces =>
         {
-            var panel = Boo.EnsurePanel();
+            var panel = OpenPanel();
             var folder = Path.Combine(Path.GetTempPath(), "boo-explorer-task-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(folder);
             var file = Path.Combine(folder, "boo-explorer.txt");
@@ -174,7 +176,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
     {
         Explore("l07-kill-relaunch", faces =>
         {
-            var panel = Boo.EnsurePanel();
+            var panel = OpenPanel();
             Ask(panel, "Reply with exactly the word INDIA.", billed: true, label: "l07 killed mid-reply");
             Thread.Sleep(1500);
             KilledOnPurpose = true;
@@ -188,7 +190,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
             UseApp(again);
             try
             {
-                var p2 = again.EnsurePanel();
+                var p2 = OpenPanel(again);
                 SelectDisplay(p2);
                 Thread.Sleep(1500);
                 var health = HealthProblems(again);

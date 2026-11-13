@@ -8,7 +8,8 @@ name: app-explorer
 #
 # Manual only: workflow_dispatch (once this file is on the default branch; GitHub cannot dispatch a workflow that only
 # exists on a branch), or adding the label `run-app-explorer` to a pull request (one run per label add; nothing runs
-# on a plain push). RUNS ONLY ON GITHUB'S OWN WINDOWS VM (windows-latest), never a personal PC: it
+# on a plain push). The label `run-app-explorer-regressions` runs ONLY the explorer's regression tests
+# (tools/Boo.VerifyLive/Regressions, no AI calls) so a bug's regression test can be shown failing before its fix. RUNS ONLY ON GITHUB'S OWN WINDOWS VM (windows-latest), never a personal PC: it
 # drives the mouse and keyboard, and Boo sends a picture of the screen to the AI. Screenshots are Boo's own windows only.
 #
 # MONEY: real OpenAI on the cheapest chat model (gpt-6-luna), HARD CAP 20 billed requests per run, enforced in code
@@ -36,7 +37,7 @@ concurrency:
 
 jobs:
   explore:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-app-explorer'
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-app-explorer' || github.event.label.name == 'run-app-explorer-regressions'
     runs-on: windows-latest
     timeout-minutes: 60
     env:
@@ -45,6 +46,7 @@ jobs:
       BOO_CAPTURE_SCOPE: boo-windows
       BOO_LIVE_TEXT_PROVIDER: openai
       BOO_LIVE_MODEL: gpt-6-luna
+      REGRESSIONS_ONLY: ${{ github.event.label.name == 'run-app-explorer-regressions' }}
     steps:
       - name: Refuse unless this is GitHub's own VM (never the owner's PC)
         shell: pwsh
@@ -115,8 +117,10 @@ jobs:
           dotnet restore Boo.sln
           dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/live
           dotnet build tools/Boo.Explorer -c Release
+          dotnet build tools/Boo.VerifyLive -c Release
 
       - name: Explore Boo (FlaUI against the published Boo.exe; no key, wrong key, no network, real key)
+        if: env.REGRESSIONS_ONLY != 'true'
         timeout-minutes: 40
         shell: pwsh
         env:
@@ -133,6 +137,22 @@ jobs:
           Get-ChildItem artifacts/explorer-evidence -Filter *.txt -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike '*-FAILED.txt' -and $_.Name -notlike '*.capture.txt' } | Sort-Object Name | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
           exit $testExit
 
+      # Regression tests for bugs the explorer found (tools/Boo.VerifyLive/Regressions; no AI calls). Before a bug's fix
+      # they are expected to FAIL. Skipped when the folder does not exist on this ref.
+      - name: Explorer regression tests (no AI calls)
+        if: ${{ !cancelled() && hashFiles('tools/Boo.VerifyLive/Regressions/*.cs') != '' }}
+        timeout-minutes: 15
+        shell: pwsh
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\explorer-evidence\regressions
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/explorer-evidence/regressions | Out-Null
+          & dotnet test tools/Boo.VerifyLive -c Release --no-build --filter "FullyQualifiedName~Boo.VerifyLive.Regressions" --logger trx --logger "console;verbosity=normal" --results-directory artifacts/explorer-evidence/regressions/trx
+          $testExit = $LASTEXITCODE
+          Get-ChildItem artifacts/explorer-evidence/regressions -Filter *.txt -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike '*.capture.txt' } | Sort-Object Name | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName | Select-Object -First 30 }
+          exit $testExit
+
       - name: Firewall rule removed (no-network launch cleaned up)
         if: always()
         shell: pwsh
@@ -141,9 +161,14 @@ jobs:
           'firewall rule cleanup done'
 
       - name: Test gate (the explorer ran; no empty or skipped run)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.REGRESSIONS_ONLY != 'true' }}
         shell: pwsh
         run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/explorer-evidence/trx -SourceDirectory tools/Boo.Explorer
+
+      - name: Test gate (every regression test ran)
+        if: ${{ !cancelled() && hashFiles('tools/Boo.VerifyLive/Regressions/*.cs') != '' }}
+        shell: pwsh
+        run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/explorer-evidence/regressions/trx -SourceDirectory tools/Boo.VerifyLive/Regressions
 
       - name: Key scan before upload (explorer evidence)
         id: keyscan_artifacts_explorer_evidence

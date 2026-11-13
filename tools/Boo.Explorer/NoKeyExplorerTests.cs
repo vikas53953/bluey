@@ -87,7 +87,7 @@ public sealed class NoKeyExplorerTests : ExplorerSteps<BooAppFixture>, IClassFix
     {
         Explore("x04-wrong-order", faces =>
         {
-            var panel = Boo.EnsurePanel();
+            var panel = OpenPanel();
             var notes = new List<string>();
 
             // Focus controls before any session exists.
@@ -126,7 +126,7 @@ public sealed class NoKeyExplorerTests : ExplorerSteps<BooAppFixture>, IClassFix
             // Close, then reopen: a half-typed question must survive (or the loss is recorded).
             Type(panel, "draft question kept?");
             ClosePanel();
-            panel = Boo.EnsurePanel();
+            panel = OpenPanel();
             var kept = Find(panel, "InputBox").AsTextBox().Text;
             notes.Add($"draft after close+reopen='{kept}'");
             Boo.CaptureScreen("x04-after-wrong-order");
@@ -143,7 +143,7 @@ public sealed class NoKeyExplorerTests : ExplorerSteps<BooAppFixture>, IClassFix
     {
         Explore("x05-no-key-ask", faces =>
         {
-            var panel = Boo.EnsurePanel();
+            var panel = OpenPanel();
             SelectDisplay(panel);
             var clock = Stopwatch.StartNew();
             Type(panel, "What is the capital of France?");
@@ -166,7 +166,7 @@ public sealed class NoKeyExplorerTests : ExplorerSteps<BooAppFixture>, IClassFix
     {
         Explore("x06-focus", faces =>
         {
-            var panel = Boo.EnsurePanel();
+            var panel = OpenPanel();
             var notes = new List<string>();
             void Click(string id, string label)
             {
@@ -214,7 +214,7 @@ public sealed class NoKeyExplorerTests : ExplorerSteps<BooAppFixture>, IClassFix
     {
         Explore("x07-settings", faces =>
         {
-            var panel = Boo.EnsurePanel();
+            var panel = OpenPanel();
             var notes = new List<string>();
             var before = BooAppFixture.ReadShared(Boo.SettingsPath);
 
@@ -254,7 +254,7 @@ public sealed class NoKeyExplorerTests : ExplorerSteps<BooAppFixture>, IClassFix
             BooAppFixture.WaitUntil(() => Boo.App.HasExited, TimeSpan.FromSeconds(10));
             CopyDir(Boo.DataDirectory, dataCopy);
             using var again = new RelaunchFixture(dataCopy);
-            var relaunchedPanel = again.EnsurePanel();
+            var relaunchedPanel = OpenPanel(again);
             Thread.Sleep(1500);
             var relaunchProblems = HealthProblems(again);
             notes.Add("relaunch health: " + string.Join("; ", relaunchProblems.DefaultIfEmpty("ok")));

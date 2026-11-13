@@ -19,7 +19,7 @@ public sealed class WrongKeyExplorerTests : ExplorerSteps<BooAppFixture>, IClass
     {
         Explore("b01-wrong-key", faces =>
         {
-            var panel = Boo.EnsurePanel();
+            var panel = OpenPanel();
             SelectDisplay(panel);
             var notes = new List<string>();
             for (var i = 1; i <= 2; i++)
@@ -60,7 +60,7 @@ public sealed class NoNetworkExplorerTests : ExplorerSteps<BooAppFixture>, IClas
         {
             Boo.WriteObservation("n01-firewall", "block rule: " + NoNetworkFixture.BlockResult);
             Assert.StartsWith("exit=0", NoNetworkFixture.BlockResult, StringComparison.Ordinal);
-            var panel = Boo.EnsurePanel();
+            var panel = OpenPanel();
             SelectDisplay(panel);
             var notes = new List<string>();
 
