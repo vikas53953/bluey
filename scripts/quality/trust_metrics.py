@@ -10,11 +10,11 @@ Read-only. It only runs `gh api` GET requests and `git log` / `git show` / `git 
 
 Reproducible:
   * the window is two fixed UTC times passed as arguments ([since, until), until excluded); nothing uses "now";
-  * every `gh` / `git` command is printed to stderr, exactly as run, before it runs; the table's appendix lists each
-    command shape with how many times it ran;
-  * all raw data goes into one JSON snapshot (sorted keys); every number is computed from the snapshot alone, so
-    `--from-snapshot` gives the same table byte for byte (the query appendix is printed only by a fetch, since a
-    recompute runs no queries), and the table prints the snapshot's sha256;
+  * every `gh` / `git` command is printed to stderr, exactly as run, before it runs, and stored in the snapshot
+    ("queries"); the appendix lists each command shape with how many times it ran;
+  * all raw data goes into one JSON snapshot (sorted keys); every number and the appendix are computed from the
+    snapshot alone, so `--from-snapshot` gives the same output byte for byte, and the table prints the snapshot's
+    sha256;
   * all lists are sorted before printing.
 GitHub data can still change after the window (a run re-run later, a PR description edited): a later fetch can then
 differ, and the snapshot sha256 shows that it did.
@@ -33,7 +33,11 @@ Definitions (each also printed in the table):
     The plan counts "merged PRs later reverted" per 30 days; linking each revert to its PR is not done yet, so this
     is the closest count git gives (equal while there are no reverts).
   * reviewer FAIL rounds: verdicts are free text, so the exact number is UNVERIFIED. Shown: rounds written in the
-    standard form (above), and every PR whose text mentions a QA or review FAIL in any form, for a person to read.
+    standard form (above), and a list to read by hand: every PR whose description, comments or reviews contain the
+    whole word FAIL / FAILED / FAILS in capitals on a line that does not say "blocked" (a literal text rule anyone
+    can re-check; it also lists PRs where a test, not a reviewer, FAILED).
+  * QA PASS share: the row that matters names the exact commit that merged; "any QA PASS line" also counts lines
+    that only refer to an earlier PASS.
   * flaky: the same workflow on the same commit gave both success and failure (re-run attempts included, push and
     pull_request runs of one commit included). Rate = flaky (workflow, commit) pairs / pairs with any success or
     failure. Cancelled and skipped results are ignored.
@@ -51,7 +55,6 @@ import sys
 import urllib.parse
 
 QUERIES = []          # every command run, in order (exact text)
-QUERY_SHAPES = collections.Counter()   # command with ids replaced, for the appendix
 
 SHA_RE = r'\b(?=[0-9a-f]*[a-f])([0-9a-f]{7,40})\b'   # a commit id has a letter, so run ids never match
 VERDICT_GAP = r'[:*\s]{1,6}'   # "QA PASS", "QA: **PASS**", "QA:PASS" are all written in PR history
@@ -63,8 +66,10 @@ QA_PASS = re.compile(r'\bQA' + VERDICT_GAP + r'PASS' + _AFTER)
 FAIL_VERDICT = re.compile(r'\b(QA|REVIEW)' + VERDICT_GAP + r'FAIL' + _AFTER)
 # Loose on purpose: which lines a snapshot keeps. Never tied to the counting patterns above, so a stricter count
 # later can still be recomputed from an old snapshot.
-KEEP_LINE = re.compile(r'\b(?:QA|REVIEW)\W{0,6}(?:PASS|FAIL)', re.I)
-MENTION_FAIL = re.compile(r'\b(?:QA|REVIEW)\W{0,6}FAIL', re.I)
+KEEP_LINE = re.compile(r'\b(?:PASS|FAIL)(?:ED|ES|S)?\b', re.I)
+# The FAIL list is a LITERAL rule a person can check with a text search, not a guess at which lines are verdicts:
+# the whole word FAIL / FAILED / FAILS in capitals, on a line that does not say "blocked".
+MENTION_FAIL = re.compile(r'\bFAIL(?:ED|S)?\b')   # capitals only: verdicts here are written FAIL, prose "fails"
 LIVE_WORKFLOW = 'live-ai-smoke'
 UNVERIFIED = 'UNVERIFIED'
 
@@ -97,8 +102,8 @@ def hours(a, b):
 
 # ---------------------------------------------------------------- fetching (read-only)
 
-def shape_of(args):
-    text = ' '.join(args)
+def shape_of(text):
+    text = re.sub(r'/pulls/\d+/', '/pulls/{n}/', text)
     text = re.sub(r'/runs/\d+', '/runs/{id}', text)
     text = re.sub(r'/attempts/\d+', '/attempts/{n}', text)
     text = re.sub(r'/commits/[0-9a-f]{40}', '/commits/{sha}', text)
@@ -109,7 +114,6 @@ def shape_of(args):
 def run(args, allow_fail=False):
     printable = ' '.join(shlex.quote(a) for a in args)
     QUERIES.append(printable)
-    QUERY_SHAPES[shape_of(args)] += 1
     print('+ ' + printable, file=sys.stderr)
     proc = subprocess.run(args, capture_output=True, text=True, encoding='utf-8')
     if proc.returncode != 0:
@@ -142,7 +146,16 @@ def fetch(repo, since, until, branches, remote):
         f'repos/{repo}/issues/comments?per_page=100',
         '.[] | {id, issue: (.issue_url | split("/") | last | tonumber), created_at, body: (.body // "")}')
         if c['issue'] in numbers), key=lambda c: c['id'])
-    # Keep only the verdict lines: the snapshot is meant to be shared, and no metric reads any other text.
+    # Reviews (GitHub's "Review changes" box) are a third place a verdict can be written; stored like comments.
+    for p in snap['pulls']:
+        if p['base'] in branches and p['created_at'] < iso(until):
+            for rv in gh_lines(f'repos/{repo}/pulls/{p["number"]}/reviews?per_page=100',
+                               '.[] | select(.submitted_at != null) | {id, created_at: .submitted_at, '
+                               'body: (.body // "")}'):
+                snap['comments'].append({'id': f'review-{rv["id"]}', 'issue': p['number'],
+                                         'created_at': rv['created_at'], 'body': rv['body']})
+    snap['comments'].sort(key=lambda c: (c['issue'], c['created_at'], str(c['id'])))
+    # Keep only lines with a PASS / FAIL word: the snapshot is meant to be shared, and no metric reads other text.
     for item in snap['pulls'] + snap['comments']:
         item['body'] = verdict_lines(item['body'])
     snap['comments'] = [c for c in snap['comments'] if c['body']]
@@ -193,9 +206,11 @@ def fetch(repo, since, until, branches, remote):
     heads = {}
     for p in snap['pulls']:
         if p['base'] in branches and in_window(p['merged_at'], since, until):
-            heads[p['head_sha']] = sorted(gh_lines(
-                f'repos/{repo}/commits/{p["head_sha"]}/check-runs?per_page=100',
-                '.check_runs[] | {name, conclusion, completed_at}'),
+            out = run(['gh', 'api', '--paginate', f'repos/{repo}/commits/{p["head_sha"]}/check-runs?per_page=100',
+                       '--jq', '.check_runs[] | {name, conclusion, completed_at}'], allow_fail=True)
+            # A refused read (token without checks: read) leaves this head UNVERIFIED instead of ending the run.
+            heads[p['head_sha']] = None if out is None else sorted(
+                (json.loads(line) for line in out.splitlines() if line.strip()),
                 key=lambda c: (c['name'], c['completed_at'] or '', c['conclusion'] or ''))
     snap['head_check_runs'] = heads
 
@@ -222,6 +237,7 @@ def fetch(repo, since, until, branches, remote):
     snap['end_ref'] = {'branch': main_line, 'sha': ref}
     snap['baseline_json'] = run(['git', 'show', f'{ref}:docs/quality/baseline.json'], allow_fail=True)
     snap['feature_map_md'] = run(['git', 'show', f'{ref}:docs/FEATURE_MAP.md'], allow_fail=True)
+    snap['queries'] = list(QUERIES)
     return snap
 
 
@@ -246,13 +262,17 @@ def fail_rounds(text):
             if negated(line, m.start()):
                 continue
             key = (m.group(1), m.group(3)[:7])
-            (blocked if 'blocked' in line.lower() else fails).add(key)
+            # Blocked only when the verdict's own note says so: "(blocked: ...)" before the commit or right after it.
+            is_blocked = (re.search(r'\bblocked\b', m.group('note') or '', re.I)
+                          or re.match(r'\W{0,4}\([^)]*\bblocked\b', line[m.end():], re.I))
+            (blocked if is_blocked else fails).add(key)
     return fails, blocked
 
 
 def negated(line, start):
-    """True when the verdict is written as its opposite: "no QA PASS ...", "not a QA FAIL ..."."""
-    return bool(re.search(r'\b(?:no|not|never|without)\b[\W\w]{0,6}$', line[:start], re.I))
+    """True when the verdict is written as its opposite: "no QA PASS ...", "there is no fresh QA PASS ...",
+    "not a QA FAIL ..." (a no / not / never / without in the same clause, up to 4 words before)."""
+    return bool(re.search(r'\b(?:no|not|never|without)\b(?:\W+\w+){0,4}\W*$', line[:start], re.I))
 
 
 def qa_pass_shas(text):
@@ -261,8 +281,9 @@ def qa_pass_shas(text):
 
 
 def fail_mentions(text):
-    """Any line that mentions a QA or review FAIL in free text (not blocked ones). Verdicts are prose ("had QA FAIL
-    because", a table cell "review | **FAIL**"), so this is a list for a person to read, never an exact count."""
+    """True if any line has the whole word FAIL / FAILED / FAILS (in capitals) and does not say "blocked".
+    Verdicts are prose ("had QA FAIL because", "`537b04c`: FAIL (...)"), so this is a list for a person to read,
+    never a count of reviewer verdicts: it also catches lines like "the test FAILED on the base commit"."""
     return any(MENTION_FAIL.search(line) and 'blocked' not in line.lower() for line in text.splitlines())
 
 
@@ -396,7 +417,7 @@ def compute(snap):
     for p in sorted(merged, key=lambda p: p['number']):
         names = req.get(p['base'])
         checks = snap['head_check_runs'].get(p['head_sha'], [])
-        if names is None:
+        if names is None or checks is None:          # required list or check runs could not be read
             ttg_missing.append(p['number'])
             continue
         firsts = []
@@ -455,15 +476,17 @@ def render(snap, m, snap_sha):
          'How much change lands; every other rate below is per this.'),
         ('Revert rate', m['revert_rate'] + ('; ' + '; '.join(m['reverts']) if m['reverts'] else ''),
          'A revert means a merged change was wrong and the gates let it through.'),
-        ('Merged PRs with a `QA PASS <commit>` line', m['qa_pass_any'],
-         'The pipeline says no merge without a QA verdict; this shows how often that held.'),
-        ('... naming the exact head that merged', m['qa_pass_head'],
-         'A PASS on an older commit does not prove the code that merged.'),
+        ('Merged PRs with a QA PASS naming the exact head that merged', m['qa_pass_head'],
+         'The pipeline says no merge without a QA PASS on the code that merged; this shows how often that held.'),
+        ('... with any `QA PASS <commit>` line', m['qa_pass_any'],
+         'Context only: also counts a line that merely refers to an earlier PASS ("supersedes the QA PASS at ...").'),
         ('Reviewer FAIL rounds (PRs opened in window)',
          f'{UNVERIFIED} as an exact number: verdicts are free text. Written in the standard form '
          f'`QA FAIL — <commit>` / `REVIEW FAIL — <commit>`: {m["fail_rounds_total"]} '
-         f'({fmt(("#" + str(n), c) for n, c in m["fail_rounds_prs"])}); PRs whose description or comments mention a '
-         f'QA or review FAIL in any form: {len(m["fail_mention_prs"])} '
+         f'({fmt(("#" + str(n), c) for n, c in m["fail_rounds_prs"])}); to read by hand, PRs whose description, '
+         f'comments or reviews (before the window end) contain the word FAIL or FAILED in capitals on a line not '
+         f'saying "blocked": '
+         f'{len(m["fail_mention_prs"])} '
          f'({", ".join("#" + str(n) for n in m["fail_mention_prs"]) or "none"}); '
          f'plus {m["blocked_rounds"]} rounds blocked by storage or budget',
          'A fresh reviewer catching problems is the safety net working; a falling count means authors got better.'),
@@ -523,10 +546,15 @@ def snapshot_sha(snap):
     return hashlib.sha256(json.dumps(snap, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
 
 
-def appendix():
-    lines = ['| Times run | Command |', '| --- | --- |']
+def appendix(snap):
+    """The query appendix, built from the exact commands stored in the snapshot, so a recompute reproduces it too."""
+    shapes = collections.Counter(shape_of(q) for q in snap.get('queries', []))
+    if not shapes:
+        return ''
+    lines = ['', 'Queries run (ids replaced by placeholders; the snapshot\'s "queries" list holds every exact command):',
+             '', '| Times run | Command |', '| --- | --- |']
     # A `|` inside a table cell must be escaped, even inside code, or the row splits.
-    lines += [f'| {n} | `{shape.replace("|", chr(92) + "|")}` |' for shape, n in sorted(QUERY_SHAPES.items())]
+    lines += [f'| {n} | `{shape.replace("|", chr(92) + "|")}` |' for shape, n in sorted(shapes.items())]
     return '\n'.join(lines) + '\n'
 
 
@@ -565,6 +593,9 @@ def planted():
             # A FAIL in prose: no standard-form round, but listed as a mention.
             {'id': 5, 'issue': 3, 'created_at': '2026-11-16T01:00:00Z',
              'body': 'The previous head `abcdef1` had QA FAIL because of a timeout.'},
+            # A GitHub review (stored like a comment) is read too.
+            {'id': 'review-1', 'issue': 7, 'created_at': '2026-11-16T13:00:00Z',
+             'body': '- `537b04c`: FAIL (INV-FOCUS-1 verdict).'},
             # Posted at the window end (excluded): must count neither as a FAIL round nor as a PASS.
             {'id': 3, 'issue': 6, 'created_at': '2026-11-17T00:00:00Z', 'body': 'QA FAIL — 9999ccc'},
             {'id': 4, 'issue': 3, 'created_at': '2026-11-17T00:00:00Z', 'body': f'QA PASS — {c40}'},
@@ -612,6 +643,10 @@ def planted():
     return snap
 
 
+def a40_of(snap):
+    return next(p['head_sha'] for p in snap['pulls'] if p['number'] == 1)
+
+
 def self_test():
     snap = planted()
     m = compute(snap)
@@ -627,7 +662,7 @@ def self_test():
         'fail_rounds_prs': [(1, 1), (6, 1)],
         'fail_rounds_mean': '0.40',
         'blocked_rounds': 1,
-        'fail_mention_prs': [1, 2, 3, 6],                          # 3: prose only; 6's late comment ignored
+        'fail_mention_prs': [1, 2, 3, 6, 7],                       # 3: prose; 7: a review; 6's late one ignored
         'flaky_rate': '1/6 = 16.7%',                               # windows-ci@a40 failed then passed on re-run
         'flaky_by_workflow': [('windows-ci', 1)],
         'reruns': '1/6 = 16.7%',
@@ -659,6 +694,12 @@ def self_test():
         (qa_pass_shas('NO QA PASS at abc1234; not a QA PASS — abc1234'), []),
         (fail_rounds('QA FAIL — abc1234 (blocked: storage)'), (set(), {('QA', 'abc1234')})),
         (fail_rounds('There was no REVIEW FAIL at `abc1234`.'), (set(), set())),
+        (fail_rounds('QA FAIL — abc1234; storage was blocked earlier'), ({('QA', 'abc1234')}, set())),
+        (qa_pass_shas('There is no fresh QA PASS at abc1234'), []),
+        (fail_mentions('| Independent reviews | review | 2nd (33944fc): FAIL, blocker |'), True),   # PR #21 shape
+        (fail_mentions('- `eb8d2d5`: FAIL (F3 exception path).'), True),                           # PR #27 shape
+        (fail_mentions('the scan fails closed and the test failed once'), False),           # prose, not a verdict
+        (fail_mentions('the failsafe and the FAILOVER path'), False),                              # not the word
         (fail_mentions('| Review of `622e394` (fresh) | review | **FAIL** → x |'), True),
         (fail_mentions('QA FAIL (blocked: artifact storage), head abc1234'), False),
         (fail_rounds('QA: **FAIL** at `abc1234`'), ({('QA', 'abc1234')}, set())),
@@ -673,6 +714,17 @@ def self_test():
         item['body'] = verdict_lines(item['body'] + '\nunrelated prose line\nC:\\some\\path')
     if compute(trimmed) != m:
         bad.append('trimming bodies to verdict lines changed a number')
+    # Check runs that could not be read leave that PR's time to green unmeasured, never crash.
+    refused = json.loads(json.dumps(snap))
+    refused['head_check_runs'][a40_of(snap)] = None
+    got = compute(refused)
+    if got['time_to_green_missing'] != [1, 2] or got['time_to_green'] != 'median 3.0 h, 90th percentile 3.0 h (n=1)':
+        bad.append(f'refused check-runs read: got {got["time_to_green_missing"]!r}, {got["time_to_green"]!r}')
+    # The appendix comes from the snapshot's stored commands: ids collapse to placeholders, `|` is escaped.
+    app = appendix({'queries': ["gh api repos/o/r/pulls/5/reviews --jq '.[] | x'",
+                                "gh api repos/o/r/pulls/12/reviews --jq '.[] | x'"]})
+    if "| 2 | `gh api repos/o/r/pulls/{n}/reviews --jq '.[] \\| x'` |" not in app or appendix(snap) != '':
+        bad.append(f'appendix is not built from the stored commands: {app!r}')
     # Same snapshot -> same table, byte for byte; a changed snapshot -> a different sha.
     t1 = render(snap, m, snapshot_sha(snap))
     t2 = render(json.loads(json.dumps(snap)), compute(json.loads(json.dumps(snap))), snapshot_sha(snap))
@@ -722,9 +774,7 @@ def main(argv):
         with open(args.save_snapshot, 'w', encoding='utf-8', newline='\n') as f:
             json.dump(snap, f, sort_keys=True, indent=1, ensure_ascii=True)
             f.write('\n')
-    text = render(snap, compute(snap), snapshot_sha(snap))
-    if QUERY_SHAPES:
-        text += '\nQueries run (ids replaced by placeholders; every exact command was printed to stderr):\n\n' + appendix()
+    text = render(snap, compute(snap), snapshot_sha(snap)) + appendix(snap)
     if args.out:
         with open(args.out, 'w', encoding='utf-8', newline='\n') as f:
             f.write(text)

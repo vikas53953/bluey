@@ -18,15 +18,15 @@ below is the script's output, unedited.
 
 <!-- generated: start -->
 
-Window: 2026-11-08T00:00:00Z to 2026-11-13T06:00:00Z (UTC; start included, end excluded; a run counts by the time it was created, with its result as fetched). Repo `vikas53953/bluey`; base branches: lane/face, main. End-of-window `lane/face` commit: `0122ac745354d5ea62ae910cbff635e41335d716`. Snapshot sha256: `361e1ff8391f076d0154322b54640f012db5075321319c279245913da049b678`.
+Window: 2026-11-08T00:00:00Z to 2026-11-13T06:00:00Z (UTC; start included, end excluded; a run counts by the time it was created, with its result as fetched). Repo `vikas53953/bluey`; base branches: lane/face, main. End-of-window `lane/face` commit: `0122ac745354d5ea62ae910cbff635e41335d716`. Snapshot sha256: `34278db131c8202f73bbd40e1d8880fd128cf1a77bc37cafcafdc39ff7a54e5e`.
 
 | Metric | Value | Why it matters |
 | --- | --- | --- |
 | PRs merged per week (into lane/face or main) | 2026-W45: 4, 2026-W46: 17 (total 21) | How much change lands; every other rate below is per this. |
 | Revert rate | 0/21 = 0.0% | A revert means a merged change was wrong and the gates let it through. |
-| Merged PRs with a `QA PASS <commit>` line | 16/21 = 76.2% | The pipeline says no merge without a QA verdict; this shows how often that held. |
-| ... naming the exact head that merged | 16/21 = 76.2% | A PASS on an older commit does not prove the code that merged. |
-| Reviewer FAIL rounds (PRs opened in window) | UNVERIFIED as an exact number: verdicts are free text. Written in the standard form `QA FAIL — <commit>` / `REVIEW FAIL — <commit>`: 1 (#24: 1); PRs whose description or comments mention a QA or review FAIL in any form: 3 (#13, #23, #24); plus 4 rounds blocked by storage or budget | A fresh reviewer catching problems is the safety net working; a falling count means authors got better. |
+| Merged PRs with a QA PASS naming the exact head that merged | 16/21 = 76.2% | The pipeline says no merge without a QA PASS on the code that merged; this shows how often that held. |
+| ... with any `QA PASS <commit>` line | 16/21 = 76.2% | Context only: also counts a line that merely refers to an earlier PASS ("supersedes the QA PASS at ..."). |
+| Reviewer FAIL rounds (PRs opened in window) | UNVERIFIED as an exact number: verdicts are free text. Written in the standard form `QA FAIL — <commit>` / `REVIEW FAIL — <commit>`: 1 (#24: 1); to read by hand, PRs whose description, comments or reviews (before the window end) contain the word FAIL or FAILED in capitals on a line not saying "blocked": 6 (#3, #13, #21, #23, #24, #27); plus 4 rounds blocked by storage or budget | A fresh reviewer catching problems is the safety net working; a falling count means authors got better. |
 | PRs that went red, then green at the merged head | 11/21 = 52.4% (#4, #11, #12, #13, #14, #16, #17, #18, #19, #20, #25) | Shows the checks are actually stopping bad commits, not just passing. |
 | Flaky rate (same workflow + same commit, both pass and fail) | 19/743 = 2.6%; by workflow: demo-ci: 4, live-ai-smoke: 2, release: 2, windows-ci: 11 | Target under 2%. A flaky check trains people to re-run instead of read; above 2% the checks are noise. |
 | Flaky, strict (one run whose re-run attempt flipped the result) | 10/1125 = 0.9% | The broad rate above also counts a push run against a pull-request run of one commit, and a pull-request run tests the merge with the base; the strict rate is same code, same trigger. |
@@ -45,21 +45,22 @@ Window: 2026-11-08T00:00:00Z to 2026-11-13T06:00:00Z (UTC; start included, end e
 Workflow runs in window: 1165 (demo-ci: 347, formal: 4, live-ai-smoke: 125, quality-gates: 60, release: 173, windows-ci: 456).
 QA verdict per merged PR: #4 none, #7 none, #8 none, #9 none, #10 none, #11 at merged head, #12 at merged head, #13 at merged head, #14 at merged head, #15 at merged head, #16 at merged head, #17 at merged head, #18 at merged head, #19 at merged head, #20 at merged head, #21 at merged head, #22 at merged head, #23 at merged head, #24 at merged head, #25 at merged head, #27 at merged head.
 
-Queries run (ids replaced by placeholders; every exact command was printed to stderr):
+Queries run (ids replaced by placeholders; the snapshot's "queries" list holds every exact command):
 
 | Times run | Command |
 | --- | --- |
-| 199 | `gh api --paginate repos/vikas53953/bluey/actions/runs/{id}/attempts/{n}/jobs?per_page=100 --jq .jobs[] \| {name, conclusion}` |
-| 6 | `gh api --paginate repos/vikas53953/bluey/actions/runs?per_page=100&created={day} --jq .workflow_runs[] \| {id, name, event, head_sha, head_branch, status, conclusion, run_attempt, created_at, updated_at, prs: [.pull_requests[].number]}` |
-| 21 | `gh api --paginate repos/vikas53953/bluey/commits/{sha}/check-runs?per_page=100 --jq .check_runs[] \| {name, conclusion, completed_at}` |
-| 1 | `gh api --paginate repos/vikas53953/bluey/issues/comments?per_page=100 --jq .[] \| {id, issue: (.issue_url \| split("/") \| last \| tonumber), created_at, body: (.body // "")}` |
-| 1 | `gh api --paginate repos/vikas53953/bluey/pulls?state=all&per_page=100 --jq .[] \| {number, base: .base.ref, head_ref: .head.ref, head_sha: .head.sha, created_at, merged_at, closed_at, body: (.body // "")}` |
-| 46 | `gh api repos/vikas53953/bluey/actions/runs/{id}/attempts/{n} --jq {conclusion}` |
-| 1 | `gh api repos/vikas53953/bluey/branches/lane%2Fface/protection/required_status_checks --jq {contexts}` |
-| 1 | `gh api repos/vikas53953/bluey/branches/main/protection/required_status_checks --jq {contexts}` |
-| 1 | `gh api repos/vikas53953/bluey/labels/escaped --jq {name}` |
-| 1 | `git log origin/lane/face --since=2026-11-08T00:00:00Z --until=2026-11-13T05:59:59Z -i --grep=^Revert  --grep=This reverts commit --format=%H%x09%cI%x09%s` |
-| 1 | `git log origin/main --since=2026-11-08T00:00:00Z --until=2026-11-13T05:59:59Z -i --grep=^Revert  --grep=This reverts commit --format=%H%x09%cI%x09%s` |
+| 199 | `gh api --paginate 'repos/vikas53953/bluey/actions/runs/{id}/attempts/{n}/jobs?per_page=100' --jq '.jobs[] \| {name, conclusion}'` |
+| 6 | `gh api --paginate 'repos/vikas53953/bluey/actions/runs?per_page=100&created={day}' --jq '.workflow_runs[] \| {id, name, event, head_sha, head_branch, status, conclusion, run_attempt, created_at, updated_at, prs: [.pull_requests[].number]}'` |
+| 21 | `gh api --paginate 'repos/vikas53953/bluey/commits/{sha}/check-runs?per_page=100' --jq '.check_runs[] \| {name, conclusion, completed_at}'` |
+| 1 | `gh api --paginate 'repos/vikas53953/bluey/issues/comments?per_page=100' --jq '.[] \| {id, issue: (.issue_url \| split("/") \| last \| tonumber), created_at, body: (.body // "")}'` |
+| 30 | `gh api --paginate 'repos/vikas53953/bluey/pulls/{n}/reviews?per_page=100' --jq '.[] \| select(.submitted_at != null) \| {id, created_at: .submitted_at, body: (.body // "")}'` |
+| 1 | `gh api --paginate 'repos/vikas53953/bluey/pulls?state=all&per_page=100' --jq '.[] \| {number, base: .base.ref, head_ref: .head.ref, head_sha: .head.sha, created_at, merged_at, closed_at, body: (.body // "")}'` |
+| 46 | `gh api repos/vikas53953/bluey/actions/runs/{id}/attempts/{n} --jq '{conclusion}'` |
+| 1 | `gh api repos/vikas53953/bluey/branches/lane%2Fface/protection/required_status_checks --jq '{contexts}'` |
+| 1 | `gh api repos/vikas53953/bluey/branches/main/protection/required_status_checks --jq '{contexts}'` |
+| 1 | `gh api repos/vikas53953/bluey/labels/escaped --jq '{name}'` |
+| 1 | `git log origin/lane/face --since=2026-11-08T00:00:00Z --until=2026-11-13T05:59:59Z -i '--grep=^Revert ' '--grep=This reverts commit' --format=%H%x09%cI%x09%s` |
+| 1 | `git log origin/main --since=2026-11-08T00:00:00Z --until=2026-11-13T05:59:59Z -i '--grep=^Revert ' '--grep=This reverts commit' --format=%H%x09%cI%x09%s` |
 | 1 | `git rev-list -1 --first-parent --before=2026-11-13T05:59:59Z origin/lane/face` |
 | 1 | `git show 0122ac745354d5ea62ae910cbff635e41335d716:docs/FEATURE_MAP.md` |
 | 1 | `git show 0122ac745354d5ea62ae910cbff635e41335d716:docs/quality/baseline.json` |
@@ -80,8 +81,9 @@ Queries run (ids replaced by placeholders; every exact command was printed to st
   numbers are kept so the trend can be watched honestly. Several fall on 12 Nov, when the artifact storage quota
   turned runs red (PR #15's commit `8836c7e` is one); the table does not yet tell an infrastructure red from a code red.
 - **Reviewer FAIL rounds cannot be counted exactly yet.** Only one FAIL is written in the standard form
-  (`REVIEW FAIL at 4f8afe2` on #24); other PRs (listed in the table) mention a FAIL in prose. Until every reviewer
-  posts `REVIEW FAIL — <commit>` as a comment, read that list rather than trusting a total.
+  (`REVIEW FAIL at 4f8afe2` on #24). The read-by-hand list has 6 PRs: #13, #21, #23, #24 and #27 record reviewer
+  or QA FAILs in prose, and #3 is there because a test was made to FAIL on purpose (a red proof). Until every
+  reviewer posts `REVIEW FAIL — <commit>` as a comment, read that list rather than trusting a total.
 - **About half the merged PRs went red first, then green.** The checks are stopping commits, not rubber-stamping.
 - **Most failed jobs are `build-test-publish` (90) and `demos` (54),** the two required checks on both branches.
   Why each failed is not in this table.
@@ -97,7 +99,8 @@ Queries run (ids replaced by placeholders; every exact command was printed to st
 | Escaped bugs | There is no `escaped` label on GitHub yet, so there is nothing to count. | Create the label; tag every bug found after merge, with the layer that should have caught it. |
 | Prose-to-check ratio | No list links each written rule (AGENTS.md, prompts) to a `BOO-*` check. It is not in git or Actions data. | A rule-to-check map file (later Phase 1 work). |
 | Fuzz yield | The fuzz does not exist yet. | Phase 3. |
-| Reviewer FAIL rounds (exact number) | Verdicts are written as free text ("had QA FAIL because …", a table cell "review \| **FAIL**"), and PR descriptions are rewritten, so older notes can vanish. Only the standard form `QA FAIL — <commit>` / `REVIEW FAIL — <commit>` is counted exactly; every other PR that mentions a FAIL is listed for a person to read. | Reviewers post every verdict as a new comment in the standard form, never only in the description. |
+| Reviewer FAIL rounds (exact number) | Verdicts are written as free text ("had QA FAIL because …", "`537b04c`: FAIL (…)", a table cell "review \| **FAIL**"), and PR descriptions are rewritten, so older notes can vanish. Three tries at a smarter pattern each missed a new spelling, so the script no longer guesses: it counts only the standard form `QA FAIL — <commit>` / `REVIEW FAIL — <commit>` exactly, and lists every PR whose text contains the word FAIL or FAILED for a person to read. That list also holds PRs where a test, not a reviewer, failed. | Reviewers post every verdict as a new comment in the standard form, never only in the description. |
+| Visual page of this table for Vikas | Plan 4.3 asks for one; not in this PR. | Follow-up: an HTML page built from the same snapshot. |
 | Required checks in the weekly workflow | The workflow token may not read branch protection. | Run locally with the owner's `gh` login, as below. |
 
 ## How each number is counted
@@ -107,18 +110,24 @@ Queries run (ids replaced by placeholders; every exact command was printed to st
   opened inside the window.
 - **A run belongs to a PR** when GitHub lists the PR on the run, or the run is on the PR's branch and started while
   the PR was open.
-- **Verdicts** are read from the PR description (as it is when fetched) and the comments posted before the window
-  ends: `QA PASS`, `QA: **PASS**`, `QA FAIL`, `REVIEW FAIL`, counted only with a commit id right after the verdict
+- **Verdicts** are read from the PR description (as it is when fetched) and the comments and GitHub reviews posted
+  before the window ends: `QA PASS`, `QA: **PASS**`, `QA FAIL`, `REVIEW FAIL`, counted only with a commit id right after the verdict
   word (after an optional note in brackets, then "at", "head", a dash or a backtick). A commit named elsewhere on the
   line ("fixed in ...") never counts. A commit id is 7 to 40 hex characters with at least one letter, so a run
-  number never counts. A FAIL whose note says "blocked" (storage, budget) is a blocked round, not a reviewer FAIL.
-  Each (kind, commit) counts once.
+  number never counts. A FAIL whose own note in brackets says "blocked" (storage, budget) is a blocked round, not a
+  reviewer FAIL. Each (kind, commit) counts once.
+- **The FAIL list to read by hand** is a plain text rule anyone can re-check with a search: the whole word FAIL,
+  FAILED or FAILS in capitals (verdicts here are written that way; ordinary prose says "fails") in a PR's
+  description, comments or reviews, on a line that does not say "blocked".
+- **QA PASS share** counts the PASS that names the exact commit that merged. The "any QA PASS line" row also counts a
+  line that only refers to an earlier PASS, so it is context only.
 - **Revert rate:** revert commits made on `lane/face` or `main` inside the window, divided by PRs merged inside the
   window. The plan counts "merged PRs later reverted, per 30 days"; linking each revert to its PR is not done yet,
   so this is the closest count git gives. Both are 0 today.
 - **Runs** count by the time they were created; a run that started before the window end and finished after it
   counts with its final result as fetched.
-- **A verdict written as its opposite** ("no QA PASS at …", "not a QA FAIL …") does not count.
+- **A verdict written as its opposite** ("no QA PASS at …", "there is no fresh QA PASS …", "not a QA FAIL …")
+  does not count: a no / not / never / without up to four words before it cancels it.
 - **Red then green:** a workflow failed on an earlier commit of the PR and passed on the commit that merged.
 - **Flaky (plan's way):** the same workflow on the same commit gave both a pass and a fail, counting re-runs and push
   and pull-request runs of that commit. Cancelled and skipped results are ignored.
@@ -129,8 +138,8 @@ Queries run (ids replaced by placeholders; every exact command was printed to st
 
 ## How to reproduce
 
-Recompute from the saved data (gives the table above byte for byte; the query appendix is printed only by a
-fetch, since a recompute runs no queries):
+Recompute from the saved data (gives the generated block above byte for byte, query appendix included: the
+snapshot stores every exact command the fetch ran):
 
 ```
 python -I scripts/quality/trust_metrics.py --from-snapshot docs/quality/trust-metrics/snapshot-2026-11-08_2026-11-13T06.json --since 2026-11-08T00:00:00Z --until 2026-11-13T06:00:00Z
