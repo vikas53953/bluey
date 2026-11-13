@@ -55,50 +55,22 @@ $VideoFps = 2
 
 Add-Type -AssemblyName System.Drawing
 if (-not ('BooBlankScan' -as [type])) {
-  # The assemblies that really hold Bitmap and Rectangle (System.Drawing on Windows PowerShell 5.1; System.Drawing.Common
-  # and System.Drawing.Primitives on PowerShell 7), so the same code compiles on both.
-  $drawingRefs = @([System.Drawing.Bitmap].Assembly.Location, [System.Drawing.Rectangle].Assembly.Location) | Select-Object -Unique
-  if ($PSVersionTable.PSEdition -eq 'Core') {
-    $drawingRefs += @([System.Runtime.InteropServices.Marshal].Assembly.Location, [System.Collections.Generic.Stack[int]].Assembly.Location,
-                      [System.ComponentModel.Component].Assembly.Location) | Select-Object -Unique
-  }
-  Add-Type -ReferencedAssemblies $drawingRefs -TypeDefinition @'
+  # The C# part sees only raw pixel bytes (no drawing types), so it compiles the same on Windows PowerShell 5.1 and
+  # PowerShell 7 with no assembly references; Read-Pixels below loads the picture with System.Drawing.
+  Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
 
 public static class BooBlankScan
 {
-    // Returns the share (0..1) of the image covered by the largest rectangle of flat, same-coloured tiles, and that
-    // rectangle in pixels plus its colour as "x,y wxh #RRGGBB".
-    public static double LargestFlatRectangle(string path, out string where)
+    // px: 24-bit pixels (B, G, R), rows "stride" bytes apart. Returns the share (0..1) of the image covered by the
+    // largest rectangle of flat, same-coloured tiles, and that rectangle in pixels plus its colour as text.
+    public static double LargestFlatRectangle(byte[] px, int width, int height, int stride, out string where)
     {
-        using (var bitmap = new Bitmap(path))
-        {
-            return LargestFlatRectangle(bitmap, out where);
-        }
-    }
-
-    public static double LargestFlatRectangle(Bitmap source, out string where)
-    {
-        int width = source.Width, height = source.Height;
         int tile = Math.Max(4, (int)Math.Round(width / 80.0));
         int cols = width / tile, rows = height / tile;
         where = "";
         if (cols < 4 || rows < 4) return 0;
-
-        byte[] px;
-        int stride;
-        using (var bitmap = source.Clone(new Rectangle(0, 0, width, height), PixelFormat.Format24bppRgb))
-        {
-            var data = bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-            stride = data.Stride;
-            px = new byte[stride * height];
-            Marshal.Copy(data.Scan0, px, 0, px.Length);
-            bitmap.UnlockBits(data);
-        }
 
         var flat = new bool[rows, cols];
         var key = new int[rows, cols, 3];
@@ -202,9 +174,27 @@ function Get-DemoName([string] $FileName) {
   return "the step that saved $FileName"
 }
 
+# Loads a picture as 24-bit pixel bytes (B, G, R) for BooBlankScan.
+function Read-Pixels([string] $Path) {
+  $src = New-Object System.Drawing.Bitmap $Path
+  try {
+    $rect = New-Object System.Drawing.Rectangle 0, 0, $src.Width, $src.Height
+    $bmp = $src.Clone($rect, [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+    try {
+      $data = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+      try {
+        $bytes = New-Object byte[] ($data.Stride * $bmp.Height)
+        [System.Runtime.InteropServices.Marshal]::Copy($data.Scan0, $bytes, 0, $bytes.Length)
+        return [pscustomobject]@{ Bytes = $bytes; Width = $bmp.Width; Height = $bmp.Height; Stride = $data.Stride }
+      } finally { $bmp.UnlockBits($data) }
+    } finally { $bmp.Dispose() }
+  } finally { $src.Dispose() }
+}
+
 function Measure-Image([string] $Path) {
   $where = ''
-  $fraction = [BooBlankScan]::LargestFlatRectangle($Path, [ref] $where)
+  $p = Read-Pixels $Path
+  $fraction = [BooBlankScan]::LargestFlatRectangle($p.Bytes, $p.Width, $p.Height, $p.Stride, [ref] $where)
   [pscustomobject]@{ Fraction = $fraction; Where = $where }
 }
 
