@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #34 merged**, with `lane/face` at `f3b2c32` (PR #34; PR #37 at `34473d6`, PR #31 at `a3ba89e` and PR #33 at `2433397` before it); PR #36 (agent-trust Phase 1 PR 1.12, trust metrics) synced on top.
+Status last updated: **13 Nov 2026, after PR #36 merged**, with `lane/face` at `f232474` (PR #36; PR #34 at `f3b2c32`, PR #37 at `34473d6` before it); PR #44 on top: Vikas's 13 Nov decisions (OpenAI only, cheap models, every notch state, phase gates).
 
 ---
 
@@ -181,10 +181,10 @@ screenshot a key; logs record lengths only.
 9. **Secrets:** names only. Never print a key, write one to disk logs, or put one in a screenshot.
 10. **Reports for Vikas** are short, plain words (no jargon), and anything he must review is a visual page.
 
-## 6. Live QA scope (as of 12 Nov)
+## 6. Live QA scope (as of 13 Nov)
 
-Only the **OpenAI** key is in use for live QA. **Claude (Anthropic), Gemini and voice are UNVERIFIED: not tested, by
-choice.** Mark them that way, not as BLOCKED and not as green.
+Only the **OpenAI** key is in use, for chat **and voice** (Vikas, 13 Nov 2026: one provider). **Claude (Anthropic) and Gemini are out of scope** (their code paths remain, untested); **voice is in scope and must be live-tested**. (Until 12 Nov the wording was "Claude (Anthropic), Gemini and voice
+are UNVERIFIED: not tested, by choice"; that is superseded.)
 
 ## 7. Current status
 
@@ -198,7 +198,7 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
 | [#37](https://github.com/vikas53953/bluey/pull/37) | `quality/build-facts` → `lane/face` | **merged 13 Nov** (`34473d6`) | Quality gates judge the **shipped** build: windows-ci's Release build and publish now write binary logs (`-bl`, nothing else changes); `scripts/quality/buildfacts` (a pinned, lock-filed .NET reader) turns them into `build-facts.json` (every Csc call with response files expanded and analyzer configs' text, references and where each came from, imports, packages, outputs with SHA-256); `scripts/quality/build_facts.py` fails closed on incomplete facts, unknown tasks or compiler switches, response files, and published assemblies that do not trace to a judged compile or a restored package. Only `build-facts.json` is uploaded (through its key scan), never the binary logs. Nine fixtures: four show each known bypass of PRs #28/#32 in the facts, five (response file, two tampers, a same-name compile outside the solution, a fake `*_wpftmp.csproj`) must also fail the check; the judges come in #28 and #32. Rules: `docs/quality/RULES.md` "Build facts (the shipped build)". |
 | [#34](https://github.com/vikas53953/bluey/pull/34) | `quality/pr-evidence` → `lane/face` | **merged 13 Nov** (`f3b2c32`) | Agent-trust PR 1.10: new workflow `pr-evidence` runs `scripts/quality/pr_evidence.py` on every PR open, edit and push. The body must have an evidence table with a `Label` column (live / mock / manual / UNVERIFIED / BLOCKED / review); every live row links an Actions run; a PR changing `src/` or `tools/` needs a live row or a BLOCKED row with a reason (BOO-EVID-001). The base branch's copy of the checker judges too. `scripts/test_gate.py static` now checks every xUnit project, including the 3 under `tools/` (BOO-TEST-001). Rules in `docs/quality/RULES.md`. |
-| [#36](https://github.com/vikas53953/bluey/pull/36) | `quality/trust-metrics` → `lane/face` | **open** | Agent-trust **Phase 1, PR 1.12**: `scripts/quality/trust_metrics.py` (read-only `gh`/`git`, fixed UTC window, `--self-test` with planted data, recompute from a snapshot) and the first table in `docs/quality/trust-metrics.md` (8 Nov 00:00 to 13 Nov 06:00 UTC: 21 PRs merged, 0 reverts, QA PASS at the merged head 16/21, flaky 2.6% the plan's way / 0.9% strict, 125 live runs). Escaped bugs and prose-to-check ratio are UNVERIFIED (no data source yet). Optional weekly `trust-metrics` workflow, not a required check. No app change. QA verdict and run links: in the PR body. |
+| [#36](https://github.com/vikas53953/bluey/pull/36) | `quality/trust-metrics` → `lane/face` | **merged 13 Nov** (`f232474`) | Agent-trust **Phase 1, PR 1.12**: `scripts/quality/trust_metrics.py` (read-only `gh`/`git`, fixed UTC window, `--self-test` with planted data, recompute from a snapshot) and the first table in `docs/quality/trust-metrics.md` (8 Nov 00:00 to 13 Nov 06:00 UTC: 21 PRs merged, 0 reverts, QA PASS at the merged head 16/21, flaky 2.6% the plan's way / 0.9% strict, 125 live runs). Escaped bugs and prose-to-check ratio are UNVERIFIED (no data source yet). Optional weekly `trust-metrics` workflow, not a required check. No app change. QA verdict and run links: in the PR body. |
 | [#33](https://github.com/vikas53953/bluey/pull/33) | `quality/time-provider` → `lane/face` | merged 13 Nov (1:39 PM IST), `2433397` | Agent-trust **Phase 2, PR 2.3** (cleanup C3): every hidden clock read (`DateTime(Offset).Now/UtcNow`, rule BOO-TIME-001) in `src/` goes through one injected `TimeProvider`; 14 → 0 (App 11, Windows 2, Core 1). `App` owns `TimeProvider.System` and passes it down; Core/Windows types take an optional `TimeProvider`. Behaviour unchanged; no tests edited (new fake-clock tests come with the Phase 2 property tests). Hold-to-talk and the focus tick clock take the same clock. Ratchet baseline lowered. **Merge order with #28:** #28's `src/*/AnalyzerBaseline.cs` lists these 14 BOO-TIME-001 hits and its checker wants exact counts, so whichever of #28 and #33 merges second removes those entries. Follow-ups: `Stopwatch`/`Environment.TickCount64` clocks, `Task.Delay` (BOO-TIME-002), `DispatcherTimer` (BOO-TIME-003). QA verdict and run links: in the PR body. |
 | [#26](https://github.com/vikas53953/bluey/pull/26) | `quality/key-scan` → `lane/face` | merged 13 Nov (12:48 IST), `342b93d` | Agent-trust PR 1.7: `scripts/quality/key_scan.py` scans exactly what each upload step in `windows-ci`, `demo-ci` and `live-ai-smoke` sends, right before it (rule BOO-SAFE-002: key-shaped text and real secret values). Each upload runs only when its scan step reports `safe=true`; any other outcome skips it. `--diff` mode is ready for the `quality` workflow. |
 | [#31](https://github.com/vikas53953/bluey/pull/31) | `quality/netarchtest` → `lane/face` | merged 13 Nov, `a3ba89e` | Agent-trust **Phase 1, PR 1.11**: new frozen test project `tests/Boo.Architecture.Tests` (oracle **revision 25**, `--extend`, 3 new files) with the 6 architecture rules BOO-ARCH-001..006 of plan section 2.4 B, each an exact allowlist of today's offenders matching plan section 1.5 (002 finds a third, `StartupRegistration`, which the plan's text count could not see); rule texts in `docs/quality/RULES.md`. Two lines in `windows-ci.yml` run it and add it to the trx test gate (agreed with the agent-trust thread). |
@@ -223,6 +223,7 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | [#9](https://github.com/vikas53953/bluey/pull/9), [#8](https://github.com/vikas53953/bluey/pull/8), [#7](https://github.com/vikas53953/bluey/pull/7) | lanes → `lane/face` | merged 8 Nov | Perf budgets; Velopack installer + opt-in updates; security hardening. |
 | [#4](https://github.com/vikas53953/bluey/pull/4) | → `main` | merged 8 Nov (`384241a`) | FlaUI UI smoke in windows-ci. |
 | [#1](https://github.com/vikas53953/bluey/pull/1), [#2](https://github.com/vikas53953/bluey/pull/2), [#5](https://github.com/vikas53953/bluey/pull/5), [#6](https://github.com/vikas53953/bluey/pull/6) | lanes → `main` | closed 12 Nov | **Superseded**: all their commits are already in `lane/face`. |
+| [#44](https://github.com/vikas53953/bluey/pull/44) | `docs/vikas-decisions-13nov` → `lane/face` | **open** | Docs only: records Vikas's 13 Nov decisions (OpenAI only for chat and voice, Claude/Gemini out of scope; cheapest OpenAI models in tests; every notch state tested, plan row 2.11; phase gates, plan section 7; Vikas's 10-minute pre-release check). QA verdict in the PR body. |
 
 Each PR's latest evidence table and verdict is in its own latest QA comment. This table only tracks state.
 
@@ -290,7 +291,7 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 
 ### UNVERIFIED (not proven on `lane/face`)
 
-- **Claude (Anthropic) and Gemini** text providers against the live APIs (no keys set; by choice).
+- **Claude (Anthropic) and Gemini** text providers: **out of scope** since 13 Nov 2026 (OpenAI only); not tested.
 - **Voice** (OpenAI Realtime, hold-to-talk) as a live round trip on `lane/face`. PR #12's builder reports one live
   voice turn on `feat/living-ink`; not re-verified independently.
 - **Pointer + ring with a real model, beyond PR #13's one target.** Since PR #13 merged (`13e5484`), its live journey j3 proves the
