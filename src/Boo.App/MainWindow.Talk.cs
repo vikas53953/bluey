@@ -53,7 +53,7 @@ public partial class MainWindow
             return;
         }
 
-        _talk = new HoldToTalkController(TimeProvider.System);
+        _talk = new HoldToTalkController(_timeProvider);
         _talkTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
         _talkTimer.Tick += (_, _) => RunTalk(c => c.Tick());
         SystemEvents.SessionSwitch += Talk_OnSessionSwitch;
@@ -298,7 +298,7 @@ public partial class MainWindow
 
     private async Task SendPushToTalkAsync()
     {
-        var endOfSpeech = DateTimeOffset.UtcNow;
+        var endOfSpeech = _timeProvider.GetUtcNow();
         var uplink = Interlocked.Exchange(ref _uplink, null);
         StopPushToTalkMic();
         var realtime = _realtime;
@@ -450,7 +450,7 @@ public partial class MainWindow
                 if (_endOfSpeech is { } endOfSpeech)
                 {
                     _endOfSpeech = null;
-                    var firstAudio = DateTimeOffset.UtcNow;
+                    var firstAudio = _timeProvider.GetUtcNow();
                     if (firstAudio >= endOfSpeech)
                     {
                         _latency.Record(endOfSpeech, firstAudio);

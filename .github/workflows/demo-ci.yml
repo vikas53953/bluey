@@ -34,6 +34,16 @@ jobs:
         with:
           persist-credentials: false
 
+      # Python for scripts/quality/key_scan.py (the key scan before every upload).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The key scan's workflow check reads YAML with PyYAML (hash-pinned) and fails closed without it.
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -149,8 +159,24 @@ jobs:
           for ($j = 0; $j -lt $b64.Length; $j += 3000) { $b64.Substring($j, [Math]::Min(3000, $b64.Length - $j)) }
           '=====DEMO-SHEET-END====='
 
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (demo evidence)
+        id: keyscan_artifacts_demo_evidence
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/demo-evidence; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/demo-evidence' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/demo-evidence')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
       - name: Upload demo evidence
-        if: always()
+        if: ${{ !cancelled() && steps.keyscan_artifacts_demo_evidence.outputs.safe == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           retention-days: 7
