@@ -32,6 +32,10 @@ Written 12 Nov 2026 on `lane/face` at `f244e47`. Source idea: poteto's AIE talk 
 >   and `workflow_lint.py` as planned; the same protection ships under the names above.
 > - **Still open in Phase 1:** PRs 1.2–1.7 and 1.10–1.12 in section 2.9, plus the queued follow-ups from the reviews. Owner review of
 >   workflow and gate files (CODEOWNERS) is a pending decision for Vikas (`HANDOFF.md`, known issue 0).
+> - **Vikas, 13 Nov 2026, 2:59 PM IST (relayed by the Grok Bot watcher):** every notch state must be tested, none left
+>   UNVERIFIED (new PR 2.11); Phase 2 ends with a full-app QA gate run (new PR 2.12) before any Phase 3 PR merges;
+>   Boo is **OpenAI-only** (chat and voice), so Claude and Gemini are **out of scope**; tests use the **cheapest OpenAI
+>   models**, configurable.
 > - **Phases 2 and 3 have Vikas's go** (relayed by the Grok Bot watcher, 13 Nov 2026, 9:11 AM IST): on 13 Nov at about
 >   12:13 AM IST he confirmed the 24/7 auto pipeline covers all phases (1, 2, 3) continuously without a separate go; at
 >   12:16 AM IST he approved Phase 2's limits: GitHub spend **$0** (repo public, free GitHub-hosted runners only),
@@ -650,6 +654,8 @@ fixing it; Phase 3's fuzz uses it as its action vocabulary. Boo already has `--n
 | 2.8 | Video recording in `demo-ci` and `live-ai-smoke` | S | Video artifact under 25 MB on 3 runs; guard refuses on non-hosted runners |
 | 2.9 | `tools/Boo.Drive` CLI | M | An agent reproduces j5 (Apply/Undo) step by step from the CLI with screenshots |
 | 2.10 | `live-journeys` required check | S | Branch protection shows it; a PR without a live run cannot merge |
+| 2.11 | **Every notch state tested** (added 13 Nov by Vikas): behaviour tests against the `NotchLifecycle` reducer for every row and state of the notch map (`docs/architecture/notch-lifecycle.md`), plus app-level checks of the published `Boo.exe` on `windows-latest` with the real clock where timing matters (reveal/retract, moment timers, the 120 s hold cap, focus ticks). Includes Listening, Nudge, Paused, Stop, the second undo and every other state; no notch state left UNVERIFIED. Live parts use the cheapest OpenAI models (configurable). May land as several small PRs (reducer behaviour tests first; app-level journeys next, one or two states per PR). | M–L | Every state and row of the notch map has a passing test linked from `docs/FEATURE_MAP.md`; app-level evidence (screenshots or video) for every face state; 0 UNVERIFIED notch rows |
+| 2.12 | **Phase 2 gate** (added 13 Nov by Vikas): one full-app QA run of the published `Boo.exe` on `windows-latest` with the real clock: every Phase 1 and Phase 2 feature, every notch state, the live journeys, with video | S (run) | Gate run green with an evidence page; **no Phase 3 PR merges before it passes** |
 
 **Effort:** about 13 PRs, 3–4 weeks. The big one is 2.6 (moving behaviour out of 4,163 lines of code-behind);
 everything else is additive.
@@ -685,7 +691,9 @@ table. Formal and property PRs each include a **red proof** (the checker catches
 - the app's talk, focus, apply/undo and presence paths go through `NotchLifecycle`;
 - 5 FsCheck properties run on every PR and nightly, and every past failure has a regression `[Fact]`;
 - demo and live runs attach a video;
-- `live-journeys` is a required check and the feature map has 0 `UNVERIFIED` rows for features marked shipped.
+- `live-journeys` is a required check and the feature map has 0 `UNVERIFIED` rows for features marked shipped;
+- every notch state in the notch map is tested (2.11), none UNVERIFIED;
+- the Phase 2 gate full-app QA run (2.12) has passed.
 
 ---
 
@@ -799,7 +807,8 @@ retention. OpenAI: capped live turns per run.
 4. **Fix j3 and merge PR #13** (verify-boo), so the feature map and live journeys exist on `lane/face`. *(Done: merged
    13 Nov, `13e5484`.)*
 5. **Phase 2** in the order of 3.3; video (2.8) can go early because it helps every review.
-6. **Phase 3** only after Phase 2's `live-journeys` check has been required and stable for 2 weeks.
+6. **Phase 3** only after Phase 2's `live-journeys` check has been required and stable for 2 weeks **and** the Phase 2
+   gate full-app QA run (2.12) has passed; no Phase 3 PR merges before that.
 
 ## 6. Decisions Vikas must make
 

@@ -12,6 +12,7 @@ changes in the same pull request, and `pwsh .claude/skills/verify-boo/scripts/Te
 | **automated mock** | Automated, but something is stood in for: the AI answers come from `tools/Boo.QaMockAi` (demo-ci), or the code is tested without the app (Core / Integration / Providers tests with fake HTTP). Proves Boo's logic and UI, not the real AI. |
 | **manual** | Only a person at a real PC can prove it today. The checklist step is named. A manual row is proven only by a dated, filled-in checklist result. |
 | **UNVERIFIED** | Nothing proves it yet. Do not call it done. |
+| **out of scope** | Not part of the product any more, by Vikas's decision; not tested and not counted as UNVERIFIED. Since 13 Nov 2026 Boo is OpenAI-only (chat and voice), so the Claude and Gemini providers are out of scope. |
 
 A feature can carry two labels (for example live for the main path and mock for the edge cases). The **best** label is
 listed first. "Proven" always needs a run link or a filled-in checklist; a label on this page is a method, not a pass.
@@ -113,8 +114,8 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | S1 | OpenAI key saved with DPAPI, cleared from the box, never shown | automated mock | `tests/Boo.Demo.Tests/DemoTests.cs::Step0_Settings_FakeKeyAndWorkspaceCopy` (a fake key typed into the masked box and saved through the UI); `tests/Boo.Integration.Tests/StoragePrivacyTests.cs`. The live runs seed the real key straight into the key file (`src/Boo.Storage/CredentialStore.cs`), so they do not exercise the box; their key-leak scan only proves no evidence file contains it. |
 | S2 | Task folder setting (the only folder file actions touch) | automated live | `tools/Boo.VerifyLive/LiveJourneyTests.cs::J5_ApplyThenUndo_OnlyAfterApproval` (set through Settings > Task folder > Save settings) |
 | S3 | Text AI provider: **OpenAI** | automated live | `tools/Boo.LiveSmoke/LiveRoundTripTests.cs::TypedQuestion_GetsAnAnswerFromTheRealProvider` and `tools/Boo.VerifyLive/LiveJourneyTests.cs::J2_TypedChat_GetsARealAnswer`, run with `text_provider=openai` |
-| S4 | Text AI provider: **Anthropic Claude** | automated mock (live: UNVERIFIED) | `tests/Boo.Providers.Tests/AnthropicClientTests.cs`; live needs the `BOO_LIVE_ANTHROPIC_KEY` secret, which does not exist yet |
-| S5 | Text AI provider: **Google Gemini** | automated mock (live: UNVERIFIED) | `tests/Boo.Providers.Tests/GeminiClientTests.cs`; live needs the `BOO_LIVE_GEMINI_KEY` secret, which does not exist yet |
+| S4 | Text AI provider: **Anthropic Claude** | out of scope (OpenAI-only since 13 Nov 2026; mock tests remain) | `tests/Boo.Providers.Tests/AnthropicClientTests.cs`; live needs the `BOO_LIVE_ANTHROPIC_KEY` secret, which does not exist yet |
+| S5 | Text AI provider: **Google Gemini** | out of scope (OpenAI-only since 13 Nov 2026; mock tests remain) | `tests/Boo.Providers.Tests/GeminiClientTests.cs`; live needs the `BOO_LIVE_GEMINI_KEY` secret, which does not exist yet |
 | S6 | Model id override | automated mock | `tests/Boo.Core.Tests/AiProviderTests.cs`; live: the workflow's `model` input |
 | S7 | Plain messages for 401 / 403 / quota / 429 / 5xx / offline / TLS / timeout | automated mock | `tests/Boo.Core.Tests/ProviderFailureClassifierTests.cs`; `tests/Boo.Integration.Tests/ProviderFailureClientTests.cs` |
 | S8 | Start Boo with Windows (HKCU Run value) | automated live | `tests/Boo.Ui.Tests/BooSmokeTests.cs::StartWithWindows_Checkbox_WritesAndRemovesRunValue` |

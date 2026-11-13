@@ -5,7 +5,7 @@
 .DESCRIPTION
   Fails (exit 1) when the map has drifted:
     - a row has no ID, no feature, or a "How verified" value that is not made only of the allowed labels
-      (automated live, automated mock, manual, UNVERIFIED; exact case; parts joined by "+"; notes in brackets);
+      (automated live, automated mock, manual, UNVERIFIED, out of scope; exact case; parts joined by "+"; notes in brackets);
     - a row says "automated live" but cites no test method that drives the real Boo.exe;
     - a row cites a file that does not exist, or `file.cs::Method` where the method is not in that file;
     - a row claims "automated live" or "automated mock" but cites no test, workflow or script as proof;
@@ -22,7 +22,7 @@ param([string] $MapPath)
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 if (-not $MapPath) { $MapPath = Join-Path $repo 'docs\FEATURE_MAP.md' }
-$labels = 'automated live', 'automated mock', 'manual', 'UNVERIFIED'
+$labels = 'automated live', 'automated mock', 'manual', 'UNVERIFIED', 'out of scope'
 $problems = [System.Collections.Generic.List[string]]::new()
 $ids = @{}
 $rows = 0
