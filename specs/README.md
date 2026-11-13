@@ -40,16 +40,24 @@ its action.
 | `INV_APPLY_2_FILE` | Undo only once (finding F6: a second file undo re-applies) | gaps | fail |
 | `INV_FOCUS_1_EXACT` | Exactly one end event (finding F9: replaced or quit sessions have none) | gaps | fail |
 | `LIVE_1_THINKING` | Thinking always ends (finding F7: no local timeout) | gaps | fail |
-| `INV_PRIV_1_DEVICE` | Mic device on: the notch is visible (**new**, not in the doc yet, see below) | gaps | fail |
+| `INV_PRIV_1_DEVICE` | Mic device on: the notch is visible (finding F10, see below) | gaps | fail |
+| `INV_TALK_1_DEVICE` | After the last release, the mic device is off (finding F10) | gaps | fail |
 | `INV_APPLY_1` with the planted bug | The checker catches a real apply-without-approve bug | red proof | fail |
 
 `INV_PRIV_1_DEVICE`: holding Ctrl+Alt+Space, then starting a Talk-button session, then releasing the chord turns
 the notch's mic indicator off but leaves the Talk-button microphone running (`StopPushToTalkMic`,
-`src/Boo.App/MainWindow.Talk.cs:384-397`). Found while building the model, by reading the code; no run has shown
-it yet. It should be added to the lifecycle doc as a finding before Vikas decides on it.
+`src/Boo.App/MainWindow.Talk.cs:383-398`). Found while building the model, by reading the code; no run has shown
+it yet. It is finding F10 in `docs/architecture/notch-lifecycle.md` (section 5) and HANDOFF known issue 13.
 
 ## Simplifications (what the model leaves out)
 
+- The two undo journals are independent in the model; in the code each new kind of edit clears the other
+  (`MainWindow.Edits.cs:244`, `:533`). No check's result depends on it (the field check is reachable through
+  field-only paths, and the file gap's trace has no field edits). Also approximated: a reply that arrives while a
+  card is up keeps the old card (the code replaces it), and a field undo can be planned without a frame (the code
+  refuses).
+- Local steps with no provider wait (taking or skipping the screenshot, planning a typed undo, the end of a spoken
+  undo, a typed request's finally) are fair; the provider is not.
 - Time is steps, not milliseconds: the render loop and the moment timers are fair actions; the user and the AI
   provider are not fair (they may never act).
 - Request generations are a "still current" flag on each piece of in-flight work. This is exact, because the

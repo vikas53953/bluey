@@ -366,11 +366,12 @@ VSpeechStopped ==
     /\ UNCHANGED <<hovered, responding, nudge, happy, micV, workV, applyV, focusV>>
     /\ Fin("Other")
 
-\* [F8] audio delta: Responding on, moment refreshed.
+\* [F8] audio delta: Thinking off, Responding on, moment refreshed (SetFace at MainWindow.xaml.cs:2281).
 VAudioDelta ==
     /\ VoiceOpen
+    /\ thinking' = FALSE
     /\ responding' = TRUE
-    /\ UNCHANGED <<hovered, thinking, nudge, happy, micV, workV, applyV, focusV>>
+    /\ UNCHANGED <<hovered, nudge, happy, micV, workV, applyV, focusV>>
     /\ Fin("Other")
 
 \* [F9] response.done: Thinking = tools in flight > 0; Responding keeps its (playback) moment.
@@ -482,7 +483,7 @@ TalkDown(s) ==
 \* Cancel; both run StopPushToTalkMic first (MainWindow.Talk.cs:384-397), which ALWAYS turns the indicator
 \* off but stops the device only if the current audio is the push-to-talk audio. If the Talk button opened
 \* its own audio while the hold was still down, that audio keeps running with the indicator off
-\* (INV_PRIV_1_DEVICE; NOT in the lifecycle doc yet). The commit itself is a provider event (VSpeechStopped).
+\* (INV_PRIV_1_DEVICE and INV_TALK_1_DEVICE; lifecycle doc finding F10). The commit itself is a provider event (VSpeechStopped).
 TalkUp(s) ==
     /\ IF s = "chord" THEN chord ELSE eyes
     /\ chord' = (chord /\ s # "chord")
@@ -697,13 +698,20 @@ Next ==
        \/ FocusCheckStart \/ FocusCheckDone \/ NudgeBack \/ NudgeBreak
     /\ Active' <= MaxActive
 
-\* Fairness ONLY for real local drivers: the render loop (Tick) and the moment timers. The user and the
-\* AI provider get none, so "the provider never answers" is a legal behaviour (that is doc finding F7).
+\* Fairness ONLY for real local drivers: the render loop (Tick), the moment timers, and steps that are pure
+\* local code with no provider wait (taking or skipping the screenshot, planning a typed undo, the end of a
+\* spoken undo, and a typed request's finally, which the 45 s HTTP timeout guarantees). The user and the AI
+\* provider get none, so "the provider never answers" is a legal behaviour (that is doc finding F7). The
+\* local steps are guarded by alive, so nothing is owed after Quit.
 Fairness ==
     /\ WF_vars(Tick)
     /\ WF_vars(ExpireResponding)
     /\ WF_vars(ExpireNudge)
     /\ WF_vars(ExpireHappy)
+    /\ WF_vars(alive /\ (TypedCapture \/ TypedNoFrame))
+    /\ WF_vars(alive /\ TypedUndoPlan)
+    /\ WF_vars(alive /\ TypedEnd)
+    /\ WF_vars(alive /\ VUndoDone)
 
 Spec == Init /\ [][Next]_vars /\ Fairness
 
@@ -787,9 +795,14 @@ INV_FOCUS_1_EXACT == last # "QuietEnd"
 \* provider (or a typed question handed to voice) leaves Thinking on forever.
 LIVE_1_THINKING == thinking ~> ~thinking
 
-\* INV-PRIV-1 as written, for the microphone DEVICE (NEW, not in the lifecycle doc yet): the mic is open =>
+\* INV-TALK-1 as written (doc finding F10): after the last release, the microphone DEVICE is off. Breaks the
+\* same way as INV_PRIV_1_DEVICE: the Talk-button audio survives the release (or the 120 s hold timeout).
+INV_TALK_1_DEVICE ==
+    [][((chord \/ eyes) /\ ~(chord' \/ eyes')) => micDev' = "Off"]_vars
+
+\* INV-PRIV-1 as written, for the microphone DEVICE (lifecycle doc finding F10): the mic is open =>
 \* the notch is visible. Breaks: hold Ctrl+Alt+Space, press Talk twice (stop, start), release the chord:
-\* StopPushToTalkMic turns the indicator off but leaves the Talk-button audio running (MainWindow.Talk.cs:384-397).
+\* StopPushToTalkMic turns the indicator off but leaves the Talk-button audio running (MainWindow.Talk.cs:383-398).
 INV_PRIV_1_DEVICE == (micDev # "Off" \/ CaptureOn) => phase # "Hidden"
 
 =============================================================================
