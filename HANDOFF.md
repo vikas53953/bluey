@@ -6,7 +6,8 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, ~05:30 IST** (PR #20 sync), with `lane/face` at `00a1fc2` (PR #18).
+Status last updated: **13 Nov 2026, ~06:30 IST** (PR #21 sync; `live-ai-smoke` added to `lane/face` protection), with
+`lane/face` at `e1d4b5c` (PR #20).
 
 ---
 
@@ -135,14 +136,19 @@ screenshot a key; logs record lengths only.
 - A PR must be **up to date** with its base to merge. After every merge into `lane/face`, the other open PRs show
   BEHIND and need a sync (see section 7).
 - Branch protection, set 12 Nov on **both `lane/face` and `main`** (read back from the API):
-  - required checks: **`demos`** (demo-ci) and **`build-test-publish`** (windows-ci), both from GitHub Actions;
+  - required checks: **`demos`** (demo-ci) and **`build-test-publish`** (windows-ci), both from GitHub Actions
+    (app id 15368); on **`lane/face` only**, since 13 Nov ~06:15 IST, also **`live-ai-smoke`** (app id 15368, read
+    back after the change: `demos`, `build-test-publish`, `live-ai-smoke`, strict);
   - branch must be up to date before merging;
   - force pushes and branch deletion blocked;
   - no required approvals (Vikas is the only reviewer); admins not enforced (Vikas can override).
-  - `live-ai-smoke` is **not yet** a required check. PR #20 makes it run on every pull request with a final always-run
-    job `live-ai-smoke` that is green only if the key check and the real round trip both succeeded (GitHub counts a
-    skipped required job as passing). After PR #20 merges, the context `live-ai-smoke` (GitHub Actions) is added to
-    `lane/face` protection (Grok Bot, 13 Nov: only tightens the gate).
+  - `live-ai-smoke` is a **required check on `lane/face`** (since PR #20 merged, `e1d4b5c`): it runs on every pull
+    request, and its final always-run job is green only if the key check and the real round trip both succeeded
+    (GitHub counts a skipped required job as passing). It is pinned to app id 15368, so no other app can post a
+    passing status with that name. **`main` step still to do:** add the same pinned context to `main` protection only
+    once `lane/face` (with the `pull_request` trigger) has reached `main` through PR #3; before that, `main` PRs would
+    wait forever for a check their workflow cannot produce. Open PRs into `lane/face` whose branch predates PR #20 must
+    sync first, or the check stays "Expected".
 - **Merging, tagging and releasing stay with Vikas**, and agents never merge, tag, release, or push to `lane/face` or
   `main`. Exception, recorded by PR #18: since 13 Nov 12:15 AM IST the verifying bot (Grok Bot) merges PR #17, PR #18 and the
   agent-trust Phase 1–3 PRs once every gate passes; tags and releases stay with Vikas either way.
@@ -194,8 +200,8 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open** | `verify-boo` skill: live journeys j0–j6, `docs/FEATURE_MAP.md`, prove-it rule. Since `1c4b2d1` it also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks). |
 | [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **open** | 3-phase agent trust plan (`docs/plans/agent-trust-plan.md`). |
 | [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **merged 13 Nov** (`00a1fc2`) | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option; runner check in windows-ci; overlay capture proof in demo-ci; oracle revision 24 (3 capture fixtures). Latest completed QA: **QA PASS at `b590f92`** (live [43313942831](https://github.com/vikas53953/bluey/actions/runs/43313942831), windows-ci [43313897620](https://github.com/vikas53953/bluey/actions/runs/43313897620), demo-ci [43313897674](https://github.com/vikas53953/bluey/actions/runs/43313897674)); the head after this sync is re-QA'd in the PR body. |
-| [#20](https://github.com/vikas53953/bluey/pull/20) | `ci/live-smoke-required` → `lane/face` (retargeted 13 Nov after #18 merged) | **open** | Live smoke on every pull request with a final required `live-ai-smoke` job; per-PR concurrency; docs on cost, fork/Dependabot PRs and the gate-edit hole. Latest completed QA: none yet on lane/face base (stacked QA PASS at `ed7ed61`). |
-| [#21](https://github.com/vikas53953/bluey/pull/21) → #20's branch | stacked | **open** | A ratchet of known-bad code patterns (`quality-gates.yml`). |
+| [#20](https://github.com/vikas53953/bluey/pull/20) | `ci/live-smoke-required` → `lane/face` | **merged 13 Nov** (`e1d4b5c`) | Live smoke on every pull request with a final required `live-ai-smoke` job; per-PR concurrency; docs on cost, fork/Dependabot PRs and the gate-edit hole. Latest completed QA: none yet on lane/face base (stacked QA PASS at `ed7ed61`). |
+| [#21](https://github.com/vikas53953/bluey/pull/21) | `quality/ratchet` → `lane/face` (retargeted 13 Nov after #20 merged) | **open** | A ratchet of 16 known-bad code patterns in `src/` (`quality-gates.yml`, job `quality`); 554 hits today, may only go down; the base branch's own ratchet also judges every PR. Latest completed QA: none yet on the lane/face base (stacked QA PASS at `57cdeb1`); this head is re-QA'd in the PR body. |
 | [#19](https://github.com/vikas53953/bluey/pull/19) | `docs/scrub-local-paths` → `lane/face` | merged 13 Nov 03:17 IST (`b765f0f`) | Replaces the owner's Windows username and home paths in old docs (and in files that arrived later, e.g. the Living ink evidence notes) with `%USERPROFILE%` / `<user>_<machine>`. Old commits keep the old text (no history rewrite). |
 | [#16](https://github.com/vikas53953/bluey/pull/16) | `docs/project-handoff` → `lane/face` | merged 13 Nov 02:46 IST (`e0fb7b3`) | This handoff (HANDOFF.md, docs/DECISIONS.md, CONTRIBUTING.md). Merged with the PR #12 session notes and decision records. |
 | [#15](https://github.com/vikas53953/bluey/pull/15) | `ci/artifact-retention-7d` → `lane/face` | merged 13 Nov 01:40 IST (`95e9718`) | `retention-days: 7` on every upload. |
@@ -268,6 +274,15 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 - Installer install / Start-menu / uninstall / real update round trip on a PC; the SmartScreen prompt.
 - The `github-release` job (needs a `v*` tag; the portable ZIP and installer upload again since 13 Nov).
 - Hover timing, DPI and multi-monitor behaviour by hand (native checklists in `docs/verification/2026-11-08-*`).
+
+### Quality ratchet (Phase 1, PR #21)
+
+`.github/workflows/quality-gates.yml` (job `quality`, Linux, about a minute, no uploads) runs
+`scripts/quality/ratchet.py`: today's count of 16 known-bad patterns in `src/` (554 hits on `lane/face`, 13 Nov 2026, per
+project, in `docs/quality/baseline.json`) may only go **down**. A rise fails with what / why / fix / do-not / rule; a fall
+fails until `--lower` writes the new baseline. On a pull request the **base branch's own** ratchet and baseline also judge
+the code, so a PR cannot raise its own numbers. `--self-test` checks 59 snippets with exact counts and the pass/fail
+logic. Rules, fixes and known gaps: `docs/quality/RULES.md`. To be made a required check (`quality`) after it merges.
 
 ### Next phase
 
