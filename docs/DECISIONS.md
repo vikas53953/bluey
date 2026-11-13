@@ -67,6 +67,7 @@ Status words: **in force** (applies on `lane/face`), **proposed** (in an open PR
 
 | 13 Nov 2026 | **Additive oracle extension for mutation-driven tests, per Vikas's 13 Nov order.** PR #47 registers only `tests/Boo.Integration.Tests/RealtimeVoiceConfigurationTests.cs` through `scripts/test_oracle.py --extend`. Every existing hash stays unchanged, `changedFiles=[]`, `removedFiles=[]`, history links intact; no frozen test edits and no rebaseline. | Surviving critical mutants require added tests before merge. | Vikas standing order, 13 Nov 6:33 PM IST, scope confirmed 7:45 PM IST in this QA lane; PR #47 mutation reports | Authorized for this additive registration. PR #43 also proposes revision 26; whichever merges second must re-extend on the merged tip. |
 | 13 Nov 2026 | **Screen-reader parity: every Conversation row a user can see must be a row UI Automation reports, in order (duplicates included).** Held by regression test X9 (issue #73). | Identical rows collapsed into one for screen readers. | QA explorer task, 13 Nov 2026 | **proposed (PR #77); in force on merge** |
+| 13 Nov 2026 | **Items shown in a WPF list are reference types with their own identity, never value-equal records.** Issue #73. | Equal records collapsed into one row for screen readers and confused ScrollIntoView. | Build lane, 13 Nov 2026 | **proposed (PR #84); in force on merge** |
 
 ## Detailed decision records
 
