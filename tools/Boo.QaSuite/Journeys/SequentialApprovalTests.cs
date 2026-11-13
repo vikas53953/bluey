@@ -34,11 +34,11 @@ public sealed class SequentialApprovalTests : IClassFixture<LiveAppFixture>
                 var element = panel.FindFirstDescendant(cf => cf.ByAutomationId(id));
                 return element is not null && !element.IsOffscreen && element.BoundingRectangle.Width > 0;
             }
-            void Review(string prefix, string path)
+            void Review(string expectedTitle, string path)
             {
                 Assert.True(BooAppFixture.WaitUntil(() => Visible("ActionPreview")
-                    && QaUi.NameOf(panel, "ActionPreviewText").StartsWith(prefix, StringComparison.Ordinal), TimeSpan.FromSeconds(120)),
-                    $"No {prefix} card. Status: {QaUi.NameOf(panel, "StatusText")}");
+                    && QaUi.NameOf(panel, "ActionPreviewText") == expectedTitle, TimeSpan.FromSeconds(120)),
+                    $"Expected card {expectedTitle}; got {QaUi.NameOf(panel, "ActionPreviewText")}. Status: {QaUi.NameOf(panel, "StatusText")}");
                 var destination = panel.FindFirstDescendant(cf => cf.ByName("Resolved destination").And(cf.ByControlType(ControlType.Edit)))?.AsTextBox().Text;
                 Assert.False(string.IsNullOrWhiteSpace(destination));
                 Assert.True(string.Equals(Path.GetFullPath(path), Path.GetFullPath(destination!), StringComparison.OrdinalIgnoreCase),
@@ -50,14 +50,14 @@ public sealed class SequentialApprovalTests : IClassFixture<LiveAppFixture>
             QaUi.Find(_boo, panel, "SaveSettingsButton").AsButton().Invoke();
             Assert.True(BooAppFixture.WaitUntil(() => QaUi.NameOf(panel, "StatusText").StartsWith("Settings saved", StringComparison.Ordinal), TimeSpan.FromSeconds(10)));
             QaUi.Ask(_boo, panel, $"create two files in the selected task folder in this order: first {Path.GetFileName(first)} containing exactly {markerA}, then {Path.GetFileName(second)} containing exactly {markerB}. Propose both file steps for separate approvals.");
-            Review("Write file", first);
+            Review("Step 1 of 2: Write file", first);
             Assert.False(File.Exists(first));
             Assert.False(File.Exists(second));
             _boo.CaptureScreen("qa-j15d-first-review");
             Approve();
             Assert.True(BooAppFixture.WaitUntil(() => File.Exists(first), TimeSpan.FromSeconds(10)));
             Assert.Equal(markerA, BooAppFixture.ReadShared(first));
-            Review("Next step:", second);
+            Review("Next step: Write file", second);
             Assert.False(File.Exists(second), "Second step ran without its own approval.");
             Record("first file verified; second absent before separate approval");
             _boo.CaptureScreen("qa-j15d-next-step");
