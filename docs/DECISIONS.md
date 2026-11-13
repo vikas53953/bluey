@@ -72,6 +72,7 @@ Status words: **in force** (applies on `lane/face`), **proposed** (in an open PR
 | 13 Nov 2026 | **Screen-reader parity: every Conversation row a user can see must be a row UI Automation reports, in order (duplicates included).** Held by regression test X9 (issue #73). | Identical rows collapsed into one for screen readers. | QA explorer task, 13 Nov 2026 | **proposed (PR #77); in force on merge** |
 | 13 Nov 2026 | **The notch's Paused face is derived from the focus session's real status (one helper), never set directly by a button or event.** Issue #70. | Every hand-set `FocusPaused = true` could pin the face on a session that was not paused. | Build lane, 13 Nov 2026 | **proposed (PR #82); in force on merge** |
 | 13 Nov 2026 | **Status lines that say Boo is working go through `ShowBusyStatus`; Stop replaces such a line with a plain "Stopped" message while it is still showing.** Issue #71. | A cancelled request no longer writes its own message, so nothing replaced the busy text. | Build lane, 13 Nov 2026 | **proposed (PR #83); in force on merge** |
+| 13 Nov 2026 | **Items shown in a WPF list are reference types with their own identity, never value-equal records.** Issue #73. | Equal records collapsed into one row for screen readers and confused ScrollIntoView. | Build lane, 13 Nov 2026 | **proposed (PR #84); in force on merge** |
 
 ## Detailed decision records
 
