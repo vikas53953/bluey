@@ -12,7 +12,7 @@ No local build, test or desktop interaction was performed. All new validation mu
 
 | Date | What went wrong; sources | Strongest encoding and current status |
 | --- | --- | --- |
-| 2026-11-14 | A green pipeline omitted meaningful test coverage: [#10](https://github.com/vikas53953/bluey/pull/10) closed empty/skipped-test vacuity; [#34](https://github.com/vikas53953/bluey/pull/34) later extended the static gate to tools test projects. | BOO-CI-001, this PR, preserves three blocking oracle/source/result gate invocations and its own checker steps via parsed workflow mappings. This prevents removal/softening of declared gates, not incomplete semantics inside a checker. **PENDING:** hosted red/green evidence and owner-required check. |
+| 2026-11-14 | A green pipeline omitted meaningful test coverage: [#10](https://github.com/vikas53953/bluey/pull/10) closed empty/skipped-test vacuity; [#34](https://github.com/vikas53953/bluey/pull/34) later extended the static gate to tools test projects. | BOO-CI-001, this PR, preserves three blocking oracle/source/result gate invocations and its own checker steps via parsed workflow mappings. This prevents removal/softening of declared gates, not incomplete semantics inside a checker. **mock:** hosted [gate-removal red](https://github.com/vikas53953/bluey/actions/runs/43484855090/job/132090475848) and [corrected green](https://github.com/vikas53953/bluey/actions/runs/43487998741/job/132101463235), logs inspected. Owner-required check remains pending. |
 | 2026-11-13 | A check judged different inputs from the shipped program. [#28 response-file bypass](https://github.com/vikas53953/bluey/pull/28#issuecomment-6845758415) and [#32 Release/publish/OS references](https://github.com/vikas53953/bluey/pull/32#issuecomment-6846320947) both passed CI. | Compiler/build boundary: #37 merged, records actual Release/publish facts; #28 compiler replay + banned APIs and #32 reference allowlist remain in PR. Do not add another source-regex gate. **UNVERIFIED:** current bypass resistance; both PRs lack GitHub red proofs in their latest audit snapshot. |
 | 2026-11-13 | Green tests did not exercise important behavior. [#47: three compiling protocol mutants survived](https://github.com/vikas53953/bluey/pull/47#issuecomment-6854904318); [#68 mutation/test improvements](https://github.com/vikas53953/bluey/pull/68#issuecomment-6859316959) cover the native capture/playback boundary separately. | Executable boundary tests, then selected compiling mutants. #47 merged additional protocol cases; #68 in PR adds native audio boundary tests and a hosted journey. BOO-BUG-001 (#58) requires red-before/green-on-head for fixes; BOO-TEST-002 (#61) protects existing tests. **PENDING:** there is no general automated mutation requirement; a selected kill rate is not exhaustive coverage. |
 | 2026-11-13 | UI status/face followed an event rather than the resulting domain state: [#70 Pause after End](https://github.com/vikas53953/bluey/issues/70), [#71 Stop leaves Thinking](https://github.com/vikas53953/bluey/issues/71). | Prefer one typed state-to-presentation projection; cancellation must project a terminal status even after generation invalidation, and invalid focus transitions must not project Paused. **PENDING architecture prerequisite:** wire the Core reducer (#43) into WPF and cover both flows; #43 expressly has no app wiring. Existing red regression PRs #75/#76 own the checks; do not duplicate them. Follow-up ownership: product/state integration, tracked by #70/#71. No green product proof yet. |
@@ -75,10 +75,17 @@ Snapshot from GitHub PR metadata and the checked-out plan, 2026-11-13. "Merged" 
 | Added regression / test protection | In PR #58 / #61 | BOO-BUG-001 / BOO-TEST-002. |
 
 **2026-11-14 addition:** BOO-CI-001 ([rule](quality/gate-manifest.md)) encodes the repeated incomplete-test-gate class
-from #10 and #34 as a semantic workflow contract. Hosted red/green proof is recorded in this PR's body; until inspected,
-it is **UNVERIFIED**. Branch protection for the new check is owner-pending.
+from #10 and #34 as a semantic workflow contract. Hosted red/green proof is recorded in [PR #85](https://github.com/vikas53953/bluey/pull/85); logs were inspected on 2026-11-14. The new rule is
+**mock/static proven** at code head `1ff39e2` (17 CLI cases plus five real-git bootstrap cases). All three required checks passed at that SHA. Branch protection for the new check is owner-pending.
 
 **PENDING:** the uncovered state/presentation recurrence
 still needs its architecture change and green hosted regressions. Phase 1 is incomplete; missing 1.4/1.5 must not be
 described as merged. Keep new rule PRs separate, one rule each, with a failing planted pattern and green real head on
 GitHub `windows-latest`. Never substitute local proof, a green unrelated job, or these source links for inspected evidence.
+
+2026-11-14, independent review follow-up (**manual / mock**): a partial base contract could silently skip its judge
+when the manifest remained but the checker was missing. The workflow now rejects either partial state and an unavailable
+base commit. Five hosted real-git fixtures execute the actual workflow bootstrap, and all pass on `1ff39e2`.
+The [older bootstrap red](https://github.com/vikas53953/bluey/actions/runs/43487946714/job/132101291751) stops at the
+script-only case for lacking the required BOO-CI-001 diagnostic; it does not demonstrate the old manifest-only silent
+skip at runtime. No fresh independent PASS or full-app acceptance follows from these static receipts.
