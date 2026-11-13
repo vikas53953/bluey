@@ -4,8 +4,8 @@ name: live-ai-smoke
 # answer row in Boo's transcript; (2) voice: a synthetic spoken question (a checked-in WAV, never a microphone) -> Boo's
 # own OpenAI Realtime client -> OpenAI's transcript of the question and a spoken answer. Runs on EVERY pull request (its
 # final job `live-ai-smoke` is meant to be a required check once added to branch protection) and by hand
-# (workflow_dispatch). Each run spends two small paid requests on the cheapest OpenAI models that do the job (about
-# US$0.01 per run, see docs/LIVE_AI_SMOKE.md). How to add the key and run it: docs/LIVE_AI_SMOKE.md.
+# (workflow_dispatch). Each run spends two small paid requests on cheap OpenAI models (about US$0.004 per run, see
+# docs/LIVE_AI_SMOKE.md section 6). How to add the key and run it: docs/LIVE_AI_SMOKE.md.
 #
 # RUNS ONLY ON GITHUB'S OWN WINDOWS VM (windows-latest), never on the owner's PC: the test drives the mouse and
 # keyboard, and Boo sends a picture of the screen to the AI. A step refuses any runner that is not GitHub-hosted, and
@@ -117,10 +117,11 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       # Evidence screenshots show Boo's own windows only, never the whole desktop (BooAppFixture.CaptureScreen).
       BOO_CAPTURE_SCOPE: boo-windows
-      # Models for the two round trips, set per run (workflow_dispatch inputs) and defaulting to the cheapest OpenAI
-      # model that does each job: chat about a screenshot with reasoning and structured output: gpt-6-luna (the model
-      # Boo already sends screenshots to for its focus checks); voice: gpt-realtime-2.1-mini; speech-to-text:
-      # gpt-4o-mini-transcribe (Boo's own). A step below checks each exists before any paid call. The live journeys
+      # Models for the two round trips, set per run (workflow_dispatch inputs). Rule: the cheapest model Boo itself
+      # already uses for that kind of request (so CI tests a model Boo really calls), cheapest variant where there is one:
+      # chat about a screenshot with reasoning and structured output: gpt-6-luna (Boo's focus-check model; the only
+      # cheaper one, gpt-5-nano, is deprecated and unused by Boo); voice: gpt-realtime-2.1-mini (the mini variant of
+      # Boo's voice model); speech-to-text: gpt-4o-mini-transcribe (Boo's own). A step below checks each exists before any paid call. The live journeys
       # keep Boo's own shipped models (their step sets BOO_LIVE_MODEL to the input only), since they prove what users get.
       BOO_LIVE_MODEL: ${{ inputs.model || ((inputs.text_provider || 'openai') == 'openai' && 'gpt-6-luna' || '') }}
       BOO_LIVE_REALTIME_MODEL: ${{ inputs.realtime_model || 'gpt-realtime-2.1-mini' }}

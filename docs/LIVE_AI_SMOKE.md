@@ -16,9 +16,9 @@ buttons work, but not that Boo can talk to the real AI. This test is the missing
 `live-ai-smoke`, becomes a **required check** on `lane/face` once PR #20 merges (and on `main` when this reaches
 `main`): then a PR cannot merge unless a real round trip passed on its newest commit (Vikas, 12 Nov 2026, 11:20 PM IST). A newer push to the same PR cancels the older run.
 
-**What it costs:** two small paid requests per run, on the cheapest OpenAI models that do each job (section 6):
-about **US$0.003 per run**. At about 400 runs a month (13 Nov 2026 pace: 173 runs in the first 13 days) that is about
-US$1.20 a month, well under the US$10 monthly cap. A run cancelled by a newer push may already have spent its requests. GitHub's standard runners are free
+**What it costs:** two small paid requests per run, on cheap OpenAI models (section 6): about **US$0.004 per run**.
+At about 400 runs a month (13 Nov 2026 pace: 173 runs in the first 13 days) that is about US$1.50 a month, well under
+the US$10 monthly cap. A run cancelled by a newer push may already have spent its requests. GitHub's standard runners are free
 because the repository is public (since 13 Nov 2026); each run takes about 10–14 minutes of a Windows VM.
 
 **Known limits:**
@@ -42,7 +42,7 @@ green only when both the key check and the real round trip succeeded. A PR from 
 | --- | --- |
 | `.github/workflows/live-ai-smoke.yml` | The button on GitHub: checks the key, builds Boo, runs the test, uploads the evidence. |
 | `tools/Boo.LiveSmoke/LiveRoundTripTests.cs` | The typed test: starts Boo, asks one question, waits for the real answer. |
-| `tools/Boo.LiveSmoke/LiveVoiceRoundTripTests.cs` | The voice test: sends the synthetic spoken question through Boo's voice client, checks what OpenAI heard and said. Refuses to run anywhere but a GitHub VM. |
+| `tools/Boo.LiveSmoke/LiveVoiceRoundTripTests.cs` | The voice test: sends the synthetic spoken question through Boo's voice client, checks what OpenAI heard and said. Refuses to run anywhere but a GitHub VM or a throwaway VM declared with verify-boo `-ThrowawayVm`, never a personal PC. |
 | `tools/Boo.LiveSmoke/Voice/` | The synthetic question (`what-is-two-plus-three.wav`, 24 kHz 16-bit mono) and the script that makes it offline (`New-VoiceFixture.ps1`). |
 | `tests/Boo.Demo.Tests/BooAppFixture.cs` | The existing demo harness (start Boo in a clean temp folder, take screenshots). Linked in, not copied. Its screenshots are of Boo's own windows only unless it runs on a GitHub VM (and never for this test). |
 | `tools/Boo.LiveSmoke/LiveAppFixture.cs` | Reads the key (fails closed), seeds it into Boo's own protected key file, turns speech off. Shared with the live journeys. |
@@ -149,13 +149,15 @@ accuracy at other display scalings, second monitors. Those stay manual (runbook)
 ## 6. Models and cost
 
 Every model is set per run (the **Run workflow** form, or `-f model=... -f realtime_model=... -f transcribe_model=...`).
-Blank means the cheapest OpenAI model that does the job. Before any paid call, a free step asks OpenAI whether each
+Blank means the default below. **Rule for the defaults:** the cheapest model Boo itself already uses for that kind of
+request (so CI tests a model Boo really calls), or the cheapest variant of it. A cheaper model Boo never calls is not
+used; today the only one is `gpt-5-nano`, which OpenAI also marks deprecated. Before any paid call, a free step asks OpenAI whether each
 model exists for the key; a retired or misspelled model fails there in seconds, with its name.
 
 | Job | Default in CI | Why this one | Override |
 | --- | --- | --- | --- |
-| Typed answer about a screenshot | `gpt-6-luna` | the cheapest model that does Boo's typed path: it reads images and takes Boo's `reasoning` setting and structured (JSON schema) output, and Boo already sends it screenshots for its focus checks (US$0.10 / 0.50 per 1M input / output tokens) | `model` |
-| Voice conversation | `gpt-realtime-2.1-mini` | cheapest realtime model (audio US$10 / 20 per 1M input / output tokens) | `realtime_model` |
+| Typed answer about a screenshot | `gpt-6-luna` | Boo's focus-check model, which already gets Boo's screenshots; it reads images and takes Boo's `reasoning` setting and structured (JSON schema) output (US$0.10 / 0.50 per 1M input / output tokens). Cheaper: only `gpt-5-nano` (US$0.05 / 0.40), deprecated and never called by Boo | `model` |
+| Voice conversation | `gpt-realtime-2.1-mini` | the mini variant of Boo's voice model `gpt-realtime-2.1`, and the cheapest realtime model (audio US$10 / 20 per 1M input / output tokens) | `realtime_model` |
 | Speech-to-text of the user's words | `gpt-4o-mini-transcribe` | Boo's own, and the cheapest (US$0.003 per minute) | `transcribe_model` |
 
 Prices: OpenAI's pricing page, 13 Nov 2026 (https://developers.openai.com/api/docs/pricing). OpenAI marks
@@ -168,8 +170,8 @@ Prices: OpenAI's pricing page, 13 Nov 2026 (https://developers.openai.com/api/do
 | --- | --- | --- |
 | Typed answer | about US$0.0006 | about 4,500 input tokens (screenshot plus prompt) and 300 output tokens on `gpt-6-luna` |
 | Voice turn | about US$0.003 | 4.7 s of question audio (about 10 tokens/s), a few seconds of answer audio (about 20 tokens/s), about 2,000 text tokens of instructions and tool schemas, plus speech-to-text |
-| **One run** | **about US$0.003** | |
-| A month | about US$1.20 | about 400 runs (every PR push); the journeys (section 5) add about 45 requests, on Boo's own costlier models, each time they are ticked |
+| **One run** | **about US$0.004** | (0.0006 + 0.003, rounded up) |
+| A month | about US$1.50 | about 400 runs (every PR push); the journeys (section 5) add about 45 requests, on Boo's own costlier models, each time they are ticked |
 
 **CI models are not the models users get.** Boo ships `gpt-6.1-sol` for typed answers and `gpt-realtime-2.1` for voice
 (`src/Boo.Core/Contracts.cs`). The two round trips above prove Boo's paths work with real OpenAI on the cheapest
