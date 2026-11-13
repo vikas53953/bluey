@@ -279,24 +279,44 @@ compiler, the whole command line with **every response file expanded** (and each
 (ProjectReference, PackageReference, FrameworkReference, direct Reference) and the output assembly with its SHA-256. For
 the whole build: every task that ran (`Task | Target | file defining the target | task assembly`), every copy of an
 assembly with the source's SHA-256, every ReadyToRun compile (input and output with SHA-256) and the runtime packs.
-Paths are repo-relative or under `<dotnet>/`, `<nuget>/`, `<temp>/`, `<home>/`, `<repo-parent-N>/`; the log's
-environment block is never read, and the reader refuses to write a file that still holds a machine path or the user
-name. Same logs, same file (sorted keys).
+Paths are repo-relative or under a token. Every machine root is taken from the build's **own evaluated properties**
+(the SDK: `NetCoreRoot`, `DOTNET_HOST_PATH`; NuGet: `NuGetPackageRoot`, `NuGetPackageFolders`; `%ProgramFiles%`,
+`%ProgramFiles(x86)%`, `MSBuildProgramFiles32`; the Windows SDK and reference-assembly folders; `TEMP`, `RUNNER_TEMP`,
+the runner tool cache, `USERPROFILE`; every folder above the repository) plus this process's, and mapped to `<dotnet>/`,
+`<nuget>/`, `<programfiles>/`, `<programfiles-x86>/`, `<winsdk>/`, `<temp>/`, `<toolcache>/`, `<localappdata>/`,
+`<home>/`, `<repo-parent-N>/` and so on, case-insensitively, with either slash and in 8.3 short and long forms, longest
+root first. Values are read only to find roots. Global properties and the MSBuild command line keep values only for
+reviewed property names (`PropertyFilter`); any other `-p:Name=value` is written as `Name=<value not recorded>`, so a
+secret passed as a property never reaches the facts. The log's environment block is never read. Any absolute path left
+after that fails closed in both the reader and the check, naming the JSON path of the value (for example
+`$.binlogs[1].units[0].importsSkipped[12]`); the fix is to add the root's property to `PathTokens.FromProperties`, never
+to widen the guard. `BuildFacts --self-test` proves the tokens on a GitHub-runner layout (`C:\Program Files\dotnet`,
+`C:\Users\runneradmin\.nuget\packages`, `D:\a\_temp`, `C:\PROGRA~1`), the guard's JSON paths and the property filter.
+Same logs, same file (sorted keys).
 
 **What fails closed** (`scripts/quality/build_facts.py check`, exit 1): malformed facts or a failed build; a machine
-path or the user name in the facts; a project of `Boo.sln` without a `Csc` call from `CoreCompile` in the build log; a
-`Csc` call with no output hash, a compiler or task class outside the SDK install, a command-line parse error, a
-response file (the SDK passes none, so build code added it), or a switch not in
-`scripts/quality/buildfacts/known.json`; any task not in `known.json` (so a target added by repo build code, a package
-or an MSBuild SDK that runs a task is unknown until reviewed); and any managed `.dll`/`.exe` in the publish folder that
-does not trace, hash for hash and under its own name, through recorded copies and ReadyToRun compiles to a recorded
-`Csc` output or to a restored package or runtime pack. `--self-test` proves each failure on planted facts.
-`fixtures` builds seven must-fail fixtures (`scripts/quality/buildfacts/fixtures/`) and quotes the facts lines that
-show each bypass: per-folder `.editorconfig` severity, `CompilerResponseFile`, the five conditions, `PackageDownload` +
-`Exists()` import, a NuGet MSBuild SDK, and two tamper fixtures that must fail the check (a `Copy` over the compiled
-assembly right after `CoreCompile`: caught as an unknown task; an `Exec` that copies other code over the published
-`App.dll`: caught as an unknown task and by the hash trace). `learn FACTS` lists task keys and switches that
-`known.json` does not hold yet; adding one is a reviewed change.
+path or the user name in the facts (by JSON path); a project of `Boo.sln` without a `Csc` call from `CoreCompile` in the
+build log; a `Csc` compile of any project **outside** the solution (only WPF's `*_wpftmp.csproj` may be); a `Csc` call
+with no output hash, a compiler or task class outside the SDK install, a command-line parse error, a response file (the
+SDK passes none, so build code added it), or a switch not in `scripts/quality/buildfacts/known.json`; any task not in
+`known.json` (so a target added by repo build code, a package or an MSBuild SDK that runs a task is unknown until
+reviewed; the check then prints the candidate `learn` lines for review); two solution projects compiling one assembly
+name; any recorded copy **into** a file named like a solution project's assembly whose source does not trace to that
+project's own compile; and any managed `.dll`/`.exe` in the publish folder that does not trace, hash for hash and under
+its own name, through recorded copies and ReadyToRun compiles to a recorded `Csc` output or to a restored package or
+runtime pack, or whose name belongs to a solution project but whose content is not that project's compile.
+`--self-test` proves each failure on planted facts.
+
+`fixtures` builds eight fixtures (`scripts/quality/buildfacts/fixtures/`) and quotes the facts lines that show each
+bypass. **Four only have to SHOW the bypass in the facts** (their judges come in #28 and #32): per-folder
+`.editorconfig` severity, the five conditions (Configuration, RuntimeIdentifier, `_IsPublishing`, SolutionName,
+`IsOSPlatform`), `PackageDownload` + `Exists()` import, and a NuGet MSBuild SDK; their check result is only reported.
+**Four must also FAIL the check**: `compiler-response-file` (response file), `tamper-after-compile` (a `Copy` over the
+compiled assembly right after `CoreCompile`: an unknown task), `tamper-publish` (an `Exec` that copies other code over
+the published `App.dll`: an unknown task and the hash trace), and `same-name-compile` (a project outside the solution
+with `<AssemblyName>Lib</AssemblyName>`, moved over the judged `Lib.dll` only by the SDK's own allowed copy of a linked
+`None` item: an outside compile, and copies whose source is not `Lib`'s compile). `learn FACTS` lists task keys and
+switches that `known.json` does not hold yet; adding one is a reviewed change.
 
 Only `build-facts.json` is uploaded (artifact `build-facts`, 7 days, through its key scan); the binary logs never are,
 because they can hold environment values.
@@ -306,7 +326,7 @@ because they can hold environment values.
   (HANDOFF known issue 0); the first PR has no base-branch judge, so this PR's own copy judges it;
 - build code that lies to the logger: a task that writes files it does not log, or a compiler server or tool that is
   not what its path says; the facts record what MSBuild logged;
-- a file changed **in place** after the compile by a step the task rule allows (an SDK task fed crafted items): the
+- hashes are taken when the reader runs, after the build: a file changed **in place** after the compile by a step the task rule allows (an SDK task fed crafted items): the
   hash trace compares the publish folder with the compile output as it is on disk when the reader runs, so an
   overwrite of the compile output itself is caught only by the task rule; replaying the recorded `csc` command (the
   build is deterministic) would close it;

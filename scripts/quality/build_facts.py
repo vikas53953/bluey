@@ -65,9 +65,10 @@ R2R_KEYS = {'input': str, 'inputSha256': (str, type(None)), 'output': str, 'outp
             'package': (str, type(None)), 'compiler': str}
 SDK_CSC = re.compile(r'^<dotnet>/sdk/[0-9][^/]*/Roslyn/bincore/csc\.(?:dll|exe)$')
 HOST_ARGS = {'<dotnet>/dotnet.exe', '<dotnet>/dotnet', 'exec'}
-# In the JSON text: a drive-letter path, a UNC path (\\server\ is written \\\\server\\), or a Unix home folder.
-LEAK = re.compile(r'(?<![A-Za-z0-9])[A-Za-z]:[\\/]|(?<![\\A-Za-z0-9>])\\\\\\\\[A-Za-z0-9.-]+\\\\'
-                  r'|(?:^|[\s"\'=])/(?:home|Users)/[^/\s"]+')
+# On each string value (not the JSON text): a drive-letter path, a UNC path, or a Unix home folder.
+LEAKS = [re.compile(r'(?<![A-Za-z0-9])[A-Za-z]:[\\/]'), re.compile(r'(?:^|[\s"\'=(])\\\\[A-Za-z0-9.$-]+\\'),
+         re.compile(r'(?:^|[\s"\'=])/(?:home|Users)/[^/\s"]+')]
+WPF_TEMP = re.compile(r'_wpftmp\.csproj$')
 
 
 class Problems:
@@ -138,13 +139,38 @@ def structure(facts, problems):
     return ok
 
 
-def leaks(text, problems):
-    for m in list(LEAK.finditer(text))[:10]:
-        start = max(0, m.start() - 60)
-        problems.add(f'machine path left in the facts: ...{text[start:m.end() + 40]!r}')
-    for name in {os.environ.get('USERNAME', ''), os.environ.get('USER', '')}:
-        if len(name) >= 3 and name.lower() in text.lower():
-            problems.add(f'the user name ({len(name)} letters) is in the facts')
+def leaks(facts, problems):
+    """Every string (and key) in the facts, by its JSON path; the reader refuses these too, this is the second lock."""
+    names = {n for n in (os.environ.get('USERNAME', ''), os.environ.get('USER', '')) if len(n) >= 3}
+    found = []
+
+    def visit(node, where):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                visit_text(k, f'{where}.<key {k}>')
+                visit(v, f'{where}.{k}')
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                visit(v, f'{where}[{i}]')
+        elif isinstance(node, str):
+            visit_text(node, where)
+
+    def visit_text(text, where):
+        for regex in LEAKS:
+            m = regex.search(text)
+            if m:
+                start = max(0, m.start() - 50)
+                found.append(f'machine path left in the facts at {where}: ...{text[start:start + 110]!r}...')
+                return
+        for n in names:
+            if n.lower() in text.lower():
+                found.append(f'the user name ({len(n)} letters) is in the facts at {where}')
+
+    visit(facts, '$')
+    for f in found[:40]:
+        problems.add(f)
+    if len(found) > 40:
+        problems.add(f'... and {len(found) - 40} more machine paths')
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -158,6 +184,11 @@ def compiler_calls(facts, problems, known, projects, build_label):
     else:
         compiled = {u['project'] for u in by_label[build_label]['units']
                     if any(c['target'] == 'CoreCompile' for c in u['csc'])}
+        for b in facts['binlogs']:
+            for u in b['units']:
+                if u['csc'] and u['project'] not in projects and not WPF_TEMP.search(u['project']):
+                    problems.add(f'binlog {b["label"]}: {u["project"]} was compiled but is not a project of the solution '
+                                 f'(only WPF\'s *_wpftmp.csproj may be): its output could stand in for a judged one')
         for p in projects:
             if p not in compiled:
                 problems.add(f'{p}: no Csc call from CoreCompile in the "{build_label}" log (project missing from the '
@@ -225,8 +256,11 @@ def package_of(path):
     return (m.group(1).lower(), m.group(2).lower()) if m else None
 
 
-def reconcile(facts, problems, publish_dir, publish_rel):
+def reconcile(facts, problems, publish_dir, publish_rel, projects=()):
     compiled = {}
+    compiled_by = {}                                  # compile output path -> projects that wrote it
+    owners = {}                                       # assembly file name -> solution projects that compile it
+    copies_list = []
     copies = {}
     r2r = {}
     packages = set()
@@ -235,6 +269,9 @@ def reconcile(facts, problems, publish_dir, publish_rel):
             for c in u['csc']:
                 if c['output'].get('sha256'):
                     compiled.setdefault(c['output']['path'], set()).add(c['output']['sha256'])
+                compiled_by.setdefault(c['output']['path'], set()).add(u['project'])
+                if u['project'] in projects:
+                    owners.setdefault(pathlib.PurePosixPath(c['output']['path']).name.lower(), set()).add(u['project'])
             assets = u.get('assets') or {}
             for lib in assets.get('libraries', []):
                 m = re.match(r'(.+?)/(\S+) \(package\)$', lib)
@@ -245,9 +282,24 @@ def reconcile(facts, problems, publish_dir, publish_rel):
             packages.add((name.lower(), version.lower()))
         for c in b['copies']:
             copies.setdefault(c['destination'], []).append(c)
+            copies_list.append(c)
         for r in b['readyToRun']:
             r2r[r['output']] = r
     repo_names = {pathlib.PurePosixPath(p).name.lower() for p in compiled}
+    for name, who in sorted(owners.items()):
+        if len(who) > 1:
+            problems.add(f'two solution projects compile {name}: {", ".join(sorted(who))} (one owner per assembly name)')
+
+    def owned_ok(name, leaf):
+        """None when fine: a repo-built assembly name must come from the compile of the solution project owning it."""
+        who = owners.get(name.lower())
+        if not who:
+            return None
+        leaf_projects = compiled_by.get(leaf, set()) if leaf else set()
+        if leaf_projects & who and pathlib.PurePosixPath(leaf).name.lower() == name.lower():
+            return None
+        source = ', '.join(sorted(leaf_projects)) or leaf or 'nothing traceable'
+        return f'{name} belongs to {", ".join(sorted(who))} but this copy comes from {source}'
 
     def trace(path, sha, seen):
         if (path, sha) in seen or len(seen) > 20:
@@ -279,6 +331,20 @@ def reconcile(facts, problems, publish_dir, publish_rel):
                           f'({", ".join(sorted({c["source"] for c in candidates}))})'), None
         return None, f'{path}: no recorded compile, copy, ReadyToRun compile or package produced it', None
 
+    # Every recorded copy INTO a file named like a solution project's assembly must come from that project's compile.
+    for c in sorted(copies_list, key=lambda c: (c['destination'], c['source'])):
+        name = pathlib.PurePosixPath(c['destination']).name
+        if name.lower() not in owners or not c['destination'].lower().endswith(('.dll', '.exe')):
+            continue
+        if c['sourceSha256'] is None:
+            problems.add(f'copy into {c["destination"]} ({c["target"]}): its source {c["source"]} is gone, so it cannot '
+                         f'be traced to the compile that owns {name}')
+            continue
+        kind, detail, leaf = trace(c['source'], c['sourceSha256'], frozenset())
+        why = detail if kind is None else owned_ok(name, leaf if kind.startswith('compiled') else None)
+        if why:
+            problems.add(f'copy into {c["destination"]} ({c["target"]}) from {c["source"]}: {why}')
+
     if publish_dir is None:
         return
     if not publish_dir.is_dir():
@@ -299,6 +365,8 @@ def reconcile(facts, problems, publish_dir, publish_rel):
             problems.add(f'publish: {rel}: does not trace to a judged compile or a restored package: {detail}')
         elif pathlib.PurePosixPath(leaf).name.lower() != f.name.lower():
             problems.add(f'publish: {rel}: its content is another assembly ({leaf}), copied over it under a different name')
+        elif owned_ok(f.name, leaf if kind.startswith('compiled') else None):
+            problems.add(f'publish: {rel}: {owned_ok(f.name, leaf if kind.startswith("compiled") else None)}')
         elif not kind.startswith('compiled') and f.name.lower() in repo_names:
             problems.add(f'publish: {rel}: has the name of a repo-built assembly but comes from {detail}, not its compile')
     if managed == 0:
@@ -318,10 +386,10 @@ def check(facts_text, known, projects, build_label='build', publish_dir=None, pu
         return problems.items
     if not structure(facts, problems):
         return problems.items
-    leaks(facts_text, problems)
+    leaks(facts, problems)
     compiler_calls(facts, problems, known, projects, build_label)
     tasks(facts, problems, known)
-    reconcile(facts, problems, publish_dir, publish_rel)
+    reconcile(facts, problems, publish_dir, publish_rel, set(projects))
     return problems.items
 
 
@@ -375,6 +443,10 @@ def cmd_check(argv):
         print(f'BUILD FACTS: FAIL ({len(problems)} problem(s)); rules: {RULES}')
         for p in problems:
             print(f'  - {p}')
+        if any('unknown task ran' in p or 'unknown compiler switch' in p for p in problems):
+            # Make the candidate additions visible in the log, so a reviewer can judge them (never added blindly).
+            print('Candidate known.json additions (python -I scripts/quality/build_facts.py learn FACTS; review each):')
+            cmd_learn([str(facts_path)])
         return 1
     facts = json.loads(text)
     calls = sum(len(u['csc']) for b in facts['binlogs'] for u in b['units'])
@@ -484,7 +556,7 @@ def self_test():
         if base:
             failures.append(f'clean planted facts must pass, got {base}')
 
-        def case(name, expect, mutate=None, known_mutate=None, fs=None):
+        def case(name, expect, mutate=None, known_mutate=None, fs=None, proj=None):
             f = json.loads(json.dumps(facts))
             k = json.loads(json.dumps(known))
             backup = {p: p.read_bytes() for p in pub.iterdir()}
@@ -494,7 +566,7 @@ def self_test():
                 known_mutate(k)
             if fs:
                 fs()
-            got = check(json.dumps(f), k, projects, 'build', pub, 'artifacts/ci')
+            got = check(json.dumps(f), k, proj or projects, 'build', pub, 'artifacts/ci')
             for p in list(pub.iterdir()):
                 if p not in backup:
                     p.unlink()
@@ -541,13 +613,41 @@ def self_test():
              lambda f: unit(f, 'src/Core/Core.csproj')['assets'].update(libraries=[]))
         case('ReadyToRun output changed', "differs from the ReadyToRun compiler's output",
              lambda f: f['binlogs'][1]['readyToRun'][0].update(outputSha256='1' * 64))
-        case('repo name from a package', 'has the name of a repo-built assembly',
+        case('repo name from a package', 'Pkg.dll belongs to src/App/App.csproj',
              lambda f: unit(f, 'src/App/App.csproj')['csc'][0]['output'].update(path='src/App/obj/Pkg.dll')
              or f['binlogs'][1]['copies'][0].update(source='src/App/obj/Pkg.dll'))
         case('a different repo assembly copied over a published one', 'copied over it under a different name',
              lambda f: f['binlogs'][1]['copies'].append({**f['binlogs'][1]['copies'][0], 'source': 'src/App/obj/App.dll',
                                                          'destination': 'artifacts/ci/Pkg.dll'}),
              fs=lambda: (pub / 'Pkg.dll').write_bytes((pub / 'App.dll').read_bytes()))
+        def evil_unit(f, project, out, sha):
+            u = json.loads(json.dumps(unit(f, 'src/App/App.csproj')))
+            u['project'] = project
+            u['csc'][0]['output'] = {'path': out, 'sha256': sha}
+            f['binlogs'][0]['units'].append(u)
+            return u
+
+        evil = fake_pe(True, b'evil')
+        h = lambda b: hashlib.sha256(b).hexdigest()
+
+        case('runner machine path, named by its JSON path', 'at $.binlogs[0].units[0].imports[0]',
+             lambda f: f['binlogs'][0]['units'][0]['imports'].append('C:\\Program Files\\dotnet\\sdk\\x.props'))
+        case('runner temp path in a key', 'machine path left in the facts at $.binlogs[0].units[0].properties.<key',
+             lambda f: f['binlogs'][0]['units'][0]['properties'].update({'D:\\a\\_temp\\x': 'y'}))
+        case('compile of a project outside the solution', 'evil/Evil.csproj was compiled but is not a project of the solution',
+             lambda f: evil_unit(f, 'evil/Evil.csproj', 'evil/obj/Lib.dll', h(evil)))
+        case('same-name compile stands in for a solution project', 'App.dll belongs to src/App/App.csproj but this copy comes from evil/Evil.csproj',
+             lambda f: (evil_unit(f, 'evil/Evil.csproj', 'evil/obj/App.dll', h(evil)),
+                        f['binlogs'][1]['copies'].append({**f['binlogs'][1]['copies'][0], 'source': 'evil/obj/App.dll',
+                                                  'sourceSha256': h(evil)})),
+             fs=lambda: (pub / 'App.dll').write_bytes(evil))
+        case('copy into a judged output from another chain', 'copy into src/Core/bin/Core.dll',
+             lambda f: f['binlogs'][0]['copies'].append({**f['binlogs'][0]['copies'][0],
+                                                         'source': '<nuget>/pkg/1.0.0/lib/net10.0/Pkg.dll',
+                                                         'sourceSha256': h(fake_pe(True, b'pkg'))}))
+        case('two solution projects compile one name', 'two solution projects compile app.dll',
+             lambda f: evil_unit(f, 'src/App2/App2.csproj', 'src/App2/obj/App.dll', h(evil)),
+             proj=['src/App/App.csproj', 'src/App2/App2.csproj', 'src/Core/Core.csproj'])
         case('no managed file at all', 'no managed assembly found',
              fs=lambda: [p.unlink() for p in pub.iterdir() if p.name != 'native.dll'])
         if not is_managed(fake_pe(True, b'')) or is_managed(fake_pe(False, b'')) or is_managed(b'MZ'):

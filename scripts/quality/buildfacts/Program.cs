@@ -29,10 +29,15 @@ using Metadata = Microsoft.Build.Logging.StructuredLogger.Metadata;
 // build gives the same file. Exit 2 when the tool cannot do its job (unreadable log, a machine path or the user name
 // left in the output); it never writes a partial file.
 
+if (args is ["--self-test"])
+{
+    return SelfTest.Run();
+}
+
 var options = ParseArgs(args);
 if (options is null)
 {
-    Console.Error.WriteLine("usage: BuildFacts --repo <root> --out <build-facts.json> <label>=<binlog> [...]");
+    Console.Error.WriteLine("usage: BuildFacts --repo <root> --out <build-facts.json> <label>=<binlog> [...] | BuildFacts --self-test");
     return 2;
 }
 
@@ -54,17 +59,20 @@ try
     }
 
     facts["binlogs"] = logs;
-    var text = Json.Write(facts);
-    var leaks = Leaks(text);
+    var leaks = PathTokens.Leaks(facts, Environment.UserName);
     if (leaks.Count > 0)
     {
-        foreach (var leak in leaks)
+        foreach (var leak in leaks.Take(40))
         {
-            Console.Error.WriteLine($"refusing to write: machine-specific text left in the facts: {leak}");
+            Console.Error.WriteLine($"refusing to write: machine-specific text left in the facts at {leak}");
         }
 
+        Console.Error.WriteLine($"{leaks.Count} value(s) still hold a machine path; add the root's property to "
+            + "PathTokens.FromProperties (never widen the guard)");
         return 2;
     }
+
+    var text = Json.Write(facts);
 
     File.WriteAllText(options.Value.Out, text, new UTF8Encoding(false));
     Console.WriteLine($"wrote {options.Value.Out} ({text.Length} chars, {logs.Count} binary logs)");
@@ -113,29 +121,6 @@ static (string Repo, string Out, List<(string Label, string Path)> Logs)? ParseA
     return (repo, output, logs);
 }
 
-// Anything that still looks like a machine path or names this user after normalisation.
-static List<string> Leaks(string text)
-{
-    var found = new List<string>();
-    foreach (Match m in Regex.Matches(text, @"(?<![A-Za-z0-9])[A-Za-z]:[\\/]{1,2}[^""\s]{0,60}"))
-    {
-        found.Add(m.Value + "  (in: ..." + text.Substring(Math.Max(0, m.Index - 100), Math.Min(100, m.Index)).Split((char)10).Last().Trim() + ")");
-    }
-
-    foreach (Match m in Regex.Matches(text, @"(?<![\\A-Za-z0-9>])\\\\\\\\[A-Za-z0-9.-]+\\\\"))
-    {
-        found.Add(m.Value);
-    }
-
-    var user = Environment.UserName;
-    if (user.Length >= 3 && text.Contains(user, StringComparison.OrdinalIgnoreCase))
-    {
-        found.Add($"the user name ({user.Length} letters)");
-    }
-
-    return found.Distinct().Take(20).ToList();
-}
-
 sealed class FactsException(string message) : Exception(message);
 
 sealed class Extractor
@@ -153,7 +138,7 @@ sealed class Extractor
     readonly string repo;
     readonly string label;
     readonly string path;
-    readonly List<(string Root, string Token)> roots = [];
+    readonly PathTokens tokens = new();
     Build build = null!;
 
     public Extractor(string repo, string label, string path)
@@ -217,7 +202,7 @@ sealed class Extractor
             ["label"] = label,
             ["succeeded"] = build.Succeeded,
             ["msbuildVersion"] = build.MSBuildVersion,
-            ["commandLine"] = commandLine is null ? null : Norm(commandLine["Command line arguments = ".Length..].Trim('"')),
+            ["commandLine"] = commandLine is null ? null : CommandLine(commandLine["Command line arguments = ".Length..].Trim('"')),
             ["units"] = unitArray,
             ["tasks"] = TaskCatalog(),
             ["copies"] = Copies(),
@@ -225,6 +210,11 @@ sealed class Extractor
             ["runtimePacks"] = RuntimePacks(),
         };
     }
+
+    // The MSBuild command line, split, with property values filtered (PropertyFilter) and paths tokenised.
+    string CommandLine(string text) => string.Join(" ",
+        CommandLineParser.SplitCommandLineIntoArguments(text, removeHashComments: false)
+            .Select(arg => Norm(PropertyFilter.Argument(arg)).Replace('\\', '/')));
 
     sealed class Unit(string projectFile, Dictionary<string, string> props)
     {
@@ -237,73 +227,31 @@ sealed class Extractor
     // -----------------------------------------------------------------------------------------------------------------
     // Path normalisation
     // -----------------------------------------------------------------------------------------------------------------
+    // Every machine root this build used, from its own evaluated properties (see PathTokens), then this process's.
     void SetRoots(List<ProjectEvaluation> evaluations)
     {
-        var dotnet = build.MSBuildExecutablePath is { Length: > 0 } msbuild
-            ? Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(msbuild)))
-            : null;
-        var candidates = new List<(string?, string)> { (repo, ""), (dotnet, "<dotnet>/") };
+        tokens.AddRepo(repo);
+        if (build.MSBuildExecutablePath is { Length: > 0 } msbuild)
+        {
+            // <dotnet>/sdk/<version>/MSBuild.dll
+            tokens.Add(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(msbuild))), "<dotnet>/");
+        }
+
         foreach (var evaluation in evaluations)
         {
-            var props = Properties(evaluation);
-            if (props.TryGetValue("NuGetPackageRoot", out var nuget))
-            {
-                candidates.Add((nuget, "<nuget>/"));
-            }
-
-            if (props.TryGetValue("NetCoreRoot", out var core))
-            {
-                candidates.Add((core, "<dotnet>/"));
-            }
+            tokens.AddFromProperties(Properties(evaluation));
         }
 
-        candidates.Add((Path.GetTempPath(), "<temp>/"));
-        // The temp folder can come back in its 8.3 short form (RUNNER~1); the logs may use the long one.
-        candidates.Add((Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Temp"), "<temp>/"));
-        candidates.Add((Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "<home>/"));
-        foreach (var (root, token) in candidates)
-        {
-            if (string.IsNullOrWhiteSpace(root))
-            {
-                continue;
-            }
-
-            var full = Path.GetFullPath(root).TrimEnd('\\', '/');
-            if (full.Length < 4 || roots.Any(r => string.Equals(r.Root, full, StringComparison.OrdinalIgnoreCase)))
-            {
-                continue;
-            }
-
-            roots.Add((full, token));
-        }
-
-        roots.Sort((a, b) => b.Root.Length.CompareTo(a.Root.Length));
+        tokens.Add(Path.GetTempPath(), "<temp>/");
+        tokens.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "<programfiles>/");
+        tokens.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "<programfiles-x86>/");
+        tokens.Add(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "<windows>/");
+        tokens.Add(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "<programdata>/");
+        tokens.Add(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "<localappdata>/");
+        tokens.Add(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "<home>/");
     }
 
-    // Replace every machine root inside any text (paths, command lines, file contents) by its token.
-    string Norm(string? text)
-    {
-        if (string.IsNullOrEmpty(text))
-        {
-            return text ?? "";
-        }
-
-        foreach (var (root, token) in roots)
-        {
-            foreach (var form in new[] { root, root.Replace('\\', '/'), root.Replace('\\', '/').Replace("/", "\\\\") })
-            {
-                text = Regex.Replace(
-                    text,
-                    Regex.Escape(form) + @"(?:[\\/]+|(?=[""';,\s\]]|$))",
-                    token.Length == 0 ? "" : token,
-                    RegexOptions.IgnoreCase);
-            }
-        }
-
-        // WPF's temporary markup-compile project has a random name; keep the facts stable.
-        text = Regex.Replace(text, @"_[a-z0-9]{8}_wpftmp", "_wpftmp", RegexOptions.IgnoreCase);
-        return text;
-    }
+    string Norm(string? text) => tokens.Norm(text);
 
     // A path: absolute (relative ones are taken from the given base), normalised, with forward slashes.
     string NormPath(string? value, string? baseDirectory = null)
@@ -494,10 +442,11 @@ sealed class Extractor
             }
 
             var global = GlobalProperties(evaluation);
+            // Only reviewed names keep their values (PropertyFilter), so `-p:Name=secret` never reaches the facts.
             globalSets.Add(string.Join("; ", global
                 .Where(p => p.Key is not "CurrentSolutionConfigurationContents" and not "MSBuildRestoreSessionId")
                 .OrderBy(p => p.Key, StringComparer.Ordinal)
-                .Select(p => p.Key + "=" + Norm(p.Value))));
+                .Select(p => PropertyFilter.Pair(p.Key, Norm(p.Value)))));
             assetsFile ??= Properties(evaluation).GetValueOrDefault("ProjectAssetsFile");
         }
 
