@@ -1,17 +1,18 @@
-"""Compile list: what MSBuild really compiles in src/ must be exactly what scripts/quality/ratchet.py reads.
+"""Compile list: what the compiler really compiled in src/ must be exactly what scripts/quality/ratchet.py reads.
 
-  python -I scripts/quality/compile_list.py              CI: build every src/<Name>/<Name>.csproj and compare
+  python -I scripts/quality/compile_list.py FACTS        windows-ci: judge build-facts.json (the real Release build and
+                                                         win-x64 publish) against the files the ratchet reads
   python -I scripts/quality/compile_list.py --self-test  CI: prove the comparison on planted samples
 
-Build files decide what is compiled: a <Compile Include="../x.txt"/>, an <Import>ed props file, a target that adds an
-item, a <Using Include="System.GC" Static="true"/>. The ratchet reads files, not build logic, so this check asks MSBuild
-itself (the source files of the compiler call it really ran, read from a binary log, and the Using items) and
-fails when:
+Build files decide what is compiled: a <Compile Include="../x.txt"/>, an <Import>ed props file, a target that adds a
+file before CoreCompile and removes it after, a <Using Include="System.GC" Static="true"/>. The ratchet reads files, not
+build logic, so this check reads the source files of every compile of a src/ project that the build facts recorded
+(the Csc calls MSBuild really ran, in the build and the publish), and fails when:
   - a compiled file is not one the ratchet scans for that project (outside the project, not a .cs file, git-ignored);
   - a file the ratchet scans for that project is not compiled (the ratchet would count code that does not ship);
   - a file generated under the project's obj/ is not one of the known SDK / WPF outputs;
-  - a XAML page holds an x:Code block (C# hidden inside XAML, which the ratchet never reads);
-  - a <Using> item is static or an alias (the ratchet cannot see through it; write a normal `using` in a .cs file);
+  - the GlobalUsings.g.cs the SDK really compiled holds a static or alias using (the ratchet cannot see through it);
+  - a XAML page under src/ holds an x:Code block (C# hidden inside XAML, which the ratchet never reads);
   - a <ProjectReference> points outside src/<Name>/<Name>.csproj (that code ships with the app but nothing judges it).
 Exit 1 on a finding, 2 when the check could not run. Rule text: docs/quality/RULES.md#compile-list.
 """
@@ -19,14 +20,10 @@ import importlib.util
 import json
 import pathlib
 import re
-import subprocess
 import sys
-import tempfile
 
 root = pathlib.Path(__file__).resolve().parent.parent.parent
 RULES_DOC = 'docs/quality/RULES.md#compile-list'
-BUILD = ['-nologo', '-t:Build', '-p:Configuration=Release', '-p:EnableWindowsTargeting=true',
-         '-p:PublishReadyToRun=false']
 XAML_CODE = re.compile(r'<\s*(?:[A-Za-z_][\w.-]*:)?Code[\s>/]')
 
 
@@ -57,12 +54,13 @@ def judge_references(project, references, projects):
             if path not in allowed]
 
 
-def judge(project, compiled, scanned, listed, usings, xaml, assembly):
+def judge(project, compiled, scanned, listed, usings, xaml, assembly, folder=None):
     """compiled: posix paths relative to the repo of every Compile item; scanned: the ratchet's files for the project;
     listed: every path git would commit; usings: [(identity, static, alias)]; xaml: {path: text} of Page and
-    ApplicationDefinition items. Returns the problems."""
+    ApplicationDefinition items; folder: the src/ folder when project is WPF's <Name>_wpftmp twin. Returns the problems."""
     problems = []
-    obj = f'src/{project}/obj/'
+    folder = folder or project
+    obj = f'src/{folder}/obj/'
     xaml_stems = {pathlib.PurePosixPath(path).stem for path in xaml}
     real = set()
     for path in sorted(compiled):
@@ -73,7 +71,7 @@ def judge(project, compiled, scanned, listed, usings, xaml, assembly):
             continue
         real.add(path)
     for path in sorted(real - set(scanned)):
-        problems.append(f'{project}: {path} is compiled, but the ratchet does not read it (outside src/{project}/, not a '
+        problems.append(f'{project}: {path} is compiled, but the ratchet does not read it (outside src/{folder}/, not a '
                         f'.cs file, or git-ignored). Put the code in a .cs file inside the project and remove the build '
                         f'item that pulls it in.')
     for path in sorted(set(scanned) - real):
@@ -103,86 +101,52 @@ def generated_usings(files):
     return found
 
 
-def relative(path, base):
-    try:
-        return pathlib.Path(path).resolve().relative_to(base.resolve()).as_posix()
-    except ValueError:
-        return pathlib.Path(path).resolve().as_posix()
-
-
-def check(base):
+def check(base, facts_path):
+    if not facts_path or not pathlib.Path(facts_path).is_file():
+        print('usage: compile_list.py <build-facts.json>  (written by the "Build facts" step of windows-ci)')
+        return 2
+    facts = json.loads(pathlib.Path(facts_path).read_text(encoding='utf-8'))
     ratchet = load_ratchet()
     projects, layout_problems = ratchet.layout(base)
     if layout_problems:
         print('COMPILE LIST FAILED: fix the src/ layout first (see the ratchet):\n  ' + '\n  '.join(layout_problems))
         return 1
-    listed = {'/'.join(parts) for parts in ratchet.files(base, 'src')}
-    problems = []
-    for project in projects:
-        # Project references first, by evaluation only: a reference outside src/ may not even build.
-        run = subprocess.run(['dotnet', 'msbuild', f'src/{project}/{project}.csproj', '-nologo',
-                              '-p:EnableWindowsTargeting=true', '-getItem:ProjectReference'],
-                             cwd=str(base), capture_output=True, text=True, encoding='utf-8', errors='replace')
-        start = run.stdout.find('{')
-        if run.returncode or start < 0:
-            print(f'COMPILE LIST COULD NOT RUN: evaluating src/{project}/{project}.csproj failed:\n{run.stdout[-2000:]}')
-            return 2
-        items = json.loads(run.stdout[start:]).get('Items', {})
-        problems += judge_references(project, {relative(item['FullPath'], base)
-                                               for item in items.get('ProjectReference', [])}, projects)
-    if problems:
-        print(f'COMPILE LIST FAILED: a src/ project pulls in a project outside src/.\n  Rule: {RULES_DOC}\n  '
-              + '\n  '.join(problems))
-        return 1
-    # What is compiled = the sources of the one compiler call MSBuild really ran, read from a binary log (banned_apis.py
-    # and its ListGen tool), so a target that adds a file before CoreCompile and removes it afterwards is still seen.
     banned = load_module('banned_apis')
-    for project in projects:
-        subprocess.run(['dotnet', 'build', f'src/{project}/{project}.csproj', '-c', 'Release', '-nologo', '-v:q',
-                        '-p:EnableWindowsTargeting=true', '-p:PublishReadyToRun=false'], cwd=str(base),
-                       capture_output=True)
-    with tempfile.TemporaryDirectory() as scratch:
-        for project in projects:
-            csproj = f'src/{project}/{project}.csproj'
-            logs = pathlib.Path(scratch) / project
-            banned.stamp(logs)
-            binlog = logs / 'build.binlog'
-            run = subprocess.run(['dotnet', 'msbuild', csproj, *BUILD, '-p:BuildProjectReferences=false',
-                                  f'-p:BooSarifDir={logs.as_posix()}', f'-bl:{binlog.as_posix()}', '-getItem:Using',
-                                  '-getItem:Page', '-getItem:ApplicationDefinition', '-getProperty:AssemblyName'],
-                                 cwd=str(base), capture_output=True, text=True, encoding='utf-8', errors='replace')
-            start = run.stdout.find('{')
-            if run.returncode or start < 0:
-                tail = '\n'.join((run.stdout + run.stderr).splitlines()[-30:])
-                print(f'COMPILE LIST COULD NOT RUN: building {csproj} failed (exit {run.returncode}):\n{tail}')
-                return 2
-            data = json.loads(run.stdout[start:])
-            try:
-                calls = banned.compiler_calls(base, binlog, csproj)
-            except banned.ToolError as error:
-                print(f'COMPILE LIST COULD NOT RUN: {error}')
-                return 2
-            if len(calls) != 1:
-                problems.append(f'{project}: {len(calls)} compiler calls in the build, expected exactly one.')
+    listed = {'/'.join(parts) for parts in ratchet.files(base, 'src')}
+    xaml = {path: (base / path).read_text(encoding='utf-8-sig', errors='replace')
+            for path in listed if path.lower().endswith('.xaml')}
+    problems, compiles, seen = [], 0, set()
+    for log in facts.get('binlogs', []):
+        for unit in log.get('units', []):
+            name, compiled_as = banned.owner_of(unit.get('project', ''), projects)
+            if name is None:
                 continue
-            compiled = {relative(path, base) for path in calls[0].get('sources', [])}
-            items = data.get('Items', {})
+            problems += judge_references(name, set(unit.get('projectReferenceItems', [])) |
+                                         set(unit.get('projectReferencesFollowed', [])), projects)
             scanned = {path for path in listed
-                       if path.startswith(f'src/{project}/') and ratchet.is_csharp(path.rsplit('/', 1)[-1])}
-            usings = [(item.get('Identity', ''), item.get('Static', ''), item.get('Alias', ''))
-                      for item in items.get('Using', [])]
-            usings += generated_usings({path: (base / path).read_text(encoding='utf-8-sig', errors='replace')
-                                        for path in compiled if path.endswith('.GlobalUsings.g.cs')})
-            xaml = {relative(item['FullPath'], base): pathlib.Path(item['FullPath']).read_text(encoding='utf-8-sig',
-                                                                                               errors='replace')
-                    for item in items.get('Page', []) + items.get('ApplicationDefinition', [])}
-            problems += judge(project, compiled, scanned, listed, usings, xaml, data['Properties']['AssemblyName'])
+                       if path.startswith(f'src/{name}/') and ratchet.is_csharp(path.rsplit('/', 1)[-1])}
+            pages = {path: text for path, text in xaml.items() if path.startswith(f'src/{name}/')}
+            assembly = (unit.get('properties') or {}).get('AssemblyName') or name
+            for call in unit.get('csc', []):
+                compiles += 1
+                seen.add(name)
+                compiled = set(call.get('sources', []))
+                usings = generated_usings({path: (base / path).read_text(encoding='utf-8-sig', errors='replace')
+                                           for path in compiled
+                                           if path.endswith('.GlobalUsings.g.cs') and (base / path).is_file()})
+                found = judge(compiled_as, compiled, scanned, listed, usings, pages, assembly, folder=name)
+                problems += [f'{log.get("label")}: {f}' for f in found]
+    for name in projects:
+        if name not in seen:
+            problems.append(f'{name}: no compile recorded in the build facts; what it compiles cannot be judged.')
+    problems = list(dict.fromkeys(problems))
     if problems:
-        print(f'COMPILE LIST FAILED: what the build compiles is not what the ratchet reads.\n  Rule: {RULES_DOC}\n  '
+        print(f'COMPILE LIST FAILED: what the compiler got is not what the ratchet reads.\n  Rule: {RULES_DOC}\n  '
               + '\n  '.join(problems))
         return 1
-    print(f'COMPILE LIST OK: {len(projects)} projects; every file the compiler really got (binary log) is a .cs file '
-          f'the ratchet reads, no static or alias <Using>, no x:Code, every project reference inside src/')
+    print(f'COMPILE LIST OK: {compiles} compiles of {len(projects)} src/ projects (build facts); every file the compiler '
+          f'got is a .cs file the ratchet reads or a known generated file, no static or alias using, no x:Code, every '
+          f'project reference inside src/')
     return 0
 
 
@@ -231,6 +195,12 @@ def self_test():
            1, 'x:Code')
     expect('Code under another prefix', run([a, b], pages={f'src/{p}/MainWindow.xaml': '<Window><q:Code>..</q:Code>'}),
            1, 'x:Code')
+    twin = {f'src/{p}/obj/Release/x/{p}_wpftmp.GlobalUsings.g.cs', f'src/{p}/obj/Release/x/{p}_wpftmp.AssemblyInfo.cs',
+            f'src/{p}/obj/Release/x/MainWindow.g.cs'}
+    expect('WPF twin: its own generated names under the owner folder',
+           judge(p + '_wpftmp', twin | {a, b}, {a, b}, listed, plain, xaml, 'Boo', folder=p), 0)
+    expect('WPF twin: an outside file still fails',
+           judge(p + '_wpftmp', twin | {a, b, 'docs/x.cs'}, {a, b}, listed, plain, xaml, 'Boo', folder=p), 1, 'is compiled')
     expect('a CodeBlock control is fine', run([a, b], pages={f'src/{p}/MainWindow.xaml': '<Window><l:CodeBlock/>'}), 0)
     if failures:
         print('COMPILE LIST SELF-TEST FAILED:\n  ' + '\n  '.join(failures))
@@ -242,4 +212,4 @@ def self_test():
 if __name__ == '__main__':
     if '--self-test' in sys.argv:
         sys.exit(self_test())
-    sys.exit(check(root))
+    sys.exit(check(root, sys.argv[1] if len(sys.argv) > 1 else ''))

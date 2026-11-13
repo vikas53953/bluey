@@ -66,13 +66,16 @@ R2R_KEYS = {'input': str, 'inputSha256': (str, type(None)), 'output': str, 'outp
 SDK_CSC = re.compile(r'^<dotnet>/sdk/[0-9][^/]*/Roslyn/bincore/csc\.(?:dll|exe)$')
 HOST_ARGS = {'<dotnet>/dotnet.exe', '<dotnet>/dotnet', 'exec'}
 # On each string value (not the JSON text): a drive-letter path, a UNC path, or a Unix home folder.
-# Any absolute-path shape, at any position after any delimiter (the same shapes as the reader's PathTokens guard):
-# a drive letter (also inside \\?\C:\), a UNC path (\\srv\, \\?\UNC\), //host/ (not a URL's scheme://), a POSIX home
-# (/home, /users, /root, any case), an msys drive (/c/). A path character right before it means a relative path.
+# Any absolute-path shape (the same shapes as the reader's PathTokens guard): a drive letter followed by a backslash or
+# a single slash, even glued after a letter or digit (also inside \\?\C:\; a URL's scheme:// is not one); a URL-encoded
+# drive (C%3A%5C, C%3A%2F, C%3A/); and after any delimiter a UNC path (\\srv\, \\?\UNC\), //host/ (not a URL's
+# scheme://), a POSIX root (/home, /users, /root, /opt, /tmp, any case), an msys drive (/c/); for these a path character
+# right before means a relative path. A drive-relative C:Users is not refused.
 NOT_IN_PATH = r'(?<![A-Za-z0-9_.~$>)\]\\/-])'
-LEAKS = [re.compile(r'(?<![A-Za-z0-9])[A-Za-z]:[\\/]'),
+LEAKS = [re.compile(r'[A-Za-z]:(?:\\|/(?!/))'),
+         re.compile(r'[A-Za-z]%3[Aa](?:%5[Cc]|%2[Ff]|[\\/])'),
          re.compile(NOT_IN_PATH + r'\\\\[^\\/\s"\'<>|]+[\\/]'),
-         re.compile(NOT_IN_PATH + r'/(?:home|users|root)/[^/\s"\']', re.IGNORECASE),
+         re.compile(NOT_IN_PATH + r'/(?:home|users|root|opt|tmp)/[^/\s"\']', re.IGNORECASE),
          re.compile(NOT_IN_PATH + r'/[A-Za-z]/[^/\s"\']')]
 SLASH_SLASH = re.compile(NOT_IN_PATH + r'//[A-Za-z0-9._$?-]+/')
 URL_SCHEME = re.compile(r'(?:^|[\s"\'(\[<=,;])[A-Za-z][A-Za-z0-9+.-]*:$')
@@ -703,12 +706,15 @@ def self_test():
             print('  ok  WPF\'s own <Name>_wpftmp.csproj passes')
         for shape in [r'/reference:\\srv\share\a.dll', r'@\\srv\x', r';\\srv\x', r',\\srv\x', r'[\\srv\x',
                       '//srv/share/x', r'\\?\UNC\srv\share\x', r'\\?\C:\x', '/c/Users/someone/x', ';/home/bob/x',
-                      '/users/bob/x', '/root/x', 'x=/Users/bob/y', '/reference://srv/share/a.dll', 'D:/a/b']:
+                      '/users/bob/x', '/root/x', 'x=/Users/bob/y', '/reference://srv/share/a.dll', 'D:/a/b',
+                      r'/reference:libC:\x\a.dll', r'abc1D:\x', 'file:///C:/x/a.cs', 'C%3A%5Cx', 'file:///c%3A/x',
+                      'C%3a%2fx', '/opt/x/y', 'x=/tmp/y', r'"C:\\Users\\x"']:
             case(f'machine path shape {shape}', 'machine path left in the facts at $.binlogs[0].commandLine',
                  lambda f, shape=shape: f['binlogs'][0].update(commandLine='msbuild ' + shape))
         for fine in ['src/Boo.App/users/x.cs', r'<dotnet>/sdk\10.0.403\\Microsoft\x', 'https://github.com/x/y',
                      '<home>/AppData/x', '/noconfig', '/out:obj/Release/Boo.dll', '<repo-parent-1>/c/x', 'tests/root/x',
-                     'a//b/c']:
+                     'a//b/c', 'file:///src/Boo.Core/x.cs', 'http://example.com/a', 'src/opt/x', 'a/tmp/b',
+                     'x:Class="A"', 'C:Users', 'time 12:30/45']:
             if absolute_path(fine):
                 failures.append(f'leak guard refused a relative path or URL: {fine}')
         case('no managed file at all', 'no managed assembly found',

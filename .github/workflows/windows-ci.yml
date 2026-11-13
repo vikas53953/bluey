@@ -129,6 +129,36 @@ jobs:
           python -I scripts/quality/build_facts.py fixtures --extractor artifacts/buildfacts-tool/BuildFacts.exe --work "$env:RUNNER_TEMP/buildfacts-fixtures"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # Banned APIs (docs/quality/RULES.md "Banned APIs (RS0030)"), judged on the build facts of the SHIPPED build above:
+      # every compile of a src/ project in the build and the publish must be the SDK's csc with both ban analyzers,
+      # exactly src/BannedSymbols.txt, no response file, no RS0030 option, no analyzer config touching RS0030, and its
+      # RS0030 results (SARIF error log) must equal the AnalyzerBaseline.cs entries per member and rule. The compile list
+      # (the files csc really got) must equal what the ratchet reads. On a pull request the BASE branch's own copy of
+      # banned_apis.py judges the same facts too (skipped while the base has none).
+      - name: Banned APIs and compile list (judged on the build facts)
+        shell: pwsh
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python -I scripts/quality/banned_apis.py judge artifacts/build-facts/build-facts.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I scripts/quality/compile_list.py artifacts/build-facts/build-facts.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($env:EVENT_NAME -eq 'pull_request') {
+            git fetch --no-tags --depth=1 origin "$env:BASE_REF"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            git cat-file -e FETCH_HEAD:scripts/quality/banned_apis.py 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              git show FETCH_HEAD:scripts/quality/banned_apis.py | Out-File -Encoding utf8 "$env:RUNNER_TEMP/base_banned_apis.py"
+              python -I "$env:RUNNER_TEMP/base_banned_apis.py" judge artifacts/build-facts/build-facts.json --root .
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            } else {
+              "The base branch ($env:BASE_REF) has no banned_apis.py yet: this PR introduces it, so there is no older judge."
+            }
+          }
+          exit 0
+
       # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
       # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
       # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).

@@ -115,6 +115,8 @@ static class SelfTest
             @"/reference:\\srv\share\a.dll", @"@\\srv\x", @";\\srv\x", @",\\srv\x", @"[\\srv\x", "//srv/share/x",
             @"\\?\UNC\srv\share\x", @"\\?\C:\x", "/c/Users/someone/x", ";/home/bob/x", "/users/bob/x", "/root/x",
             "x=/Users/bob/y", "/reference://srv/share/a.dll", "D:/a/b",
+            @"/reference:libC:\x\a.dll", @"abc1D:\x", "file:///C:/x/a.cs", "C%3A%5Cx", "file:///c%3A/x", "C%3a%2fx",
+            "/opt/x/y", "x=/tmp/y", @"""C:\\Users\\x""",
         })
         {
             if (PathTokens.Leaks(JsonValue.Create(bad), null).Count != 1)
@@ -127,6 +129,8 @@ static class SelfTest
         {
             "src/Boo.App/users/x.cs", "<dotnet>/sdk\\10.0.403\\\\Microsoft\\x", "https://github.com/x/y", "<home>/AppData/x",
             "/noconfig", "/out:obj/Release/Boo.dll", "<repo-parent-1>/c/x", "tests/root/x", "a//b/c",
+            "file:///src/Boo.Core/x.cs", "http://example.com/a", "src/opt/x", "a/tmp/b", "x:Class=\"A\"", "C:Users",
+            "time 12:30/45",
         })
         {
             if (PathTokens.Leaks(JsonValue.Create(good), null).Count != 0)

@@ -1,6 +1,4 @@
 using System.Text;
-using System.Text.Json;
-using Microsoft.Build.Logging.StructuredLogger;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -14,23 +12,12 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 //       compile the files and print "REF <file>|<line>|<doc id>" for every reference to a banned symbol, resolved the
 //       way the analyzer resolves it (original definition; an extension call maps to its static method), and
 //       "ERROR <text>" for every compiler error. The Python side compares this with the canary markers.
-//   ListGen csc <build.binlog> <project file>
-//       print one JSON line per Csc task that MSBuild really ran for that project (from the binary log), with the
-//       command line split and parsed by Roslyn's own C# command-line parser (response files expanded), so the Python
-//       side judges exactly what the compiler got: tool, analyzers, analyzer configs, additional files, sources,
-//       RS0030 options. The binary log is read with MSBuild.StructuredLogger (pinned in ListGen.csproj).
 // Exit code 2 means the tool could not do its job (bad input, unknown type, empty group, compile error).
 
 if (args.Length < 3)
 {
-    Console.Error.WriteLine("usage: ListGen generate <refs> <groups> <out> | ListGen bind <refs> <list> <files...> | "
-        + "ListGen csc <binlog> <project>");
+    Console.Error.WriteLine("usage: ListGen generate <refs> <groups> <out> | ListGen bind <refs> <list> <files...>");
     return 2;
-}
-
-if (args[0] == "csc")
-{
-    return CompilerCalls(args[1], args[2]);
 }
 
 var references = File.ReadAllLines(args[1])
@@ -191,55 +178,6 @@ static int Generate(List<MetadataReference> references, string groupsPath, strin
 
     File.WriteAllText(outPath, output.ToString(), new UTF8Encoding(false));
     Console.WriteLine($"wrote {seen.Count} banned symbols to {outPath}");
-    return 0;
-}
-
-static int CompilerCalls(string binlogPath, string projectFile)
-{
-    var build = BinaryLog.ReadBuild(binlogPath);
-    var wanted = Path.GetFullPath(projectFile);
-    var calls = new List<Microsoft.Build.Logging.StructuredLogger.Task>();
-    build.VisitAllChildren<Microsoft.Build.Logging.StructuredLogger.Task>(task =>
-    {
-        var project = task.GetNearestParent<Project>();
-        if (task.Name == "Csc" && project is not null
-            && string.Equals(Path.GetFullPath(project.ProjectFile), wanted, StringComparison.OrdinalIgnoreCase))
-        {
-            calls.Add(task);
-        }
-    });
-    var baseDirectory = Path.GetDirectoryName(wanted)!;
-    foreach (var task in calls)
-    {
-        var commandLine = task.CommandLineArguments ?? "";
-        var all = CommandLineParser.SplitCommandLineIntoArguments(commandLine, removeHashComments: false).ToList();
-        var split = all.FindIndex(arg => Path.GetFileName(arg).ToLowerInvariant() is "csc.dll" or "csc.exe" or "csc");
-        var tool = split < 0 ? all : all.Take(split + 1).ToList();
-        var rest = split < 0 ? new List<string>() : all.Skip(split + 1).ToList();
-        var parsed = CSharpCommandLineParser.Default.Parse(rest, baseDirectory, sdkDirectory: null);
-        var options = parsed.CompilationOptions;
-        options.SpecificDiagnosticOptions.TryGetValue("RS0030", out var rs0030);
-        var line = new Dictionary<string, object?>
-        {
-            ["target"] = task.GetNearestParent<Target>()?.Name,
-            ["tool"] = tool,
-            ["responseFiles"] = rest.Where(arg => arg.StartsWith('@')).ToList(),
-            ["noConfig"] = rest.Any(arg => arg.Equals("/noconfig", StringComparison.OrdinalIgnoreCase)
-                || arg.Equals("-noconfig", StringComparison.OrdinalIgnoreCase)),
-            ["analyzerConfigs"] = parsed.AnalyzerConfigPaths.Select(Path.GetFullPath).ToList(),
-            ["analyzers"] = parsed.AnalyzerReferences.Select(a => Path.GetFullPath(Path.Combine(baseDirectory, a.FilePath))).ToList(),
-            ["additionalFiles"] = parsed.AdditionalFiles.Select(f => Path.GetFullPath(f.Path)).ToList(),
-            ["sources"] = parsed.SourceFiles.Select(f => Path.GetFullPath(f.Path)).ToList(),
-            ["rs0030Option"] = rs0030 == ReportDiagnostic.Default ? null : rs0030.ToString(),
-            ["generalOption"] = options.GeneralDiagnosticOption.ToString(),
-            ["warningLevel"] = options.WarningLevel,
-            ["ruleSet"] = parsed.RuleSetPath,
-            ["skipAnalyzers"] = parsed.SkipAnalyzers,
-            ["errors"] = parsed.Errors.Where(d => d.Severity == DiagnosticSeverity.Error).Select(d => d.ToString()).ToList(),
-        };
-        Console.WriteLine(JsonSerializer.Serialize(line));
-    }
-
     return 0;
 }
 
