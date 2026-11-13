@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "name": "bad-429-insufficient-quota",
+  "origin": "synthetic",
+  "note": "Synthetic, hand-made from the documented OpenAI Responses API shape (not a real recording). First real recording: record-cassettes.yml after merge.",
+  "call": "respond",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses",
+    "model": "gpt-5-mini",
+    "format": "boo_screen_help_result",
+    "tools": [],
+    "bodyKeys": [
+      "model",
+      "store",
+      "reasoning",
+      "instructions",
+      "input",
+      "text"
+    ]
+  },
+  "response": {
+    "status": 429,
+    "headersDelayMs": 40,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "chunks": [
+      {
+        "delayMs": 0,
+        "json": {
+          "error": {
+            "message": "You exceeded your current quota, please check your plan and billing details.",
+            "type": "insufficient_quota",
+            "param": null,
+            "code": "insufficient_quota"
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "provider-failure",
+    "failureKind": "QuotaExhausted",
+    "status": 429,
+    "retryable": false,
+    "message": "OpenAI quota is used up. Add credit or raise the limit in your OpenAI billing settings."
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "name": "bad-timeout-hang",
+  "origin": "synthetic",
+  "note": "Synthetic, hand-made from the documented OpenAI Responses API shape (not a real recording). First real recording: record-cassettes.yml after merge. No reply at all until the client's own deadline.",
+  "call": "respond",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses",
+    "model": "gpt-5-mini",
+    "format": "boo_screen_help_result",
+    "tools": [],
+    "bodyKeys": [
+      "model",
+      "store",
+      "reasoning",
+      "instructions",
+      "input",
+      "text"
+    ]
+  },
+  "fault": {
+    "kind": "hang",
+    "atChunk": 0
+  },
+  "expect": {
+    "outcome": "timeout",
+    "timeoutMs": 300
+  }
+}

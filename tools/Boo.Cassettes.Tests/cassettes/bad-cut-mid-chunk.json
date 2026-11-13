@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "name": "bad-cut-mid-chunk",
+  "origin": "synthetic",
+  "note": "Synthetic, hand-made from the documented OpenAI Responses API shape (not a real recording). First real recording: record-cassettes.yml after merge. The connection resets part-way through the second chunk.",
+  "call": "respond",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses",
+    "model": "gpt-5-mini",
+    "format": "boo_screen_help_result",
+    "tools": [],
+    "bodyKeys": [
+      "model",
+      "store",
+      "reasoning",
+      "instructions",
+      "input",
+      "text"
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headersDelayMs": 300,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "chunks": [
+      {
+        "delayMs": 50,
+        "text": "{\"id\":\"resp_redacted\",\"object\":\"response\",\"created_at\":1763020800,\"status\":\"completed\",\"background\":false,\"error\":null,\"incomplete_details\":null,\"instructions\":null,\"max_output_tokens\":null,\"model\":\"g"
+      },
+      {
+        "delayMs": 50,
+        "text": "pt-5-mini-2025-08-07\",\"output\":[{\"id\":\"msg_redacted\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"{\\\"text\\\":\\\"That button saves your draft.\\\",\\\"marks\\\":[{\\\"kind\\\":\\\"ring\\\",\\\"x\\\":40,\\\"y\\\":50,\\\"width\\\":120,\\\"height\\\":36,\\\"label\\\":\\\"Save\\\",\\\"endX\\\":null,\\\"endY\\\":null}],\\\"actions\\\":[]}\"}]}],\"parallel_tool_calls\":true,\"previous_response_id\":null,\"reasoning\":{\"effort\":\"low\",\"summary\":null},\"store\":false,\"temperature\":1.0,\"tool_choice\":\"auto\",\"tools\":[],\"top_p\":1.0,\"truncation\":\"disabled\",\"usage\":{\"input_tokens\":412,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":61,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":473},\"user\":null,\"metadata\":{}}"
+      }
+    ]
+  },
+  "fault": {
+    "kind": "cut-mid-chunk",
+    "atChunk": 1
+  },
+  "expect": {
+    "outcome": "invalid",
+    "message": "OpenAI responses returned an unreadable result."
+  }
+}

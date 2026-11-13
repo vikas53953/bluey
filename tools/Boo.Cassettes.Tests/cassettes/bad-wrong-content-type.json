@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "name": "bad-wrong-content-type",
+  "origin": "synthetic",
+  "note": "Synthetic, hand-made from the documented OpenAI Responses API shape (not a real recording). First real recording: record-cassettes.yml after merge. HTTP 200 with an HTML page (a captive portal or proxy), not the API's JSON.",
+  "call": "respond",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses",
+    "model": "gpt-5-mini",
+    "format": "boo_screen_help_result",
+    "tools": [],
+    "bodyKeys": [
+      "model",
+      "store",
+      "reasoning",
+      "instructions",
+      "input",
+      "text"
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headersDelayMs": 40,
+    "headers": {
+      "content-type": "text/html; charset=utf-8"
+    },
+    "chunks": [
+      {
+        "delayMs": 0,
+        "text": "<!DOCTYPE html><html><body><h1>Sign in to continue</h1><p>Your network requires you to sign in.</p></body></html>"
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "invalid",
+    "message": "OpenAI responses returned an invalid result."
+  }
+}

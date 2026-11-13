@@ -1,0 +1,103 @@
+name: record-cassettes
+
+# BOO-CASS-001 (docs/quality/cassettes.md): records a few real OpenAI replies through Boo's own OpenAI client and
+# uploads them, redacted, as an artifact for a person to review and commit by hand. It NEVER commits or pushes
+# anything, and it is by hand only (workflow_dispatch), so it never spends money on its own. About 3 small requests
+# with a cheap model (one with web search, one to a model id that does not exist, which costs nothing).
+#
+# Cassettes are mock evidence for windows-ci. They never replace the live-ai-smoke run in any gate.
+#
+# Keys: BOO_LIVE_OPENAI_KEY only, read from the repository secret into an environment variable, never echoed. The
+# recorder keeps only allowlisted reply headers (content-type, retry-after: no auth header, no organization/project or
+# request ids), replaces response and item ids, removes OpenAI's masked echo of a key, and refuses to write a file that
+# still holds the key or anything key-shaped. Then the key scan below checks every file again before the upload.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: OpenAI chat model to record with (keep it a cheap mini model)
+        type: string
+        required: false
+        default: gpt-5-mini
+
+permissions:
+  contents: read
+
+concurrency:
+  group: record-cassettes
+  cancel-in-progress: false
+
+jobs:
+  record:
+    # GitHub-hosted only (scripts/ci/check_runners.py): the key never touches anyone's own PC.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Require the OpenAI key (fail closed)
+        shell: bash
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          if [ -z "$OPENAI_KEY" ]; then
+            echo "::error title=record-cassettes FAILED CLOSED::Repository secret BOO_LIVE_OPENAI_KEY is missing, so nothing can be recorded. This run is NOT a pass."
+            exit 1
+          fi
+          echo "BOO_LIVE_OPENAI_KEY is set (${#OPENAI_KEY} characters)."
+
+      # Python for scripts/quality/key_scan.py (the key scan before the upload).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The key scan's workflow check reads YAML with PyYAML (hash-pinned) and fails closed without it.
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Build the recorder
+        run: dotnet build tools/Boo.Cassettes.Record -c Release
+
+      - name: Record cassettes (real OpenAI, cheap model)
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          CASSETTE_MODEL: ${{ inputs.model }}
+        run: dotnet run --project tools/Boo.Cassettes.Record -c Release --no-build -- --out artifacts/cassettes-recorded
+
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (recorded cassettes)
+        id: keyscan_artifacts_cassettes_recorded
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --secret-env OPENAI_KEY --delete artifacts/cassettes-recorded; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/cassettes-recorded' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/cassettes-recorded')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload recorded cassettes (review, then commit by hand)
+        if: ${{ !cancelled() && steps.keyscan_artifacts_cassettes_recorded.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: recorded-cassettes
+          path: artifacts/cassettes-recorded
+          if-no-files-found: error

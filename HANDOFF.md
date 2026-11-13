@@ -48,6 +48,7 @@ Why not Electron: see [docs/DECISIONS.md](docs/DECISIONS.md).
 | `tests/Boo.Core.Tests` | net10.0 | Unit tests for Boo.Core (1719 on 12 Nov). |
 | `tests/Boo.Integration.Tests` | net10.0-windows | Cross-project tests (148). |
 | `tests/Boo.Providers.Tests` | net10.0 | Provider clients against in-memory HTTP, no key (115). |
+| `tools/Boo.Cassettes.Tests` | net10.0 | **Mock**: replays saved OpenAI replies (good, messy and a bad-day set, with their delays and injected faults) through the real OpenAI client; no key (BOO-CASS-001, `docs/quality/cassettes.md`). Never a substitute for the live run. |
 
 ### Not in `Boo.sln` (built in their own CI step)
 
@@ -60,6 +61,7 @@ Why not Electron: see [docs/DECISIONS.md](docs/DECISIONS.md).
 | `tools/Boo.QaMockAi` | CI-only fake `api.openai.com` with scripted answers (every answer starts with `QA-`). |
 | `tools/Boo.LiveSmoke` | One **real** AI round trip through the published `Boo.exe` (used only by `live-ai-smoke`). |
 | `tools/Boo.LiveProbe` | Manual one-shot paid probe of the OpenAI `responses`, `decisions` or `realtime` path. Not used by CI. |
+| `tools/Boo.Cassettes.Record` | Records real OpenAI replies as redacted cassettes. Run only by the by-hand `record-cassettes` workflow; built by windows-ci so it cannot rot. |
 
 Other folders: `docs/plans` (implementation plans), `docs/verification` (evidence, native checklists, frozen-test
 oracle), `docs/design` (`boo-notch-spec.json` drives the notch face), `docs/security`, `scripts/` (CI gates and
@@ -225,6 +227,7 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | [#4](https://github.com/vikas53953/bluey/pull/4) | → `main` | merged 8 Nov (`384241a`) | FlaUI UI smoke in windows-ci. |
 | [#1](https://github.com/vikas53953/bluey/pull/1), [#2](https://github.com/vikas53953/bluey/pull/2), [#5](https://github.com/vikas53953/bluey/pull/5), [#6](https://github.com/vikas53953/bluey/pull/6) | lanes → `main` | closed 12 Nov | **Superseded**: all their commits are already in `lane/face`. |
 | [#44](https://github.com/vikas53953/bluey/pull/44) | `docs/vikas-decisions-13nov` → `lane/face` | **open** | Docs only: records Vikas's 13 Nov decisions (OpenAI only for chat and voice, Claude/Gemini out of scope; cheapest OpenAI models in tests; every notch state tested, plan row 2.11; phase gates, plan section 7; Vikas's 10-minute pre-release check). QA verdict in the PR body. |
+| this PR | `quality/openai-cassettes` → `lane/face` | **open** | OpenAI **cassettes** (BOO-CASS-001, `docs/quality/cassettes.md`): new test project `tools/Boo.Cassettes.Tests` (in `Boo.sln`, run by a new `windows-ci` step right after Build, checked by both test gates) replays 21 saved OpenAI replies through the real `ResponsesClient`: good and messy chat, research and nudge replies plus a bad-day set (malformed JSON, cut and truncated bodies, timeouts, refusal, 429 rate limit with Retry-After and quota, 500, 503 HTML, empty body, wrong content type, socket reset, connection refused), and injects 4 faults into every good reply. 20 cassettes are **synthetic** (hand-made from the documented shape), 1 is a real 401 recorded with a placeholder credential. New by-hand `record-cassettes.yml` records real ones with `BOO_LIVE_OPENAI_KEY` and a cheap model, redacted and key-scanned, as an artifact to review; never commits. No `src/` change. Found 2 known gaps (nudge cut body leaks a .NET exception the app swallows; Retry-After unused). **Mock evidence only; the live run stays the truth check.** |
 
 Each PR's latest evidence table and verdict is in its own latest QA comment. This table only tracks state.
 
