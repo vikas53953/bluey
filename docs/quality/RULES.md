@@ -287,21 +287,41 @@ the runner tool cache, `USERPROFILE`; every folder above the repository) plus th
 `<home>/`, `<repo-parent-N>/` and so on, case-insensitively, with either slash and in 8.3 short and long forms, longest
 root first. Paths may hold spaces (`C:\Program Files\dotnet` on windows-latest): a whole raw string is tokenised before
 it is ever split, the compiler path in a `Csc` line (logged unquoted) is cut at its own name, and arguments are split
-quote-aware. Values are read only to find roots. Global properties and the MSBuild command line keep values only for
-reviewed property names (`PropertyFilter`); any other `-p:Name=value` is written as `Name=<value not recorded>`, so a
-secret passed as a property never reaches the facts. The log's environment block is never read. Any absolute path left
-after that fails closed in both the reader and the check, naming the JSON path of the value (for example
-`$.binlogs[1].units[0].importsSkipped[12]`); the fix is to add the root's property to `PathTokens.FromProperties`, never
-to widen the guard. `BuildFacts --self-test` proves the tokens on a GitHub-runner layout (`C:\Program Files\dotnet`,
+quote-aware. A root matches only as a whole folder: followed by a separator, a quote, a bracket, `;`, `,`, the end, or
+whitespace that starts the next argument (so `D:\a\my repo` never eats `D:\a\my repo 2`). Values are read only to find
+roots.
+
+**Secret guard.** The log's environment block is never read. `globalProperties` keep values only for reviewed property
+names (`PropertyFilter.Allowed`); any other is written `Name=<value not recorded>`. The MSBuild `commandLine` keeps **no
+property value at all**: every `-p:`/`/p:`/`-property:`/`--property:`/`-rp:`/`-restoreProperty:` value, in any case,
+quoted, repeated, or with pairs split by `;` or `,`, becomes `<value not recorded>`, and so does the value of every
+other switch except a short list whose values are fixed words or tokenised paths (`-m`, `-v`, `-tlp`, `-tl`, `-t`,
+`-restore`, `-nologo`, `-clp`, `-nr`, `-bl`). What is not covered: values the build itself writes into compiler inputs
+(for example `/define:` symbols or `build_property.*` lines in the generated analyzer config) are recorded, because the
+judges need them.
+
+**Path guard.** Any absolute path left after tokenising fails closed in both the reader and the check, naming the JSON
+path of the value (for example `$.binlogs[1].units[0].importsSkipped[12]`). It looks for every absolute-path shape, case
+insensitive, at any position after any delimiter (`:`, `@`, `;`, `,`, `[`, `=`, quotes, spaces): a drive letter (also
+inside `\\?\C:\`), a UNC path (`\\srv\`, `\\?\UNC\`), `//host/` (a URL's `scheme://` is allowed), a POSIX home (`/home/`,
+`/users/`, `/root/`), and an msys drive (`/c/`); a path character right before the shape means the middle of a relative
+path, which passes. It also refuses the user name. The fix for a hit is to add the root's property to
+`PathTokens.FromProperties`, never to widen the guard.
+
+`BuildFacts --self-test` proves the tokens on a GitHub-runner layout (`C:\Program Files\dotnet`,
 `C:\Users\runneradmin\.nuget\packages`, `D:\a\_temp`, `C:\PROGRA~1`), every kind of field on roots that hold spaces
 (the Csc compiler path unquoted, quoted and as `dotnet exec`; Csc arguments; the MSBuild command line; imports,
-references and copies; analyzer-config, response-file and skipped-import text), the guard's JSON paths and the property
-filter.
+references and copies; analyzer-config, response-file and skipped-import text), the root boundary, every path-guard
+shape and the relative paths and URLs that must pass, and the command-line filter (comma, semicolon, quoted, `/p:`,
+`-property:`, `-rp:`, repeated switches).
 Same logs, same file (sorted keys).
 
 **What fails closed** (`scripts/quality/build_facts.py check`, exit 1): malformed facts or a failed build; a machine
 path or the user name in the facts (by JSON path); a project of `Boo.sln` without a `Csc` call from `CoreCompile` in the
-build log; a `Csc` compile of any project **outside** the solution (only WPF's `*_wpftmp.csproj` may be); a `Csc` call
+build log; a `Csc` compile of any project **outside** the solution (the only exception is WPF's temporary markup
+project: `<dir>/<Name>_wpftmp.csproj`, after the reader drops its random part, next to a solution project
+`<dir>/<Name>.csproj` and compiling that project's own assembly name; any other `*_wpftmp.csproj` is an ordinary
+project); a `Csc` call
 with no output hash, a compiler or task class outside the SDK install, a command-line parse error, a response file (the
 SDK passes none, so build code added it), or a switch not in `scripts/quality/buildfacts/known.json`; any task not in
 `known.json` (so a target added by repo build code, a package or an MSBuild SDK that runs a task is unknown until
@@ -312,15 +332,17 @@ its own name, through recorded copies and ReadyToRun compiles to a recorded `Csc
 runtime pack, or whose name belongs to a solution project but whose content is not that project's compile.
 `--self-test` proves each failure on planted facts.
 
-`fixtures` builds eight fixtures (`scripts/quality/buildfacts/fixtures/`) and quotes the facts lines that show each
+`fixtures` builds nine fixtures (`scripts/quality/buildfacts/fixtures/`) and quotes the facts lines that show each
 bypass. **Four only have to SHOW the bypass in the facts** (their judges come in #28 and #32): per-folder
 `.editorconfig` severity, the five conditions (Configuration, RuntimeIdentifier, `_IsPublishing`, SolutionName,
 `IsOSPlatform`), `PackageDownload` + `Exists()` import, and a NuGet MSBuild SDK; their check result is only reported.
-**Four must also FAIL the check**: `compiler-response-file` (response file), `tamper-after-compile` (a `Copy` over the
+**Five must also FAIL the check**: `compiler-response-file` (response file), `tamper-after-compile` (a `Copy` over the
 compiled assembly right after `CoreCompile`: an unknown task), `tamper-publish` (an `Exec` that copies other code over
-the published `App.dll`: an unknown task and the hash trace), and `same-name-compile` (a project outside the solution
+the published `App.dll`: an unknown task and the hash trace), `same-name-compile` (a project outside the solution
 with `<AssemblyName>Lib</AssemblyName>`, moved over the judged `Lib.dll` only by the SDK's own allowed copy of a linked
-`None` item: an outside compile, and copies whose source is not `Lib`'s compile). `learn FACTS` lists task keys and
+`None` item: an outside compile, and copies whose source is not `Lib`'s compile), and `fake-wpftmp` (an ordinary
+project outside the solution named `Extra/Extra_wpftmp.csproj`, referenced by the app, ships `Extra.dll`: an outside
+compile). `learn FACTS` lists task keys and
 switches that `known.json` does not hold yet; adding one is a reviewed change.
 
 Only `build-facts.json` is uploaded (artifact `build-facts`, 7 days, through its key scan); the binary logs never are,
@@ -340,3 +362,104 @@ because they can hold environment values.
   reader's build; a later PR runs the base branch's copy (like the ratchet's `--rise-only`);
 - `known.json` was learned from one build on 13 Nov 2026 (SDK 10.0.403); an SDK or package change that runs a new
   task fails closed until reviewed.
+
+## Architecture rules (BOO-ARCH, `tests/Boo.Architecture.Tests`)
+
+Plan section 2.4 B, PR 1.11. A normal xUnit project that reads the compiled `src` assemblies, so it runs wherever the
+solution builds; no app starts and no screen is touched. Each rule lists today's offenders **by name** (baseline
+13 Nov 2026, `lane/face` `af089dd`). The list is exact both ways: a **new** offender fails, and an offender that has been
+**fixed** also fails until its name is removed, so every gain is locked in. The test project is frozen (oracle
+revision 25), so removing a name, like adding a rule, goes through a reviewed `scripts/test_oracle.py --rebaseline`.
+Dependency offenders (001-004) count per outermost type (lambdas and async state machines count towards the type that
+wrote them); static-state offenders (005) are named per declaring type, nested types included.
+
+**Why two tools, and two shapes.** 001 and 004 are about whole namespaces and use NetArchTest. 002 and 003 use
+`CecilScan` (Mono.Cecil, the library NetArchTest is built on), which sees base types, interfaces, fields,
+properties, events, attributes, parameters, return values, locals and every member the code calls, constructs,
+casts to or names, generic arguments included.
+
+- **002 is an allowlist.** Disk access is spread across the whole framework (`File`, `FileInfo`,
+  `StreamWriter(path)`, `Path.Exists`, `XDocument.Load(path)`, `TarFile`, certificate and resource loaders,
+  `AssemblyLoadContext`, ...), so any list of bad types or namespaces misses one; reviews proved it several times.
+  Core is small and pure, so it may use **only** the framework types approved in the test (text, collections, maths,
+  JSON, regex, tasks, hashing, and the exceptions and enums it needs), and only when they really come from a listed
+  framework assembly (a package cannot borrow a framework namespace name). **The test for every approval:** nothing
+  reachable through it may depend on or change the files on this machine, or find or build code from a name. A type
+  where only some members pass is approved **member by member**: of `Path` only the members that work on the text of
+  a path (not `Exists`, `GetTempFileName`, or `GetFullPath`, which asks Windows for the real names behind short ones
+  like `RUNNER~1`), of `Environment` only reads such as `GetEnvironmentVariable` (not `CurrentDirectory`), of `Type`,
+  `Delegate`, `SHA256` and `RandomNumberGenerator` nothing that finds code by its name. Raw memory is not allowed:
+  `Unsafe` (only the compiler's own helper type may use it), raw handles, function pointers, `calli`, and compiling
+  Core with unsafe code. Native calls, COM classes and `[UnsafeAccessor]` methods are not allowed at all, and type
+  names inside attributes (`typeof`) are checked too. Anything else fails and the message names it; if it passes the
+  test, a reviewer approves it in a one-line oracle revision.
+- **003 is a deny rule**, because the app is the UI and uses far too much of WPF and Windows for an allowlist. It
+  counts every `System.Net.*` type except a few harmless ones (status codes, request errors, `WebUtility`,
+  `NetworkCredential` as a password reader), WebView2, the WPF browser controls (`WebBrowser`, `Frame`,
+  `NavigationWindow`), every Windows Runtime area except the two the app uses (`Windows.Foundation`,
+  `Windows.UI.ViewManagement`), and native calls into anything but `user32`, `kernel32`, `shcore`, `dwmapi`, `gdi32`.
+
+**Known gaps.** (1) BOO-ARCH-005 sees fields and setters, not what a `readonly` field points to: a
+`static readonly List<T>` that is changed later (today `AccessibilitySettings.Listeners`, `.Add` at line 48) is
+shared mutable state the rule does not count; counting every `static readonly` collection or array would flood it
+with read-only tables. (2) BOO-ARCH-006 looks at `src/Boo.App/*Window*.cs` in the top folder, which holds every
+window code-behind today; a window elsewhere or not named `...Window` would be missed. (3) 002 and 003 read the
+compiled code. For 002 that leaves one gap: an approval that fails the test and that review missed. Accepted on
+purpose, because they read the machine's settings or the app's own files, never the user's: a stack trace reads the
+app's own debug file (`.pdb`), local time and culture read Windows settings, `AppContext` hands Core the install folder
+as text, and a named `Mutex` is a signal between processes. Core can always use disk through an object the app hands
+it (a `Stream`, an interface); that is the design, and no scan of Core alone can rule it out. For 003, reflection and
+anything reached by name are not seen. (4) 003 is a deny rule, so it does **not** see the app reaching
+the web some other way: a WPF image, media or font given a web address (`BitmapImage`, `MediaElement`), anything
+declared only in XAML (compiled XAML is not scanned), an XML loader given a web address (`XDocument.Load`,
+`XmlReader.Create`), COM objects, or a third-party library. It also does not count,
+on purpose, Velopack's update check and download (`UpdateService`, release lane) or opening a link in the browser
+(`Process.Start`); neither is a chat or AI client.
+
+| Rule | Checks | How | Today (plan section 1.5, except 002) |
+| --- | --- | --- | --- |
+| [BOO-ARCH-001](#boo-arch-001) | `Boo.Core` uses nothing from `System.Net.Http`, `System.Net.WebSockets`, `Microsoft.Win32`, `Microsoft.Data.Sqlite`, `NAudio`, `Velopack` | NetArchTest, namespace match | 1: `ProviderFailureClassifier` (`ProviderFailure.cs`, `HttpRequestError`) |
+| [BOO-ARCH-002](#boo-arch-002) | `Boo.Core` does not touch the disk: it uses only approved framework types and members (see the test above), no raw memory, and no native, COM or by-name call | allowlist (Mono.Cecil) | 3: `ScopedFiles` (the second class in `ActionPolicy.cs`), `FileActionResolver`, and `StartupRegistration` (`Path.GetFullPath`, lines 68-69), which the plan's text count of `File`/`Directory` could not see |
+| [BOO-ARCH-003](#boo-arch-003) | `Boo.App` does not talk to the network through `System.Net.*` (harmless types aside), WebView2, the WPF browser controls, other Windows Runtime areas, or native network DLLs | deny rule (Mono.Cecil); gaps listed above | 1 type: `MainWindow` (its 3 references: `MainWindow.xaml.cs:65,1624,2123`) |
+| [BOO-ARCH-004](#boo-arch-004) | `Boo.Windows` uses nothing from `System.Windows.Controls` / `System.Windows.Shapes` and has no `Window` subclass | NetArchTest | 0 |
+| [BOO-ARCH-005](#boo-arch-005) | no static field that is not `readonly`/`const`, no static property with a setter, in all 5 `src` assemblies | reflection; compiler-made caches excluded; named per declaring type (`Outer+Inner.Field`) | 2: `AccessibilitySettings._uiSettings`, `App.StartedInBackground` |
+| [BOO-ARCH-006](#boo-arch-006) | every `src/Boo.App/*Window*.cs` file has at most 2,679 lines | line count | 0 over (largest: `MainWindow.xaml.cs`, 2,679; the plan measured 2,674 before PR #33 added 5 lines) |
+| [BOO-ARCH-007](#boo-arch-007) | a new `MainWindow` feature goes in its own `MainWindow.<Feature>.cs` partial | written rule only (review) | |
+
+## BOO-ARCH-001
+**Boo.Core stays pure.** Core is the code every other layer and every unit test relies on; network, registry,
+database, audio or installer types make it slow and hard to test. **Fix:** put the outside call in `Boo.Providers`,
+`Boo.Storage` or `Boo.Windows` and pass Core plain values or an interface. **Do NOT** move the type into Core "to reuse it".
+
+## BOO-ARCH-002
+**Core does not touch disk.** File checks in Core make rules depend on the machine. **Fix:** an interface in Core (like
+`IStartupRegistry`) with the real implementation outside. The failure message names every framework type or member
+that is not approved. **Do NOT** swap `File.Exists` for `FileInfo`, `Path.Exists`, a stream or another loader: Core may
+use only approved types and members, so all are caught. **Do NOT** approve a type unless no member of it can reach
+the disk; if some can, approve only the members that cannot.
+
+## BOO-ARCH-003
+**The window does not talk to the network.** Network calls belong in `Boo.Providers`, where timeouts, failures and
+keys are handled in one place (the 45 s timeout lives in `MainWindow` today for this reason). **Fix:** create the
+client in Providers and inject it. **Do NOT** hide a new `HttpClient` in a helper class in `Boo.App`, or swap it for a
+handler, a socket, `Dns`, a browser control or a Windows Runtime network API: all are caught. The rule cannot see a web
+address handed to a WPF image or media element, or XAML-only elements (known gap 4); reviewers check those.
+
+## BOO-ARCH-004
+**Boo.Windows is Windows integration, not UI.** Bitmaps (`System.Windows.Media`) and UI Automation are fine; controls,
+shapes and windows belong in `Boo.App`.
+
+## BOO-ARCH-005
+**No mutable static state.** A static that changes is shared by every caller and every test, which makes order-dependent
+bugs. **Fix:** an instance field passed in, or `static readonly` set once. **Do NOT** add `readonly` and mutate the
+object inside it to get past the check.
+
+## BOO-ARCH-006
+**Window code-behind stays under its budget** (today's largest file, 2,679 lines). The budget may only go down, in a
+reviewed oracle revision. **Fix:** move the feature into `MainWindow.<Feature>.cs` (BOO-ARCH-007) or its logic into
+`Boo.Core`. **Do NOT** raise the budget.
+
+## BOO-ARCH-007
+**One feature, one partial.** `Boo.App` is already sliced by feature (`MainWindow.Talk.cs`, `.Voice.cs`, `.Edits.cs`,
+`.Focus.cs`, `.Updates.cs`, `.Accessibility.cs`, `.Shortcuts.cs`). A new feature gets its own file. Checked by review;
+BOO-ARCH-006 is what makes skipping it fail.
