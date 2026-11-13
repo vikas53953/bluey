@@ -71,6 +71,7 @@ Status words: **in force** (applies on `lane/face`), **proposed** (in an open PR
 | 13 Nov 2026 | **A regression test may hold a request pending with a local silent HTTPS proxy set only for Boo's process (no AI call, the key never leaves the PC); its evidence is labelled mock.** First: issue #71. | Stop-during-request bugs need a request in flight; a real provider answers too fast and costs money. | QA explorer task, 13 Nov 2026 | **proposed (PR #76); in force on merge** |
 | 13 Nov 2026 | **Screen-reader parity: every Conversation row a user can see must be a row UI Automation reports, in order (duplicates included).** Held by regression test X9 (issue #73). | Identical rows collapsed into one for screen readers. | QA explorer task, 13 Nov 2026 | **proposed (PR #77); in force on merge** |
 | 13 Nov 2026 | **The notch's Paused face is derived from the focus session's real status (one helper), never set directly by a button or event.** Issue #70. | Every hand-set `FocusPaused = true` could pin the face on a session that was not paused. | Build lane, 13 Nov 2026 | **proposed (PR #82); in force on merge** |
+| 13 Nov 2026 | **Status lines that say Boo is working go through `ShowBusyStatus`; Stop replaces such a line with a plain "Stopped" message while it is still showing.** Issue #71. | A cancelled request no longer writes its own message, so nothing replaced the busy text. | Build lane, 13 Nov 2026 | **proposed (PR #83); in force on merge** |
 
 ## Detailed decision records
 
