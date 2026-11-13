@@ -1,0 +1,284 @@
+name: live-sentinel
+
+# BOO-LIVE-004, the daily real-model sentinel (docs/quality/live-sentinel.md). Once a day, the lane/face tip runs ONE
+# real typed-question round trip (published Boo.exe, driven by FlaUI) and ONE real spoken-question round trip (Boo's own
+# OpenAI voice client) on the cheapest OpenAI models, so a provider-side change (model retired, API shape changed,
+# quota or billing problem) is noticed within a day even when nobody pushes. At most 2 paid calls per run, about
+# US$0.004 per run, about US$0.12 a month; the US$10 a month cap stays.
+#
+# WHICH BRANCH: GitHub runs scheduled workflows only from the DEFAULT branch, which is `main`. Work lands on
+# `lane/face`, so this workflow always checks out `lane/face` (into tip/) and tests that tip, whichever branch it runs
+# from. The daily schedule starts once this file is on `main` (when lane/face merges into main); until then it runs only
+# by hand (workflow_dispatch also needs the file on the default branch).
+#
+# On failure, the `report` job opens (or comments on) ONE issue titled "Live sentinel: real OpenAI round trip failing"
+# with the date, the run link, the failed step and an error class from a fixed list (scripts/ci/live_sentinel.py): never
+# the key, never a raw provider reply. On the next pass it comments and closes that issue.
+#
+# GitHub's own Windows VM only, never the owner's PC (same refusal as live-ai-smoke). Keys come only from the
+# BOO_LIVE_OPENAI_KEY repository secret, are masked, never echoed, and a key scan runs before the evidence upload.
+
+on:
+  schedule:
+    - cron: '17 21 * * *'
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Optional chat model id (blank = gpt-6-luna, the cheap CI default)
+        type: string
+        required: false
+        default: ''
+      realtime_model:
+        description: Optional OpenAI realtime voice model id (blank = gpt-realtime-2.1-mini)
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-sentinel
+  cancel-in-progress: false
+
+jobs:
+  sentinel:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    outputs:
+      failures: ${{ steps.classify.outputs.failures }}
+      tip_sha: ${{ steps.tip.outputs.sha }}
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      BOO_CAPTURE_SCOPE: boo-windows
+      BOO_LIVE_TEXT_PROVIDER: openai
+      BOO_LIVE_MODEL: ${{ inputs.model || 'gpt-6-luna' }}
+      BOO_LIVE_REALTIME_MODEL: ${{ inputs.realtime_model || 'gpt-realtime-2.1-mini' }}
+      BOO_LIVE_TRANSCRIBE_MODEL: gpt-4o-mini-transcribe
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        id: runner
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=Live sentinel refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)')."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check out the lane/face tip (the branch under test)
+        uses: actions/checkout@v4
+        with:
+          ref: lane/face
+          path: tip
+          persist-credentials: false
+
+      - name: Record the tested commit
+        id: tip
+        shell: pwsh
+        run: |
+          $sha = (git -C tip rev-parse HEAD).Trim()
+          "Testing lane/face at $sha"
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "sha=$sha"
+
+      - name: Require the OpenAI key and valid model ids (fail closed), mask the key
+        id: key
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          $v = "$env:OPENAI_KEY"
+          if ([string]::IsNullOrWhiteSpace($v)) { "::error title=Live sentinel FAILED CLOSED::Repository secret BOO_LIVE_OPENAI_KEY is missing or empty."; exit 1 }
+          Write-Output "::add-mask::$($v.Trim())"
+          if ($v.Trim() -ne $v) { "::error title=Live sentinel FAILED CLOSED::BOO_LIVE_OPENAI_KEY contains spaces or line breaks."; exit 1 }
+          if ($v.Length -lt 20) { "::error title=Live sentinel FAILED CLOSED::BOO_LIVE_OPENAI_KEY is too short ($($v.Length) characters)."; exit 1 }
+          foreach ($m in @($env:BOO_LIVE_MODEL, $env:BOO_LIVE_REALTIME_MODEL, $env:BOO_LIVE_TRANSCRIBE_MODEL)) {
+            if ($m -notmatch '^[A-Za-z0-9._:-]{1,128}$') { "::error title=Live sentinel FAILED CLOSED::Model id '$m' is not a valid model id."; exit 1 }
+          }
+          "Secret BOO_LIVE_OPENAI_KEY is present ($($v.Length) characters). Models: chat $env:BOO_LIVE_MODEL, voice $env:BOO_LIVE_REALTIME_MODEL, speech-to-text $env:BOO_LIVE_TRANSCRIBE_MODEL."
+          New-Item -ItemType Directory -Force -Path artifacts/sentinel-evidence, sentinel-logs | Out-Null
+
+      # Free (GET /v1/models/<id> costs nothing). A retired or misspelled model fails here, before any paid call; the
+      # HTTP status (a number only) goes to the error class.
+      - name: OpenAI models exist (free check, before any paid call)
+        id: models
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          $headers = @{ Authorization = "Bearer $($env:OPENAI_KEY.Trim())" }
+          $bad = 0; $code = ''
+          foreach ($m in @($env:BOO_LIVE_MODEL, $env:BOO_LIVE_REALTIME_MODEL, $env:BOO_LIVE_TRANSCRIBE_MODEL)) {
+            try {
+              $null = Invoke-RestMethod -Method Get -Uri "https://api.openai.com/v1/models/$([uri]::EscapeDataString($m))" -Headers $headers -TimeoutSec 30
+              "OpenAI model available: $m"
+            } catch {
+              $status = 0
+              if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
+              if (-not $code) { $code = "$status" }
+              "::error title=Live sentinel::OpenAI model '$m' is not available to this key (HTTP $status)."
+              $bad++
+            }
+          }
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "http=$code"
+          if ($bad -gt 0) { exit 1 }
+
+      - name: Refuse if any AI host is redirected (no mock may answer)
+        id: hosts
+        shell: pwsh
+        run: |
+          $hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
+          $bad = @()
+          foreach ($h in 'api.openai.com') {
+            $line = Get-Content $hostsFile -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch '^\s*#' -and $_ -match "(^|\s)$([regex]::Escape($h))(\s|$)" }
+            if ($line) { $bad += "$h is pinned in the hosts file" }
+            $ips = @(Resolve-DnsName $h -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress } | Select-Object -ExpandProperty IPAddress)
+            if ($ips.Count -eq 0) { $bad += "$h does not resolve" }
+            foreach ($ip in $ips) { if ($ip -match '^(127\.|0\.|::1$|::$)') { $bad += "$h resolves to loopback $ip" } }
+            "$h -> $($ips -join ', ')"
+          }
+          if ($bad) { $bad | ForEach-Object { "::error title=Live sentinel FAILED CLOSED::$_" }; exit 1 }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: tip/global.json
+
+      - name: Build and publish Boo.exe from the lane/face tip
+        id: build
+        shell: pwsh
+        run: |
+          Set-Location tip
+          dotnet restore Boo.sln
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o "$env:GITHUB_WORKSPACE/artifacts/sentinel-boo"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          dotnet build tools/Boo.LiveSmoke -c Release
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      # Paid call 1 of 2: one typed question, one answer, cheapest chat model. The filter runs exactly this one test.
+      - name: Typed question round trip (real OpenAI, published Boo.exe via FlaUI)
+        id: typed
+        timeout-minutes: 10
+        shell: pwsh
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\sentinel-boo\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\sentinel-evidence
+          BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          & dotnet test tip/tools/Boo.LiveSmoke -c Release --no-build --filter "FullyQualifiedName=Boo.LiveSmoke.LiveRoundTripTests.TypedQuestion_GetsAnAnswerFromTheRealProvider" --logger trx --logger "console;verbosity=normal" --results-directory artifacts/sentinel-evidence/trx-typed 2>&1 | Tee-Object -FilePath sentinel-logs/typed.log
+          $testExit = $LASTEXITCODE
+          Get-ChildItem artifacts/sentinel-evidence -Filter *.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          exit $testExit
+
+      - name: Typed round trip ran exactly once and passed
+        id: typed_gate
+        if: ${{ !cancelled() && (steps.typed.outcome == 'success' || steps.typed.outcome == 'failure') }}
+        run: |
+          python -I scripts/ci/live_sentinel.py trx artifacts/sentinel-evidence/trx-typed
+
+      - name: Is the voice live test on the tip?
+        id: voice_present
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $present = Test-Path -LiteralPath 'tip/tools/Boo.LiveSmoke/LiveVoiceRoundTripTests.cs'
+          if (-not $present) { "::warning title=Live sentinel::No voice live test on the lane/face tip, so voice is not checked today." }
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "present=$($present.ToString().ToLowerInvariant())"
+
+      # Paid call 2 of 2: one spoken question (checked-in WAV, never a microphone), cheapest realtime model. Runs even if
+      # the typed trip failed, so one run shows both.
+      - name: Spoken question round trip (real OpenAI voice)
+        id: voice
+        if: ${{ !cancelled() && steps.voice_present.outputs.present == 'true' }}
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\sentinel-evidence
+          BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          & dotnet test tip/tools/Boo.LiveSmoke -c Release --no-build --filter "FullyQualifiedName=Boo.LiveSmoke.LiveVoiceRoundTripTests.SpokenQuestion_GetsASpokenAnswerFromRealOpenAiVoice" --logger trx --logger "console;verbosity=normal" --results-directory artifacts/sentinel-evidence/trx-voice 2>&1 | Tee-Object -FilePath sentinel-logs/voice.log
+          $testExit = $LASTEXITCODE
+          Get-ChildItem artifacts/sentinel-evidence -Filter live-voice*.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          exit $testExit
+
+      - name: Voice round trip ran exactly once and passed
+        id: voice_gate
+        if: ${{ !cancelled() && (steps.voice.outcome == 'success' || steps.voice.outcome == 'failure') }}
+        run: |
+          python -I scripts/ci/live_sentinel.py trx artifacts/sentinel-evidence/trx-voice
+
+      # BOO-SAFE-002: scan exactly what the next step uploads (generated from scripts/quality/key_scan.py).
+      - name: Key scan before upload (sentinel evidence)
+        id: keyscan_artifacts_sentinel_evidence
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --secret-env OPENAI_KEY --delete artifacts/sentinel-evidence; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/sentinel-evidence' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/sentinel-evidence')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload sentinel evidence (screenshots, observations, test results)
+        id: upload
+        if: ${{ !cancelled() && steps.keyscan_artifacts_sentinel_evidence.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-sentinel-evidence
+          path: artifacts/sentinel-evidence
+          if-no-files-found: warn
+          retention-days: 7
+
+      # Turns step outcomes into `step:error-class` pairs from fixed lists. The logs are read only to pick a class.
+      - name: Classify the result (fixed words only, never log text)
+        id: classify
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $py = (Get-Command python -ErrorAction SilentlyContinue)
+          if (-not $py) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'failures=setup:unknown'; exit 0 }
+          python -I scripts/ci/live_sentinel.py classify --job-status "${{ job.status }}" --models-http "${{ steps.models.outputs.http }}" --outcome "runner=${{ steps.runner.outcome }}" --outcome "key=${{ steps.key.outcome }}" --outcome "models=${{ steps.models.outcome }}" --outcome "hosts=${{ steps.hosts.outcome }}" --outcome "build=${{ steps.build.outcome }}" --outcome "typed=${{ steps.typed.outcome }}" --outcome "typed_gate=${{ steps.typed_gate.outcome }}" --outcome "voice=${{ steps.voice.outcome }}" --outcome "voice_gate=${{ steps.voice_gate.outcome }}" --outcome "keyscan=${{ steps.keyscan_artifacts_sentinel_evidence.outcome }}" --outcome "upload=${{ steps.upload.outcome }}" --log typed=sentinel-logs/typed.log --log voice=sentinel-logs/voice.log
+
+  # Opens, updates or closes the one sentinel issue. Needs `issues: write`, and only this job has it.
+  report:
+    needs: sentinel
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Open, update or close the sentinel issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ needs.sentinel.result }}
+          FAILURES: ${{ needs.sentinel.outputs.failures }}
+          TIP_SHA: ${{ needs.sentinel.outputs.tip_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 -I scripts/ci/live_sentinel.py --self-test
+          python3 -I scripts/ci/live_sentinel.py report --result "$RESULT" --failures "$FAILURES" --run-url "$RUN_URL" --sha "$TIP_SHA" --repo "$REPO"
