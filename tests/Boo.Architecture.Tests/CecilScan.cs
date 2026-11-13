@@ -8,14 +8,16 @@ namespace Boo.Architecture.Tests;
 /// <summary>
 /// Reference scan over a compiled assembly (Mono.Cecil, the library NetArchTest is built on). A type references X when
 /// X is its base type or an interface, the type of one of its fields, properties, events, parameters, return values or
-/// locals, a custom attribute on it or its members, or when its code calls, reads, writes, constructs, casts to or
+/// locals, a custom attribute on it, its members, their parameters, return values or generic parameters, or when its
+/// code calls, reads, writes, constructs, casts to or
 /// takes typeof of a member or type of X (generic arguments and arrays included: List&lt;X&gt;, X[]). What counts is
 /// decided by the caller's predicates (a type predicate, and a member predicate for calls and field reads), so a rule
 /// can be an allowlist ("only these framework types") instead of a list of bad types that always misses one.
 /// Results are per outermost type (compiler-made nested types such as lambdas and async state machines count towards
 /// their owner), each with the references that hit, for the failure message. Types named inside attribute arguments
 /// (typeof) are scanned too; a function pointer type always counts. Not scanned: generic constraints, catch clause
-/// types (neither can run code by itself), and compiled XAML (BAML).
+/// types (neither can run code by itself), attributes on the assembly or module itself (the rules check the one that
+/// matters, [module: UnverifiableCode], separately), and compiled XAML (BAML).
 /// </summary>
 internal static class CecilScan
 {
@@ -127,14 +129,17 @@ internal static class CecilScan
         Type(type.BaseType);
         foreach (var i in type.Interfaces) Type(i.InterfaceType);
         Attributes(type);
+        foreach (var g in type.GenericParameters) Attributes(g);
         foreach (var f in type.Fields) { Type(f.FieldType); Attributes(f); }
         foreach (var p in type.Properties) { Type(p.PropertyType); Attributes(p); }
         foreach (var e in type.Events) { Type(e.EventType); Attributes(e); }
         foreach (var method in type.Methods)
         {
             Type(method.ReturnType);
-            foreach (var p in method.Parameters) Type(p.ParameterType);
+            foreach (var p in method.Parameters) { Type(p.ParameterType); Attributes(p); }
             Attributes(method);
+            Attributes(method.MethodReturnType);
+            foreach (var g in method.GenericParameters) Attributes(g);
             if (!method.HasBody) continue;
             foreach (var v in method.Body.Variables) Type(v.VariableType);
             foreach (var instruction in method.Body.Instructions)

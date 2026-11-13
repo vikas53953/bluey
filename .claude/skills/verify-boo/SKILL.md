@@ -96,7 +96,7 @@ An evidence table, one row per feature or check you touched, every row with a la
 
 | Feature / check | Label | Evidence |
 | --- | --- | --- |
-| Research shows real source links | live | https://github.com/vikas53953/bluey/actions/runs/NNN (`j4-research.txt` lists the "Open source ..." links read through UI Automation; the panel image `j4-research-sources.boo-<n>.png` shows the answer, but its Sources list can be cut off at the bottom, so it is supporting evidence only) |
+| Research shows real source links | live | https://github.com/vikas53953/bluey/actions/runs/NNN (`j4-research.txt` lists the "Open source ..." link(s) read through UI Automation (one or more); the panel image `j4-research-sources.boo-<n>.png` shows the answer, but its Sources list can be cut off at the bottom, so it is supporting evidence only) |
 | Research edge cases | mock | windows-ci run link (ResearchSourcesTests) |
 | Pointer at 150 % scaling | manual | runbook 4.2, not run yet = UNVERIFIED |
 

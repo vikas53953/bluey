@@ -58,6 +58,13 @@ public sealed class ArchitectureRuleTests
     /// <summary>002: the framework assemblies an approval can come from. A namespace or type name is only trusted when
     /// the type really comes from one of these (a package could declare types in any namespace it likes; NuGet reserves
     /// the System.* package names for Microsoft).</summary>
+    /// <summary>002: Microsoft's public key tokens for framework assemblies. An approved assembly name only counts with
+    /// one of these, so a local project or package renamed to, say, System.Memory is not trusted.</summary>
+    public static readonly string[] MicrosoftKeyTokens =
+    [
+        "b03f5f7f11d50a3a", "cc7b13ffcd2ddd51", "b77a5c561934e089", "7cec85d7bea7798e", "31bf3856ad364e35", "adb9793829ddae60",
+    ];
+
     public static readonly string[] CoreApprovedAssemblies =
     [
         "System.Runtime", "System.Collections", "System.Collections.Concurrent", "System.Collections.Immutable", "System.Linq",
@@ -172,6 +179,7 @@ public sealed class ArchitectureRuleTests
         if (type.Scope is ModuleDefinition || type.IsPrimitive) return true;
         if (type.MetadataType is MetadataType.Void or MetadataType.String or MetadataType.Object or MetadataType.TypedByReference) return true;
         if (type.Scope is not AssemblyNameReference from || !CoreApprovedAssemblies.Contains(from.Name)) return false;
+        if (!MicrosoftKeyTokens.Contains(Convert.ToHexString(from.PublicKeyToken ?? []).ToLowerInvariant())) return false;
         if (CoreDeniedTypes.Contains(type.FullName)) return false;
         var ns = CecilScan.NamespaceOf(type);
         return CoreApprovedNamespaces.Contains(ns) || CoreApprovedTypes.Contains(type.FullName) || CoreApprovedMembers.ContainsKey(type.FullName);
