@@ -1,5 +1,5 @@
 {
-  "revision": 26,
+  "revision": 27,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -131,6 +131,7 @@
     "tests/Boo.Providers.Tests/Boo.Providers.Tests.csproj": "98f107dd3c01f6f2b7267926085980da9cc8bb87c82046aeb862775d58a59f0e",
     "tests/Boo.Providers.Tests/GeminiClientTests.cs": "37fbe3aa75e1be5292f89ad8e980e9a134a4315b499c2bbc3a3a54ac5c3c53af",
     "tests/Boo.Providers.Tests/GeminiRequestShapeTests.cs": "011a0038debc428e8aa9b6de7ae95ad203001617addf9605d70cb4b2991c9fcf",
+    "tests/Boo.Providers.Tests/NullFrameScreenActionTests.cs": "cdc6a0fa1229cf65be813d91633d08552f1de4f549ad27d2e633b44638e9b852",
     "tests/Boo.Providers.Tests/ProviderTestKit.cs": "1cc496f2a7a3e94b9dca7c29e7640054c46d2994080e4c82c59340e383f9376f",
     "tests/Boo.Providers.Tests/ResponsesResultShapeTests.cs": "f9bd5f1477847d7bff7c9b514fa5986cfffd297d2a2fab2a37101b6a12edc898",
     "tests/Boo.Providers.Tests/SmokeTests.cs": "612081b6ffe0ec94ddad95aff43e5c33ab6e353039650a2360b9f0e54866f0b4",
@@ -151,13 +152,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-25.json",
-  "previousManifestSha256": "e6347b90077bb84eb87fd4325673ed4694a7a0acb298dfe06c5f47dfb496fb75",
-  "revisionReason": "PR #47: additive oracle extension for mutation-driven tests, per Vikas's 13 Nov order; only RealtimeVoiceConfigurationTests.cs added, every existing hash unchanged, no rebaseline",
+  "previousManifest": "docs/verification/test-oracle-history/revision-26.json",
+  "previousManifestSha256": "69154fcbea6b8fc535687ebb386d66ff494f4c999ae4b5b2958871a6217ba0be",
+  "revisionReason": "Regression for PR #3 review block f3039ff: explicit task with no captured frame must drop click/type_text",
   "addedFiles": [
-    "tests/Boo.Integration.Tests/RealtimeVoiceConfigurationTests.cs"
+    "tests/Boo.Providers.Tests/NullFrameScreenActionTests.cs"
   ],
-  "revisionCommit": "ff1269514cd1112861d7f3ddfcdb9ed402dc3f51",
+  "revisionCommit": "f3039ff6849c1bb17d94b1472fd433fb37fcb4dd",
   "changedFiles": [],
   "removedFiles": []
 }

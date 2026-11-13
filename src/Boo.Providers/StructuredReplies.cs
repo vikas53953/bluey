@@ -95,7 +95,7 @@ internal static class StructuredReplies
             if (root.TryGetProperty("marks", out var marksElement))
                 ParseMarks(vendor, marksElement, marks);
             if (request.AllowActions && root.TryGetProperty("actions", out var actionsElement))
-                ParseActions(vendor, actionsElement, request.Generation, controls, actions);
+                ParseActions(vendor, actionsElement, request.Generation, request.Frame is not null, controls, actions);
         }
 
         if (string.IsNullOrWhiteSpace(text))
@@ -194,6 +194,7 @@ internal static class StructuredReplies
         string vendor,
         JsonElement element,
         long generation,
+        bool hasFrame,
         ControlObservation? controls,
         List<ToolRequest> actions)
     {
@@ -230,8 +231,8 @@ internal static class StructuredReplies
                         throw new InvalidOperationException($"{vendor} returned too many action arguments.");
                 }
             }
-            if (controls is not null && actionName is "click" or "type_text" &&
-                !TryBindObservedControl(actionName, arguments, controls))
+            if (actionName is "click" or "type_text" &&
+                (!hasFrame || (controls is not null && !TryBindObservedControl(actionName, arguments, controls))))
             {
                 continue;
             }
