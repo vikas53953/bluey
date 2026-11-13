@@ -93,14 +93,14 @@ return (LOW, see Simplifications).
 | `FocusCheckCapture` (Fix F5 only) | fair | local step of the fix |
 | `FocusCheckDone` | fair | local capture, then `ClassifyAsync` over the 45 s `HttpClient` (`:1511-1587`, `:1629`) |
 | `TypedCapture` or `TypedNoFrame` | fair | local screenshot, `CaptureForRequestAsync` `:2004-2063` |
-| `TypedReply` or `TypedUndoPlan` or `TypedEnd` | fair when the request is stale, or on the HTTP path (speech off; every typed undo) | `RespondAsync` over the 45 s `HttpClient` (`:2128`); undo is local (`Edits.cs:71-123`); a stale request's token is cancelled |
+| `TypedReply` or `TypedUndoPlan` or `TypedEnd` | fair when the request is stale, or on the HTTP path (speech off; every typed undo) | `RespondAsync` over the 45 s `HttpClient` (`:2128`); undo is local (`MainWindow.Edits.cs:71-123`); a stale request's token is cancelled |
 | `TypedHandOff`, and `TypedEnd` of a current speech-on request | **not fair** | `SendTextAsync` (`RealtimeClient.cs:406-410`): no timeout of its own, only the keep-alive (cautious, see above) |
 | `VToolCapture` or `VToolNoFrame` | fair | local screenshot |
 | `VToolAnswer` or `VToolFail` | fair | `RespondAsync` over the 45 s `HttpClient`; failure keeps Thinking on (`MainWindow.xaml.cs:2389-2396`, `:2420-2437`) |
 | `VToolRelease` (the tool's `finally`) | fair only when stale | otherwise it waits for `CompleteToolAsync` (`RealtimeClient.cs:412-419`): only the keep-alive bounds it (cautious) |
 | `VUndoCapture` (Fix F5 only) | fair | local step of the fix |
-| `VUndoDone` | fair only when stale | otherwise it may wait for `InterruptAsync` (`Edits.cs:144-150`, `RealtimeClient.cs:457-458`): only the keep-alive bounds it (cautious) |
-| `Apply` or `ExecEnd` | fair | `ExecuteAsync` is local and honours the lease token; read-back is at most five 120 ms polls (`MainWindow.xaml.cs:1230-1231`, `Edits.cs:358-364`) |
+| `VUndoDone` | fair only when stale | otherwise it may wait for `InterruptAsync` (`MainWindow.Edits.cs:144-150`, `RealtimeClient.cs:457-458`): only the keep-alive bounds it (cautious) |
+| `Apply` or `ExecEnd` | fair | `ExecuteAsync` is local and honours the lease token; read-back is at most five 120 ms polls (`MainWindow.xaml.cs:1230-1231`, `MainWindow.Edits.cs:358-364`) |
 | `PointerEnter/Leave`, `Send`, `TalkButton`, `TalkDown/Up`, `Stop`, `Quit`, `Approve`, `Reject`, `FocusStart/Pause/Resume/End`, `NudgeBack`, `NudgeBreak` | not fair | the user |
 | `VSpeechStarted/Stopped`, `VAudioDelta`, `VResponseDone`, `VDrop`, `VGoToSleep`, `VToolCall`, `VUndoStart` | not fair | the provider |
 | `BuggyApply`, `FocusEndAgain` | not fair | planted bugs (red proofs only) |
@@ -111,7 +111,7 @@ Each is LOW: it changes no check result.
 
 - After the answer, a current voice tool's capture stays open until `CompleteToolAsync` returns; the model keeps it
   open too (`st = "Send"`). If an undo card is pending, the tool first sends a decline with `CompleteToolAsync`
-  (`DeclineRealtimeToolDuringUndoAsync`, `Edits.cs:190-210`, called at `MainWindow.xaml.cs:2365` and `:2406`); the model ignores
+  (`DeclineRealtimeToolDuringUndoAsync`, `MainWindow.Edits.cs:190-210`, called at `MainWindow.xaml.cs:2365` and `:2406`); the model ignores
   that wait, so its answer step is fair even then.
 - After a voice-originated approval runs, the code awaits `CompletePendingRealtimeToolAsync` (a websocket send)
   before the card's `finally`; the model closes the card in the same step as the commit.
@@ -120,15 +120,15 @@ Each is LOW: it changes no check result.
 - A spoken undo's capture has no "no frame" branch; a spoken undo is unfair while current even when no reply is
   playing (then `InterruptAsync` is skipped and the step is local).
 - In the code a spoken undo awaits `InterruptAsync` **before** its capture starts (the operation from
-  `CreateOperation`, `Edits.cs:139`, shows nothing until `activity.Start` inside `CaptureForRequestAsync`,
-  `Edits.cs:157`); the model opens the capture first and waits afterwards. That only adds behaviours where the notch
+  `CreateOperation`, `MainWindow.Edits.cs:139`, shows nothing until `activity.Start` inside `CaptureForRequestAsync`,
+  `MainWindow.Edits.cs:157`); the model opens the capture first and waits afterwards. That only adds behaviours where the notch
   is pinned longer.
 - Websocket sends are bounded in the code by the keep-alive (about 20 s, see the fairness rule); the model treats
   the steps that wait on them as unfair, which only adds behaviours.
 - The fairness terms leave out the model's own bound on busy lanes (`Active' <= MaxActive`). Only `FocusCheckStart`
   among the fair steps can add a lane, so the only effect is that a focus check blocked by that bound forever is not
-  counted as a behaviour; the app has no such bound, and the Python copy of the model, which does count it, gets the
-  same liveness results (mock).
+  counted as a behaviour; the app has no such bound. (While the model was built, a Python copy of it that does count
+  those behaviours gave the same liveness results; that copy is not in the repo, so treat it as a note, not evidence.)
 - The two undo journals are independent in the model; in the code each new kind of edit clears the other
   (`MainWindow.Edits.cs:244`, `:533`). A reply that arrives while a card is up keeps the old card (the code replaces
   it). A multi-step undo is one Apply step.
@@ -146,10 +146,10 @@ Each is LOW: it changes no check result.
 
 ## Size and time
 
-Measured with a Python copy of the model (MOCK, not TLC): about 200 thousand states with `MaxActive = 2`. The PR run
+Measured by TLC in CI: 200,530 distinct states with `MaxActive = 2` (the `tlc` job). The PR run
 is about 45 TLC runs; most red proofs and witnesses stop at their first counterexample, the main run and the fix
-runs explore everything. The `tlc-wide` job (PRs that touch the model, and nightly) runs only the main cfg with `MaxActive = 3` (about 2 million
-states, 10 times more; same Python copy) and has its own 40 minute limit.
+runs explore everything. The `tlc-wide` job (PRs that touch the model, and nightly) runs only the main cfg with `MaxActive = 3` (1,996,768 distinct
+states, about 14 minutes in CI) and has its own 40 minute limit.
 
 ## Run it locally
 
