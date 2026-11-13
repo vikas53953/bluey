@@ -337,8 +337,9 @@ def judge_compiler_calls(project, calls, sdk_root, list_path, stripped):
     if call.get('target') != 'CoreCompile':
         problems.append(f'{name}: the compiler ran from target {call.get("target")}, not CoreCompile.')
     if not is_sdk_compiler(call.get('tool', []), sdk_root):
-        problems.append(f'{name}: the compiler is {" ".join(call.get("tool", []))}, not the SDK\'s own csc. Remove '
-                        f'CscToolPath / CscToolExe or any wrapper.')
+        # Without the SDK's csc nothing else on the command line can be trusted or even split reliably: stop here.
+        return problems + [f'{name}: the compiler is {(call.get("tool") or ["?"])[0]}, not the SDK\'s own csc. '
+                           f'Remove CscToolPath / CscToolExe or any wrapper.']
     if call.get('responseFiles') or not call.get('noConfig'):
         problems.append(f'{name}: the compiler reads a response file ({", ".join(call.get("responseFiles") or ["csc.rsp"])}); '
                         f'its options are hidden from review. Remove CompilerResponseFile.')
