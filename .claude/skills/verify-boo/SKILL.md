@@ -109,7 +109,7 @@ window, `<moment>.boo-0.png`, `<moment>.boo-1.png`, ..., and `<moment>.capture.t
 `'Open Boo companion'` is the notch; `'Boo screen explanation'` is the pointer/ring overlay). Match the start of the title,
 never a substring: "Boo companion" also appears inside the notch's name, and the notch is often `boo-0`. The numbers
 follow window order, so read the `.capture.txt` before citing an image; never assume `boo-0` is the panel. Say in the
-evidence when a claim rests on a UI Automation read (an observation `.txt`) rather than on what the image shows.
+evidence when a claim rests on a UI Automation read (for example `j4-research.txt`) rather than on what the image shows.
 
 ## How to maintain (keep the skill and the map true)
 
