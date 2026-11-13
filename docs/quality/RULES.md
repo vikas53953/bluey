@@ -257,6 +257,112 @@ Red proof (13 Nov 2026): run [43359573803](https://github.com/vikas53953/bluey/a
 throwaway branch planted a run-time-built fake key in the test results; the scan before that upload reported
 `OpenAI/Anthropic API key ... The value is not shown`, deleted the file and failed the job (`KEY_SCAN_FAILED 1 of 7`).
 
+## Build facts (the shipped build)
+
+Two gates were once bypassed because they judged a different build from the one that ships (the banned-API gate by a
+per-folder `.editorconfig` and by `<CompilerResponseFile>`; the architecture gate, which evaluated each project alone in
+Debug on Linux, by references that exist only under `Configuration == Release`, a `RuntimeIdentifier`, `_IsPublishing`,
+`SolutionName` or `IsOSPlatform('Windows')`, by `PackageDownload` plus an `Exists()`-guarded import, and by NuGet MSBuild
+SDKs). So the gates now read **facts of the real build**: `windows-ci`'s own Release build of `Boo.sln` and its publish
+of `Boo.App` write binary logs (`-bl`, nothing else changes), and the step **Build facts (the shipped build)** turns them
+into `build-facts.json`. This PR is the plumbing only; the banned-API and architecture judges are added on top later.
+
+**What is captured** (`scripts/quality/buildfacts`, a small .NET reader pinned to `MSBuild.StructuredLogger` 2.3.269
+and Roslyn 5.6.0 with a lock file, restored in locked mode): for every project / target framework / runtime identifier
+evaluated in each log: its global properties, key properties, every imported file (`<= importer`), every skipped import
+with the reason, `PackageReference` / `PackageDownload` / `ProjectReference` / `Reference` / `FrameworkReference`
+items, the packages and download dependencies restored into `obj/project.assets.json`, and the ProjectReferences really
+followed into the compile. For every `Csc` task that ran: its target and the file defining it, the task's assembly, the
+compiler, the whole command line with **every response file expanded** (and each response file's text), each
+`/analyzerconfig:` with its **text**, analyzers, additional files, sources, `/nowarn`, `/warnaserror`, `/ruleset`,
+`/errorlog` (with the SARIF log), Roslyn's own reading of the options, every reference with where it came from
+(ProjectReference, PackageReference, FrameworkReference, direct Reference) and the output assembly with its SHA-256. For
+the whole build: every task that ran (`Task | Target | file defining the target | task assembly`), every copy of an
+assembly with the source's SHA-256, every ReadyToRun compile (input and output with SHA-256) and the runtime packs.
+Paths are repo-relative or under a token. Every machine root is taken from the build's **own evaluated properties**
+(the SDK: `NetCoreRoot`, `DOTNET_HOST_PATH`; NuGet: `NuGetPackageRoot`, `NuGetPackageFolders`; `%ProgramFiles%`,
+`%ProgramFiles(x86)%`, `MSBuildProgramFiles32`; the Windows SDK and reference-assembly folders; `TEMP`, `RUNNER_TEMP`,
+the runner tool cache, `USERPROFILE`; every folder above the repository) plus this process's, and mapped to `<dotnet>/`,
+`<nuget>/`, `<programfiles>/`, `<programfiles-x86>/`, `<winsdk>/`, `<temp>/`, `<toolcache>/`, `<localappdata>/`,
+`<home>/`, `<repo-parent-N>/` and so on, case-insensitively, with either slash and in 8.3 short and long forms, longest
+root first. Paths may hold spaces (`C:\Program Files\dotnet` on windows-latest): a whole raw string is tokenised before
+it is ever split, the compiler path in a `Csc` line (logged unquoted) is cut at its own name, and arguments are split
+quote-aware. A root matches only as a whole folder: followed by a separator, a quote, a bracket, `;`, `,`, the end, or
+whitespace that starts the next argument (so `D:\a\my repo` never eats `D:\a\my repo 2`). Values are read only to find
+roots.
+
+**Secret guard.** The log's environment block is never read. `globalProperties` keep values only for reviewed property
+names (`PropertyFilter.Allowed`); any other is written `Name=<value not recorded>`. The MSBuild `commandLine` keeps **no
+property value at all**: every `-p:`/`/p:`/`-property:`/`--property:`/`-rp:`/`-restoreProperty:` value, in any case,
+quoted, repeated, or with pairs split by `;` or `,`, becomes `<value not recorded>`, and so does the value of every
+other switch except a short list whose values are fixed words or tokenised paths (`-m`, `-v`, `-tlp`, `-tl`, `-t`,
+`-restore`, `-nologo`, `-clp`, `-nr`, `-bl`). What is not covered: values the build itself writes into compiler inputs
+(for example `/define:` symbols or `build_property.*` lines in the generated analyzer config) are recorded, because the
+judges need them.
+
+**Path guard.** Any absolute path left after tokenising fails closed in both the reader and the check, naming the JSON
+path of the value (for example `$.binlogs[1].units[0].importsSkipped[12]`). It looks for every absolute-path shape, case
+insensitive, at any position after any delimiter (`:`, `@`, `;`, `,`, `[`, `=`, quotes, spaces): a drive letter (also
+inside `\\?\C:\`), a UNC path (`\\srv\`, `\\?\UNC\`), `//host/` (a URL's `scheme://` is allowed), a POSIX home (`/home/`,
+`/users/`, `/root/`), and an msys drive (`/c/`); a path character right before the shape means the middle of a relative
+path, which passes. It also refuses the user name. The fix for a hit is to add the root's property to
+`PathTokens.FromProperties`, never to widen the guard.
+
+`BuildFacts --self-test` proves the tokens on a GitHub-runner layout (`C:\Program Files\dotnet`,
+`C:\Users\runneradmin\.nuget\packages`, `D:\a\_temp`, `C:\PROGRA~1`), every kind of field on roots that hold spaces
+(the Csc compiler path unquoted, quoted and as `dotnet exec`; Csc arguments; the MSBuild command line; imports,
+references and copies; analyzer-config, response-file and skipped-import text), the root boundary, every path-guard
+shape and the relative paths and URLs that must pass, and the command-line filter (comma, semicolon, quoted, `/p:`,
+`-property:`, `-rp:`, repeated switches).
+Same logs, same file (sorted keys).
+
+**What fails closed** (`scripts/quality/build_facts.py check`, exit 1): malformed facts or a failed build; a machine
+path or the user name in the facts (by JSON path); a project of `Boo.sln` without a `Csc` call from `CoreCompile` in the
+build log; a `Csc` compile of any project **outside** the solution (the only exception is WPF's temporary markup
+project: `<dir>/<Name>_wpftmp.csproj`, after the reader drops its random part, next to a solution project
+`<dir>/<Name>.csproj` and compiling that project's own assembly name; any other `*_wpftmp.csproj` is an ordinary
+project); a `Csc` call
+with no output hash, a compiler or task class outside the SDK install, a command-line parse error, a response file (the
+SDK passes none, so build code added it), or a switch not in `scripts/quality/buildfacts/known.json`; any task not in
+`known.json` (so a target added by repo build code, a package or an MSBuild SDK that runs a task is unknown until
+reviewed; the check then prints the candidate `learn` lines for review); two solution projects compiling one assembly
+name; any recorded copy **into** a file named like a solution project's assembly whose source does not trace to that
+project's own compile; and any managed `.dll`/`.exe` in the publish folder that does not trace, hash for hash and under
+its own name, through recorded copies and ReadyToRun compiles to a recorded `Csc` output or to a restored package or
+runtime pack, or whose name belongs to a solution project but whose content is not that project's compile.
+`--self-test` proves each failure on planted facts.
+
+`fixtures` builds nine fixtures (`scripts/quality/buildfacts/fixtures/`) and quotes the facts lines that show each
+bypass. **Four only have to SHOW the bypass in the facts** (their judges come in #28 and #32): per-folder
+`.editorconfig` severity, the five conditions (Configuration, RuntimeIdentifier, `_IsPublishing`, SolutionName,
+`IsOSPlatform`), `PackageDownload` + `Exists()` import, and a NuGet MSBuild SDK; their check result is only reported.
+**Five must also FAIL the check**: `compiler-response-file` (response file), `tamper-after-compile` (a `Copy` over the
+compiled assembly right after `CoreCompile`: an unknown task), `tamper-publish` (an `Exec` that copies other code over
+the published `App.dll`: an unknown task and the hash trace), `same-name-compile` (a project outside the solution
+with `<AssemblyName>Lib</AssemblyName>`, moved over the judged `Lib.dll` only by the SDK's own allowed copy of a linked
+`None` item: an outside compile, and copies whose source is not `Lib`'s compile), and `fake-wpftmp` (an ordinary
+project outside the solution named `Extra/Extra_wpftmp.csproj`, referenced by the app, ships `Extra.dll`: an outside
+compile). `learn FACTS` lists task keys and
+switches that `known.json` does not hold yet; adding one is a reviewed change.
+
+Only `build-facts.json` is uploaded (artifact `build-facts`, 7 days, through its key scan); the binary logs never are,
+because they can hold environment values.
+
+**Still open (known holes):**
+- the workflow file itself: a PR can edit `windows-ci.yml` (drop `-bl`, the step, or `known.json`) and judge itself
+  (HANDOFF known issue 0); the first PR has no base-branch judge, so this PR's own copy judges it;
+- build code that lies to the logger: a task that writes files it does not log, or a compiler server or tool that is
+  not what its path says; the facts record what MSBuild logged;
+- hashes are taken when the reader runs, after the build: a file changed **in place** after the compile by a step the task rule allows (an SDK task fed crafted items): the
+  hash trace compares the publish folder with the compile output as it is on disk when the reader runs, so an
+  overwrite of the compile output itself is caught only by the task rule; replaying the recorded `csc` command (the
+  build is deterministic) would close it;
+- what the code does at run time (reflection, loading other assemblies, `Process.Start`) is not a build fact;
+- the reader and `build_facts.py` run from the PR's own tree and the repo's `Directory.Build.props` applies to the
+  reader's build; a later PR runs the base branch's copy (like the ratchet's `--rise-only`);
+- `known.json` was learned from one build on 13 Nov 2026 (SDK 10.0.403); an SDK or package change that runs a new
+  task fails closed until reviewed.
+
 ## Architecture rules (BOO-ARCH, `tests/Boo.Architecture.Tests`)
 
 Plan section 2.4 B, PR 1.11. A normal xUnit project that reads the compiled `src` assemblies, so it runs wherever the

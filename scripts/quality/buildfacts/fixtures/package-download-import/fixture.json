@@ -1,0 +1,40 @@
+{
+  "bypass": "PackageDownload + an Exists()-guarded import of build code from the downloaded package (PR #32 bypass)",
+  "builds": [
+    {
+      "label": "build",
+      "args": [
+        "build",
+        "App/App.csproj",
+        "-c",
+        "Release"
+      ]
+    }
+  ],
+  "projects": [
+    "App/App.csproj"
+  ],
+  "visible": [
+    {
+      "label": "build",
+      "project": "App/App.csproj",
+      "field": "packageDownloads",
+      "contains": "Microsoft.SourceLink.Common [8.0.0]"
+    },
+    {
+      "label": "build",
+      "project": "App/App.csproj",
+      "field": "imports",
+      "contains": "<nuget>/microsoft.sourcelink.common/8.0.0/build/Microsoft.SourceLink.Common.props <= App/App.csproj"
+    },
+    {
+      "label": "build",
+      "project": "App/App.csproj",
+      "field": "assets.downloadDependencies",
+      "contains": "Microsoft.SourceLink.Common"
+    }
+  ],
+  "check": {
+    "result": "report"
+  }
+}
