@@ -65,6 +65,14 @@ jobs:
 
       # Video of the demo run (agent-trust plan 2.8): records this GitHub VM's desktop, never a personal PC (the script
       # refuses unless RUNNER_ENVIRONMENT is github-hosted, BOO-SAFE-001). Pinned ffmpeg, SHA-256 checked.
+      # Every run first proves the video checker on known files (no screen capture): an empty file, random bytes and
+      # a good test-pattern MP4 cut in half must be rejected, the good one accepted. A broken checker fails the job.
+      - name: Recorder self-test (validator rejects empty/corrupt video)
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./scripts/ci/Record-Desktop.ps1 -SelfTest
+
+      # Minimises every open window first, so the windows the demos open come up on a clean desktop.
       - name: Start desktop video (GitHub VM only)
         timeout-minutes: 5
         shell: pwsh
@@ -89,7 +97,8 @@ jobs:
           $cert = Join-Path $evidence 'mock-api-openai.cer'
           $log = Join-Path $evidence 'mock-requests.log'
           $dll = Get-ChildItem tools\Boo.QaMockAi\bin\Release -Recurse -Filter Boo.QaMockAi.dll | Select-Object -First 1
-          $mock = Start-Process -FilePath dotnet -ArgumentList "`"$($dll.FullName)`" --port 443 --cert-out `"$cert`" --log `"$log`" --workspace `"$env:BOO_DEMO_WORKSPACE`"" -PassThru -RedirectStandardOutput "$evidence\mock-stdout.txt" -RedirectStandardError "$evidence\mock-stderr.txt"
+          # Hidden console so the mock's window never covers Boo in the demo video (output still goes to the files).
+          $mock = Start-Process -FilePath dotnet -ArgumentList "`"$($dll.FullName)`" --port 443 --cert-out `"$cert`" --log `"$log`" --workspace `"$env:BOO_DEMO_WORKSPACE`"" -PassThru -WindowStyle Hidden -RedirectStandardOutput "$evidence\mock-stdout.txt" -RedirectStandardError "$evidence\mock-stderr.txt"
           "mock pid $($mock.Id)"
           $deadline = (Get-Date).AddSeconds(60)
           while (-not (Test-Path $cert) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
@@ -126,11 +135,13 @@ jobs:
           try { Stop-Process -Id $mock.Id -Force -ErrorAction SilentlyContinue } catch { }
           exit $testExit
 
-      # Runs on failed demos too, so a red run still has its video. Fails if the video is missing, broken or above
-      # 25 MB (an oversized video is deleted, never uploaded).
+      # Runs on failed demos too, so a red run still has its video. Fails unless the video is non-empty, decodable, has a
+      # positive duration and frame count, and is at most 25 MB. A rejected video is kept as demo.rejected.mp4 with
+      # demo.rejected.txt (the reason and the checker output); only an oversized one is deleted, never uploaded.
+      # A good one gets six still frames (artifacts/demo-video/frames) so reviewers can see it without a player.
       - name: Stop desktop video
         if: ${{ !cancelled() }}
-        timeout-minutes: 3
+        timeout-minutes: 5
         shell: pwsh
         run: ./scripts/ci/Record-Desktop.ps1 -Stop
 
