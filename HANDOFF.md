@@ -280,7 +280,8 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
   voice turn on `feat/living-ink`; not re-verified independently.
 - **Pointer + ring with a real model, beyond PR #13's one target.** PR #13 (merged) adds live journey j3, which proves the
   ring runs through a known button's edges and the pointer lands on it (passed on `de9492f`, `7c5af8d`, `60930b9`,
-  `e86a107`, `87a1442` and, reading Boo's own overlay render, `d2f9827`), on one 1024x768 VM screen. Still
+  `e86a107`, `87a1442` and, reading Boo's own overlay render, `d2f9827` and `3168e40`; later runs in each PR's evidence
+  table), on one 1024x768 VM screen. Still
   UNVERIFIED: other targets, other DPI or multiple monitors, and **Windows animation effects off**: Boo then hides the
   pointer by design, and the journeys run with animations switched on.
 - **A manual run by Vikas on his PC**: the three demos and a real 25-minute focus session
