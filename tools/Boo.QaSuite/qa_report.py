@@ -5,8 +5,8 @@
 
 Each row is labelled the way docs/FEATURE_MAP.md and BOO-EVID-001 expect: live / BLOCKED / UNVERIFIED. Nothing is
 inferred as a pass: a check counts only if its test ran and passed in this run. Writes <evidence>/summary.md and, on
-GitHub, appends it to the job summary. Exit 0 = every expected group ran and every test passed (BLOCKED and
-UNVERIFIED rows are listed, never counted as passes); exit 1 otherwise. Reads no secrets.
+GitHub, appends it to the job summary. Exit 0 = every expected group, required journey and notch state is proven (BLOCKED and
+UNVERIFIED required rows fail the report); exit 1 otherwise. Reads no secrets.
 """
 import os
 import pathlib
@@ -155,6 +155,10 @@ def build(folder, run_url='', app_sha='', harness_sha='', models=''):
             table.append(f'| Notch state {s} | live | seen ({seen[s]}) | {link} |')
         else:
             table.append(f'| Notch state {s} | UNVERIFIED | not driven by this suite yet (plan row 2.11) | {link} |')
+    # Required journeys and faces must all be proven before full-app green.
+    for line in table:
+        if '| BLOCKED |' in line or '| UNVERIFIED |' in line or '| live | FAILED or not run' in line:
+            problems.append('Required coverage incomplete: ' + line.split('|')[1].strip())
     passed = sum(1 for r in rows if r[2] == 'Passed')
     verdict = 'SUITE GREEN' if not problems else 'SUITE RED'
     blocked = [line.split('|')[1].strip() for line in table if '| BLOCKED |' in line]
@@ -188,7 +192,7 @@ def self_test():
             trx(root / g / 'trx', [(f'Boo.QaSuite.X.T{g}.S0_Thing', 'Passed', '')])
         (root / 'journeys' / 'qa-notch-states-journeys.txt').write_text('10 Hidden\n20 Thinking\n', encoding='utf-8')
         text, green = build(root)
-        check('all groups passed -> green', green and 'SUITE GREEN' in text)
+        check('missing required coverage prevents green', not green and 'SUITE RED' in text)
         check('voice missing -> BLOCKED row, still not counted as a pass', '| Voice: real OpenAI voice round trip | BLOCKED |' in text)
         check('seen state -> live', '| Notch state Thinking | live |' in text)
         check('unseen state -> UNVERIFIED', '| Notch state Listening | UNVERIFIED |' in text)
@@ -213,7 +217,7 @@ def self_test():
             trx(root / g / 'trx', [(f'Boo.QaSuite.X.T.S0_A', 'Passed', '')])
         trx(root / 'smoke' / 'trx', [('Boo.LiveSmoke.LiveVoiceRoundTripTests.Voice_X', 'Passed', '')])
         text, green = build(root)
-        check('voice test present -> live row, no BLOCKED row', green and '| Voice: real OpenAI voice round trip | live | passed' in text
+        check('voice alone cannot satisfy undriven journeys', not green and '| Voice: real OpenAI voice round trip | live | passed' in text
               and '| BLOCKED |' not in text and '| Journey j9: Hold-to-talk with Ctrl+Alt+Space | UNVERIFIED |' in text)
     print('QA_REPORT_SELF_TEST_OK' if ok else 'QA_REPORT_SELF_TEST_FAILED')
     return 0 if ok else 1

@@ -340,3 +340,6 @@ Packaging for real use. What exists and what is missing:
   `2026-11-08-feat-boo-video-parity-plan.md`)
 - Evidence and native checklists: `docs/verification/`
 - Security review: `docs/security/2026-11-08-security-review.md`
+
+### 13 Nov: full-app acceptance correction (PR #54)
+Run https://github.com/vikas53953/bluey/actions/runs/43427902088 reports 22/22 implemented tests passed on app/harness 56c7e01be0fa165e696309e84b79f0babd1427d5. UNVERIFIED as full-app acceptance: voice and j7-j18 were not proven. Raw timeout evidence reports 0.1 seconds, so it does not prove the intended 45-second timeout. The newer minimum-duration assertion must run live. The report now fails closed on any required BLOCKED/UNVERIFIED journey or face. No QA PASS. Final independent review, draft-PR red proof, synthetic voice and expanded journeys remain pending.
