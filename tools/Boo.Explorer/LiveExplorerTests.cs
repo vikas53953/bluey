@@ -12,7 +12,8 @@ namespace Boo.Explorer;
 /// REAL key, real OpenAI (cheapest chat model, set by the workflow): chat, then the variations that need a reply in
 /// flight. Planned: 11 real-key requests of the hard cap 20, counted at Boo's network boundary by RequestMeter (never by
 /// the asks themselves); nothing retries. Every "while Boo is answering" step first proves a request is on the wire.
-/// Answers are asked as single code words so a stale or misplaced reply is unambiguous.
+/// Each answer carries a code word so a stale or misplaced reply is unambiguous. Replies the explorer interrupts are
+/// ~120 words long, so they are still on the wire when it acts (one-word replies finish within a second).
 /// </summary>
 [TestCaseOrderer("Boo.Demo.Tests.StepOrderer", "Boo.Explorer")]
 public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixture<LiveAppFixture>
@@ -47,7 +48,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         Explore("l02-newer-wins", faces =>
         {
             var panel = OpenPanel();
-            Ask(panel, "Reply with exactly the word BRAVO.", label: "l02 first (to be superseded)");
+            Ask(panel, "Write a 120-word paragraph about the Moon, then end with the word BRAVO.", label: "l02 first (to be superseded)");
             RequireReplyPending(panel, "BRAVO", "l02 first question still pending");
             Ask(panel, "Reply with exactly the word CHARLIE.", label: "l02 second (typed during the pending reply)");
             WaitForBooRowContaining(panel, "CHARLIE", AnswerTimeout);
@@ -55,7 +56,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
             var rows = Rows(panel);
             Boo.CaptureScreen("l02-newer-wins");
             var you = rows.Count(r => r.StartsWith("You: ", StringComparison.Ordinal) && (r.Contains("BRAVO") || r.Contains("CHARLIE")));
-            var staleBravo = BooRows(panel).Any(r => r.Contains("BRAVO", StringComparison.OrdinalIgnoreCase));
+            var staleBravo = BooRows(panel).Any(r => r.Contains("BRAVO", StringComparison.OrdinalIgnoreCase) || r.Contains("Moon", StringComparison.OrdinalIgnoreCase));
             Boo.WriteObservation("l02-newer-wins", $"rows='{string.Join(" || ", rows.TakeLast(6).Select(r => Shorten(r, 120)))}'\nyouRows={you} staleBravo={staleBravo} status='{Status(panel)}'");
             Assert.Equal(2, you);
             Assert.False(staleBravo, "The superseded question's answer (BRAVO) still appeared after a newer question was sent.");
@@ -69,7 +70,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         Explore("l03-settings-mid-chat", faces =>
         {
             var panel = OpenPanel();
-            Ask(panel, "Reply with exactly the word DELTA.", label: "l03 settings saved mid-reply");
+            Ask(panel, "Write a 120-word paragraph about rivers, then end with the word DELTA.", label: "l03 settings saved mid-reply");
             RequireReplyPending(panel, "DELTA", "l03 reply pending while settings are saved");
             var chirp = Find(panel, "ChirpMute").AsCheckBox();
             chirp.IsChecked = chirp.IsChecked != true;
@@ -119,7 +120,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         Explore("l05-storm", faces =>
         {
             var panel = OpenPanel();
-            Ask(panel, "Reply with exactly the word GOLF.", label: "l05 hover/hotkey storm during reply");
+            Ask(panel, "Write a 120-word paragraph about mountains, then end with the word GOLF.", label: "l05 hover/hotkey storm during reply");
             RequireReplyPending(panel, "GOLF", "l05 reply pending during the storm");
             var rng = Rng("l05");
             var hover = NotchHoverPoint();
@@ -181,7 +182,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         Explore("l07-kill-relaunch", faces =>
         {
             var panel = OpenPanel();
-            Ask(panel, "Reply with exactly the word INDIA.", label: "l07 killed mid-reply");
+            Ask(panel, "Write a 120-word paragraph about tea, then end with the word INDIA.", label: "l07 killed mid-reply");
             RequireReplyPending(panel, "INDIA", "l07 reply pending when Boo is killed");
             KilledOnPurpose = true;
             Boo.App.Kill();
