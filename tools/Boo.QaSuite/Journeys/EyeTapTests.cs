@@ -32,7 +32,7 @@ public sealed class EyeTapTests : IClassFixture<NoKeyFixture>
             Assert.Null(Panel());
             using var faceEvents = notch.RegisterPropertyChangedEvent(TreeScope.Element,
                 (_, _, value) => events.Enqueue((clock.ElapsedMilliseconds, value as string ?? "<invalid>")),
-                notch.Properties.ItemStatus.PropertyId);
+                notch.Automation.PropertyLibrary.Element.ItemStatus);
             var bounds = notch.BoundingRectangle;
             Mouse.Position = new Point(bounds.Left + bounds.Width / 2, bounds.Top + 300);
             Assert.True(BooAppFixture.WaitUntil(() => notch.Properties.ItemStatus.Value == "Hidden", TimeSpan.FromSeconds(5)));
