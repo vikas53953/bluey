@@ -175,3 +175,101 @@ and deliberate evasion is closed by the compiler, which sees the real names, typ
 - Exemption tags: `// INVARIANT: ... see NameTests.Method` is exempt when any file under `tests/` declares
   `class NameTests` and contains `Method(`. The barrier against a fake test is review: `tests/` is the frozen oracle, so
   a new test file needs a visible `scripts/test_oracle.py --extend` revision that the reviewer must check.
+
+## Architecture references (BOO-REF)
+
+Plan section 2.4 A, PR 1.2. [`scripts/quality/arch_refs.py`](../../scripts/quality/arch_refs.py) checks every project
+under `src/` against [`docs/architecture/layers.json`](../architecture/layers.json): which `src/` projects it may
+reference, which packages, which frameworks, and (for `Boo.Core` and `Boo.Providers`) which target framework it must
+stay on. The file is **exact both ways**: a reference it does not list fails, and an allowance the tree no longer uses
+also fails until it is removed, so the file always says what is true today.
+
+| Project | May reference projects | May reference packages | Frameworks (from the SDK) | Must stay on |
+| --- | --- | --- | --- | --- |
+| `Boo.Core` | none | none | `Microsoft.NETCore.App` | `net10.0` |
+| `Boo.Providers` | Core | none | `Microsoft.NETCore.App` | `net10.0` |
+| `Boo.Storage` | Core | `Microsoft.Data.Sqlite`, `System.Security.Cryptography.ProtectedData` | + Windows SDK | |
+| `Boo.Windows` | Core | `NAudio` | + Windows SDK, `Microsoft.WindowsDesktop.App` (WPF, WinForms) | |
+| `Boo.App` | Core, Windows, Providers, Storage | `Velopack` | + Windows SDK, `Microsoft.WindowsDesktop.App` | |
+
+**How it reads the references.** MSBuild itself evaluates each project (`dotnet msbuild <project>
+-getItem:ProjectReference -getItem:PackageReference -getItem:FrameworkReference -getItem:Reference -getItem:COMReference
+-getItem:Analyzer -getProperty:TargetFramework -getProperty:TargetFrameworks -p:EnableWindowsTargeting=true`: evaluation
+only, no restore, no build, a few seconds). So a reference added from `Directory.Build.props`, an `<Import>`,
+`Directory.Packages.props` or under a condition is seen exactly as the build sees it, and a project with several target
+frameworks is evaluated once per framework. The projects judged are the project files git would commit under `src/`
+(any `*proj` extension, any letter case). There is no text fallback: without `dotnet` the check fails, because a text
+reader would miss exactly those build-file routes. `--self-test` judges 31 planted graphs and 9 loosening cases with
+exact expected rule ids, and runs real MSBuild on 9 throwaway trees (an import, a false condition, a per-framework
+reference, `tools/` and `tests/` targets, a new project, a package, a DLL and an analyzer, a target change). `--show`
+prints what MSBuild reports, project by project.
+
+**A PR cannot loosen its own layers.** On a pull request the workflow also runs the **base branch's** `arch_refs.py`
+with the **base branch's** `layers.json` (both read from git) against the PR's tree, and refuses a PR `layers.json`
+that allows anything the base one does not (BOO-REF-008). Splitting "loosen" and "use" over two PRs fails the first one.
+
+**Changing the layers.** A new edge, package, framework or project is an architecture decision: the PR edits
+`layers.json` and says why, the owner approves, and the base-branch check (BOO-REF-008) is overridden once with the
+reason in the PR. Removing something only needs the PR's own `layers.json` to drop it (BOO-REF-007 asks for that).
+Package versions are not judged.
+
+| Rule | Fails when | Today |
+| --- | --- | --- |
+| [BOO-REF-001](#boo-ref-001) | a `src/` project references a `src/` project its row does not allow | 0 |
+| [BOO-REF-002](#boo-ref-002) | a `src/` project references anything that is not a `src/<Name>/<Name>.csproj` project (`tools/`, `tests/`, outside the repo) | 0 |
+| [BOO-REF-003](#boo-ref-003) | a package its row does not allow, or any direct `<Reference>`, `<COMReference>` or own `<Analyzer>` | 0 |
+| [BOO-REF-004](#boo-ref-004) | a project file under `src/` with no row, or not at `src/<Name>/<Name>.csproj` | 0 |
+| [BOO-REF-005](#boo-ref-005) | a framework reference its row does not allow, or a target framework other than the required one | 0 |
+| [BOO-REF-006](#boo-ref-006) | `layers.json` is malformed: unknown or missing keys, duplicates, an allowance naming no row, a self edge, a cycle | 0 |
+| [BOO-REF-007](#boo-ref-007) | `layers.json` allows or declares something the tree no longer has (the PR's own check only) | 0 |
+| [BOO-REF-008](#boo-ref-008) | the PR's `layers.json` allows more than the base branch's (the base-branch check only) | n/a |
+
+## BOO-REF-001
+**A project reference the layers do not allow** (for example `Boo.Windows` → `Boo.Providers` "to reuse a helper").
+One such edge ties two layers together for good. **Fix:** move the shared code down into a project both may reference
+(usually `Boo.Core`, as plain values or an interface), or do the wiring in `Boo.App`. **Do NOT** add the edge to
+`layers.json` to make the check pass.
+
+## BOO-REF-002
+**A reference that leaves `src/`.** `tools/` and `tests/` are not shipped and not judged; `tests/` is the frozen oracle.
+**Fix:** move the code the product needs into a `src/` project, or turn the dependency around. **Do NOT** copy the
+project into `src/` under a new name or link its files in with `<Compile Include>`.
+
+## BOO-REF-003
+**A package, assembly or analyzer the layer does not allow.** A package in the wrong layer breaks it from below without
+any project reference. **Fix:** put the code that needs it in the layer that owns that kind of work. **Do NOT**
+reference the DLL directly or add the package from `Directory.Build.props`; MSBuild reports both.
+
+## BOO-REF-004
+**An undeclared project.** A project without a row has no rules. **Fix:** put it at `src/<Name>/<Name>.csproj` and add
+its row, with the smallest set of references it needs, in the same PR (owner approval, see Changing the layers).
+**Do NOT** put product code in `tools/` or `tests/` instead.
+
+## BOO-REF-005
+**A framework the layer does not allow.** `Boo.Core` and `Boo.Providers` stay on plain `net10.0`, so WPF, WinForms and
+Windows APIs are impossible there. **Fix:** keep Windows-only code in `Boo.Windows` or `Boo.App`. **Do NOT** add
+`-windows` or a `<FrameworkReference>` to reach one Windows type.
+
+## BOO-REF-006
+**A broken rule file.** **Fix:** known keys only, lists of distinct names, no self edge, no cycle. **Do NOT** delete
+the file or a row to silence it.
+
+## BOO-REF-007
+**An unused allowance (good news).** **Fix:** remove it from `layers.json` in the same PR, so the gain is locked in.
+**Do NOT** add a dummy reference to keep it.
+
+## BOO-REF-008
+**A PR that loosens `layers.json`.** **Fix:** the owner approves the new allowance and overrides the check once, with
+the reason in the PR. **Do NOT** split the loosening and its use into two PRs.
+
+## Known gaps (architecture references)
+
+| Gap | Example | Closed by |
+| --- | --- | --- |
+| References added while building, not while evaluating | a `<Target BeforeTargets="ResolveProjectReferences">` that adds a `ProjectReference` or `PackageReference` item | not yet: a follow-up can read `obj/project.assets.json` after restore in a build job |
+| Packages a package brings with it | `Microsoft.Data.Sqlite` brings `SQLitePCLRaw.*`; only direct references are judged | by design (the direct choice is the decision); versions are not judged either |
+| Sharing code without a reference | `<Compile Include="../Boo.Providers/X.cs" Link="X.cs"/>` | PR 1.3's compile-list check (what each project compiles must be its own files) |
+| Loading code at run time | `Assembly.LoadFrom`, `[DllImport]` of a DLL by path, reflection | type-level rules (PR 1.11, BOO-ARCH) and review |
+| Projects outside `src/` | `tools/` and `tests/` references are not judged (plan 2.4 lists today's test references as their allowlist) | a later PR |
+| The PR supplies the workflow, `global.json` and `Directory.Build.props` the check runs with | a PR that edits `quality-gates.yml` | HANDOFF.md known issue 0 (CODEOWNERS, pending) |
+| Merge order with PR 1.3 (#28) | #28 adds the `Microsoft.CodeAnalysis.BannedApiAnalyzers` package to every `src/` project from `Directory.Build.props`, which this check reports (BOO-REF-003) until `layers.json` allows it | the second of the two PRs to merge adds `"all_src_projects": {"packages": ["Microsoft.CodeAnalysis.BannedApiAnalyzers"]}` |

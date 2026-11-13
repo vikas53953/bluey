@@ -1,0 +1,33 @@
+{
+  "about": "Allowed references of every src/ project, exactly as the tree has them today (13 Nov 2026, lane/face 0122ac7). Checked by scripts/quality/arch_refs.py through MSBuild's own evaluation. Anything not listed fails; anything listed but unused also fails. A new edge, package, framework or project is an owner decision: the base branch's copy of this file refuses any loosening.",
+  "rules": "docs/quality/RULES.md#architecture-references-boo-ref",
+  "projects": {
+    "Boo.Core": {
+      "target_frameworks": ["net10.0"],
+      "projects": [],
+      "packages": [],
+      "framework_references": ["Microsoft.NETCore.App"]
+    },
+    "Boo.Providers": {
+      "target_frameworks": ["net10.0"],
+      "projects": ["Boo.Core"],
+      "packages": [],
+      "framework_references": ["Microsoft.NETCore.App"]
+    },
+    "Boo.Storage": {
+      "projects": ["Boo.Core"],
+      "packages": ["Microsoft.Data.Sqlite", "System.Security.Cryptography.ProtectedData"],
+      "framework_references": ["Microsoft.NETCore.App", "Microsoft.Windows.SDK.NET.Ref.Windows"]
+    },
+    "Boo.Windows": {
+      "projects": ["Boo.Core"],
+      "packages": ["NAudio"],
+      "framework_references": ["Microsoft.NETCore.App", "Microsoft.Windows.SDK.NET.Ref.Windows", "Microsoft.WindowsDesktop.App"]
+    },
+    "Boo.App": {
+      "projects": ["Boo.Core", "Boo.Windows", "Boo.Providers", "Boo.Storage"],
+      "packages": ["Velopack"],
+      "framework_references": ["Microsoft.NETCore.App", "Microsoft.Windows.SDK.NET.Ref.Windows", "Microsoft.WindowsDesktop.App"]
+    }
+  }
+}
