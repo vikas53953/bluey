@@ -7,8 +7,8 @@ rules, revision 25). Both changes make BOO-ARCH-002/003 catch **more**; no offen
 
 | File | Before | After |
 | --- | --- | --- |
-| `tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs` | An approval in BOO-ARCH-002 counted when the type came from an assembly whose **name** is on `CoreApprovedAssemblies` | The assembly must also carry one of Microsoft's public key tokens (`MicrosoftKeyTokens`). A local project or package renamed to, say, `System.Runtime.Intrinsics` is no longer trusted. |
-| `tests/Boo.Architecture.Tests/CecilScan.cs` | Attributes were scanned on types and their fields, properties, events and methods | Also on method parameters, return values and generic parameters (attribute type and any `typeof` argument). The summary now names what is still not scanned: attributes on the assembly or module itself (the one that matters, `[module: UnverifiableCode]`, is checked separately), generic constraints, catch clause types, compiled XAML. |
+| `tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs` | An approval in BOO-ARCH-002 counted when the type came from an assembly whose **name** is on `CoreApprovedAssemblies` | The reference must also carry one of Microsoft's public key tokens (`MicrosoftKeyTokens`), **and** the type must really exist in the installed .NET runtime (`CecilScan.IsFromInstalledRuntime`). A name or token is only a claim (.NET does not check strong-name signatures); the runtime lookup is what stops a project or package renamed to, say, `System.Runtime.Intrinsics`, however it is signed. |
+| `tests/Boo.Architecture.Tests/CecilScan.cs` | Attributes were scanned on types and their fields, properties, events and methods | Also on method parameters, return values and generic parameters (attribute type and any `typeof` argument). New `IsFromInstalledRuntime`: resolves a type with a resolver that searches only the shared framework folder of the running .NET (type forwarders followed) and checks the file it came from is in that folder. The summary names what is still not scanned: attributes on the assembly or module itself (the one that matters, `[module: UnverifiableCode]`, is checked separately), generic constraints, catch clause types, compiled XAML. |
 
 Decision: ACCEPT.
 
@@ -16,14 +16,16 @@ Decision: ACCEPT.
 
 - Purely stricter: each change adds a way to fail, none removes one. No assertion, allowlist, budget, timeout or `Skip`
   changed; the 6 `[Fact]`s are the same.
-- On `lane/face` `a3ba89e` all 6 rules still pass with the change (today's references all come from Microsoft-signed
-  framework assemblies: tokens `b03f5f7f11d50a3a`, `cc7b13ffcd2ddd51`, `b77a5c561934e089`).
+- On `lane/face` `a3ba89e` all 6 rules still pass with the change (every approved type Core uses today is found in
+  the installed runtime, and its references carry the Microsoft tokens `b03f5f7f11d50a3a` or `cc7b13ffcd2ddd51`).
 
-## Red proof (labelled **local**; a CI run link is in the PR description)
+## Red proof
 
-- A throwaway project with `AssemblyName` `System.Runtime.Intrinsics` (an approved name) and a type in the approved
-  namespace `System.Linq` that writes a file, called from Core: caught as `Boo.Core.RedProbeImposter`
-  (`System.Linq.RedFakeDisk` not approved). Without the token check its name and namespace would both pass.
-- `[DefaultValue(typeof(FileInfo), "x")]` on a method **parameter** in Core: caught as `Boo.Core.RedProbeParamAttribute`
-  (`DefaultValueAttribute`, `FileInfo`). Before this revision parameter attributes were not scanned.
-- With the probes removed all 6 rules pass.
+- **CI** (first head `cfe60ba`, run [43396744177](https://github.com/vikas53953/bluey/actions/runs/43396744177), throwaway
+  branch `tmp/arch-followups-red-proof`, deleted): BOO-ARCH-002 named both probes, `RedProbeImposter` (a type in the
+  approved namespace `System.Linq` from a project named `System.Runtime.Intrinsics`) and `RedProbeParamAttribute`
+  (`[DefaultValue(typeof(FileInfo), "x")]` on a parameter); the other 5 rules passed. The run for this head's code is in
+  the PR description.
+- **Local** (labelled **local**), with the key-token check switched off for the run: the imposter is still caught by
+  the runtime lookup alone (`System.Linq.RedFakeDisk` not approved), and probes with the same attribute on a **return
+  value** and on a **generic parameter** are caught too. With the probes removed and the check restored all 6 rules pass.

@@ -9,8 +9,7 @@ namespace Boo.Architecture.Tests;
 /// Reference scan over a compiled assembly (Mono.Cecil, the library NetArchTest is built on). A type references X when
 /// X is its base type or an interface, the type of one of its fields, properties, events, parameters, return values or
 /// locals, a custom attribute on it, its members, their parameters, return values or generic parameters, or when its
-/// code calls, reads, writes, constructs, casts to or
-/// takes typeof of a member or type of X (generic arguments and arrays included: List&lt;X&gt;, X[]). What counts is
+/// code calls, reads, writes, constructs, casts to or takes typeof of a member or type of X (generic arguments and arrays included: List&lt;X&gt;, X[]). What counts is
 /// decided by the caller's predicates (a type predicate, and a member predicate for calls and field reads), so a rule
 /// can be an allowlist ("only these framework types") instead of a list of bad types that always misses one.
 /// Results are per outermost type (compiler-made nested types such as lambdas and async state machines count towards
@@ -37,6 +36,34 @@ internal static class CecilScan
             if (!string.IsNullOrEmpty(dir)) resolver.AddSearchDirectory(dir);
         }
         return ModuleDefinition.ReadModule(assembly.Location, new ReaderParameters { AssemblyResolver = resolver });
+    }
+
+    private static readonly string RuntimeDirectory = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+
+    private static readonly Lazy<MetadataResolver> RuntimeOnly = new(() =>
+    {
+        var resolver = new DefaultAssemblyResolver();
+        foreach (var dir in resolver.GetSearchDirectories()) resolver.RemoveSearchDirectory(dir);
+        resolver.AddSearchDirectory(RuntimeDirectory);
+        return new MetadataResolver(resolver);
+    });
+
+    /// <summary>True when the type really exists in the .NET runtime installed on this machine (the shared framework
+    /// folder, type forwarders followed), not just in an assembly that borrows a framework name or key token. Looked up
+    /// with a resolver that searches only that folder; a type that cannot be found there is not from the runtime.</summary>
+    public static bool IsFromInstalledRuntime(TypeReference type)
+    {
+        TypeDefinition? definition;
+        try
+        {
+            definition = RuntimeOnly.Value.Resolve(type);
+        }
+        catch (AssemblyResolutionException)
+        {
+            return false; // the claimed assembly is not part of the installed runtime: not approved
+        }
+        return definition is not null
+               && string.Equals(Path.GetDirectoryName(definition.Module.FileName), RuntimeDirectory, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>True when the assembly was compiled with unsafe code allowed ([module: UnverifiableCode]): raw pointers

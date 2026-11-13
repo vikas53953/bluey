@@ -12,9 +12,9 @@
     "docs/verification/acceptance-shell-failures.md": "d56e2b3b22eec4d986285de30cf37104c237496c94c4bf4f41b5d83d7836cec3",
     "docs/verification/public-contracts.md": "43918f2fdedcb39cc617434f2d07a0895a77c8195fbf9b197b0313a5292fa632",
     "src/Boo.Core/Contracts.cs": "035ec5798f7b09b89068cab1b42b0667a484a42eb2d28fa14852b12b3a850caf",
-    "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "54d89f470acff9bcc6e10d97f938f084f85d56a9e660ef7e831a251c8ac3ae48",
+    "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "8e476177a6eeb7cdf897ff30306fea15fdcc5168da5b2d4829d9c8a27f4ce1fe",
     "tests/Boo.Architecture.Tests/Boo.Architecture.Tests.csproj": "8587ecb45245fa2141bed6746514e6097653c2751ffcd1a878b06ff2b5665029",
-    "tests/Boo.Architecture.Tests/CecilScan.cs": "b6a9ec0a922f2240844546c42f5b56bceffbd6606269de48d5af88cd1eb96c53",
+    "tests/Boo.Architecture.Tests/CecilScan.cs": "0a87e83d46da7e90aa6ffebb39df1835a86c5014edefd59197a8abeccae33235",
     "tests/Boo.Core.Tests/AccessibilityPreferencesTests.cs": "267b52de838c26b4549c27868f19a2f3655865c18ab0854c7ce69b89c7fd111a",
     "tests/Boo.Core.Tests/ActionPolicyTests.cs": "fd7bb663e0c1ce773d76760e49c7e2aac79efcb12d0db8f135e462168d063c15",
     "tests/Boo.Core.Tests/ActionPreviewTests.cs": "9b4fdc7645a68c482899bc1712e94cb7b6fa0d27e3da9b100b8e54391ff34148",
@@ -152,9 +152,9 @@
   },
   "previousManifest": "docs/verification/test-oracle-history/revision-25.json",
   "previousManifestSha256": "e6347b90077bb84eb87fd4325673ed4694a7a0acb298dfe06c5f47dfb496fb75",
-  "revisionReason": "PR #40: follow-ups from the final review of PR #31; BOO-ARCH-002 also requires a Microsoft public key token on approved framework assemblies, and CecilScan also scans parameter, return-value and generic-parameter attributes. Both stricter; no assertion, allowlist or budget changed. See docs/verification/test-oracle-revision-26.md",
+  "revisionReason": "PR #40: follow-ups from the final review of PR #31; a BOO-ARCH-002 approval only counts for a type found in the installed .NET runtime (plus a Microsoft key token on the reference), and CecilScan also scans parameter, return-value and generic-parameter attributes. Stricter only; no assertion, allowlist or budget changed. See docs/verification/test-oracle-revision-26.md",
   "addedFiles": [],
-  "revisionCommit": "a3ba89e83e3b858e50f920dec6d301cc06ec3d66",
+  "revisionCommit": "cfe60badb3c71bd2c1fe2def34a75fc15475dcd1",
   "changedFiles": [
     "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs",
     "tests/Boo.Architecture.Tests/CecilScan.cs"

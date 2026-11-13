@@ -55,16 +55,17 @@ public sealed class ArchitectureRuleTests
         "System.Threading.Tasks",
     ];
 
-    /// <summary>002: the framework assemblies an approval can come from. A namespace or type name is only trusted when
-    /// the type really comes from one of these (a package could declare types in any namespace it likes; NuGet reserves
-    /// the System.* package names for Microsoft).</summary>
-    /// <summary>002: Microsoft's public key tokens for framework assemblies. An approved assembly name only counts with
-    /// one of these, so a local project or package renamed to, say, System.Memory is not trusted.</summary>
+    /// <summary>002: Microsoft's public key tokens for framework assemblies; a reference claiming another token is not
+    /// trusted. A token is only a claim (.NET does not check strong-name signatures), so CoreMayUse also looks the type up
+    /// in the installed .NET runtime itself (CecilScan.IsFromInstalledRuntime).</summary>
     public static readonly string[] MicrosoftKeyTokens =
     [
         "b03f5f7f11d50a3a", "cc7b13ffcd2ddd51", "b77a5c561934e089", "7cec85d7bea7798e", "31bf3856ad364e35", "adb9793829ddae60",
     ];
 
+    /// <summary>002: the framework assemblies an approval can come from. A namespace or type name is only trusted when
+    /// the type really comes from one of these, as installed with .NET (a package or project could declare types in any
+    /// namespace and under any assembly name it likes).</summary>
     public static readonly string[] CoreApprovedAssemblies =
     [
         "System.Runtime", "System.Collections", "System.Collections.Concurrent", "System.Collections.Immutable", "System.Linq",
@@ -182,7 +183,8 @@ public sealed class ArchitectureRuleTests
         if (!MicrosoftKeyTokens.Contains(Convert.ToHexString(from.PublicKeyToken ?? []).ToLowerInvariant())) return false;
         if (CoreDeniedTypes.Contains(type.FullName)) return false;
         var ns = CecilScan.NamespaceOf(type);
-        return CoreApprovedNamespaces.Contains(ns) || CoreApprovedTypes.Contains(type.FullName) || CoreApprovedMembers.ContainsKey(type.FullName);
+        var approved = CoreApprovedNamespaces.Contains(ns) || CoreApprovedTypes.Contains(type.FullName) || CoreApprovedMembers.ContainsKey(type.FullName);
+        return approved && CecilScan.IsFromInstalledRuntime(type);
     }
 
     private static bool CoreMayNotCall(MemberReference member) =>
