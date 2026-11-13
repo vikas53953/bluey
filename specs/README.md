@@ -56,8 +56,14 @@ it yet. It is finding F10 in `docs/architecture/notch-lifecycle.md` (section 5) 
   field-only paths, and the file gap's trace has no field edits). Also approximated: a reply that arrives while a
   card is up keeps the old card (the code replaces it), and a field undo can be planned without a frame (the code
   refuses).
-- Local steps with no provider wait (taking or skipping the screenshot, planning a typed undo, the end of a spoken
-  undo, a typed request's finally) are fair; the provider is not.
+- Local steps with no provider wait (taking or skipping the screenshot, planning a typed undo, a typed request's
+  finally, which the 45 s HTTP timeout bounds) are fair; the provider is not. The end of a spoken undo is not fair:
+  it may await a network interrupt with no timeout of its own.
+- `LIVE_1_THINKING` allows new user input (Send, Talk button, a new hold) as an escape, like `LIVE_2`, so it can
+  only fail on a silent provider (finding F7), and its "gap now passes" tripwire can fire once F7 is fixed.
+- The Responding moment may expire in the model even while audio deltas keep refreshing it in the code (more
+  permissive, fine for "eventually"). In-flight work becomes stale on StopListening only when a voice session is
+  open; the code also counts a voice client still connecting during a typed Send.
 - Time is steps, not milliseconds: the render loop and the moment timers are fair actions; the user and the AI
   provider are not fair (they may never act).
 - Request generations are a "still current" flag on each piece of in-flight work. This is exact, because the

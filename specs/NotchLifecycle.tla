@@ -294,7 +294,7 @@ Send(k) ==
     /\ typed = None
     /\ NewRequest(TRUE, [kind |-> k, cur |-> TRUE, cap |-> "Pre"], "Off", "Off", FALSE)
     /\ UNCHANGED <<chord, eyes>>
-    /\ Fin("Other")
+    /\ Fin("Input")
 
 \* [F14] the capture indicator goes on AFTER Thinking already pinned the notch (doc INV-PRIV-2 row).
 TypedCapture ==
@@ -460,7 +460,7 @@ TalkButton ==
                /\ UNCHANGED <<chord, eyes, focus, focusEnds>>
           ELSE /\ NewRequest(FALSE, Stale(typed), "Other", "Button", TRUE)
                /\ UNCHANGED <<chord, eyes>>
-    /\ Fin("Other")
+    /\ Fin("Input")
 
 \* [H1] [H2] [F12] [F24] TalkDown (chord) / eyes held >= 200 ms. A second holder only joins (no command).
 \* First holder: StartListening -> StartPushToTalk (MainWindow.Talk.cs:225-276): reuse an open push-to-talk
@@ -477,7 +477,7 @@ TalkDown(s) ==
                         /\ UNCHANGED <<flagV, voice, workV, applyV>>)
                   ELSE NewRequest(FALSE, Stale(typed), "Ptt", "Hold", TRUE)
     /\ UNCHANGED <<hovered, focusV>>
-    /\ Fin("Other")
+    /\ Fin("Input")
 
 \* [H3] one holder released, the other still held: nothing. [H4] [H5] [H7] last release: StopAndSend or
 \* Cancel; both run StopPushToTalkMic first (MainWindow.Talk.cs:384-397), which ALWAYS turns the indicator
@@ -699,8 +699,9 @@ Next ==
     /\ Active' <= MaxActive
 
 \* Fairness ONLY for real local drivers: the render loop (Tick), the moment timers, and steps that are pure
-\* local code with no provider wait (taking or skipping the screenshot, planning a typed undo, the end of a
-\* spoken undo, and a typed request's finally, which the 45 s HTTP timeout guarantees). The user and the AI
+\* local code with no provider wait (taking or skipping the screenshot, planning a typed undo, and a typed
+\* request's finally, which the 45 s HTTP timeout guarantees). The end of a spoken undo is NOT fair: it may
+\* await realtime.InterruptAsync with no timeout of its own (MainWindow.Edits.cs:144-150). The user and the AI
 \* provider get none, so "the provider never answers" is a legal behaviour (that is doc finding F7). The
 \* local steps are guarded by alive, so nothing is owed after Quit.
 Fairness ==
@@ -711,7 +712,6 @@ Fairness ==
     /\ WF_vars(alive /\ (TypedCapture \/ TypedNoFrame))
     /\ WF_vars(alive /\ TypedUndoPlan)
     /\ WF_vars(alive /\ TypedEnd)
-    /\ WF_vars(alive /\ VUndoDone)
 
 Spec == Init /\ [][Next]_vars /\ Fairness
 
@@ -732,7 +732,7 @@ TypeOK ==
     /\ fileJ \in {"none", "edit", "undo"} /\ fieldJ \in {"none", "edit"}
     /\ focus \in {"Off", "Running", "Paused"} /\ focusEnds \in 0..2
     /\ effect \in {None} \cup Effects
-    /\ last \in {"Other", "Stop", "QuietEnd"}
+    /\ last \in {"Other", "Input", "Stop", "QuietEnd"}
 
 \* INV-PRIV-1 (doc 4, today's form): the mic indicator or a capture is on => the notch is out (Revealing
 \* counts: the 240 ms slide has started) and shows Listening or Capture.
@@ -791,9 +791,11 @@ INV_APPLY_2_FILE ==
 \* by a new Start, or open at quit, closes with none.
 INV_FOCUS_1_EXACT == last # "QuietEnd"
 
-\* LIVE-1, Thinking part (doc finding F7): Thinking always ends. Breaks: no local timeout; a silent
-\* provider (or a typed question handed to voice) leaves Thinking on forever.
-LIVE_1_THINKING == thinking ~> ~thinking
+\* LIVE-1, Thinking part (doc finding F7): Thinking always ends, unless new user input (Send, Talk button,
+\* a new hold: last = "Input") arrives first or Boo quits. The escape matters: without it a user who keeps
+\* asking keeps Thinking on, so the check would still fail after F7 were fixed. Breaks: no local timeout; a
+\* silent provider after a voice turn (or after a typed question handed to voice) leaves Thinking on forever.
+LIVE_1_THINKING == thinking ~> (~thinking \/ ~alive \/ last = "Input")
 
 \* INV-TALK-1 as written (doc finding F10): after the last release, the microphone DEVICE is off. Breaks the
 \* same way as INV_PRIV_1_DEVICE: the Talk-button audio survives the release (or the 120 s hold timeout).
