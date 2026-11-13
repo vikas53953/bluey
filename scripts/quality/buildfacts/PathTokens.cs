@@ -111,7 +111,7 @@ sealed class PathTokens
                 }
 
                 // A root counts only as a whole folder: followed by a separator or the end of the path.
-                text = Regex.Replace(text, Regex.Escape(form) + @"(?:[\\/]+|(?=[""';,\s\])]|$))", token, RegexOptions.IgnoreCase);
+                text = Regex.Replace(text, Regex.Escape(form) + @"(?:[\\/]+|(?=[""';,\])]|$|\s+(?:[-/@""]|$)))", token, RegexOptions.IgnoreCase);
             }
         }
 
@@ -204,9 +204,42 @@ sealed class PathTokens
     // -----------------------------------------------------------------------------------------------------------------
     // The guard: every string value in the facts, by its JSON path.
     // -----------------------------------------------------------------------------------------------------------------
-    static readonly Regex Drive = new(@"(?<![A-Za-z0-9])[A-Za-z]:[\\/]", RegexOptions.Compiled);
-    static readonly Regex Unc = new(@"(?:^|[\s""'=(])\\\\[A-Za-z0-9.$-]+\\", RegexOptions.Compiled);
-    static readonly Regex Home = new(@"(?:^|[\s""'=])/(?:home|Users)/[^/\s""]+", RegexOptions.Compiled);
+    // Any absolute-path shape, case-insensitive, at any position after any delimiter: a drive letter (also inside
+    // \\?\C:\), a UNC path (\\srv\, \\?\UNC\), //host/ (but not a URL's scheme://), a POSIX home (/home, /users, /root),
+    // an msys drive (/c/). A path character right before the shape means it is the middle of a relative path.
+    const string NotInPath = @"(?<![A-Za-z0-9_.~$>)\]\\/-])";
+    static readonly Regex[] Shapes =
+    [
+        new(@"(?<![A-Za-z0-9])[A-Za-z]:[\\/]", RegexOptions.Compiled),
+        new(NotInPath + @"\\\\[^\\/\s""'<>|]+[\\/]", RegexOptions.Compiled),
+        new(NotInPath + @"/(?:home|users|root)/[^/\s""']", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(NotInPath + @"/[A-Za-z]/[^/\s""']", RegexOptions.Compiled),
+    ];
+
+    static readonly Regex SlashSlash = new(NotInPath + @"//[A-Za-z0-9._$?-]+/", RegexOptions.Compiled);
+    static readonly Regex UrlScheme = new(@"(?:^|[\s""'(\[<=,;])[A-Za-z][A-Za-z0-9+.-]*:$", RegexOptions.Compiled);
+
+    public static Match? AbsolutePath(string s)
+    {
+        foreach (var regex in Shapes)
+        {
+            var m = regex.Match(s);
+            if (m.Success)
+            {
+                return m;
+            }
+        }
+
+        for (var m = SlashSlash.Match(s); m.Success; m = m.NextMatch())
+        {
+            if (!UrlScheme.IsMatch(s[..m.Index]))
+            {
+                return m;
+            }
+        }
+
+        return null;
+    }
 
     public static List<string> Leaks(JsonNode? node, string? userName)
     {
@@ -242,16 +275,12 @@ sealed class PathTokens
 
     static void Check(string s, string where, List<string> found, string? userName)
     {
-        foreach (var regex in new[] { Drive, Unc, Home })
+        if (AbsolutePath(s) is { } m)
         {
-            var m = regex.Match(s);
-            if (m.Success)
-            {
-                var start = Math.Max(0, m.Index - 50);
-                var around = s.Substring(start, Math.Min(s.Length - start, 110)).Replace("\r", "").Replace("\n", "\\n");
-                found.Add($"{where}: ...{around}...");
-                return;
-            }
+            var start = Math.Max(0, m.Index - 50);
+            var around = s.Substring(start, Math.Min(s.Length - start, 110)).Replace("\r", "").Replace("\n", "\\n");
+            found.Add($"{where}: ...{around}...");
+            return;
         }
 
         if (userName is { Length: >= 3 } && s.Contains(userName, StringComparison.OrdinalIgnoreCase))
@@ -281,8 +310,10 @@ sealed class PathTokens
     }
 }
 
-// Global properties and the MSBuild command line: only reviewed property names keep their values, so a future
-// `-p:Name=secret` never reaches the facts (the name is kept so the property stays visible).
+// Global properties keep values only for reviewed property names, so `-p:Name=secret` never reaches the facts (the
+// name stays visible). The MSBuild command line keeps NO property values at all, and no value of any switch that is
+// not on a short reviewed list: MSBuild splits property pairs on ';' AND ',', accepts quotes and repeated switches, so
+// filtering pair by pair cannot be complete. The filtered globalProperties carry the reviewed values.
 static class PropertyFilter
 {
     public static readonly HashSet<string> Allowed = new(StringComparer.OrdinalIgnoreCase)
@@ -302,25 +333,23 @@ static class PropertyFilter
 
     public static string Pair(string key, string value) => key + "=" + (Allowed.Contains(key) ? value : Hidden);
 
-    static readonly Regex PropertySwitch =
-        new(@"^(?<sw>[-/]{1,2}(?:p|property|rp|restoreproperty)):(?<rest>.*)$", RegexOptions.IgnoreCase);
-
-    // One MSBuild command-line argument with every property value not on the list replaced.
-    public static string Argument(string arg)
+    // Switches whose value is a fixed word or a path the tokens cover.
+    static readonly HashSet<string> SafeValueSwitches = new(StringComparer.OrdinalIgnoreCase)
     {
-        var m = PropertySwitch.Match(arg);
-        if (!m.Success)
-        {
-            return arg;
-        }
+        "m", "maxcpucount", "v", "verbosity", "tlp", "terminalloggerparameters", "tl", "terminallogger", "t", "target",
+        "restore", "r", "nologo", "clp", "consoleloggerparameters", "nr", "nodereuse", "bl", "binarylogger",
+    };
 
-        var pairs = m.Groups["rest"].Value.Split(';').Select(pair =>
-        {
-            var eq = pair.IndexOf('=');
-            return eq < 0 ? pair : Pair(pair[..eq], pair[(eq + 1)..]);
-        });
-        return m.Groups["sw"].Value + ":" + string.Join(";", pairs);
-    }
+    // A switch anywhere in the text (an argument can hold several when the logged line's quotes are unbalanced). Its
+    // value runs to the next switch or the end, so a quoted value with spaces is hidden whole; hiding a following plain
+    // argument too is the safe side.
+    static readonly Regex Switch = new(
+        @"(?<=^|[\s""'])(?<sw>[-/]{1,2}(?<name>[A-Za-z][A-Za-z0-9_.-]*))(?<sep>[:=])(?<value>.*?)(?=\s+[""']?[-/][A-Za-z]|[""']?\s*$)",
+        RegexOptions.Singleline);
+
+    // One MSBuild command-line argument: every switch in it keeps its value only when it is on the safe list.
+    public static string Argument(string arg) => Switch.Replace(arg, m =>
+        SafeValueSwitches.Contains(m.Groups["name"].Value) ? m.Value : m.Groups["sw"].Value + m.Groups["sep"].Value + Hidden);
 }
 
 // Command lines whose paths may hold spaces (C:\Program Files\dotnet). Never split first and tokenise after: a split

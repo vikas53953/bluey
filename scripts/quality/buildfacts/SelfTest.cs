@@ -84,12 +84,55 @@ static class SelfTest
             failures.Add($"global properties: {pair}");
         }
 
-        var argument = PropertyFilter.Argument("--property:Configuration=Release;Secret=xyz789");
-        var other = PropertyFilter.Argument("-p:Other=hush42");
-        if (argument.Contains("xyz789", StringComparison.Ordinal) || other.Contains("hush42", StringComparison.Ordinal)
-            || !argument.Contains("Configuration=Release", StringComparison.Ordinal))
+        // The MSBuild command line keeps no property value, whatever the spelling.
+        foreach (var arg in new[]
         {
-            failures.Add($"command line: {argument} / {other}");
+            "-p:Configuration=Release,MySecret=hunter2zz", "-p:Configuration=Release;MySecret=hunter2zz",
+            "/p:MySecret=hunter2zz", "-property:MySecret=hunter2zz", "--property:MySecret=hunter2zz",
+            "-rp:MySecret=hunter2zz", "--restoreProperty:MySecret=hunter2zz", "-P:MySecret=hunter2zz",
+            "-logger:Some.Logger,Some.dll;token=hunter2zz", "-distributedlogger:x;hunter2zz", "-warnaserror:hunter2zz",
+        })
+        {
+            var got = PropertyFilter.Argument(arg);
+            if (got.Contains("hunter2zz", StringComparison.Ordinal) || !got.EndsWith(PropertyFilter.Hidden, StringComparison.Ordinal))
+            {
+                failures.Add($"command-line argument kept a value: {arg} -> {got}");
+            }
+        }
+
+        var line = CommandLines.MsBuild(
+            "\"dotnet build Lib/Lib.csproj \"-p:Configuration=Release,MySecret=hunter2zz\" -p:A=1 -p:B=hunter2zz -bl:x.binlog -m -v:m\"",
+            new PathTokens());
+        if (line.Contains("hunter2zz", StringComparison.Ordinal) || !line.Contains("-bl:x.binlog", StringComparison.Ordinal)
+            || !line.Contains("-v:m", StringComparison.Ordinal))
+        {
+            failures.Add($"command line (quoted, repeated switches): {line}");
+        }
+
+        // Every absolute-path shape, anywhere after any delimiter, is refused; relative paths and URLs are not.
+        foreach (var bad in new[]
+        {
+            @"/reference:\\srv\share\a.dll", @"@\\srv\x", @";\\srv\x", @",\\srv\x", @"[\\srv\x", "//srv/share/x",
+            @"\\?\UNC\srv\share\x", @"\\?\C:\x", "/c/Users/someone/x", ";/home/bob/x", "/users/bob/x", "/root/x",
+            "x=/Users/bob/y", "/reference://srv/share/a.dll", "D:/a/b",
+        })
+        {
+            if (PathTokens.Leaks(JsonValue.Create(bad), null).Count != 1)
+            {
+                failures.Add($"leak guard missed the shape: {bad}");
+            }
+        }
+
+        foreach (var good in new[]
+        {
+            "src/Boo.App/users/x.cs", "<dotnet>/sdk\\10.0.403\\\\Microsoft\\x", "https://github.com/x/y", "<home>/AppData/x",
+            "/noconfig", "/out:obj/Release/Boo.dll", "<repo-parent-1>/c/x", "tests/root/x", "a//b/c",
+        })
+        {
+            if (PathTokens.Leaks(JsonValue.Create(good), null).Count != 0)
+            {
+                failures.Add($"leak guard refused a relative path or URL: {good}");
+            }
         }
 
         if (failures.Count > 0)
@@ -168,12 +211,15 @@ static class SelfTest
 
         Expect("commandLine", CommandLines.MsBuild(
             @"""C:\Program Files\dotnet\sdk\10.0.403\MSBuild.exe -maxcpucount --property:Configuration=Release --property:Token=s3cr3t D:\a\my repo\bluey\Boo.sln -bl:artifacts/binlog/build.binlog""", t),
-            "<dotnet>/sdk/10.0.403/MSBuild.exe -maxcpucount --property:Configuration=Release --property:Token="
+            "<dotnet>/sdk/10.0.403/MSBuild.exe -maxcpucount --property:" + PropertyFilter.Hidden + " --property:"
             + PropertyFilter.Hidden + " Boo.sln -bl:artifacts/binlog/build.binlog");
         Expect("commandLine (quoted exe)", CommandLines.MsBuild(
             @"""C:\Program Files\dotnet\sdk\10.0.403\MSBuild.exe"" -restore ""D:\a\my repo\bluey\Boo.sln""", t),
             "<dotnet>/sdk/10.0.403/MSBuild.exe -restore Boo.sln");
 
+        Expect("root boundary (a sibling folder that starts with the root's name)", t.NormPath(@"D:\a\my repo 2\x.props"),
+            "<repo-parent-2>/my repo 2/x.props");   // repo D:\a\my repo\bluey: D:\a is two folders up
+        Expect("root boundary (an argument after the root)", t.Norm(@"-p:Dir=D:\a\my repo\bluey -bl:x"), "-p:Dir= -bl:x");
         Expect("imports", t.NormPath(@"C:\Program Files\dotnet\sdk\10.0.403\Sdks\Microsoft.NET.Sdk\Sdk\Sdk.props"),
             "<dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/Sdk/Sdk.props");
         Expect("imports (slash form, trailing slash)", t.NormPath("c:/program files/dotnet/sdk/"), "<dotnet>/sdk/");
@@ -188,7 +234,8 @@ static class SelfTest
         Expect("copies (relative to a project)", t.NormPath(@"obj\Release\Boo.dll", @"D:\a\my repo\bluey\src\Boo.App"),
             "src/Boo.App/obj/Release/Boo.dll");
         Expect("editorConfigItems (above the repo)", t.NormPath(@"D:\a\my repo\.editorconfig"), "<repo-parent-1>/.editorconfig");
-        Expect("editorConfigItems (drive root)", t.NormPath(@"D:\.globalconfig"), "<repo-parent-3>/.globalconfig");        Expect("analyzerConfigs.content",
+        Expect("editorConfigItems (drive root)", t.NormPath(@"D:\.globalconfig"), "<repo-parent-3>/.globalconfig");
+        Expect("analyzerConfigs.content",
             t.Norm("build_property.ProjectDir = D:\\a\\my repo\\bluey\\src\\Boo.App\\\r\n[D:/a/my repo/bluey/src/**.cs]\r\n"),
             "build_property.ProjectDir = src\\Boo.App\\\r\n[src/**.cs]\r\n");
         Expect("responseFiles.content", t.Norm(@"/reference:""C:\Program Files\dotnet\packs\a.dll"""),

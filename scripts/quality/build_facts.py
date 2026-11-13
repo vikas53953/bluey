@@ -66,9 +66,40 @@ R2R_KEYS = {'input': str, 'inputSha256': (str, type(None)), 'output': str, 'outp
 SDK_CSC = re.compile(r'^<dotnet>/sdk/[0-9][^/]*/Roslyn/bincore/csc\.(?:dll|exe)$')
 HOST_ARGS = {'<dotnet>/dotnet.exe', '<dotnet>/dotnet', 'exec'}
 # On each string value (not the JSON text): a drive-letter path, a UNC path, or a Unix home folder.
-LEAKS = [re.compile(r'(?<![A-Za-z0-9])[A-Za-z]:[\\/]'), re.compile(r'(?:^|[\s"\'=(])\\\\[A-Za-z0-9.$-]+\\'),
-         re.compile(r'(?:^|[\s"\'=])/(?:home|Users)/[^/\s"]+')]
-WPF_TEMP = re.compile(r'_wpftmp\.csproj$')
+# Any absolute-path shape, at any position after any delimiter (the same shapes as the reader's PathTokens guard):
+# a drive letter (also inside \\?\C:\), a UNC path (\\srv\, \\?\UNC\), //host/ (not a URL's scheme://), a POSIX home
+# (/home, /users, /root, any case), an msys drive (/c/). A path character right before it means a relative path.
+NOT_IN_PATH = r'(?<![A-Za-z0-9_.~$>)\]\\/-])'
+LEAKS = [re.compile(r'(?<![A-Za-z0-9])[A-Za-z]:[\\/]'),
+         re.compile(NOT_IN_PATH + r'\\\\[^\\/\s"\'<>|]+[\\/]'),
+         re.compile(NOT_IN_PATH + r'/(?:home|users|root)/[^/\s"\']', re.IGNORECASE),
+         re.compile(NOT_IN_PATH + r'/[A-Za-z]/[^/\s"\']')]
+SLASH_SLASH = re.compile(NOT_IN_PATH + r'//[A-Za-z0-9._$?-]+/')
+URL_SCHEME = re.compile(r'(?:^|[\s"\'(\[<=,;])[A-Za-z][A-Za-z0-9+.-]*:$')
+# WPF's temporary markup-compile project: <dir>/<Name>_wpftmp.csproj (the reader removes its random part).
+WPF_TEMP = re.compile(r'^(?P<dir>.+)/(?P<name>[^/]+)_wpftmp\.csproj$')
+
+
+def absolute_path(text):
+    """The first absolute-path shape in text, or None."""
+    for regex in LEAKS:
+        m = regex.search(text)
+        if m:
+            return m
+    for m in SLASH_SLASH.finditer(text):
+        if not URL_SCHEME.search(text[:m.start()]):
+            return m
+    return None
+
+
+def wpf_temp_of(project, projects):
+    """The solution project a WPF temporary project belongs to, or None. Only <dir>/<Name>_wpftmp.csproj next to a
+    solution project <dir>/<Name>.csproj counts; any other *_wpftmp.csproj is an ordinary project."""
+    m = WPF_TEMP.match(project)
+    if not m:
+        return None
+    owner = f'{m.group("dir")}/{m.group("name")}.csproj'
+    return owner if owner in projects else None
 
 
 class Problems:
@@ -156,12 +187,11 @@ def leaks(facts, problems):
             visit_text(node, where)
 
     def visit_text(text, where):
-        for regex in LEAKS:
-            m = regex.search(text)
-            if m:
-                start = max(0, m.start() - 50)
-                found.append(f'machine path left in the facts at {where}: ...{text[start:start + 110]!r}...')
-                return
+        m = absolute_path(text)
+        if m:
+            start = max(0, m.start() - 50)
+            found.append(f'machine path left in the facts at {where}: ...{text[start:start + 110]!r}...')
+            return
         for n in names:
             if n.lower() in text.lower():
                 found.append(f'the user name ({len(n)} letters) is in the facts at {where}')
@@ -184,11 +214,23 @@ def compiler_calls(facts, problems, known, projects, build_label):
     else:
         compiled = {u['project'] for u in by_label[build_label]['units']
                     if any(c['target'] == 'CoreCompile' for c in u['csc'])}
+        names = {}                                    # solution project -> its compile output file names
         for b in facts['binlogs']:
             for u in b['units']:
-                if u['csc'] and u['project'] not in projects and not WPF_TEMP.search(u['project']):
+                if u['project'] in projects:
+                    names.setdefault(u['project'], set()).update(
+                        pathlib.PurePosixPath(c['output']['path']).name.lower() for c in u['csc'])
+        for b in facts['binlogs']:
+            for u in b['units']:
+                if not u['csc'] or u['project'] in projects:
+                    continue
+                owner = wpf_temp_of(u['project'], projects)
+                outs = {pathlib.PurePosixPath(c['output']['path']).name.lower() for c in u['csc']}
+                if owner is None or not outs <= names.get(owner, set()):
                     problems.add(f'binlog {b["label"]}: {u["project"]} was compiled but is not a project of the solution '
-                                 f'(only WPF\'s *_wpftmp.csproj may be): its output could stand in for a judged one')
+                                 f'(only WPF\'s <dir>/<Name>_wpftmp.csproj of a solution project <dir>/<Name>.csproj, '
+                                 f'building that project\'s own assembly, may be): its output could stand in for a '
+                                 f'judged one')
         for p in projects:
             if p not in compiled:
                 problems.add(f'{p}: no Csc call from CoreCompile in the "{build_label}" log (project missing from the '
@@ -648,6 +690,27 @@ def self_test():
         case('two solution projects compile one name', 'two solution projects compile app.dll',
              lambda f: evil_unit(f, 'src/App2/App2.csproj', 'src/App2/obj/App.dll', h(evil)),
              proj=['src/App/App.csproj', 'src/App2/App2.csproj', 'src/Core/Core.csproj'])
+        case('a *_wpftmp.csproj that is not WPF\'s', 'extra/Extra_wpftmp.csproj was compiled but is not a project',
+             lambda f: evil_unit(f, 'extra/Extra_wpftmp.csproj', 'extra/obj/Extra.dll', h(evil)))
+        case('WPF temp project building another assembly name', 'src/App/App_wpftmp.csproj was compiled but is not',
+             lambda f: evil_unit(f, 'src/App/App_wpftmp.csproj', 'src/App/obj/Other.dll', h(evil)))
+        wpf = json.loads(json.dumps(facts))
+        evil_unit(wpf, 'src/App/App_wpftmp.csproj', 'src/App/obj/App.dll', unit(wpf, 'src/App/App.csproj')['csc'][0]['output']['sha256'])
+        wpf_problems = check(json.dumps(wpf), known, projects, 'build', pub, 'artifacts/ci')
+        if wpf_problems:
+            failures.append(f'WPF\'s own temp project must pass, got {wpf_problems}')
+        else:
+            print('  ok  WPF\'s own <Name>_wpftmp.csproj passes')
+        for shape in [r'/reference:\\srv\share\a.dll', r'@\\srv\x', r';\\srv\x', r',\\srv\x', r'[\\srv\x',
+                      '//srv/share/x', r'\\?\UNC\srv\share\x', r'\\?\C:\x', '/c/Users/someone/x', ';/home/bob/x',
+                      '/users/bob/x', '/root/x', 'x=/Users/bob/y', '/reference://srv/share/a.dll', 'D:/a/b']:
+            case(f'machine path shape {shape}', 'machine path left in the facts at $.binlogs[0].commandLine',
+                 lambda f, shape=shape: f['binlogs'][0].update(commandLine='msbuild ' + shape))
+        for fine in ['src/Boo.App/users/x.cs', r'<dotnet>/sdk\10.0.403\\Microsoft\x', 'https://github.com/x/y',
+                     '<home>/AppData/x', '/noconfig', '/out:obj/Release/Boo.dll', '<repo-parent-1>/c/x', 'tests/root/x',
+                     'a//b/c']:
+            if absolute_path(fine):
+                failures.append(f'leak guard refused a relative path or URL: {fine}')
         case('no managed file at all', 'no managed assembly found',
              fs=lambda: [p.unlink() for p in pub.iterdir() if p.name != 'native.dll'])
         if not is_managed(fake_pe(True, b'')) or is_managed(fake_pe(False, b'')) or is_managed(b'MZ'):
