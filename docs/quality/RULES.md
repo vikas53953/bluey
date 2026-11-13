@@ -175,3 +175,56 @@ and deliberate evasion is closed by the compiler, which sees the real names, typ
 - Exemption tags: `// INVARIANT: ... see NameTests.Method` is exempt when any file under `tests/` declares
   `class NameTests` and contains `Method(`. The barrier against a fake test is review: `tests/` is the frozen oracle, so
   a new test file needs a visible `scripts/test_oracle.py --extend` revision that the reviewer must check.
+
+## Architecture rules (BOO-ARCH, `tests/Boo.Architecture.Tests`)
+
+Plan section 2.4 B, PR 1.11. A normal xUnit project that reads the compiled `src` assemblies, so it runs wherever the
+solution builds; no app starts and no screen is touched. Each rule lists today's offenders **by name** (baseline
+13 Nov 2026, `lane/face` `af089dd`). The list is exact both ways: a **new** offender fails, and an offender that has been
+**fixed** also fails until its name is removed, so every gain is locked in. The test project is frozen (oracle
+revision 25), so removing a name, like adding a rule, goes through a reviewed `scripts/test_oracle.py --rebaseline`.
+Offenders count per outermost type (lambdas and async state machines count towards the type that wrote them).
+
+| Rule | Checks | How | Today (matches plan section 1.5) |
+| --- | --- | --- | --- |
+| [BOO-ARCH-001](#boo-arch-001) | `Boo.Core` uses nothing from `System.Net.Http`, `System.Net.WebSockets`, `Microsoft.Win32`, `Microsoft.Data.Sqlite`, `NAudio`, `Velopack` | NetArchTest, namespace match | 1: `ProviderFailureClassifier` (`ProviderFailure.cs`, `HttpRequestError`) |
+| [BOO-ARCH-002](#boo-arch-002) | `Boo.Core` does not call `System.IO.File` / `System.IO.Directory` | exact types (Mono.Cecil): `FileAttributes` or `FileNotFoundException` alone do not count | 2: `ScopedFiles` (the second class in `ActionPolicy.cs`), `FileActionResolver` |
+| [BOO-ARCH-003](#boo-arch-003) | `Boo.App` does not use `HttpClient` / `ClientWebSocket` | exact types (Mono.Cecil) | 1 type: `MainWindow` (its 3 references: `MainWindow.xaml.cs:65,1624,2123`) |
+| [BOO-ARCH-004](#boo-arch-004) | `Boo.Windows` uses nothing from `System.Windows.Controls` / `System.Windows.Shapes` and has no `Window` subclass | NetArchTest | 0 |
+| [BOO-ARCH-005](#boo-arch-005) | no static field that is not `readonly`/`const`, no static property with a setter, in all 5 `src` assemblies | reflection; compiler-made caches excluded | 2: `AccessibilitySettings._uiSettings`, `App.StartedInBackground` |
+| [BOO-ARCH-006](#boo-arch-006) | every `src/Boo.App/*Window*.cs` file has at most 2,674 lines | line count | 0 over (largest: `MainWindow.xaml.cs`, 2,674) |
+| [BOO-ARCH-007](#boo-arch-007) | a new `MainWindow` feature goes in its own `MainWindow.<Feature>.cs` partial | written rule only (review) | |
+
+## BOO-ARCH-001
+**Boo.Core stays pure.** Core is the code every other layer and every unit test relies on; network, registry,
+database, audio or installer types make it slow and hard to test. **Fix:** put the outside call in `Boo.Providers`,
+`Boo.Storage` or `Boo.Windows` and pass Core plain values or an interface. **Do NOT** move the type into Core "to reuse it".
+
+## BOO-ARCH-002
+**Core does not touch disk.** File checks in Core make rules depend on the machine. **Fix:** an interface in Core (like
+`IStartupRegistry`) with the real implementation outside. **Do NOT** swap `File.Exists` for `FileInfo` to dodge the
+check; the rule is about touching the disk.
+
+## BOO-ARCH-003
+**The window does not talk to the network.** Network calls belong in `Boo.Providers`, where timeouts, failures and
+keys are handled in one place (the 45 s timeout lives in `MainWindow` today for this reason). **Fix:** create the
+client in Providers and inject it. **Do NOT** hide a new `HttpClient` in a helper class in `Boo.App`.
+
+## BOO-ARCH-004
+**Boo.Windows is Windows integration, not UI.** Bitmaps (`System.Windows.Media`) and UI Automation are fine; controls,
+shapes and windows belong in `Boo.App`.
+
+## BOO-ARCH-005
+**No mutable static state.** A static that changes is shared by every caller and every test, which makes order-dependent
+bugs. **Fix:** an instance field passed in, or `static readonly` set once. **Do NOT** add `readonly` and mutate the
+object inside it to get past the check.
+
+## BOO-ARCH-006
+**Window code-behind stays under its budget** (today's largest file, 2,674 lines). The budget may only go down, in a
+reviewed oracle revision. **Fix:** move the feature into `MainWindow.<Feature>.cs` (BOO-ARCH-007) or its logic into
+`Boo.Core`. **Do NOT** raise the budget.
+
+## BOO-ARCH-007
+**One feature, one partial.** `Boo.App` is already sliced by feature (`MainWindow.Talk.cs`, `.Voice.cs`, `.Edits.cs`,
+`.Focus.cs`, `.Updates.cs`, `.Accessibility.cs`, `.Shortcuts.cs`). A new feature gets its own file. Checked by review;
+BOO-ARCH-006 is what makes skipping it fail.

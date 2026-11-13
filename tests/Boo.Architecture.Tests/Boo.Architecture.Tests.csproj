@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Architecture rules BOO-ARCH-001..006 (docs/plans/agent-trust-plan.md section 2.4 B; docs/quality/RULES.md).
+    Reads the compiled src assemblies (NetArchTest.Rules on Mono.Cecil, plus reflection for statics) and the window
+    code-behind source files. No app is started, no screen is touched, no key is needed.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
+    <PackageReference Include="NetArchTest.Rules" Version="1.3.2" />
+    <!-- Same Mono.Cecil NetArchTest.Rules 1.3.2 brings, pinned: exact-type scans for BOO-ARCH-002/003 (CecilScan.cs). -->
+    <PackageReference Include="Mono.Cecil" Version="0.11.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Boo.Core/Boo.Core.csproj" />
+    <ProjectReference Include="../../src/Boo.Providers/Boo.Providers.csproj" />
+    <ProjectReference Include="../../src/Boo.Storage/Boo.Storage.csproj" />
+    <ProjectReference Include="../../src/Boo.Windows/Boo.Windows.csproj" />
+    <ProjectReference Include="../../src/Boo.App/Boo.App.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>
