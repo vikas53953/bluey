@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #25 merged**, with `lane/face` at `40e7828` (PR #25); PR #27 (agent-trust Phase 2 PR 2.1, notch lifecycle statechart) synced on top.
+Status last updated: **13 Nov 2026, after PR #25 merged**, with `lane/face` at `40e7828` (PR #25); PR #27 (agent-trust Phase 2 PR 2.1, notch lifecycle statechart) synced on top; PR #27 merged (`0122ac7`); agent-trust PR 1.12 (trust-metrics baseline) opened on top of `0122ac7`.
 
 ---
 
@@ -107,6 +107,7 @@ create symbolic links. Turn on Windows Developer Mode or run elevated.
 | `demo-ci.yml` | every push and PR (and manual) | `demos` | setup + the 4 demos (5 tests), end to end, against `Boo.QaMockAi` (hosts-file entry + a self-signed root certificate on the runner) | **no: mock** |
 | `release.yml` | push to `main`, `v*` tags, PRs (and manual) | `package`, `github-release` | Core / Integration / Providers tests, then Velopack installer + portable ZIP; a `v*` tag publishes a GitHub Release | no |
 | `live-ai-smoke.yml` | **every pull request** + manual (`workflow_dispatch`), **GitHub's `windows-latest` VM only** | `preflight`, `smoke`, **`live-ai-smoke` (required, PR #20)** | one real round trip: typed question → screenshot → real provider → answer in Boo. Fails closed without a key. Refuses any non-GitHub runner; evidence screenshots are Boo's windows only (PR #18). | **yes** |
+| `trust-metrics.yml` (PR 1.12) | manual + Mondays 06:17 UTC, `ubuntu-latest`; never on push or PR, **not a required check** | `table` | the trust-metrics table for the last full week (or a given window) from git + GitHub PR/Actions history, read-only; table + snapshot uploaded for 7 days. See `docs/quality/trust-metrics.md`. | no |
 
 Run the live smoke: GitHub → Actions → live-ai-smoke → Run workflow, `text_provider=openai`, and an optional `model`
 override (blank = Boo's default). There is no runner choice: it always runs on GitHub's `windows-latest` VM, never on
@@ -195,6 +196,7 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | PR | Branch → base | State (13 Nov, after PR #17) | Notes |
 | --- | --- | --- | --- |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
+| PR 1.12 (number in the PR) | `quality/trust-metrics` → `lane/face` | **open** | Agent-trust **Phase 1, PR 1.12**: `scripts/quality/trust_metrics.py` (read-only `gh`/`git`, fixed UTC window, `--self-test` with planted data, recompute from a snapshot) and the first table in `docs/quality/trust-metrics.md` (8 Nov 00:00 to 13 Nov 06:00 UTC: 21 PRs merged, 0 reverts, QA PASS at the merged head 16/21, flaky 2.6% the plan's way / 0.9% strict, 125 live runs). Escaped bugs and prose-to-check ratio are UNVERIFIED (no data source yet). Optional weekly `trust-metrics` workflow, not a required check. No app change. QA verdict and run links: in the PR body. |
 | [#27](https://github.com/vikas53953/bluey/pull/27) | `docs/notch-statechart` → `lane/face` | **open** | Agent-trust **Phase 2, PR 2.1**, docs only: `docs/architecture/notch-lifecycle.md` maps today's notch lifecycle (reveal timeline, face states, hold-to-talk, focus, request generations, approval card, undo, pointer) with a `file:line` cite per transition, each plan invariant marked enforced / partly / not enforced, and 9 findings to settle before the model and reducer PRs. Records Vikas's go for Phases 2 and 3 and the Phase 2 limits ($0 GitHub, $10/month OpenAI). QA verdict and run links: in the PR body. |
 | [#22](https://github.com/vikas53953/bluey/pull/22) | `fix/demo-step4-state-race` → `lane/face` | **merged 13 Nov** (`af241fa`) | Demo Step 4 test race fix: re-read the notch state after the button search; oracle revisions 22–23 (`docs/verification/test-oracle-revision-22.md`). |
 | [#24](https://github.com/vikas53953/bluey/pull/24) | `docs/verify-boo-followups` → `lane/face` | **merged 13 Nov** (`673b38e`) | Docs-only follow-ups from PR #13's reviews: `SKILL.md` screenshot naming (the `.capture.txt` names each `boo-<n>` window; the panel is the title that starts with `Boo companion`), HANDOFF known issues 11–12 wording. No code change; the 45 s OpenAI timeout is untouched. |
