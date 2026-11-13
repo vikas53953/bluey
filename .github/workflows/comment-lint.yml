@@ -1,0 +1,58 @@
+name: comment-lint
+
+# BOO-CMT-003 (docs/quality/comment-lint.md), PR 1.6 of docs/plans/agent-trust-plan.md: a pull request may not ADD
+# comment lines in src/ that are not /// doc comments (whole-line INVARIANT tags naming a real test and TODO(#123)
+# excepted). Old comments are counted by the quality ratchet (BOO-CMT-001) and may only go down. Linux, no build,
+# no artifacts. What a comment is comes from the ratchet's own C# lexer (scripts/quality/ratchet.py).
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: comment-lint-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  comments:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # A PR could loosen its own comment_lint.py or ratchet.py. So the BASE branch's copies (read from git, not from
+      # the PR) judge the PR first, before any code from the PR runs. Until the base has the file (the PR that adds
+      # it), only the PR's own copy runs.
+      - name: Comment lint judged by the base branch's own copy (a PR cannot loosen its own gate)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "::error::BOO-CMT-003 the base commit is not in the checkout, so the base branch's copy cannot run"
+            exit 1
+          fi
+          if git cat-file -e "$BASE_SHA:scripts/quality/comment_lint.py" 2>/dev/null; then
+            mkdir -p "$RUNNER_TEMP/base_quality"
+            git show "$BASE_SHA:scripts/quality/comment_lint.py" > "$RUNNER_TEMP/base_quality/comment_lint.py"
+            git show "$BASE_SHA:scripts/quality/ratchet.py" > "$RUNNER_TEMP/base_quality/ratchet.py"
+            python -I "$RUNNER_TEMP/base_quality/comment_lint.py" --root "$GITHUB_WORKSPACE" --base "$BASE_SHA" --head HEAD
+          else
+            echo "The base branch has no comment_lint.py yet (this PR adds it); the PR's own copy judges in the next steps."
+          fi
+
+      - name: Comment lint self-test (planted base/head pairs)
+        run: python -I scripts/quality/comment_lint.py --self-test
+
+      - name: No new non-doc comments in src/ (BOO-CMT-003)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python -I scripts/quality/comment_lint.py --base "$BASE_SHA" --head HEAD
