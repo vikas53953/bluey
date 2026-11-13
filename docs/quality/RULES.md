@@ -29,7 +29,7 @@ PR 1.4; see Known gaps.
 - a C# file or project in `src/` that is not inside a `src/<Name>/` project (a loose `src/X.cs`, a folder without a
   `.csproj`, a project nested deeper such as `src/Group/Hack/Hack.csproj`) fails, because the build would compile it
   but no project count would include it; so does a symbolic link committed under `src/`;
-- `--list <RULE>` prints every hit; `--self-test` checks 133 snippets with exact expected counts (every attack the PR
+- `--list <RULE>` prints every hit; `--self-test` checks 134 snippets with exact expected counts (every attack the PR
   #23 reviews found that the text can follow is a sample), checks on every snippet that the extra views never count less
   than the text as written, that clean code stays quiet, and the pass/fail logic itself on a throwaway git tree.
 - PR #23's evidence (13 Nov 2026): each guard switched off one at a time in a scratch copy made the self-test fail; and
@@ -70,7 +70,7 @@ keeps the count equal and passes. That is accepted; the compiler-exact checks in
 | [BOO-TIME-002](#boo-time-002) | `Task.Delay` | 1 |
 | [BOO-TIME-003](#boo-time-003) | `new DispatcherTimer` | 8 |
 | [BOO-RT-001](#boo-rt-001) | `GC.Collect` | 0 |
-| [BOO-RT-002](#boo-rt-002) | `Environment.GetEnvironmentVariable` | 3 |
+| [BOO-RT-002](#boo-rt-002) | `Environment.GetEnvironmentVariable(s)` | 3 |
 | [BOO-SAFE-003](#boo-safe-003) | `Process.Start` | 3 |
 | [BOO-ERR-001](#boo-err-001) | broad `catch` with an empty body | 24 |
 | [BOO-ERR-002](#boo-err-002) | broad `catch` that handles and carries on | 74 |
@@ -124,7 +124,7 @@ signal; keep real periodic timers in one owner class. **Do NOT** add a timer to 
 **GC.Collect.** Hides a leak. **Fix:** find what holds the memory and dispose it. **Do NOT** call it "just in case".
 
 ## BOO-RT-002
-**Environment.GetEnvironmentVariable.** Hidden switches (for example `BOO_QA_CAPTURABLE`) change privacy behaviour.
+**Environment.GetEnvironmentVariable(s)** (one name or all of them). Hidden switches (for example `BOO_QA_CAPTURABLE`) change privacy behaviour.
 **Fix:** read environment variables in one place and pass the value in. **Do NOT** add another reader.
 
 ## BOO-SAFE-003
@@ -188,9 +188,12 @@ PR 1.3 makes the ban exact: the compiler, not a text scan, decides which member 
 - **Judged on the shipped build.** The gate reads the **build facts** of `windows-ci`'s own Release build and win-x64
   publish ([Build facts](#build-facts-the-shipped-build)), not a separate build: `python -I
   scripts/quality/banned_apis.py judge artifacts/build-facts/build-facts.json` runs right after the "Build facts" step.
-  `Directory.Build.props` makes every compile of a `src/` project write a SARIF error log
-  (`obj/.../<Project>.rs0030.sarif`, `/errorlog`), which the facts record with the compiler call. For **every** `Csc`
-  call of a `src/` project in both logs (the WPF twin `src/<Name>/<Name>_wpftmp.csproj` included, exactly as
+  The RS0030 results come from a **replay**: the build-facts reader (`--replay-under src/`) runs each recorded `src/`
+  compile again after the build, with the SDK's own csc and the exact recorded arguments, writing its SARIF log to a
+  temporary folder. The judge never reads an error log the build wrote, so no build step can replace it (PR #28's third
+  review overwrote a build-written log with `deps.json` through `<ProjectDepsFilePath>`; that route no longer reaches
+  the judge, and `build_facts.py` also refuses it, see [Build facts](#build-facts-the-shipped-build)). For **every**
+  `Csc` call of a `src/` project in both logs (the WPF twin `src/<Name>/<Name>_wpftmp.csproj` included, exactly as
   `build_facts.py` accepts it) the judge fails closed unless:
   - it runs from `CoreCompile`, and the compiler is the SDK's own csc (`<dotnet>/sdk/*/Roslyn/bincore/csc[.exe]` or
     `<dotnet>/dotnet exec .../csc.dll`); anything else is reported alone, since its command line cannot be trusted;
@@ -203,7 +206,9 @@ PR 1.3 makes the ban exact: the compiler, not a text scan, decides which member 
     `.editorconfig` included) nor any `.editorconfig` / `.globalconfig` in the repository sets
     `dotnet_diagnostic.RS0030.severity`, `dotnet_analyzer_diagnostic.category-ApiDesign.severity` or
     `dotnet_analyzer_diagnostic.severity` (none does today), whatever its file name, section or path;
-  - it wrote the SARIF log, and every RS0030 in it is suppressed by exactly one `AnalyzerBaseline.cs` entry of that
+  - it was replayed cleanly (exit 0), its replay log is a real csc log of that compile (SARIF `2.1.0`, exactly one
+    run, tool `Microsoft (R) Visual C# Compiler`, every RS0030 in one of the compile's own sources; anything else fails,
+    never "0 results"), and every RS0030 in it is suppressed by exactly one `AnalyzerBaseline.cs` entry of that
     project, with **exactly** the declared count per member and rule. A member-scoped suppression hides *every* RS0030
     in that member, so a new call in an already baselined member keeps the build green: the count (`0 -> 1`, `1 -> 2`)
     fails it. A fixed call fails with "lower the count" until the file is lowered. RS0030 silenced by `#pragma`, by a
@@ -441,8 +446,21 @@ reviewed; the check then prints the candidate `learn` lines for review); two sol
 name; any recorded copy **into** a file named like a solution project's assembly whose source does not trace to that
 project's own compile; and any managed `.dll`/`.exe` in the publish folder that does not trace, hash for hash and under
 its own name, through recorded copies and ReadyToRun compiles to a recorded `Csc` output or to a restored package or
-runtime pack, or whose name belongs to a solution project but whose content is not that project's compile.
+runtime pack, or whose name belongs to a solution project but whose content is not that project's compile; any
+recorded **write** (Copy, Move, CopyRefAssembly, Delete, Touch, WriteLinesToFile, WriteCodeFragment, GenerateDepsFile,
+GenerateRuntimeConfigurationFiles, CreateAppHost, GenerateSourceLinkFile, ResolvePackageAssets) **into a compile's
+output, reference output or error log** in either log (only WPF's own `CleanupTemporaryTargetAssembly` in the SDK's
+`Microsoft.WinFX.targets` may delete its `<Name>_wpftmp` assembly); and a **replayed** compile (`--replay-under src/`)
+that fails or does not give, byte for byte, the assembly on disk (an input or the output changed after the compile).
 `--self-test` proves each failure on planted facts.
+
+**Replay** (`BuildFacts --replay-under <folder>`): after reading the logs, the reader runs each `Csc` call of a project
+under that folder again with the SDK's own csc (any other compiler is never run; the facts then say "not replayed"),
+with the exact recorded arguments and response files, the original output paths (the PE records its PDB path and
+source generators name file-local types after the output folder, so only identical paths are deterministic) and the
+error log in a temporary folder. Every output file is saved before and put back after, so the build's files stay as
+they were. The facts get the replay's exit code, output hash and SARIF log. In `windows-ci` it replays the 8 `src/`
+compiles (about 7 minutes locally).
 
 `fixtures` builds nine fixtures (`scripts/quality/buildfacts/fixtures/`) and quotes the facts lines that show each
 bypass. **Four only have to SHOW the bypass in the facts** (their judges come in #28 and #32): per-folder
@@ -465,10 +483,12 @@ because they can hold environment values.
   (HANDOFF known issue 0); the first PR has no base-branch judge, so this PR's own copy judges it;
 - build code that lies to the logger: a task that writes files it does not log, or a compiler server or tool that is
   not what its path says; the facts record what MSBuild logged;
-- hashes are taken when the reader runs, after the build: a file changed **in place** after the compile by a step the task rule allows (an SDK task fed crafted items): the
-  hash trace compares the publish folder with the compile output as it is on disk when the reader runs, so an
-  overwrite of the compile output itself is caught only by the task rule; replaying the recorded `csc` command (the
-  build is deterministic) would close it;
+- hashes are taken when the reader runs, after the build. For the replayed (`src/`) compiles this is closed: the replay
+  must give the assembly on disk byte for byte, so a changed input or output fails. For other compiles (tests, tools) a
+  file changed **in place** after the compile by a step the task rule allows is caught only by the task rule and the
+  recorded writes;
+- recorded writes cover only the tasks listed above (their file parameters); a task that writes a file through
+  another parameter, or `Exec`, is caught by the task rule (unknown task) only if `known.json` does not allow it;
 - what the code does at run time (reflection, loading other assemblies, `Process.Start`) is not a build fact;
 - the reader and `build_facts.py` run from the PR's own tree and the repo's `Directory.Build.props` applies to the
   reader's build; a later PR runs the base branch's copy (like the ratchet's `--rise-only`);

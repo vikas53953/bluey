@@ -335,11 +335,33 @@ def judge_compile(where, call):
     for config in call.get('analyzerConfigs', []):
         if config.get('content') is None:
             problems.append(f'{where}: analyzer config {config.get("path")} was passed but could not be read.')
-    log = call.get('errorLog')
-    if not log or not isinstance(log.get('sarif'), dict):
-        problems.append(f'{where}: no SARIF error log (Directory.Build.props writes one for every src/ compile); the '
-                        f'RS0030 results cannot be judged, so this fails.')
+    replay = call.get('replay') or {}
+    if replay.get('status') != 'replayed' or replay.get('exitCode') != 0:
+        problems.append(f'{where}: the compile was not replayed cleanly after the build ({replay.get("status") or "no replay"}, '
+                        f'exit {replay.get("exitCode")}); the RS0030 results cannot be judged, so this fails.')
+    else:
+        problems += [f'{where}: {p}' for p in replay_log_problems(replay.get('sarif'), call.get('sources', []))]
     return problems
+
+
+CSC_TOOL_NAME = 'Microsoft (R) Visual C# Compiler'
+
+
+def replay_log_problems(log, sources):
+    """The replayed compile's SARIF log must be a real csc log of that compile: SARIF 2.1.0, exactly one run by the C#
+    compiler, and every result in one of the compile's own source files. Anything else fails closed (never "0 results")."""
+    if not isinstance(log, dict) or log.get('version') != '2.1.0' or not isinstance(log.get('runs'), list) \
+            or len(log['runs']) != 1 or not isinstance(log['runs'][0], dict):
+        return ['the replay\'s error log is not a SARIF 2.1.0 log with exactly one run.']
+    run = log['runs'][0]
+    name = ((run.get('tool') or {}).get('driver') or {}).get('name')
+    if name != CSC_TOOL_NAME:
+        return [f'the replay\'s error log was not written by the C# compiler (tool "{name}").']
+    if not isinstance(run.get('results', []), list):
+        return ['the replay\'s error log has no result list.']
+    known = {s.lower() for s in sources}
+    stray = sorted({r['file'] for r in sarif_results(log) if r['rule'] == 'RS0030' and r['file'].lower() not in known})
+    return [f'the replay\'s error log reports RS0030 in {f}, which is not a source of this compile.' for f in stray]
 
 
 def judge_facts(facts, projects, baselines, repo_config_texts):
@@ -370,8 +392,10 @@ def judge_facts(facts, projects, baselines, repo_config_texts):
                         configs.setdefault(config['path'], config['content'])
                 if found and any('not the SDK' in f for f in found):
                     continue
-                log_data = (call.get('errorLog') or {}).get('sarif')
-                if isinstance(log_data, dict):
+                # Judged: the SARIF log of the REPLAY (BuildFacts --replay-under src/), made after the build in a
+                # temporary folder; never a file the build wrote, which a later build step could have replaced.
+                log_data = (call.get('replay') or {}).get('sarif')
+                if isinstance(log_data, dict) and not replay_log_problems(log_data, call.get('sources', [])):
                     results = sarif_results(log_data)
                     total += sum(1 for r in results if r['rule'] == 'RS0030')
                     problems += [f'{where}: {p}' for p in judge_baseline(name, baselines.get(name, {}), results)]
@@ -796,11 +820,12 @@ def self_test():
     csc = '<dotnet>/sdk/10.0.403/Roslyn/bincore/csc.exe'
     pkg = '<nuget>/microsoft.codeanalysis.bannedapianalyzers/5.6.0/analyzers/dotnet/cs/'
     level = '<dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/analyzers/build/config/analysislevel_10_default.globalconfig'
-    sarif_ok = {'runs': [{'results': [{'ruleId': 'RS0030', 'level': 'error', 'message': {
-        'text': "The symbol 'X' is banned in this project: BOO-UI-002 text"}, 'locations': [{'physicalLocation': {
-            'artifactLocation': {'uri': 'file:///src/P/A.cs'}, 'region': {'startLine': 3}}}], 'suppressions': [
-        {'justification': j2.replace('BOO-TIME-001', 'BOO-UI-002'), 'kind': 'inSource',
-         'properties': {'suppressionType': 'SuppressMessageAttribute'}}]}]}]}
+    sarif_ok = {'version': '2.1.0', 'runs': [{'tool': {'driver': {'name': CSC_TOOL_NAME}}, 'results': [{
+        'ruleId': 'RS0030', 'level': 'error', 'message': {
+            'text': "The symbol 'X' is banned in this project: BOO-UI-002 text"}, 'locations': [{'physicalLocation': {
+                'artifactLocation': {'uri': 'file:///src/P/A.cs'}, 'region': {'startLine': 3}}}], 'suppressions': [
+            {'justification': j2.replace('BOO-TIME-001', 'BOO-UI-002'), 'kind': 'inSource',
+             'properties': {'suppressionType': 'SuppressMessageAttribute'}}]}]}]}
     good = {'target': 'CoreCompile', 'tool': [csc], 'arguments': ['/noconfig'], 'responseFiles': [], 'noConfig': True,
             'analyzerConfigs': [{'path': 'src/P/obj/P.GeneratedMSBuildEditorConfig.editorconfig',
                                  'content': 'is_global = true\nbuild_property.TargetFramework = net10.0\n'},
@@ -810,7 +835,8 @@ def self_test():
             'additionalFiles': [LIST, 'src/P/app.manifest'], 'ruleset': None,
             'roslyn': {'generalDiagnosticOption': 'Error', 'warningLevel': 10, 'skipAnalyzers': False, 'errors': [],
                        'specificDiagnosticOptions': {'CS1701': 'Suppress'}},
-            'errorLog': {'path': 'src/P/obj/P.rs0030.sarif', 'sarif': sarif_ok}}
+            'sources': ['src/P/A.cs'], 'errorLog': None,
+            'replay': {'status': 'replayed', 'exitCode': 0, 'outputSha256': 'x', 'sarif': sarif_ok}}
 
     def compile_(**changes):
         return dict(good, **changes)
@@ -849,7 +875,24 @@ def self_test():
     expect('csc: parse error', judge_compile('w', compile_(roslyn=roslyn(errors=['CS2007']))), 1, 'options')
     expect('csc: unreadable analyzer config', judge_compile('w', compile_(analyzerConfigs=[{'path': 'x.cfg', 'content': None}])),
            1, 'could not be read')
-    expect('csc: no error log', judge_compile('w', compile_(errorLog=None)), 1, 'no SARIF')
+    expect('csc: not replayed', judge_compile('w', compile_(replay=None)), 1, 'not replayed')
+    expect('csc: replay refused (not the SDK csc)', judge_compile('w', compile_(replay={
+        'status': 'not replayed: the compiler is not the SDK\'s own csc'})), 1, 'not replayed')
+    expect('csc: replay failed', judge_compile('w', compile_(replay=dict(good['replay'], exitCode=1))), 1, 'exit 1')
+
+    def replay_sarif(log):
+        return compile_(replay=dict(good['replay'], sarif=log))
+
+    expect('sarif: a deps.json over the log (review of PR #28)', judge_compile('w', replay_sarif(
+        {'runtimeTarget': {'name': '.NETCoreApp,Version=v10.0'}, 'libraries': {}})), 1, 'SARIF 2.1.0')
+    expect('sarif: text, not JSON', judge_compile('w', replay_sarif('not json')), 1, 'SARIF 2.1.0')
+    expect('sarif: two runs', judge_compile('w', replay_sarif(dict(sarif_ok, runs=sarif_ok['runs'] * 2))), 1,
+           'exactly one run')
+    expect('sarif: wrong version', judge_compile('w', replay_sarif(dict(sarif_ok, version='2.0.0'))), 1, 'SARIF 2.1.0')
+    expect('sarif: another tool', judge_compile('w', replay_sarif({'version': '2.1.0', 'runs': [
+        {'tool': {'driver': {'name': 'evil'}}, 'results': []}]})), 1, 'not written by the C# compiler')
+    expect('sarif: a result in a file this compile does not have', judge_compile('w', compile_(sources=['src/P/B.cs'])),
+           1, 'not a source of this compile')
 
     def facts(*units, ok=True, label='build'):
         return {'binlogs': [{'label': label, 'succeeded': ok, 'units': list(units)}]}
@@ -866,7 +909,7 @@ def self_test():
         unit('src/P/P.csproj', compile_()), unit('src/Q/Q_wpftmp.csproj', compile_(tool=['evil']))), ['P'], base_p, {})[0], 0)
     expect('facts: publish compile judged', judge_facts({'binlogs': [
         {'label': 'build', 'succeeded': True, 'units': [unit('src/P/P.csproj', compile_())]},
-        {'label': 'publish', 'succeeded': True, 'units': [unit('src/P/P.csproj', compile_(errorLog=None), rid='win-x64')]}]},
+        {'label': 'publish', 'succeeded': True, 'units': [unit('src/P/P.csproj', compile_(replay=None), rid='win-x64')]}]},
         ['P'], base_p, {})[0], 1, 'publish')
     expect('facts: project never compiled', judge_facts(facts(), ['P'], base_p, {})[0], 1, 'no compile')
     expect('facts: build failed', judge_facts(facts(unit('src/P/P.csproj', compile_()), ok=False), ['P'], base_p, {})[0], 1,

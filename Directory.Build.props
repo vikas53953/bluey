@@ -10,19 +10,11 @@
        MSBuild properties, so a project cannot switch it off by setting a property. tests/ and tools/ are not judged
        (tests/ is the frozen oracle). BooBannedApiCanary is set only by scripts/quality/canary/Canary.csproj, which
        proves every line fires. What the compiler really got (analyzers, this list, analyzer configs, options) and the
-       RS0030 results in the error log below are judged from windows-ci's build facts by scripts/quality/banned_apis.py
-       judge; this file and the workflow themselves are HANDOFF known issue 0. -->
+       RS0030 results of a replay of each compile (made by the build-facts reader after the build, never a file the
+       build wrote) are judged from windows-ci's build facts by scripts/quality/banned_apis.py judge; this file and the
+       workflow themselves are HANDOFF known issue 0. -->
   <ItemGroup Condition="$([MSBuild]::MakeRelative('$(MSBuildThisFileDirectory)', '$(MSBuildProjectDirectory)').Replace('\', '/').ToLowerInvariant().StartsWith('src/')) Or '$(BooBannedApiCanary)' == 'true'">
     <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0" PrivateAssets="all" />
     <AdditionalFiles Include="$(MSBuildThisFileDirectory)src/BannedSymbols.txt" />
   </ItemGroup>
-  <!-- Every compile of a src/ project writes a SARIF error log next to its other intermediate files (set just before
-       CoreCompile, when IntermediateOutputPath is known). The build facts record it with the compiler call; the judge
-       needs it for the RS0030 results, suppressed ones included. A compile without it fails the judge. -->
-  <Target Name="_BooErrorLog" BeforeTargets="CoreCompile"
-          Condition="$([MSBuild]::MakeRelative('$(MSBuildThisFileDirectory)', '$(MSBuildProjectDirectory)').Replace('\', '/').ToLowerInvariant().StartsWith('src/'))">
-    <PropertyGroup>
-      <ErrorLog>$(IntermediateOutputPath)$(MSBuildProjectName).rs0030.sarif,version=2.1</ErrorLog>
-    </PropertyGroup>
-  </Target>
 </Project>

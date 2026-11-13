@@ -120,7 +120,7 @@ jobs:
           artifacts/buildfacts-tool/BuildFacts.exe --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force -Path artifacts/build-facts | Out-Null
-          artifacts/buildfacts-tool/BuildFacts.exe --repo . --out artifacts/build-facts/build-facts.json build=artifacts/binlog/build.binlog publish=artifacts/binlog/publish.binlog
+          artifacts/buildfacts-tool/BuildFacts.exe --repo . --out artifacts/build-facts/build-facts.json --replay-under src/ build=artifacts/binlog/build.binlog publish=artifacts/binlog/publish.binlog
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -I scripts/quality/build_facts.py --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
