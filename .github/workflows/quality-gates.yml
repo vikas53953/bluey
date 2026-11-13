@@ -77,9 +77,10 @@ jobs:
 
       # The BASE branch's copy of banned_apis.py (read from git, not from the PR) judges the PR's tree twice: rise-check
       # (no ban line removed; no baseline entry added or count raised; RS0030 named only in AnalyzerBaseline.cs) and
-      # product (build, exact per-member counts, the analyzer-config strip, the canary probe). So a PR that weakens its
-      # own banned_apis.py changes nothing. Still open (HANDOFF known issue 0, CODEOWNERS decision pending with Vikas):
-      # this workflow file and Directory.Build.props come from the PR itself.
+      # product (build, exact per-member counts, the compiler call read from a binary log, the analyzer-config strip,
+      # the canary probe), with the base's own ListGen tool (--tools-rev). So a PR that weakens its own banned_apis.py
+      # or ListGen changes nothing. Still open (HANDOFF known issue 0, CODEOWNERS decision pending with Vikas): this
+      # workflow file and Directory.Build.props come from the PR itself.
       - name: Banned APIs judged by the base branch's own copy (a PR cannot loosen the ban)
         if: github.event_name == 'pull_request'
         env:
@@ -89,7 +90,7 @@ jobs:
           if git cat-file -e FETCH_HEAD:scripts/quality/banned_apis.py 2>/dev/null; then
             git show FETCH_HEAD:scripts/quality/banned_apis.py > "$RUNNER_TEMP/base_banned_apis.py"
             python -I "$RUNNER_TEMP/base_banned_apis.py" rise-check --root "$GITHUB_WORKSPACE" --base-rev FETCH_HEAD
-            python -I "$RUNNER_TEMP/base_banned_apis.py" product --root "$GITHUB_WORKSPACE"
+            python -I "$RUNNER_TEMP/base_banned_apis.py" product --root "$GITHUB_WORKSPACE" --tools-rev FETCH_HEAD
           else
             echo "The base branch ($BASE_REF) has no banned_apis.py yet: this PR introduces it, so there is no older gate to apply."
           fi

@@ -193,7 +193,7 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 PRs into `lane/face` must be **up to date** with it to merge, so every merge makes the others BEHIND. Sync by merging
 `origin/lane/face` into the branch (no force push), then re-run CI and one live smoke on the new head.
 
-| PR | Branch → base | State (13 Nov, after PR #23) | Notes |
+| PR | Branch → base | State (13 Nov, after PR #27) | Notes |
 | --- | --- | --- | --- |
 | [#28](https://github.com/vikas53953/bluey/pull/28) | `quality/banned-apis` → `lane/face` | **open** | Phase 1 PR 1.3: `Microsoft.CodeAnalysis.BannedApiAnalyzers` on every `src/` project (`Directory.Build.props`); `src/BannedSymbols.txt` (86 lines, every overload, generated from the .NET reference packs by `scripts/quality/banned_apis.py generate`); today's 39 hits baselined per member in `src/*/AnalyzerBaseline.cs` with exact counts; canary (`scripts/quality/canary/`, one call per banned line, each must fire exactly once); the canary compiled inside every `src/` project; `scripts/quality/compile_list.py` (MSBuild's real compile list must equal what the ratchet reads). All run in `quality-gates.yml` on ubuntu-latest. Touches `src/` only by adding `AnalyzerBaseline.cs` files (no behaviour change), so it still needs the per-PR live smoke. See `docs/quality/RULES.md`. |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |

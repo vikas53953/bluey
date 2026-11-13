@@ -23,7 +23,9 @@
   </ItemGroup>
   <!-- BooNoAnalyzerConfig is set only by scripts/quality/banned_apis.py product: it compiles each src/ project a second
        time with NO analyzer config files (.editorconfig, .globalconfig, generated and SDK ones), right before the
-       compiler runs, and requires the same RS0030 diagnostics as the real build. So no config can change a ban. -->
+       compiler runs, and requires the same RS0030 diagnostics as the real build. The script also reads the compiler
+       call MSBuild really ran (binary log) to prove the configs, response files and compiler it got. What it cannot
+       guard is this file and the workflow themselves (HANDOFF known issue 0). -->
   <Target Name="_BooDropAnalyzerConfig" BeforeTargets="CoreCompile" Condition="'$(BooNoAnalyzerConfig)' == 'true'">
     <ItemGroup>
       <EditorConfigFiles Remove="@(EditorConfigFiles)" />

@@ -5,7 +5,8 @@
 
 Build files decide what is compiled: a <Compile Include="../x.txt"/>, an <Import>ed props file, a target that adds an
 item, a <Using Include="System.GC" Static="true"/>. The ratchet reads files, not build logic, so this check asks MSBuild
-itself (the Compile and Using items after the Build target ran) and fails when:
+itself (the source files of the compiler call it really ran, read from a binary log, and the Using items) and
+fails when:
   - a compiled file is not one the ratchet scans for that project (outside the project, not a .cs file, git-ignored);
   - a file the ratchet scans for that project is not compiled (the ratchet would count code that does not ship);
   - a file generated under the project's obj/ is not one of the known SDK / WPF outputs;
@@ -20,6 +21,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 
 root = pathlib.Path(__file__).resolve().parent.parent.parent
 RULES_DOC = 'docs/quality/RULES.md#compile-list'
@@ -28,11 +30,15 @@ BUILD = ['-nologo', '-t:Build', '-p:Configuration=Release', '-p:EnableWindowsTar
 XAML_CODE = re.compile(r'<\s*(?:[A-Za-z_][\w.-]*:)?Code[\s>/]')
 
 
-def load_ratchet():
-    spec = importlib.util.spec_from_file_location('ratchet', pathlib.Path(__file__).resolve().parent / 'ratchet.py')
+def load_module(name):
+    spec = importlib.util.spec_from_file_location(name, pathlib.Path(__file__).resolve().parent / f'{name}.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def load_ratchet():
+    return load_module('ratchet')
 
 
 def generated_ok(name, project, assembly, xaml_stems):
@@ -86,6 +92,17 @@ def judge(project, compiled, scanned, listed, usings, xaml, assembly):
     return problems
 
 
+def generated_usings(files):
+    """The usings the SDK really wrote into GlobalUsings.g.cs (a target may add a <Using> and remove it again after the
+    build, so the items alone are not enough), as (identity, static, alias)."""
+    found = []
+    for text in files.values():
+        for match in re.finditer(r'^\s*global\s+using\s+(static\s+)?(?:(\w+)\s*=\s*)?(?:global::)?([\w.]+)\s*;', text,
+                                 re.M):
+            found.append((match.group(3), 'true' if match.group(1) else '', match.group(2) or ''))
+    return found
+
+
 def relative(path, base):
     try:
         return pathlib.Path(path).resolve().relative_to(base.resolve()).as_posix()
@@ -117,35 +134,55 @@ def check(base):
         print(f'COMPILE LIST FAILED: a src/ project pulls in a project outside src/.\n  Rule: {RULES_DOC}\n  '
               + '\n  '.join(problems))
         return 1
+    # What is compiled = the sources of the one compiler call MSBuild really ran, read from a binary log (banned_apis.py
+    # and its ListGen tool), so a target that adds a file before CoreCompile and removes it afterwards is still seen.
+    banned = load_module('banned_apis')
     for project in projects:
-        csproj = f'src/{project}/{project}.csproj'
-        run = subprocess.run(['dotnet', 'msbuild', csproj, *BUILD, '-getItem:Compile', '-getItem:Using', '-getItem:Page',
-                              '-getItem:ApplicationDefinition', '-getItem:ProjectReference',
-                              '-getProperty:AssemblyName'],
-                             cwd=str(base), capture_output=True, text=True, encoding='utf-8', errors='replace')
-        start = run.stdout.find('{')
-        if run.returncode or start < 0:
-            tail = '\n'.join((run.stdout + run.stderr).splitlines()[-30:])
-            print(f'COMPILE LIST COULD NOT RUN: building {csproj} failed (exit {run.returncode}):\n{tail}')
-            return 2
-        data = json.loads(run.stdout[start:])
-        items = data.get('Items', {})
-        compiled = {relative(item['FullPath'], base) for item in items.get('Compile', [])}
-        scanned = {path for path in listed
-                   if path.startswith(f'src/{project}/') and ratchet.is_csharp(path.rsplit('/', 1)[-1])}
-        usings = [(item.get('Identity', ''), item.get('Static', ''), item.get('Alias', ''))
-                  for item in items.get('Using', [])]
-        xaml = {}
-        for item in items.get('Page', []) + items.get('ApplicationDefinition', []):
-            path = relative(item['FullPath'], base)
-            xaml[path] = pathlib.Path(item['FullPath']).read_text(encoding='utf-8-sig', errors='replace')
-        problems += judge(project, compiled, scanned, listed, usings, xaml, data['Properties']['AssemblyName'])
+        subprocess.run(['dotnet', 'build', f'src/{project}/{project}.csproj', '-c', 'Release', '-nologo', '-v:q',
+                        '-p:EnableWindowsTargeting=true', '-p:PublishReadyToRun=false'], cwd=str(base),
+                       capture_output=True)
+    with tempfile.TemporaryDirectory() as scratch:
+        for project in projects:
+            csproj = f'src/{project}/{project}.csproj'
+            logs = pathlib.Path(scratch) / project
+            banned.stamp(logs)
+            binlog = logs / 'build.binlog'
+            run = subprocess.run(['dotnet', 'msbuild', csproj, *BUILD, '-p:BuildProjectReferences=false',
+                                  f'-p:BooSarifDir={logs.as_posix()}', f'-bl:{binlog.as_posix()}', '-getItem:Using',
+                                  '-getItem:Page', '-getItem:ApplicationDefinition', '-getProperty:AssemblyName'],
+                                 cwd=str(base), capture_output=True, text=True, encoding='utf-8', errors='replace')
+            start = run.stdout.find('{')
+            if run.returncode or start < 0:
+                tail = '\n'.join((run.stdout + run.stderr).splitlines()[-30:])
+                print(f'COMPILE LIST COULD NOT RUN: building {csproj} failed (exit {run.returncode}):\n{tail}')
+                return 2
+            data = json.loads(run.stdout[start:])
+            try:
+                calls = banned.compiler_calls(base, binlog, csproj)
+            except banned.ToolError as error:
+                print(f'COMPILE LIST COULD NOT RUN: {error}')
+                return 2
+            if len(calls) != 1:
+                problems.append(f'{project}: {len(calls)} compiler calls in the build, expected exactly one.')
+                continue
+            compiled = {relative(path, base) for path in calls[0].get('sources', [])}
+            items = data.get('Items', {})
+            scanned = {path for path in listed
+                       if path.startswith(f'src/{project}/') and ratchet.is_csharp(path.rsplit('/', 1)[-1])}
+            usings = [(item.get('Identity', ''), item.get('Static', ''), item.get('Alias', ''))
+                      for item in items.get('Using', [])]
+            usings += generated_usings({path: (base / path).read_text(encoding='utf-8-sig', errors='replace')
+                                        for path in compiled if path.endswith('.GlobalUsings.g.cs')})
+            xaml = {relative(item['FullPath'], base): pathlib.Path(item['FullPath']).read_text(encoding='utf-8-sig',
+                                                                                               errors='replace')
+                    for item in items.get('Page', []) + items.get('ApplicationDefinition', [])}
+            problems += judge(project, compiled, scanned, listed, usings, xaml, data['Properties']['AssemblyName'])
     if problems:
         print(f'COMPILE LIST FAILED: what the build compiles is not what the ratchet reads.\n  Rule: {RULES_DOC}\n  '
               + '\n  '.join(problems))
         return 1
-    print(f'COMPILE LIST OK: {len(projects)} projects; every compiled file is a .cs file the ratchet reads, no static or '
-          f'alias <Using>, no x:Code, every project reference inside src/')
+    print(f'COMPILE LIST OK: {len(projects)} projects; every file the compiler really got (binary log) is a .cs file '
+          f'the ratchet reads, no static or alias <Using>, no x:Code, every project reference inside src/')
     return 0
 
 
@@ -185,6 +222,11 @@ def self_test():
     expect('static using', run([a, b], usings=plain + [('System.GC', 'true', '')]), 1, 'Static=true')
     expect('static using, any case', run([a, b], usings=plain + [('System.GC', 'True', '')]), 1, 'Static=true')
     expect('alias using', run([a, b], usings=plain + [('System.GC', '', 'G')]), 1, 'Alias=G')
+    generated = generated_usings({'g': 'global using global::System;' + chr(10) + 'global using static global::System.GC;'
+                                       + chr(10) + 'global using G = global::System.GC;' + chr(10)})
+    expect('generated usings read', [] if generated == [('System', '', ''), ('System.GC', 'true', ''),
+                                                        ('System.GC', '', 'G')] else [generated], 0)
+    expect('generated static and alias using', run([a, b], usings=plain + generated), 2, 'hides a name')
     expect('x:Code', run([a, b], pages={f'src/{p}/MainWindow.xaml': '<Window><x:Code><![CDATA[ ]]></x:Code></Window>'}),
            1, 'x:Code')
     expect('Code under another prefix', run([a, b], pages={f'src/{p}/MainWindow.xaml': '<Window><q:Code>..</q:Code>'}),

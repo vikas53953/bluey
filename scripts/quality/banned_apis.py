@@ -295,7 +295,8 @@ def judge_stripped_configs(project, paths, sdk_root):
     RS0030 setting); anything else was put back by a build target after the strip."""
     return [f'{project}: {path} is still passed to the compiler after the analyzer configs were removed (added by a '
             f'build target?). Remove that target.' for path in sorted(paths)
-            if not (path.startswith(sdk_root) and re.search(r'/analysislevel[^/]*\.globalconfig$', path, re.I))]
+            if not (path.lower().startswith(sdk_root.lower())
+                    and re.search(r'/analysislevel[^/]*\.globalconfig$', path, re.I))]
 
 
 def suppressions_outside_baseline(files):
@@ -303,6 +304,68 @@ def suppressions_outside_baseline(files):
     return [f'{path}: names RS0030 outside {BASELINE_FILE}. Only {BASELINE_FILE} may baseline banned calls.'
             for path, text in sorted(files.items())
             if 'RS0030' in text and not (path.count('/') == 2 and path.endswith('/' + BASELINE_FILE))]
+
+
+BANNED_ANALYZERS = ('microsoft.codeanalysis.bannedapianalyzers.dll', 'microsoft.codeanalysis.csharp.bannedapianalyzers.dll')
+BUILD_KNOBS = ('CompilerResponseFile', 'CscToolPath', 'CscToolExe')
+
+
+def posix(path):
+    return path.replace('\\', '/')
+
+
+def is_sdk_compiler(tool, sdk_root):
+    """The SDK's own csc: its apphost (csc.exe / csc), or `dotnet exec csc.dll`, all inside the dotnet install."""
+    root = posix(sdk_root).lower()
+    compiler = re.compile(re.escape(root) + r'sdk/[^/]+/roslyn/bincore/csc(\.exe|\.dll)?$')
+    paths = [posix(part).lower() for part in tool]
+    if len(paths) == 1:
+        return bool(compiler.match(paths[0])) and not paths[0].endswith('.dll')
+    return (len(paths) == 3 and re.fullmatch(re.escape(root) + r'dotnet(\.exe)?', paths[0]) is not None
+            and paths[1] == 'exec' and paths[2].endswith('.dll') and bool(compiler.match(paths[2])))
+
+
+def judge_compiler_calls(project, calls, sdk_root, list_path, stripped):
+    """calls: what ListGen read from the binary log for one src/ project. Exactly one compiler call, by the SDK's own
+    csc, with the ban analyzer and src/BannedSymbols.txt (and no other ban list), no response file, nothing that changes
+    RS0030 (/nowarn, /warnaserror-, /ruleset, /warn:0, /skipanalyzers). In the stripped build the only analyzer config
+    left may be the SDK's analysislevel_*.globalconfig."""
+    if len(calls) != 1:
+        return [f'{project}: {len(calls)} compiler calls in the build, expected exactly one (CoreCompile).']
+    call, problems = calls[0], []
+    name = f'{project}{" (analyzer configs removed)" if stripped else ""}'
+    if call.get('target') != 'CoreCompile':
+        problems.append(f'{name}: the compiler ran from target {call.get("target")}, not CoreCompile.')
+    if not is_sdk_compiler(call.get('tool', []), sdk_root):
+        problems.append(f'{name}: the compiler is {" ".join(call.get("tool", []))}, not the SDK\'s own csc. Remove '
+                        f'CscToolPath / CscToolExe or any wrapper.')
+    if call.get('responseFiles') or not call.get('noConfig'):
+        problems.append(f'{name}: the compiler reads a response file ({", ".join(call.get("responseFiles") or ["csc.rsp"])}); '
+                        f'its options are hidden from review. Remove CompilerResponseFile.')
+    analyzers = {pathlib.PurePosixPath(posix(path)).name.lower() for path in call.get('analyzers', [])}
+    if not set(BANNED_ANALYZERS) <= analyzers:
+        problems.append(f'{name}: the BannedApiAnalyzers DLLs are not passed to the compiler.')
+    lists = [posix(path) for path in call.get('additionalFiles', [])
+             if pathlib.PurePosixPath(posix(path)).name.lower().startswith('bannedsymbols')]
+    if lists != [posix(list_path)]:
+        problems.append(f'{name}: the ban lists passed to the compiler are {lists or "none"}; exactly {posix(list_path)} '
+                        f'is allowed.')
+    if call.get('rs0030Option') or call.get('generalOption') != 'Error' or call.get('warningLevel', 0) < 1 \
+            or call.get('ruleSet') or call.get('skipAnalyzers') or call.get('errors'):
+        problems.append(f'{name}: compiler options change how RS0030 is reported (RS0030 option '
+                        f'{call.get("rs0030Option")}, warnings as errors {call.get("generalOption")}, warning level '
+                        f'{call.get("warningLevel")}, rule set {call.get("ruleSet")}, skip analyzers '
+                        f'{call.get("skipAnalyzers")}, errors {call.get("errors")}).')
+    if stripped:
+        problems += judge_stripped_configs(project, [posix(path) for path in call.get('analyzerConfigs', [])],
+                                           posix(sdk_root))
+    return problems
+
+
+def judge_build_knobs(project, properties):
+    """A cheap belt on top of the compiler-call check: these MSBuild properties stay empty in src/ projects."""
+    return [f'{project}: {name} = "{properties.get(name)}". Do not change the compiler or its response file.'
+            for name in BUILD_KNOBS if (properties.get(name) or '').strip()]
 
 
 def fix_text(rule):
@@ -343,12 +406,50 @@ def reference_assemblies(base):
     return paths
 
 
+TOOLS = {'rev': None, 'project': None, 'dir': None}
+LISTGEN_SOURCES = [LISTGEN_PROJECT, CANARY_DIR + '/ListGen/Program.cs']
+
+
+def listgen_project(base):
+    """The ListGen project to run, built once. With --tools-rev <rev> (the base branch's copy in CI) its sources are
+    taken from that git revision, so a pull request cannot change the tool that reads its own compiler calls."""
+    if TOOLS['project']:
+        return TOOLS['project']
+    project = base / LISTGEN_PROJECT
+    if TOOLS['rev']:
+        TOOLS['dir'] = tempfile.TemporaryDirectory()
+        folder = pathlib.Path(TOOLS['dir'].name) / 'ListGen'
+        folder.mkdir()
+        for path in LISTGEN_SOURCES + ['global.json']:
+            text = git_show(base, TOOLS['rev'], path)
+            if text is None:
+                raise ToolError(f'{path} is missing at {TOOLS["rev"]}')
+            (folder.parent if path == 'global.json' else folder).joinpath(pathlib.Path(path).name).write_text(
+                text, encoding='utf-8')
+        project = folder / 'ListGen.csproj'
+    dotnet(['build', str(project), '-c', 'Release', '-nologo', '-v:q'], project.parent)
+    TOOLS['project'] = project
+    return project
+
+
+def run_listgen(base, arguments):
+    project = listgen_project(base)
+    return dotnet(['run', '--no-build', '-c', 'Release', '--project', str(project), '--', *arguments], project.parent,
+                  expect_success=False)
+
+
 def listgen(base, arguments, scratch):
     refs = scratch / 'refs.txt'
     refs.write_text('\n'.join(reference_assemblies(base)) + '\n', encoding='utf-8')
-    dotnet(['build', LISTGEN_PROJECT, '-c', 'Release', '-nologo', '-v:q'], base)
-    return dotnet(['run', '--no-build', '-c', 'Release', '--project', LISTGEN_PROJECT, '--', arguments[0], str(refs),
-                   *arguments[1:]], base, expect_success=False)
+    return run_listgen(base, [arguments[0], str(refs), *arguments[1:]])
+
+
+def compiler_calls(base, binlog, csproj):
+    """Every Csc task MSBuild really ran for csproj, read from the binary log and parsed by Roslyn (see ListGen)."""
+    run = run_listgen(base, ['csc', str(binlog), str(base / csproj)])
+    if run.returncode:
+        raise ToolError(f'reading the compiler calls from {binlog.name} failed:\n{run.stdout}{run.stderr}')
+    return [json.loads(line) for line in run.stdout.splitlines() if line.startswith('{')]
 
 
 def read_sarif(path, base):
@@ -472,17 +573,18 @@ def cmd_canary(base):
 
 def compile_project(base, project, sarif_dir, *extra):
     """Compile one src/ project alone (its references are already built) with a SARIF log. Returns (exit code,
-    analyzer config files the compiler got, SARIF results). A fresh stamp forces the compiler to run."""
+    the compiler calls read from the binary log, a few MSBuild properties, SARIF results). A fresh stamp forces the
+    compiler to run."""
     stamp(sarif_dir)
+    binlog = sarif_dir / f'{project}.binlog'
     run = dotnet(['msbuild', f'src/{project}/{project}.csproj', '-restore', '-nologo', '-t:Build',
                   '-p:BuildProjectReferences=false', '-p:Configuration=Release', '-p:EnableWindowsTargeting=true',
                   '-p:PublishReadyToRun=false', f'-p:BooSarifDir={sarif_dir.as_posix()}', *extra,
-                  '-getItem:EditorConfigFiles', '-getItem:GlobalAnalyzerConfigFiles'], base, expect_success=False)
-    items = json_output(run.stdout).get('Items', {})
-    configs = sorted({pathlib.Path(item['FullPath']).resolve().as_posix()
-                      for name in ('EditorConfigFiles', 'GlobalAnalyzerConfigFiles') for item in items.get(name, [])
-                      if pathlib.Path(item['FullPath']).is_file()})
-    return run.returncode, configs, read_sarif(sarif_dir / f'{project}.sarif', base)
+                  f'-bl:{binlog.as_posix()}', *[f'-getProperty:{name}' for name in BUILD_KNOBS]],
+                 base, expect_success=False)
+    properties = json_output(run.stdout).get('Properties', {})
+    calls = compiler_calls(base, binlog, f'src/{project}/{project}.csproj')
+    return run.returncode, calls, properties, read_sarif(sarif_dir / f'{project}.sarif', base)
 
 
 def stamp(sarif_dir):
@@ -524,7 +626,7 @@ def cmd_product(base):
         normal = {}
         for project in projects:
             try:
-                code, used, results = compile_project(base, project, scratch / 'build')
+                code, calls, properties, results = compile_project(base, project, scratch / 'build')
             except ToolError as error:
                 problems.append(f'{project}: {error}')
                 continue
@@ -533,16 +635,21 @@ def cmd_product(base):
             normal[project] = results
             total += sum(1 for r in results if r['rule'] == 'RS0030')
             problems += judge_baseline(project, baselines[project], results)
-            for path in used:
-                configs.setdefault(relative(path, base), pathlib.Path(path).read_text(encoding='utf-8-sig',
-                                                                                      errors='replace'))
+            problems += judge_compiler_calls(project, calls, sdk_root, (base / LIST).resolve().as_posix(), False)
+            problems += judge_build_knobs(project, properties)
+            for call in calls:
+                for path in call.get('analyzerConfigs', []):
+                    configs.setdefault(relative(path, base), pathlib.Path(path).read_text(encoding='utf-8-sig',
+                                                                                          errors='replace')
+                                       if pathlib.Path(path).is_file() else '')
         for project in normal:
             try:
-                _, left, results = compile_project(base, project, scratch / 'stripped', '-p:BooNoAnalyzerConfig=true')
+                _, calls, _, results = compile_project(base, project, scratch / 'stripped',
+                                                       '-p:BooNoAnalyzerConfig=true')
             except ToolError as error:
                 problems.append(f'{project} (analyzer configs removed): {error}')
                 continue
-            problems += judge_stripped_configs(project, left, sdk_root)
+            problems += judge_compiler_calls(project, calls, sdk_root, (base / LIST).resolve().as_posix(), True)
             problems += judge_config_strip(project, normal[project], results)
         problems += config_problems(configs)
         for project in projects:
@@ -555,8 +662,9 @@ def cmd_product(base):
         return 1
     entries = sum(len(e) for e in baselines.values())
     print(f'BANNED APIS OK: {len(projects)} projects build green; {total} baselined RS0030 hits match {entries} '
-          f'{BASELINE_FILE} entries exactly; the same RS0030 with every analyzer config removed ({len(configs)} config '
-          f'files read, none touches RS0030); the canary fires in every project')
+          f'{BASELINE_FILE} entries exactly; one compiler call per project, by the SDK csc with the ban list and no '
+          f'response file or RS0030 option (read from the binary log); the same RS0030 with every analyzer config '
+          f'removed ({len(configs)} config files read, none touches RS0030); the canary fires in every project')
     return 0
 
 
@@ -782,12 +890,64 @@ def self_test():
     found, bad = baselines_in({'src/P/AnalyzerBaseline.cs': text, 'src/P/A.cs': 'x'})
     expect('baselines_in reads every project file', bad + ([] if set(found['P']) == {t1, t2} else ['entries']), 0)
 
+    sdk = 'C:/dotnet/'
+    csc = sdk + 'sdk/10.0.403/Roslyn/bincore/csc.exe'
+    lst = 'C:/repo/src/BannedSymbols.txt'
+    pkg = 'C:/nuget/microsoft.codeanalysis.bannedapianalyzers/5.6.0/analyzers/dotnet/cs/'
+    level = sdk + 'sdk/10.0.403/Sdks/Microsoft.NET.Sdk/analyzers/build/config/analysislevel_10_default.globalconfig'
+    good = {'target': 'CoreCompile', 'tool': [csc], 'responseFiles': [], 'noConfig': True,
+            'analyzerConfigs': ['C:/repo/src/P/obj/P.GeneratedMSBuildEditorConfig.editorconfig', level],
+            'analyzers': [pkg + 'Microsoft.CodeAnalysis.BannedApiAnalyzers.dll',
+                          pkg + 'Microsoft.CodeAnalysis.CSharp.BannedApiAnalyzers.dll'],
+            'additionalFiles': [lst, 'C:/repo/src/P/app.manifest'], 'sources': [], 'rs0030Option': None,
+            'generalOption': 'Error', 'warningLevel': 10, 'ruleSet': None, 'skipAnalyzers': False, 'errors': []}
+
+    def call(**changes):
+        return [dict(good, **changes)]
+
+    expect('csc: the SDK apphost', judge_compiler_calls('P', call(), sdk, lst, False), 0)
+    expect('csc: dotnet exec csc.dll', judge_compiler_calls('P', call(tool=[sdk + 'dotnet.exe', 'exec', csc[:-4] + '.dll']),
+                                                            sdk, lst, False), 0)
+    expect('csc: Linux apphost', judge_compiler_calls('P', call(tool=['/usr/share/dotnet/sdk/10.0.403/Roslyn/bincore/csc']),
+                                                      '/usr/share/dotnet/', lst, False), 0)
+    expect('csc: no call (target replaced)', judge_compiler_calls('P', [], sdk, lst, False), 1, '0 compiler calls')
+    expect('csc: two calls', judge_compiler_calls('P', call() * 2, sdk, lst, False), 1, '2 compiler calls')
+    expect('csc: other target', judge_compiler_calls('P', call(target='Evil'), sdk, lst, False), 1, 'not CoreCompile')
+    expect('csc: CscToolPath wrapper', judge_compiler_calls('P', call(tool=['C:/repo/tools/csc.exe']), sdk, lst, False),
+           1, "not the SDK's own csc")
+    expect('csc: look-alike outside the SDK', judge_compiler_calls(
+        'P', call(tool=['C:/repo/sdk/10.0.403/Roslyn/bincore/csc.exe']), sdk, lst, False), 1, "not the SDK")
+    expect('csc: dotnet exec of another dll', judge_compiler_calls(
+        'P', call(tool=[sdk + 'dotnet.exe', 'exec', 'C:/repo/evil/csc.dll']), sdk, lst, False), 1, "not the SDK")
+    expect('csc: CompilerResponseFile', judge_compiler_calls('P', call(responseFiles=['@evil.rsp']), sdk, lst, False), 1,
+           'response file')
+    expect('csc: default csc.rsp', judge_compiler_calls('P', call(noConfig=False), sdk, lst, False), 1, 'response file')
+    expect('csc: analyzer missing', judge_compiler_calls('P', call(analyzers=good['analyzers'][:1]), sdk, lst, False), 1,
+           'BannedApiAnalyzers')
+    expect('csc: list swapped', judge_compiler_calls('P', call(additionalFiles=['C:/repo/src/P/BannedSymbols.txt']), sdk,
+                                                     lst, False), 1, 'ban lists')
+    expect('csc: second list', judge_compiler_calls('P', call(additionalFiles=[lst, 'C:/x/BannedSymbols.Extra.txt']),
+                                                    sdk, lst, False), 1, 'ban lists')
+    expect('csc: /nowarn:RS0030', judge_compiler_calls('P', call(rs0030Option='Suppress'), sdk, lst, False), 1, 'options')
+    expect('csc: /warnaserror-', judge_compiler_calls('P', call(generalOption='Default'), sdk, lst, False), 1, 'options')
+    expect('csc: /warn:0', judge_compiler_calls('P', call(warningLevel=0), sdk, lst, False), 1, 'options')
+    expect('csc: /ruleset', judge_compiler_calls('P', call(ruleSet='x.ruleset'), sdk, lst, False), 1, 'options')
+    expect('csc: /skipanalyzers', judge_compiler_calls('P', call(skipAnalyzers=True), sdk, lst, False), 1, 'options')
+    expect('csc strip: only the SDK level config', judge_compiler_calls('P', call(analyzerConfigs=[level]), sdk, lst,
+                                                                        True), 0)
+    expect('csc strip: response-file /analyzerconfig', judge_compiler_calls(
+        'P', call(analyzerConfigs=[level, 'C:/repo/src/Boo.Core/evil.cfg']), sdk, lst, True), 1, 'still passed')
+    expect('csc strip: generated editorconfig left', judge_compiler_calls('P', call(), sdk, lst, True), 1, 'still passed')
+    expect('knobs: empty', judge_build_knobs('P', {'CompilerResponseFile': '', 'CscToolPath': ' ', 'CscToolExe': ''}), 0)
+    expect('knobs: set', judge_build_knobs('P', {'CompilerResponseFile': 'evil.rsp', 'CscToolPath': 'C:/w',
+                                                 'CscToolExe': 'w.exe'}), 3, 'Do not change')
+
     expect('sarif uri', [] if relative((root / 'src' / 'x.cs').resolve().as_uri(), root) == 'src/x.cs' else ['uri'], 0)
 
     if failures:
         print('BANNED APIS SELF-TEST FAILED:\n  ' + '\n  '.join(failures))
         return 1
-    print('BANNED APIS SELF-TEST OK: list, marker, binding, firing, baseline, analyzer-config and rise judging all behave')
+    print('BANNED APIS SELF-TEST OK: list, marker, binding, firing, baseline, compiler-call, analyzer-config and rise judging all behave')
     return 0
 
 
@@ -800,6 +960,7 @@ def argument(flag):
 
 def main():
     base = pathlib.Path(argument('--root')).resolve() if argument('--root') else root
+    TOOLS['rev'] = argument('--tools-rev') or None
     if '--self-test' in sys.argv:
         return self_test()
     commands = {'generate': cmd_generate, 'list-check': cmd_list_check, 'canary': cmd_canary, 'product': cmd_product}

@@ -1,11 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Roslyn helper for scripts/quality/banned_apis.py: expands banned-groups.txt into src/BannedSymbols.txt from the
-       real reference packs, and checks which banned symbol each canary call binds to. Not shipped. -->
+       real reference packs, checks which banned symbol each canary call binds to, and reads the Csc calls MSBuild
+       really ran from a binary log (MSBuild.StructuredLogger, pinned). Not shipped. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
+    <PackageReference Include="MSBuild.StructuredLogger" Version="2.3.269" />
   </ItemGroup>
 </Project>

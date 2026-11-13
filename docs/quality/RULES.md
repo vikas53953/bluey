@@ -191,17 +191,31 @@ PR 1.3 makes the ban exact: the compiler, not a text scan, decides which member 
   pull request the **base branch's copy** of `banned_apis.py` runs `rise-check` and `product` on the PR's tree:
   `rise-check` refuses a new entry, a raised count, a removed ban line, and RS0030 named in any `src/` C# file other
   than `AnalyzerBaseline.cs`.
-- **Analyzer config files (exact).** An `.editorconfig` or `.globalconfig` can turn RS0030 off for one file
-  (`[EvilA.cs]` + `dotnet_diagnostic.RS0030.severity = none`), for the `ApiDesign` category, or for everything, and the
-  probe below cannot see that because the canary files live elsewhere. So `product` compiles every `src/` project a
-  second time with **no** analyzer config files: `BooNoAnalyzerConfig` removes every `EditorConfigFiles` and
-  `GlobalAnalyzerConfigFiles` item right before the compiler runs, which covers discovered `.editorconfig` /
-  `.globalconfig` files, `is_global` configs with path sections and items a project adds itself. The RS0030
-  diagnostics (place, level, message, suppression) must be identical in both builds, and after the strip only the
-  SDK's own `analysislevel_*.globalconfig` (from the dotnet install) may remain. On top, every config file the compiler
-  received, and every `.editorconfig` / `.globalconfig` in the repository, may not set
-  `dotnet_diagnostic.RS0030.severity`, `dotnet_analyzer_diagnostic.category-ApiDesign.severity` or
-  `dotnet_analyzer_diagnostic.severity` (none does today).
+- **What reaches the compiler (exact, from the binary log).** A ban can also be switched off by inputs the text
+  never shows: an analyzer config for one file (`[EvilA.cs]` + `dotnet_diagnostic.RS0030.severity = none`), the
+  `ApiDesign` category or everything, in an `.editorconfig`, a `.globalconfig`, an item a project adds, or a file
+  named anything and passed by a response file (`<CompilerResponseFile>` with `/analyzerconfig:evil.cfg`); a wrapper
+  compiler (`CscToolPath` / `CscToolExe`); `/nowarn:RS0030`, `/warnaserror-`, `/warn:0`, `/ruleset`,
+  `/skipanalyzers`; a swapped `BannedSymbols.txt`. So `product` records a binary log (`-bl`) of every `src/` build and
+  reads the `Csc` task MSBuild really ran with `scripts/quality/canary/ListGen` (MSBuild.StructuredLogger 2.3.269,
+  pinned), splitting and parsing its command line with Roslyn's own C# command-line parser, which expands response
+  files exactly as csc does. Per project it requires: exactly one compiler call, from `CoreCompile`; the compiler is the
+  SDK's own csc (its apphost, or `dotnet exec csc.dll`, inside the dotnet install); no response file and `/noconfig`;
+  both BannedApiAnalyzers DLLs; `src/BannedSymbols.txt` and no other `BannedSymbols*` file; no RS0030 option,
+  warnings as errors on, warning level at least 1, no rule set, analyzers not skipped. `CompilerResponseFile`,
+  `CscToolPath` and `CscToolExe` must also be empty.
+- **Analyzer configs removed (exact).** `product` compiles every `src/` project a second time with
+  `BooNoAnalyzerConfig`, which removes every `EditorConfigFiles` and `GlobalAnalyzerConfigFiles` item right before the
+  compiler runs. In that build the compiler call may get **only** the SDK's own `analysislevel_*.globalconfig` (from
+  the dotnet install) as analyzer config, so a config put back by a target or a response file fails, and the RS0030
+  diagnostics (place, level, message, suppression) must be identical to the real build. On top, every config file the
+  real compiler call got (the SDK's generated `.editorconfig` included), and every `.editorconfig` / `.globalconfig` in
+  the repository, may not set `dotnet_diagnostic.RS0030.severity`,
+  `dotnet_analyzer_diagnostic.category-ApiDesign.severity` or `dotnet_analyzer_diagnostic.severity` (none does today).
+- **Not covered by any of this:** the workflow file and `Directory.Build.props` themselves come from the pull request,
+  so a PR that edits them can switch these checks off (HANDOFF known issue 0, CODEOWNERS decision pending with Vikas).
+  A build step other than `Csc` that overwrites the compiled assembly afterwards is not judged either; it needs a
+  project-file target that review sees.
 - **The probe.** The same step compiles the canary files (from `scripts/quality/canary/`) inside every `src/` project
   (`BooBannedApiProbe`), with that project's own settings, and requires every banned line in them to fire as an
   unsuppressed error. That covers project-wide switches: `NoWarn`, `WarningsNotAsErrors`, `TreatWarningsAsErrors=false`,
@@ -225,8 +239,9 @@ compile on Linux with `EnableWindowsTargeting`, so no Windows job is needed.
 ## Compile list
 
 [`scripts/quality/compile_list.py`](../../scripts/quality/compile_list.py) asks MSBuild what each `src/` project really
-compiles (`dotnet msbuild <proj> -t:Build -getItem:Compile -getItem:Using`: the items after the build ran, so
-`<Import>`ed files, `Directory.*.props` and items added by targets are included) and fails when that differs from the
+compiles (the source files of the one `Csc` call it really ran, read from a binary log as above, so `<Import>`ed
+files, `Directory.*.props` and files a target adds and removes again are all included; the `<Using>` items plus the
+`global using` lines the SDK really wrote into `GlobalUsings.g.cs`) and fails when that differs from the
 files the ratchet reads: a compiled file outside the project, not `.cs`, or git-ignored; a scanned file that is not
 compiled; a generated file under `obj/` that is not a known SDK or WPF output; an `x:Code` block in a XAML page; a
 `<Using>` item that is `Static="true"` or has an `Alias`; a `<ProjectReference>` to anything but
@@ -250,7 +265,8 @@ and deliberate evasion is closed by the compiler, which sees the real names, typ
 | Disabled `#if` blocks | the compiler skips their text, the ratchet reads it, so an unmatched quote or `/*` inside one can hide or invent a later hit (none in `src/` today) | PR 1.4 (compiler); for the banned APIs the compiler already judges only what is compiled |
 | Swap of a baselined banned call | remove one baselined RS0030 hit and add a new call in another member, silenced by a `[SuppressMessage]` that copies the removed entry's justification | **Not closed**: the counts still match. It needs a deliberately copied suppression, which review sees; PR 1.5 (`BOO-LINT-002`, no suppression outside `AnalyzerBaseline.cs`) refuses it |
 | A `src/` project referencing a project outside `src/` | `<ProjectReference Include="../../tools/X/X.csproj"/>` | **Closed by PR 1.3**: the [compile list](#compile-list) fails on any reference that is not `src/<Name>/<Name>.csproj` |
-| A build target that re-adds an analyzer config only during the strip build, or that disables the strip | a target conditioned on `BooNoAnalyzerConfig` | **Not closed**: it needs a project-file target that names the check's own switch, which review sees; the text check of every config the real build used still applies |
+| Inputs to the compiler outside the build items | an analyzer config passed by `<CompilerResponseFile>`, a wrapper compiler (`CscToolPath`), a target that adds a config or a source before `CoreCompile` and removes it afterwards, a swapped `BannedSymbols.txt`, `/nowarn:RS0030` | **Closed by PR 1.3**: the compiler call MSBuild really ran is read from a binary log and judged (see [Banned APIs](#banned-apis-rs0030)); the compile list takes its sources from the same call |
+| A build step that replaces the compiled assembly after `Csc` ran, or edits to the workflow file or `Directory.Build.props` | an `<Exec>` after `CoreCompile` that copies another DLL over the output; a PR that edits `quality-gates.yml` | **Not closed**: the first needs a project-file target that review sees; the second is HANDOFF known issue 0 (CODEOWNERS decision pending with Vikas) |
 | Scope outside `src/` | projects in `tools/` and `tests/` are not judged | by design for now |
 
 - Not banned yet (owner: PR 1.4 or a cleanup PR; deliberately not in PR 1.3): `Environment.ExpandEnvironmentVariables`
