@@ -263,6 +263,112 @@ Red proof (13 Nov 2026): run [43359573803](https://github.com/vikas53953/bluey/a
 throwaway branch planted a run-time-built fake key in the test results; the scan before that upload reported
 `OpenAI/Anthropic API key ... The value is not shown`, deleted the file and failed the job (`KEY_SCAN_FAILED 1 of 7`).
 
+## Build facts (the shipped build)
+
+Two gates were once bypassed because they judged a different build from the one that ships (the banned-API gate by a
+per-folder `.editorconfig` and by `<CompilerResponseFile>`; the architecture gate, which evaluated each project alone in
+Debug on Linux, by references that exist only under `Configuration == Release`, a `RuntimeIdentifier`, `_IsPublishing`,
+`SolutionName` or `IsOSPlatform('Windows')`, by `PackageDownload` plus an `Exists()`-guarded import, and by NuGet MSBuild
+SDKs). So the gates now read **facts of the real build**: `windows-ci`'s own Release build of `Boo.sln` and its publish
+of `Boo.App` write binary logs (`-bl`, nothing else changes), and the step **Build facts (the shipped build)** turns them
+into `build-facts.json`. This PR is the plumbing only; the banned-API and architecture judges are added on top later.
+
+**What is captured** (`scripts/quality/buildfacts`, a small .NET reader pinned to `MSBuild.StructuredLogger` 2.3.269
+and Roslyn 5.6.0 with a lock file, restored in locked mode): for every project / target framework / runtime identifier
+evaluated in each log: its global properties, key properties, every imported file (`<= importer`), every skipped import
+with the reason, `PackageReference` / `PackageDownload` / `ProjectReference` / `Reference` / `FrameworkReference`
+items, the packages and download dependencies restored into `obj/project.assets.json`, and the ProjectReferences really
+followed into the compile. For every `Csc` task that ran: its target and the file defining it, the task's assembly, the
+compiler, the whole command line with **every response file expanded** (and each response file's text), each
+`/analyzerconfig:` with its **text**, analyzers, additional files, sources, `/nowarn`, `/warnaserror`, `/ruleset`,
+`/errorlog` (with the SARIF log), Roslyn's own reading of the options, every reference with where it came from
+(ProjectReference, PackageReference, FrameworkReference, direct Reference) and the output assembly with its SHA-256. For
+the whole build: every task that ran (`Task | Target | file defining the target | task assembly`), every copy of an
+assembly with the source's SHA-256, every ReadyToRun compile (input and output with SHA-256) and the runtime packs.
+Paths are repo-relative or under a token. Every machine root is taken from the build's **own evaluated properties**
+(the SDK: `NetCoreRoot`, `DOTNET_HOST_PATH`; NuGet: `NuGetPackageRoot`, `NuGetPackageFolders`; `%ProgramFiles%`,
+`%ProgramFiles(x86)%`, `MSBuildProgramFiles32`; the Windows SDK and reference-assembly folders; `TEMP`, `RUNNER_TEMP`,
+the runner tool cache, `USERPROFILE`; every folder above the repository) plus this process's, and mapped to `<dotnet>/`,
+`<nuget>/`, `<programfiles>/`, `<programfiles-x86>/`, `<winsdk>/`, `<temp>/`, `<toolcache>/`, `<localappdata>/`,
+`<home>/`, `<repo-parent-N>/` and so on, case-insensitively, with either slash and in 8.3 short and long forms, longest
+root first. Paths may hold spaces (`C:\Program Files\dotnet` on windows-latest): a whole raw string is tokenised before
+it is ever split, the compiler path in a `Csc` line (logged unquoted) is cut at its own name, and arguments are split
+quote-aware. A root matches only as a whole folder: followed by a separator, a quote, a bracket, `;`, `,`, the end, or
+whitespace that starts the next argument (so `D:\a\my repo` never eats `D:\a\my repo 2`). Values are read only to find
+roots.
+
+**Secret guard.** The log's environment block is never read. `globalProperties` keep values only for reviewed property
+names (`PropertyFilter.Allowed`); any other is written `Name=<value not recorded>`. The MSBuild `commandLine` keeps **no
+property value at all**: every `-p:`/`/p:`/`-property:`/`--property:`/`-rp:`/`-restoreProperty:` value, in any case,
+quoted, repeated, or with pairs split by `;` or `,`, becomes `<value not recorded>`, and so does the value of every
+other switch except a short list whose values are fixed words or tokenised paths (`-m`, `-v`, `-tlp`, `-tl`, `-t`,
+`-restore`, `-nologo`, `-clp`, `-nr`, `-bl`). What is not covered: values the build itself writes into compiler inputs
+(for example `/define:` symbols or `build_property.*` lines in the generated analyzer config) are recorded, because the
+judges need them.
+
+**Path guard.** Any absolute path left after tokenising fails closed in both the reader and the check, naming the JSON
+path of the value (for example `$.binlogs[1].units[0].importsSkipped[12]`). It looks for every absolute-path shape, case
+insensitive, at any position after any delimiter (`:`, `@`, `;`, `,`, `[`, `=`, quotes, spaces): a drive letter (also
+inside `\\?\C:\`), a UNC path (`\\srv\`, `\\?\UNC\`), `//host/` (a URL's `scheme://` is allowed), a POSIX home (`/home/`,
+`/users/`, `/root/`), and an msys drive (`/c/`); a path character right before the shape means the middle of a relative
+path, which passes. It also refuses the user name. The fix for a hit is to add the root's property to
+`PathTokens.FromProperties`, never to widen the guard.
+
+`BuildFacts --self-test` proves the tokens on a GitHub-runner layout (`C:\Program Files\dotnet`,
+`C:\Users\runneradmin\.nuget\packages`, `D:\a\_temp`, `C:\PROGRA~1`), every kind of field on roots that hold spaces
+(the Csc compiler path unquoted, quoted and as `dotnet exec`; Csc arguments; the MSBuild command line; imports,
+references and copies; analyzer-config, response-file and skipped-import text), the root boundary, every path-guard
+shape and the relative paths and URLs that must pass, and the command-line filter (comma, semicolon, quoted, `/p:`,
+`-property:`, `-rp:`, repeated switches).
+Same logs, same file (sorted keys).
+
+**What fails closed** (`scripts/quality/build_facts.py check`, exit 1): malformed facts or a failed build; a machine
+path or the user name in the facts (by JSON path); a project of `Boo.sln` without a `Csc` call from `CoreCompile` in the
+build log; a `Csc` compile of any project **outside** the solution (the only exception is WPF's temporary markup
+project: `<dir>/<Name>_wpftmp.csproj`, after the reader drops its random part, next to a solution project
+`<dir>/<Name>.csproj` and compiling that project's own assembly name; any other `*_wpftmp.csproj` is an ordinary
+project); a `Csc` call
+with no output hash, a compiler or task class outside the SDK install, a command-line parse error, a response file (the
+SDK passes none, so build code added it), or a switch not in `scripts/quality/buildfacts/known.json`; any task not in
+`known.json` (so a target added by repo build code, a package or an MSBuild SDK that runs a task is unknown until
+reviewed; the check then prints the candidate `learn` lines for review); two solution projects compiling one assembly
+name; any recorded copy **into** a file named like a solution project's assembly whose source does not trace to that
+project's own compile; and any managed `.dll`/`.exe` in the publish folder that does not trace, hash for hash and under
+its own name, through recorded copies and ReadyToRun compiles to a recorded `Csc` output or to a restored package or
+runtime pack, or whose name belongs to a solution project but whose content is not that project's compile.
+`--self-test` proves each failure on planted facts.
+
+`fixtures` builds nine fixtures (`scripts/quality/buildfacts/fixtures/`) and quotes the facts lines that show each
+bypass. **Four only have to SHOW the bypass in the facts** (their judges come in #28 and #32): per-folder
+`.editorconfig` severity, the five conditions (Configuration, RuntimeIdentifier, `_IsPublishing`, SolutionName,
+`IsOSPlatform`), `PackageDownload` + `Exists()` import, and a NuGet MSBuild SDK; their check result is only reported.
+**Five must also FAIL the check**: `compiler-response-file` (response file), `tamper-after-compile` (a `Copy` over the
+compiled assembly right after `CoreCompile`: an unknown task), `tamper-publish` (an `Exec` that copies other code over
+the published `App.dll`: an unknown task and the hash trace), `same-name-compile` (a project outside the solution
+with `<AssemblyName>Lib</AssemblyName>`, moved over the judged `Lib.dll` only by the SDK's own allowed copy of a linked
+`None` item: an outside compile, and copies whose source is not `Lib`'s compile), and `fake-wpftmp` (an ordinary
+project outside the solution named `Extra/Extra_wpftmp.csproj`, referenced by the app, ships `Extra.dll`: an outside
+compile). `learn FACTS` lists task keys and
+switches that `known.json` does not hold yet; adding one is a reviewed change.
+
+Only `build-facts.json` is uploaded (artifact `build-facts`, 7 days, through its key scan); the binary logs never are,
+because they can hold environment values.
+
+**Still open (known holes):**
+- the workflow file itself: a PR can edit `windows-ci.yml` (drop `-bl`, the step, or `known.json`) and judge itself
+  (HANDOFF known issue 0); the first PR has no base-branch judge, so this PR's own copy judges it;
+- build code that lies to the logger: a task that writes files it does not log, or a compiler server or tool that is
+  not what its path says; the facts record what MSBuild logged;
+- hashes are taken when the reader runs, after the build: a file changed **in place** after the compile by a step the task rule allows (an SDK task fed crafted items): the
+  hash trace compares the publish folder with the compile output as it is on disk when the reader runs, so an
+  overwrite of the compile output itself is caught only by the task rule; replaying the recorded `csc` command (the
+  build is deterministic) would close it;
+- what the code does at run time (reflection, loading other assemblies, `Process.Start`) is not a build fact;
+- the reader and `build_facts.py` run from the PR's own tree and the repo's `Directory.Build.props` applies to the
+  reader's build; a later PR runs the base branch's copy (like the ratchet's `--rise-only`);
+- `known.json` was learned from one build on 13 Nov 2026 (SDK 10.0.403); an SDK or package change that runs a new
+  task fails closed until reviewed.
+
 ## Architecture rules (BOO-ARCH, `tests/Boo.Architecture.Tests`)
 
 Plan section 2.4 B, PR 1.11. A normal xUnit project that reads the compiled `src` assemblies, so it runs wherever the
@@ -363,3 +469,78 @@ reviewed oracle revision. **Fix:** move the feature into `MainWindow.<Feature>.c
 **One feature, one partial.** `Boo.App` is already sliced by feature (`MainWindow.Talk.cs`, `.Voice.cs`, `.Edits.cs`,
 `.Focus.cs`, `.Updates.cs`, `.Accessibility.cs`, `.Shortcuts.cs`). A new feature gets its own file. Checked by review;
 BOO-ARCH-006 is what makes skipping it fail.
+
+## Evidence table in every PR body (PR 1.10)
+
+Workflow `pr-evidence` (job `evidence`, Linux, well under a minute, no artifacts) runs `scripts/quality/pr_evidence.py`
+on every pull request when it is opened, edited or pushed to, so fixing the body re-runs only this check. It reads the
+body from the event file, never from a `${{ }}` expression pasted into a shell. Step order: the **base branch's** copy
+of the checker (read from git) judges the body first, before any code from the PR runs, so a PR cannot loosen the
+checker script it is judged by; then the PR's own copy runs its self-test (every rule on HTML samples), its render test
+(the known tricks, sent through GitHub's real renderer) and the check.
+
+**GitHub renders the body, the check reads the result.** The script does not parse Markdown itself: it sends the body
+to GitHub's Markdown API (the same renderer as the PR page) and reads only the rendered tables and the real link
+targets (`<a href>`). What GitHub does not show as a table or a link does not count: HTML comments, code blocks, text
+inside HTML attributes, a run URL that is only a link's hover title. If GitHub cannot render the body, the check fails
+closed.
+
+What the check guarantees:
+- **Every table is a plain Markdown pipe table.** A table written in raw HTML can be drawn in a different order than it
+  is written (merged cells, rows before the header, a footer, a table inside a table), and raw HTML inside a cell
+  (`<details>`, `<ruby>`, `<span>`, ...) can hide text or links. So a table without exactly the shape GitHub gives a
+  pipe table, or with anything in a cell other than text, links, bold, italic, strikethrough, code, emoji, images and
+  line breaks, fails (footnotes and math in a cell fail too).
+- **The Label column reads as shown.** A Label cell holds only the label word and plain words after it (bold, italic,
+  strikethrough, code, emoji); an image, link or line break there fails. Struck-out text is not read, as a reader
+  would not read it: `~~mock~~ live` is a live row. Header rows and Label cells may hold only plain ASCII plus everyday
+  dashes, quotes, arrows, comparison and currency signs, check marks and common emoji: a look-alike letter (Cyrillic
+  `а`, circled `ⓛ`, Roman-numeral `ⅼ`, full-width or squared letters) fails there. Other cells of an evidence table
+  are free text.
+- **Every live row has a readable run link** (see BOO-EVID-001).
+
+Best effort, not a guarantee: a table without a `Label` column is not evidence, and a cell there that starts with
+`live` (header row included; also `Iive`, `LlVE`, `L1VE`) fails, as does any character outside the allowed set in such
+a table, to catch a misspelled or look-alike `Label` header. Claims written in prose, a list or a code block are not
+checked and do not count.
+
+## BOO-EVID-001
+**A claim without evidence.** The PR body must have a Markdown table with a column headed `Label`, one row per claim:
+
+| Claim | Label | Proof |
+| --- | --- | --- |
+| Real AI round trip on this head | **live** | [run 123](https://github.com/vikas53953/bluey/actions/runs/123) |
+| Demo journeys (mock AI) | mock | [run 124](https://github.com/vikas53953/bluey/actions/runs/124) |
+| Voice | UNVERIFIED | not tested |
+
+- Each label (the first word of the cell; bold and plain words after it are fine) is one of `live`, `mock`, `manual`,
+  `UNVERIFIED`, `BLOCKED`, `review`.
+- Every `live` row has a real link whose text has a letter or digit (not an image, not an invisible character) to a
+  GitHub Actions run of this repository, written as a full `https://github.com/...` address (a run, a job or an
+  attempt of it). No run link means it is not live.
+- A PR that changes anything under `src/` or `tools/` has at least one `live` row, or a `BLOCKED` row that says what
+  blocks the live run (after the label, in the same cell or a column to its right).
+
+**Fix:** add or correct the table in the PR body (edit the body; the check re-runs). A local run is `manual` or
+`mock`, never `local`; a claim that was not checked is `UNVERIFIED`, never `—`. **Do NOT** label a mock run `live`,
+link an unrelated run, or hide the table or a link in a code block or an HTML comment (neither is counted).
+
+What this check is for: it catches a missing or sloppy evidence table and every trick its reviews found (listed in
+the self-test and the render test). It cannot prove an author is honest: a claim outside the Label column (`tested
+live` in a Status table, a badge image in a table without a Label column, prose), or a link to a run that proves
+nothing, can pass it. The separate reviewer and the QA PASS line remain the judge of whether the evidence is true.
+
+Known gaps: the check needs GitHub's Markdown API (it fails closed when that is down; re-run the job). A table inside
+a collapsed `<details>` counts (a reader can open it). It proves a table and links exist, not that each linked run is
+green, is on the PR's head, or proves the claim next to it (the separate reviewer and the QA PASS line cover that). A
+PR can edit `pr-evidence.yml` itself; like every gate here, that is caught by review and the required-check settings
+(Vikas's decision), not by the workflow.
+
+## BOO-TEST-001
+**A skipped or empty test outside `tests/`.** `scripts/test_gate.py static` (in `windows-ci`) checks every xUnit
+test project in the repository, wherever it lives (a test fixture project that references xUnit is checked too) (today the 8 under `tests/` and `tools/Boo.CaptureProof`,
+`tools/Boo.LiveSmoke`, `tools/Boo.VerifyLive`): no empty `.cs` file, every `*Tests.cs` file declares a `[Fact]` or
+`[Theory]`, every test project declares a test, and no `Skip =` on any test attribute.
+
+**Fix:** make the test run, or delete it in a reviewed change. **Do NOT** add `Skip =`, empty the file, or move the
+test into a project the gate does not recognise as a test project (one without xUnit).
