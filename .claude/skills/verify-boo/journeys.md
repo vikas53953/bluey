@@ -1,7 +1,7 @@
 # verify-boo journeys: every notch state, one shared list
 
-This is the **single shared list** of user journeys that, together, reach every state and every transition of Boo's
-notch. It is a plan of what to drive and what to look for. **Nothing here has been run because it is written down**:
+This is the **single shared list** cataloguing Boo's notch states and transitions, planned user journeys and explicit
+coverage gaps. Some internal transitions cannot be driven through the UI. **Nothing here has been run because it is written down**:
 a journey proves something only when a run of the published `Boo.exe` does it, with evidence (see `SKILL.md`).
 
 Where the facts come from:
@@ -257,9 +257,17 @@ already press Ctrl+Alt+F12 and Ctrl+Alt+S on a running session; they do not read
 | Preconditions | as j5; for the field part, the demo target window with a text field (as demo-ci `02-undo`) |
 | Steps | a) j5 to the end (file created, then removed by an approved undo). b) Type "undo" again and read the card. c) Approve it. d) Field: have Boo fill a field, approve, "undo", approve, then "undo" again. |
 | Expected | b), c) **Expect today's behaviour (§5-F6):** the approved file undo was journaled as a new edit, so the second undo offers a card that reverses the undo, and approving it **re-creates the file** (U6). d) the field journal was cleared after the verified undo (U5), so the second "undo" shows a "nothing to undo" message and no card (U2). |
-| Covers | U1, U2, U3, U4, U5, U6, A5, A6, `INV-APPLY-2`, §5-F6 |
+| Covers | U1, U2, U3, U5, U6, A5, A6, `INV-APPLY-2`, §5-F6. U4 refusal branches are separate manual gaps below, not covered by successful undo. |
 | Evidence | card titles read; file existence and field value read back after each step |
 | Live / mock | live; mock-capable (demo-ci step 2 covers the field undo once) |
+
+**U4 refusal coverage (manual, UNVERIFIED):** On a fresh field edit for each case: (1) after Boo's approved fill,
+change the field yourself before asking Undo; (2) use a target exposing ambiguous Undo controls; (3) use a field
+whose original value was empty and whose safe native Undo control is unavailable. Ask Undo in each case and require
+an explanatory refusal, no approval card and an unchanged target value. Record the original/current field values,
+raw target controls and refusal text plus screenshots. Cases (2) and (3) need an appropriate target fixture, absent
+from this journey's current demo setup; they are **not automated coverage**. Successful undo or "nothing recorded"
+after journal clearance proves none of these refusal branches.
 
 #### j17 — Voice ends itself and voice drives focus
 
@@ -277,10 +285,10 @@ already press Ctrl+Alt+F12 and Ctrl+Alt+S on a running session; they do not read
 | Field | Content |
 | --- | --- |
 | Preconditions | speech off; chat model |
-| Steps | Send a question, and before it answers send a second one. |
-| Expected | only the second answer appears; the first's late result is dropped; `Thinking` is owned by the newer request (F6) |
-| Covers | G1, G4, F6, P1 (an older ring is refused, if both asked for a ring), P2 (a second ring clears the first) |
-| Evidence | transcript read (one answer); face timeline |
+| Steps | a) Send a question, and before it answers send a second one. b) Separately run j3 until the ring is visible; keep a before screenshot, then send a new question and observe that the old annotation clears. |
+| Expected | a) only the second answer appears; the first's late result is dropped; `Thinking` is owned by the newer request (F6). b) the old annotation clears at BeginRequest (P4); this does not exercise PointerGuidance.Begin replacing an existing annotation (P2). |
+| Covers | G1, G4, F6; P4 new-request clearing in b). P1/P2 are internal coverage gaps below. |
+| Evidence | a) transcript read (one answer), face observations; b) before/after overlay screenshots and timestamped new-request event. Transcript/face evidence alone cannot prove ring clearing. |
 | Live / mock | live; mock-capable |
 
 ---
@@ -383,8 +391,9 @@ needs a device change the runner cannot make); **not drivable yet** = no user ac
 | A1, A2, A3, A5, A6, A7, A8 | j5, j12e, j15, j16 | A7 depends on the AI proposing two steps |
 | A4 (expired / policy denies / target window changed) | **manual** (the "policy denies" part may be drivable by asking for a write outside Boo's file folder; UNVERIFIED) | Stop clears the card first (A3), so "expired" is not reachable by a click; a changed target window needs a second app moved in between; not scripted yet |
 | U1, U3 | j5, j16 | |
-| U2, U4, U5, U6 | j16 | |
-| P1, P2 | j18 | |
+| U2, U5, U6 | j16 | |
+| U4 | **manual / UNVERIFIED** | j16's separate refusal checklist: newer field change, ambiguous Undo controls, empty prior value; the latter two need additional target fixtures. Successful/repeated undo is not refusal coverage. |
+| P1, P2 | **not drivable through the current UI / UNVERIFIED** | P1 needs an older/equal generation passed to PointerGuidance.Begin; P2 needs Begin while an annotation already exists. App BeginRequest clears annotations first (MainWindow.xaml.cs:1986); j18 cannot prove either core branch. Require targeted Core tests as component evidence, not E2E proof. |
 | P3 | j3, j14 | the phase walk itself is not published (only the drawn result) |
 | P4 (Stop, new request) | j12h, j18 | |
 | P4 (scroll, resize, foreground, display change) | **manual** | not scripted yet; display change needs a second monitor |
@@ -411,8 +420,9 @@ Invariants and findings:
 | §5-F9 | j13 e); quit part manual | |
 | §5-F10 | j22 | Microphone privacy gap, code reading only; live execution UNVERIFIED |
 
-Count: the map has **75 rows** (R 11, F 25 including F10b, H 8, Fo 8, G 5, A 8, U 6, P 4). Every row is hit by at least one journey
-for at least one of its events. Rows or events that **no** journey can drive from the UI today: **F10**, the sleep /
+Count: the map has **75 rows** (R 11, F 25 including F10b, H 8, Fo 8, G 5, A 8, U 6, P 4). Every row is catalogued;
+that is not a claim that every row has an executable E2E journey. U4 refusal cases remain manual/UNVERIFIED.
+Rows or events that **no** journey can drive from the UI today: **P1/P2**, **F10**, the sleep /
 tick-error / disconnect events of **F19** and **Fo3**, the lock / sleep / update / quit / crash / internal sources of
 **F21**, the lock / suspend events of **H6**, **G5**, **A4**, and the scroll / resize / foreground / display events of
 **P4**: these are **manual** or **not drivable yet** as listed above, and need reducer tests (PR 2.11) to be covered at
