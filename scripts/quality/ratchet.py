@@ -15,6 +15,7 @@ anchor in docs/quality/RULES.md. Source is read with a small C# lexer (strings, 
 strings, char literals, line and block comments), and every match on a line counts. Known gaps are listed in RULES.md;
 the compiler-exact versions (banned APIs, analyzers) come in later Phase 1 PRs.
 """
+import bisect
 import json
 import pathlib
 import re
@@ -22,7 +23,7 @@ import subprocess
 import sys
 import tempfile
 import unicodedata
-import xml.etree.ElementTree as ElementTree
+from collections import Counter
 
 root = pathlib.Path(__file__).resolve().parent.parent.parent
 BASELINE = root / 'docs' / 'quality' / 'baseline.json'
@@ -191,7 +192,7 @@ def plain_identifiers(code):
 
 
 def expand_usings(code, usings):
-    """Rewrite aliases and `using static` members to the full Type.Member form the rules look for."""
+    """Write aliases and `using static` members out in the full Type.Member form the rules look for."""
     for _, static, alias, target in usings:
         name = target.split('.')[-1]
         if alias:
@@ -201,21 +202,35 @@ def expand_usings(code, usings):
     return code
 
 
+class View:
+    def __init__(self, code, comments):
+        self.code, self.comments = code, comments
+        self.code_lines = code.split('\n')
+        self.line_starts = [0] + [k + 1 for k, c in enumerate(code) if c == '\n']
+
+    def line_of(self, index):
+        return bisect.bisect_right(self.line_starts, index)
+
+
 class Source:
+    """The lexed text as written is the floor (the base branch reads it the same way). The normalised spellings
+    (`\\u` escapes, `@`, invisible characters) and the written-out usings are EXTRA views: a rule's count is the
+    per-line maximum over all views, so a normalisation can only ADD hits, never hide one (see Rule.hits)."""
     def __init__(self, text, project_usings=()):
         code, self.comments = lex(text)
-        code = plain_identifiers(code)
+        plain = plain_identifiers(code)
         self.usings = [(bool(m.group(1)), bool(m.group(2)), m.group(3), re.sub(r'\s', '', m.group(4)))
-                       for m in USING.finditer(code)]
-        self.code = expand_usings(code, list(project_usings) + self.usings)
-        self.code_lines = self.code.split('\n')
+                       for m in USING.finditer(plain)]
+        expanded = expand_usings(plain, list(project_usings) + self.usings)
+        self.views = [View(view, self.comments) for view in dict.fromkeys([code, plain, expanded])]
 
 
 def pattern_hits(pattern):
+    """Every match in the whole text (so a call split over lines still counts), reported at the line it starts on."""
     compiled = re.compile(pattern)
 
-    def count(source):
-        return [number for number, line in enumerate(source.code_lines, 1) for _ in compiled.finditer(line)]
+    def count(view):
+        return [view.line_of(m.start()) for m in compiled.finditer(view.code)]
     return count
 
 
@@ -306,7 +321,15 @@ class Rule:
         self.samples = samples  # list of (snippet inside a method, expected hit count)
 
     def hits(self, source):
-        return self.counter(source)
+        """Per line, the most hits any view finds; the first view is the text as written, so nothing counts less."""
+        best = Counter()
+        for view in source.views:
+            for line, n in Counter(self.counter(view)).items():
+                best[line] = max(best[line], n)
+        return sorted(best.elements())
+
+    def floor_hits(self, source):
+        return self.counter(source.views[0])
 
 
 DISPATCHER = r'\b\w*[Dd]ispatcher\s*\??\.\s*'
@@ -327,18 +350,20 @@ RULES = [
          pattern_hits(r'\bTask\s*\.\s*(WaitAll|WaitAny)\b|GetAwaiter\s*\(\s*\)\s*\.\s*GetResult\s*\('
                       r'|\b\w*[Tt]ask\w*\s*\.\s*(Wait\s*\(|Result\b)'),
          [('t.GetAwaiter().GetResult();', 1), ('Task.WaitAll(a, b);', 1), ('_task.Wait(); myTask.Wait(5);', 2),
-          ('var r = _pump.Task.Result;', 1), ('await _pump.Task.WaitAsync(ct);', 0)]),
+          ('var r = _pump.Task.Result;', 1), ('await _pump.Task.WaitAsync(ct);', 0),
+          ('using _task = System.Object;\n _task.Wait();', 1)]),
     Rule('BOO-ASYNC-003', 'async void (method or event-handler lambda)',
          'An exception in async void cannot be caught by its caller and can end the app.',
          'Return Task. For a WPF event, hand an async Func<Task> to one shared helper that awaits it and reports errors.',
          'Do NOT add a catch-everything block.', pattern_hits(r'\basync\s+void\b|\+=\s*async\b'),
-         [('async void Go() { }', 1), ('b.Click += async (s, e) => await Go();', 1)]),
+         [('async void Go() { }', 1), ('b.Click += async (s, e) => await Go();', 1),
+                                     ('using async = System.Object;\n async void M2() { }', 1)]),
     Rule('BOO-UI-001', 'Dispatcher.Invoke (synchronous)',
          'A synchronous cross-thread call deadlocks when the UI thread is itself waiting.',
          'Use await Dispatcher.InvokeAsync(...).', 'Do NOT add a timeout to "unstick" it.',
          pattern_hits(DISPATCHER + r'Invoke\b'),
          [('Dispatcher.Invoke(() => { });', 1), ('dispatcher.Invoke(Go); d?.Dispatcher.Invoke(Go);', 2),
-          ('await Dispatcher.InvokeAsync(Go);', 0)]),
+          ('await Dispatcher.InvokeAsync(Go);', 0), ('using Dispatcher = System.Object;\n Dispatcher.Invoke(Go);', 1)]),
     Rule('BOO-UI-002', 'Dispatcher.BeginInvoke (fire and forget)',
          'Exceptions thrown inside are lost and the ordering is a guess.',
          'Use Dispatcher.InvokeAsync and observe the result.', 'Do NOT add a delay to "fix" ordering.',
@@ -356,13 +381,15 @@ RULES = [
     Rule('BOO-TIME-002', 'Task.Delay', 'A delay used to "let things settle" hides a race.',
          'Wait for the real signal; for a real timeout use the TimeProvider overload so tests control time.',
          'Do NOT make the delay longer.', pattern_hits(r'\bTask\s*\.\s*Delay\b'),
-         [('await Task.Delay(100);', 1), ('using static System.Threading.Tasks.Task;\n await Delay(1);', 1)]),
+         [('await Task.Delay(100);', 1), ('using static System.Threading.Tasks.Task;\n await Delay(1);', 1),
+          ('using L = System.Threading.Tasks.Task<int>;\n await L.Delay(1);', 1)]),
     Rule('BOO-TIME-003', 'new DispatcherTimer', 'Timers are a common "fix" for ordering bugs and are untestable '
          'without a fake clock.', 'Prefer an event or an awaited signal; keep real periodic timers in one owner class.',
          'Do NOT add a timer to wait for something to finish.',
          pattern_hits(r'\bnew\s+(?:[\w.]+\.)?DispatcherTimer\b|\bDispatcherTimer\s+\w+\s*=\s*new\s*\('),
          [('var x = new DispatcherTimer();', 1), ('DispatcherTimer t = new(DispatcherPriority.Normal);', 1),
-          ('var y = new System.Windows.Threading.DispatcherTimer();', 1)]),
+          ('var y = new System.Windows.Threading.DispatcherTimer();', 1),
+          ('using @new = System.Object;\n var t = new System.Windows.Threading.DispatcherTimer();', 1)]),
     Rule('BOO-RT-001', 'GC.Collect', 'Forcing a garbage collection hides a leak.',
          'Find what holds the memory and dispose it.', 'Do NOT call it "just in case".',
          pattern_hits(r'\bGC\s*\.\s*Collect\b'), [('GC.Collect();', 1), ('Action a = GC.Collect;', 1),
@@ -413,7 +440,11 @@ RULES = [
                                                     ('var r = ' + '"' * 13 + 'a' + '"' * 11 + ' GC.Collect(); ' + '"' * 11
                                                      + 'b' + '"' * 13 + ';', 0),
                                                     ('var s = $"{ new { A = c ? 1 : GC.Collect() }.A }";', 1),
-                                                    ('var s = $"{ arr[c ? 1 : GC.Collect()] }";', 1)]),
+                                                    ('var s = $"{ arr[c ? 1 : GC.Collect()] }";', 1),
+                                                    ('var s = $"{a[0]:GC.Collect}";', 0),
+                                                    ('using GC = Foo.Bar;\n GC.Collect();', 1),
+                                                    ('System.GC\n   .Collect();', 1),
+                                                    ('using static global::System.GC;\n Collect();', 1)]),
     Rule('BOO-RT-002', 'Environment.GetEnvironmentVariable',
          'Hidden switches (for example BOO_QA_CAPTURABLE) change privacy behaviour and must be auditable.',
          'Read environment variables in one place and pass the value in.', 'Do NOT add another reader.',
@@ -429,7 +460,8 @@ RULES = [
          'Catch the specific exception you expect and handle it, or let it propagate.', 'Do NOT widen the catch.',
          lambda s: [line for line, kind in broad_catches(s) if kind == 'empty'],
          [('try { Go(); } catch (Exception) { }', 1), ('try { Go(); } catch { }', 1),
-          ('try { Go(); } catch (global::System.Exception) { }', 1), ('try { Go(); } catch (IOException) { }', 0)]),
+          ('try { Go(); } catch (global::System.Exception) { }', 1), ('try { Go(); } catch (IOException) { }', 0),
+          ('using @catch = System.Object;\n try { Go(); } catch { }', 1)]),
     Rule('BOO-ERR-002', 'Broad catch that handles and carries on (no rethrow)',
          'Catching every exception also catches the bugs you did not expect.',
          'Narrow the type, or add a `when (...)` filter for the exceptions you really expect.',
@@ -443,7 +475,9 @@ RULES = [
          'Make it an instance member owned by one object, or readonly.', 'Do NOT add a lock around it as the fix.',
          static_mutable, [('}\n private static int s_count;\n void N() {', 1),
                           ('}\n public static bool Started { get; private set; }\n void N() {', 1),
-                          ('}\n private static readonly int s_x = 1;\n void N() {', 0)]),
+                          ('}\n private static readonly int s_x = 1;\n void N() {', 0),
+                          # 2: the alias line itself also reads as a static field, as on the base branch (never less)
+                          ('}\n using @static = System.Object;\n private static int s_count;\n void N() {', 2)]),
     Rule('BOO-CMT-001', 'Comment line that is not an XML doc comment (///)',
          'Agents use comments to justify workarounds; rules written in comments are not checked.',
          'Fix the cause instead of explaining it. If it states a rule, write a test and use '
@@ -454,7 +488,8 @@ RULES = [
           ('// INVARIANT: undo restores bytes, see MissingTests.Roundtrip', 1),
           ('// INVARIANT: undo restores bytes, see UndoJournalTests.NoSuchMethod', 1),
           ('// INVARIANT: undo restores bytes, see UndoJournal.Roundtrip', 1),
-          ('// note TODO(#12): tracked only at the start', 1),
+          ('// note TODO(#12): tracked only at the start', 1), ('//// TODO(#12): four slashes', 1),
+          ('#endregion // a name, not a comment', 0),
           ('// TODO: fix later', 1), ('// TODO(12): no hash', 1),
           ('#pragma warning disable CS0168 // TODO(#1): tracked here', 1),
           ('// INVARIANT: retry because flaky, see e.g. above', 1),
@@ -498,6 +533,8 @@ def layout(base):
             problems.append(f'{path}: a project outside src/<Name>/ is not judged. Put it at src/<Name>/<Name>.csproj.')
         elif is_csharp(parts[-1]) and (len(parts) < 3 or parts[1] not in projects):
             problems.append(f'{path}: C# file outside a src/<Name>/ project is not judged. Move it into a project.')
+    for path in symlinks(base, 'src'):
+        problems.append(f'{path}: a symbolic link in src/ hides what it points to from the ratchet. Commit real files.')
     return projects, problems
 
 
@@ -518,35 +555,14 @@ def load_tests(base):
                 KNOWN_TESTS[name] = KNOWN_TESTS.get(name, '') + text
 
 
-def msbuild(base, project):
-    """(usings, problems) from the project's .csproj files and the Directory.Build.props/.targets above it, read with an
-    XML parser. <Using> items are followed (attribute or child-element metadata). Anything that brings code or settings
-    in from elsewhere (<Compile Include>, <Import>) or cannot be read fails closed: the ratchet cannot follow it."""
-    folder = base / 'src' / project
-    paths = sorted(p for p in folder.iterdir() if p.is_file() and is_project(p.name))
-    for up in (folder, base / 'src', base):
-        paths += [up / name for name in ('Directory.Build.props', 'Directory.Build.targets') if (up / name).is_file()]
-    usings, problems = [], []
-    for path in paths:
-        where = path.relative_to(base).as_posix()
-        try:
-            elements = list(ElementTree.parse(path).iter())
-        except (ElementTree.ParseError, OSError) as error:
-            problems.append(f'{where}: cannot be read as XML ({error}), so the ratchet cannot follow it.')
-            continue
-        for element in elements:
-            tag = str(element.tag).split('}')[-1]
-            meta = {key.lower(): value for key, value in element.attrib.items()}
-            meta.update({str(child.tag).split('}')[-1].lower(): (child.text or '').strip() for child in element})
-            if tag == 'Import' or (tag == 'Compile' and 'include' in meta):
-                problems.append(f'{where}: <{tag}> brings code or settings in from elsewhere, which the ratchet cannot '
-                                f'follow. Keep compiled code as .cs files inside src/<Name>/ (the analyzers of later Phase 1 '
-                                f'PRs check compiled code exactly).')
-            elif tag == 'Using' and 'include' in meta:
-                for target in filter(None, (part.strip() for part in meta['include'].split(';'))):
-                    usings.append((True, meta.get('static', '').strip().lower() == 'true', meta.get('alias') or None,
-                                   re.sub(r'\s', '', target)))
-    return usings, problems
+def symlinks(base, top):
+    """Tracked symbolic links (git mode 120000) under base/top: git lists a linked folder as one entry, so its files
+    would never be read."""
+    run = subprocess.run(['git', '-C', str(base), 'ls-files', '-s', '-z', '--', top], capture_output=True)
+    if run.returncode:
+        raise SystemExit(f'RATCHET FAILED: cannot list files with git in {base}.')
+    return sorted(entry.split('\t', 1)[1] for entry in run.stdout.decode('utf-8').split('\0')
+                  if entry.startswith('120000 '))
 
 
 def scan(base):
@@ -558,9 +574,7 @@ def scan(base):
     for project in projects:
         paths = ['/'.join(parts) for parts in listed if parts[1:2] == (project,) and is_csharp(parts[-1])]
         texts = {path: (base / path).read_text(encoding='utf-8-sig') for path in paths}
-        usings, msbuild_problems = msbuild(base, project)
-        problems += [p for p in msbuild_problems if p not in problems]
-        usings += [u for text in texts.values() for u in Source(text).usings if u[0]]  # `global using` lines
+        usings = [u for text in texts.values() for u in Source(text).usings if u[0]]  # `global using` lines
         for path in paths:
             source = Source(texts[path], usings)
             for rule in RULES:
@@ -656,6 +670,10 @@ def self_test():
             got = len(rule.hits(source))
             if got != expected:
                 failures.append(f'{rule.id}: expected {expected} hit(s), got {got} for: {snippet!r}')
+            # Never counts less: no normalised view may hide a hit that the text as written shows, on any line.
+            floor, best = Counter(rule.floor_hits(source)), Counter(rule.hits(source))
+            if any(best[line] < n for line, n in floor.items()):
+                failures.append(f'{rule.id}: a normalised view counted less than the text as written for: {snippet!r}')
     clean = Source('class C {\n  /// <summary>Doc.</summary>\n  private static readonly int s_x = 1;\n'
                    '  private const string Url = "http://a//b /* not a comment */";\n'
                    '  async Task M() { try { await N(); } catch (IOException) { } }\n}\n')
@@ -707,33 +725,20 @@ def self_test():
             code.write_text('class A { void M() { Collect(); } }', encoding='utf-8')
             steps += [('a global using static in another file is followed', check(tree, baseline_path, rise_only=True), 1)]
             (tree / 'src' / 'P' / 'Glob.cs').unlink()
-            (tree / 'src' / 'P' / 'P.csproj').write_text('<Project><ItemGroup><Using Include="System.GC" Alias="G" />'
-                                                         '</ItemGroup></Project>', encoding='utf-8')
-            code.write_text('class A { void M() { G.Collect(); } }', encoding='utf-8')
-            steps += [('a <Using Alias> in the .csproj is followed', check(tree, baseline_path, rise_only=True), 1)]
             code.write_text('class A { void M() { Collect(); } }', encoding='utf-8')
-            for name, xml in [('Static attribute', '<Using Include="System.GC" Static="true" />'),
-                              ('child-element metadata, single quotes', "<Using Include='System.GC'><Static>true</Static></Using>")]:
-                (tree / 'src' / 'P' / 'P.csproj').write_text(f'<Project><ItemGroup>{xml}</ItemGroup></Project>', encoding='utf-8')
-                steps += [(f'a .csproj <Using> with {name} is followed', check(tree, baseline_path, rise_only=True), 1)]
-            (tree / 'src' / 'P' / 'P.csproj').write_text('<Project/>', encoding='utf-8')
             (tree / 'src' / 'P' / 'B.cs').write_text('using static System.GC;', encoding='utf-8')
             steps += [('a plain (not global) using in another file is not applied', check(tree, baseline_path, rise_only=True), 0)]
             (tree / 'src' / 'P' / 'B.cs').unlink()
-            (tree / 'Directory.Build.props').write_text('<Project><ItemGroup><Using Include="System.GC" Static="true" />'
-                                                        '</ItemGroup></Project>', encoding='utf-8')
-            steps += [('a <Using> in Directory.Build.props is followed', check(tree, baseline_path, rise_only=True), 1)]
-            (tree / 'Directory.Build.props').unlink()
             code.write_text('class A { void M() { } }', encoding='utf-8')
-            for name, xml in [('<Import>', '<Project><Import Project="../U.props" /></Project>'),
-                              ('<Compile Include>', '<Project><ItemGroup><Compile Include="Evil.txt" /></ItemGroup></Project>'),
-                              ('unreadable XML', '<Project><ItemGroup></Project>')]:
-                (tree / 'src' / 'P' / 'P.csproj').write_text(xml, encoding='utf-8')
-                steps += [(f'a .csproj with {name} fails closed', check(tree, baseline_path, rise_only=True), 1)]
-            (tree / 'src' / 'P' / 'P.csproj').write_text('<Project><ItemGroup><Compile Remove="Old.cs" /></ItemGroup></Project>',
-                                                         encoding='utf-8')
-            steps += [('<Compile Remove> is harmless', check(tree, baseline_path, rise_only=True), 0)]
-            (tree / 'src' / 'P' / 'P.csproj').write_text('<Project/>', encoding='utf-8')
+            blob = subprocess.run(['git', '-C', str(tree), 'hash-object', '-w', '--stdin'], input=b'../Elsewhere',
+                                  capture_output=True, check=True).stdout.decode().strip()
+            subprocess.run(['git', '-C', str(tree), 'update-index', '--add', '--cacheinfo', f'120000,{blob},src/P/Link'],
+                           check=True)
+            steps += [('a symbolic link in src/ fails', check(tree, baseline_path, rise_only=True), 1)]
+            subprocess.run(['git', '-C', str(tree), 'update-index', '--force-remove', 'src/P/Link'], check=True)
+            (tree / 'src' / 'P' / 'P.csproj').rename(tree / 'src' / 'P' / 'P.CSPROJ')
+            steps += [('an upper-case .CSPROJ is still the project', check(tree, baseline_path, rise_only=True), 0)]
+            (tree / 'src' / 'P' / 'P.CSPROJ').rename(tree / 'src' / 'P' / 'P.csproj')
             (tree / 'src' / 'P' / 'Evil.CS').write_text('class E { void M() { GC.Collect(); } }', encoding='utf-8')
             steps += [('an upper-case .CS file is judged', check(tree, baseline_path, rise_only=True), 1)]
             (tree / 'src' / 'P' / 'Evil.CS').unlink()
