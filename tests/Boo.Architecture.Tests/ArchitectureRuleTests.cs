@@ -56,15 +56,16 @@ public sealed class ArchitectureRuleTests
     ];
 
     /// <summary>002: single framework types Core may use from namespaces that also hold disk, network or process APIs.
-    /// None of these types can read or write a file (System.IO.Path is approved per member, below).</summary>
+    /// A type with any member that can reach outside the program (Path, Environment, Type, Delegate, AppContext) is
+    /// approved per member instead, in CoreApprovedMembers below.</summary>
     public static readonly string[] CoreApprovedTypes =
     [
         // System: values, primitives, delegates, exceptions, maths, time, Uri as text, runtime facts.
         "System.AccessViolationException", "System.Action", "System.Action`1", "System.Action`2", "System.Action`3",
-        "System.AggregateException", "System.AppContext", "System.ArgumentException", "System.ArgumentNullException",
+        "System.AggregateException", "System.ArgumentException", "System.ArgumentNullException",
         "System.ArgumentOutOfRangeException", "System.Array", "System.BadImageFormatException", "System.Boolean", "System.Byte",
         "System.Char", "System.Convert", "System.DateTime", "System.DateTimeKind", "System.DateTimeOffset", "System.Decimal",
-        "System.Delegate", "System.Double", "System.Enum", "System.Environment", "System.EventArgs", "System.EventHandler",
+        "System.Double", "System.Enum", "System.EventArgs", "System.EventHandler",
         "System.EventHandler`1", "System.Exception", "System.FlagsAttribute", "System.FormatException", "System.Func`1",
         "System.Func`2", "System.Func`3", "System.Func`4", "System.Guid", "System.HashCode", "System.IAsyncDisposable",
         "System.IComparable`1", "System.IDisposable", "System.IEquatable`1", "System.IFormatProvider", "System.Index",
@@ -77,7 +78,7 @@ public sealed class ArchitectureRuleTests
         "System.Random", "System.Range", "System.ReadOnlyMemory`1", "System.ReadOnlySpan`1", "System.RuntimeFieldHandle",
         "System.RuntimeTypeHandle", "System.Single", "System.Span`1", "System.StackOverflowException", "System.String",
         "System.StringComparer", "System.StringComparison", "System.StringSplitOptions", "System.TimeoutException",
-        "System.TimeProvider", "System.TimeSpan", "System.Type", "System.TypeInitializationException", "System.UInt16",
+        "System.TimeProvider", "System.TimeSpan", "System.TypeInitializationException", "System.UInt16",
         "System.UInt32", "System.UInt64", "System.UnauthorizedAccessException", "System.Uri", "System.UriKind",
         "System.ValueTuple`2", "System.ValueTuple`3", "System.ValueTuple`4", "System.ValueType", "System.Version", "System.Void",
         // System.Diagnostics: debugger attributes and timing only (no Process, no trace listeners).
@@ -107,15 +108,33 @@ public sealed class ArchitectureRuleTests
         "System.Security.Cryptography.HashAlgorithmName",
     ];
 
-    /// <summary>002: the System.IO.Path members Core may use: they work on the text of a path and never look at the
-    /// disk (Path.Exists and Path.GetTempFileName do, so they are not here).</summary>
-    public static readonly string[] CorePathTextMembers =
-    [
-        "Combine", "Join", "GetFileName", "GetFileNameWithoutExtension", "GetExtension", "HasExtension", "ChangeExtension",
-        "GetDirectoryName", "GetFullPath", "GetRelativePath", "GetPathRoot", "IsPathRooted", "IsPathFullyQualified",
-        "TrimEndingDirectorySeparator", "EndsInDirectorySeparator", "GetInvalidPathChars", "GetInvalidFileNameChars",
-        "DirectorySeparatorChar", "AltDirectorySeparatorChar", "PathSeparator", "VolumeSeparatorChar",
-    ];
+    /// <summary>002: types approved member by member, because other members of the same type reach outside the program:
+    /// Path.Exists / GetTempFileName (disk), Environment.CurrentDirectory / GetLogicalDrives (disk), Type.GetType(name)
+    /// and Delegate.CreateDelegate(name) (reach any type by its name). Only the members listed may be called; the type
+    /// itself may be named (a parameter, a field, typeof).</summary>
+    public static readonly IReadOnlyDictionary<string, string[]> CoreApprovedMembers = new Dictionary<string, string[]>
+    {
+        // Members that work on the text of a path and never look at the disk.
+        ["System.IO.Path"] =
+        [
+            "Combine", "Join", "GetFileName", "GetFileNameWithoutExtension", "GetExtension", "HasExtension", "ChangeExtension",
+            "GetDirectoryName", "GetFullPath", "GetRelativePath", "GetPathRoot", "IsPathRooted", "IsPathFullyQualified",
+            "TrimEndingDirectorySeparator", "EndsInDirectorySeparator", "GetInvalidPathChars", "GetInvalidFileNameChars",
+            "DirectorySeparatorChar", "AltDirectorySeparatorChar", "PathSeparator", "VolumeSeparatorChar",
+        ],
+        ["System.Environment"] =
+        [
+            "GetEnvironmentVariable", "get_OSVersion", "get_Version", "get_NewLine", "get_ProcessorCount", "get_TickCount64",
+            "get_Is64BitProcess", "get_CurrentManagedThreadId",
+        ],
+        ["System.Type"] =
+        [
+            "GetTypeFromHandle", "get_FullName", "get_Namespace", "get_IsEnum", "get_IsValueType", "IsAssignableFrom",
+            "op_Equality", "op_Inequality", "Equals", "GetHashCode", "ToString",
+        ],
+        ["System.Delegate"] = ["Combine", "Remove", "op_Equality", "op_Inequality"],
+        ["System.AppContext"] = ["GetData", "TryGetSwitch", "get_BaseDirectory", "get_TargetFrameworkName"],
+    };
 
     private static bool CoreMayUse(TypeReference type)
     {
@@ -125,11 +144,11 @@ public sealed class ArchitectureRuleTests
         if (type.MetadataType is MetadataType.Void or MetadataType.String or MetadataType.Object or MetadataType.TypedByReference) return true;
         var ns = CecilScan.NamespaceOf(type);
         if (ns == "Boo" || ns.StartsWith("Boo.", StringComparison.Ordinal)) return true;
-        return CoreApprovedNamespaces.Contains(ns) || CoreApprovedTypes.Contains(type.FullName) || type.FullName == "System.IO.Path";
+        return CoreApprovedNamespaces.Contains(ns) || CoreApprovedTypes.Contains(type.FullName) || CoreApprovedMembers.ContainsKey(type.FullName);
     }
 
     private static bool CoreMayNotCall(MemberReference member) =>
-        CecilScan.OpenName(member.DeclaringType) == "System.IO.Path" && !CorePathTextMembers.Contains(member.Name);
+        CoreApprovedMembers.TryGetValue(CecilScan.OpenName(member.DeclaringType), out var members) && !members.Contains(member.Name);
 
     /// <summary>003: namespaces whose types talk to the network (System.Net.* includes Http, Sockets, Security,
     /// WebSockets, Quic, Mail, NetworkInformation) and the WebView2 browser.</summary>
@@ -170,7 +189,7 @@ public sealed class ArchitectureRuleTests
     public void BOO_ARCH_002_Core_does_not_touch_the_file_system()
     {
         var scan = CecilScan.TypesReferencing(Core, t => !CoreMayUse(t), CoreMayNotCall);
-        var native = CecilScan.TypesCallingNative(Core, _ => true, countComImports: true); // Core makes no native or COM calls
+        var native = CecilScan.TypesCallingNative(Core, _ => true, countComImports: true); // Core makes no native, COM or by-name ([UnsafeAccessor]) calls
         // ScopedFiles is the second class in ActionPolicy.cs (the plan's "ActionPolicy.cs:209").
         AssertExactOffenders("BOO-ARCH-002", scan.Keys.Concat(native).Distinct().ToList(),
             ["Boo.Core.FileActionResolver", "Boo.Core.ScopedFiles"], Detail(scan, native, "not approved for Core"));

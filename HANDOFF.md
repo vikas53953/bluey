@@ -192,7 +192,7 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 PRs into `lane/face` must be **up to date** with it to merge, so every merge makes the others BEHIND. Sync by merging
 `origin/lane/face` into the branch (no force push), then re-run CI and one live smoke on the new head.
 
-| PR | Branch → base | State (13 Nov, after PR #27) | Notes |
+| PR | Branch → base | State (13 Nov, after PR #26) | Notes |
 | --- | --- | --- | --- |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
 | [#26](https://github.com/vikas53953/bluey/pull/26) | `quality/key-scan` → `lane/face` | merged 13 Nov (12:48 IST), `342b93d` | Agent-trust PR 1.7: `scripts/quality/key_scan.py` scans exactly what each upload step in `windows-ci`, `demo-ci` and `live-ai-smoke` sends, right before it (rule BOO-SAFE-002: key-shaped text and real secret values). Each upload runs only when its scan step reports `safe=true`; any other outcome skips it. `--diff` mode is ready for the `quality` workflow. |

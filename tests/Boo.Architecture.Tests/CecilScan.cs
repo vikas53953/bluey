@@ -34,19 +34,23 @@ internal static class CecilScan
         return offenders;
     }
 
-    /// <summary>Types that declare a native call (DllImport, or LibraryImport, which generates one) into a DLL the
-    /// predicate rejects, or (when <paramref name="countComImports"/>) a COM class or interface ([ComImport]).</summary>
+    /// <summary>Types that reach code the type scan cannot see: a native call (DllImport, or LibraryImport, which
+    /// generates one) into a DLL the predicate rejects, an [UnsafeAccessor] method (binds to any member by its name,
+    /// always counted), or (when <paramref name="countComImports"/>) a COM class or interface ([ComImport]).</summary>
     public static IReadOnlyCollection<string> TypesCallingNative(Assembly assembly, Func<string, bool> bannedDll, bool countComImports)
     {
         var offenders = new SortedSet<string>(StringComparer.Ordinal);
         using var module = ModuleDefinition.ReadModule(assembly.Location);
         foreach (var type in module.GetTypes())
         {
-            var native = type.Methods.Any(m => m.IsPInvokeImpl && m.PInvokeInfo is not null && bannedDll(m.PInvokeInfo.Module.Name));
+            var native = type.Methods.Any(m => (m.IsPInvokeImpl && m.PInvokeInfo is not null && bannedDll(m.PInvokeInfo.Module.Name))
+                                               || m.CustomAttributes.Any(a => a.AttributeType.FullName == UnsafeAccessor));
             if (native || (countComImports && type.IsImport)) offenders.Add(Outermost(type).FullName);
         }
         return offenders;
     }
+
+    private const string UnsafeAccessor = "System.Runtime.CompilerServices.UnsafeAccessorAttribute";
 
     /// <summary>The namespace of a type reference, taken from its outermost declaring type (nested types have none).</summary>
     public static string NamespaceOf(TypeReference reference)

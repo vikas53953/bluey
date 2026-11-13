@@ -276,8 +276,11 @@ casts to or names, generic arguments included.
   `StreamWriter(path)`, `Path.Exists`, `XDocument.Load(path)`, `TarFile`, certificate and resource loaders,
   `AssemblyLoadContext`, ...), so any list of bad types or namespaces misses one; three reviews proved it. Core is
   small and pure, so it may use **only** the framework types approved in the test (text, collections, maths, JSON,
-  regex, tasks, hashing, and the exceptions and enums it needs), and of `Path` only the members that work on the text
-  of a path. Native and COM calls are not allowed at all. Anything else fails and the message names it; if it is
+  regex, tasks, hashing, and the exceptions and enums it needs). A type that has any member reaching outside the
+  program is approved **member by member**: of `Path` only the members that work on the text of a path (not
+  `Path.Exists`), of `Environment` only reads such as `GetEnvironmentVariable` (not `CurrentDirectory`), of `Type` and
+  `Delegate` nothing that finds code by its name. Native calls, COM classes and `[UnsafeAccessor]` methods (which bind
+  to any member by its name) are not allowed at all. Anything else fails and the message names it; if it is
   harmless, a reviewer approves it in a one-line oracle revision.
 - **003 is a deny rule**, because the app is the UI and uses far too much of WPF and Windows for an allowlist. It
   counts every `System.Net.*` type except a few harmless ones (status codes, request errors, `WebUtility`,
@@ -290,8 +293,9 @@ casts to or names, generic arguments included.
 shared mutable state the rule does not count; counting every `static readonly` collection or array would flood it
 with read-only tables. (2) BOO-ARCH-006 looks at `src/Boo.App/*Window*.cs` in the top folder, which holds every
 window code-behind today; a window elsewhere or not named `...Window` would be missed. (3) 002 and 003 read the
-compiled code, not what it does at run time: reflection (`Type.GetType("...")`, `Activator`), function pointers and
-calls hidden inside an approved type are not seen. (4) 003 is a deny rule, so it does **not** see the app reaching
+compiled code. For 002 that leaves one gap: an approved type or member that can touch the disk and that review
+missed (each approval is meant to be checked for exactly that). For 003, reflection and anything reached by name are
+not seen. (4) 003 is a deny rule, so it does **not** see the app reaching
 the web some other way: a WPF image, media or font given a web address (`BitmapImage`, `MediaElement`), anything
 declared only in XAML (compiled XAML is not scanned), COM objects, or a third-party library. It also does not count,
 on purpose, Velopack's update check and download (`UpdateService`, release lane) or opening a link in the browser
@@ -316,7 +320,8 @@ database, audio or installer types make it slow and hard to test. **Fix:** put t
 **Core does not touch disk.** File checks in Core make rules depend on the machine. **Fix:** an interface in Core (like
 `IStartupRegistry`) with the real implementation outside. The failure message names every framework type or member
 that is not approved. **Do NOT** swap `File.Exists` for `FileInfo`, `Path.Exists`, a stream or another loader: Core may
-use only approved types, so all are caught. **Do NOT** approve a type unless it cannot reach the disk.
+use only approved types and members, so all are caught. **Do NOT** approve a type unless no member of it can reach
+the disk; if some can, approve only the members that cannot.
 
 ## BOO-ARCH-003
 **The window does not talk to the network.** Network calls belong in `Boo.Providers`, where timeouts, failures and
