@@ -229,7 +229,7 @@ jobs:
           BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\live-evidence
           BOO_LIVE_TEXT_PROVIDER: ${{ inputs.text_provider || 'openai' }}
-          BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          BOO_LIVE_OPENAI_KEY: ''  # RED PROOF ONLY: the key is missing for the round trips
           BOO_LIVE_ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
           BOO_LIVE_GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
         run: |
