@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The bypass: build code from an MSBuild SDK that NuGet downloads at evaluation time (not a PackageReference). -->
+  <Sdk Name="Microsoft.Build.Artifacts" Version="6.1.63" />
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,34 @@
+{
+  "bypass": "a per-folder .editorconfig turns a compiler diagnostic off (PR #28 bypass 1)",
+  "builds": [
+    {
+      "label": "build",
+      "args": [
+        "build",
+        "App/App.csproj",
+        "-c",
+        "Release"
+      ]
+    }
+  ],
+  "projects": [
+    "App/App.csproj"
+  ],
+  "visible": [
+    {
+      "label": "build",
+      "project": "App/App.csproj",
+      "field": "csc.analyzerConfigs.path",
+      "contains": "App/Quiet/.editorconfig"
+    },
+    {
+      "label": "build",
+      "project": "App/App.csproj",
+      "field": "csc.analyzerConfigs.content",
+      "contains": "dotnet_diagnostic.CS0168.severity = none"
+    }
+  ],
+  "check": {
+    "result": "report"
+  }
+}
