@@ -22,10 +22,14 @@ Definitions (each also printed in the table):
   * base branches: lane/face and main (--branches). A PR counts when its base is one of them.
   * a run belongs to a PR when GitHub lists the PR on the run, or the run's branch is the PR's branch and it started
     while the PR was open.
-  * verdict lines are read from the PR description and its comments. `QA PASS` / `QA FAIL` / `REVIEW FAIL` followed by
-    a commit id (7-40 hex with at least one letter, so run ids never count) on the same line. A FAIL line that says "blocked" is a blocked round (storage, budget),
+  * verdicts are read from the PR description (as it is at fetch time) and the comments posted before the window
+    end. `QA PASS` / `QA FAIL` / `REVIEW FAIL` (also `QA: **PASS**`) count only with a commit id RIGHT AFTER the
+    verdict word (after an optional "(note)", then at / head / on / a dash / a backtick); the id is 7-40 hex with at
+    least one letter, so run ids never count. A FAIL whose note says "blocked" is a blocked round (storage, budget),
     not a reviewer FAIL. Rounds are counted once per (kind, commit). Descriptions are often rewritten, so FAIL rounds
     are a LOWER bound.
+  * reverts: revert commits made on the base branches inside the window, divided by PRs merged inside the window
+    (the plan's "per 30 days" is this with a 30-day window).
   * flaky: the same workflow on the same commit gave both success and failure (re-run attempts included, push and
     pull_request runs of one commit included). Rate = flaky (workflow, commit) pairs / pairs with any success or
     failure. Cancelled and skipped results are ignored.
@@ -47,8 +51,15 @@ QUERY_SHAPES = collections.Counter()   # command with ids replaced, for the appe
 
 SHA_RE = r'\b(?=[0-9a-f]*[a-f])([0-9a-f]{7,40})\b'   # a commit id has a letter, so run ids never match
 VERDICT_GAP = r'[:*\s]{1,6}'   # "QA PASS", "QA: **PASS**", "QA:PASS" are all written in PR history
-QA_PASS = re.compile(r'\bQA' + VERDICT_GAP + r'PASS\**\W{1,6}(?:(?:at|head|on)\s+)*`?' + SHA_RE)
-FAIL_LINE = re.compile(r'\b(QA|REVIEW)' + VERDICT_GAP + r'FAIL\b(.*)')
+# PASS and FAIL share one rule: the commit counts only when it comes RIGHT AFTER the verdict word (optionally after a
+# "(note)" such as "(blocked: storage)", then "at" / "head" / "on" / a dash / a backtick). A commit elsewhere on the
+# line (e.g. "fixed in `abc1234`") is a different commit and never counts.
+_AFTER = r'\**(?:\s*\((?P<note>[^)]*)\))?[\s,:—–-]{0,6}(?:(?:at|head|on)\s+)*`?' + SHA_RE
+QA_PASS = re.compile(r'\bQA' + VERDICT_GAP + r'PASS' + _AFTER)
+FAIL_VERDICT = re.compile(r'\b(QA|REVIEW)' + VERDICT_GAP + r'FAIL' + _AFTER)
+# Loose on purpose: which lines a snapshot keeps. Never tied to the counting patterns above, so a stricter count
+# later can still be recomputed from an old snapshot.
+KEEP_LINE = re.compile(r'\b(?:QA|REVIEW)\W{0,6}(?:PASS|FAIL)', re.I)
 LIVE_WORKFLOW = 'live-ai-smoke'
 UNVERIFIED = 'UNVERIFIED'
 
@@ -209,29 +220,27 @@ def fetch(repo, since, until, branches, remote):
 # ---------------------------------------------------------------- computing (pure, from the snapshot only)
 
 def verdict_lines(text):
-    return '\n'.join(line for line in text.splitlines() if QA_PASS.search(line) or FAIL_LINE.search(line))
+    return '\n'.join(line for line in text.splitlines() if KEEP_LINE.search(line))
 
 
-def verdict_text(pr, comments):
-    parts = [pr['body']] + [c['body'] for c in comments if c['issue'] == pr['number']]
+def verdict_text(pr, comments, until):
+    """The PR description (as fetched; GitHub keeps no history of it) plus comments posted BEFORE the window end."""
+    parts = [pr['body']] + [c['body'] for c in comments
+                            if c['issue'] == pr['number'] and parse_time(c['created_at']) < until]
     return '\n'.join(parts)
 
 
 def fail_rounds(text):
     """Return (reviewer FAIL rounds, blocked rounds) as sets of (kind, commit-prefix-7)."""
     fails, blocked = set(), set()
-    for line in text.splitlines():
-        for m in FAIL_LINE.finditer(line):
-            sha = re.search(SHA_RE, m.group(2))
-            if not sha:
-                continue
-            key = (m.group(1), sha.group(1)[:7])
-            (blocked if 'blocked' in m.group(2).lower() else fails).add(key)
+    for m in FAIL_VERDICT.finditer(text):
+        key = (m.group(1), m.group(3)[:7])
+        (blocked if 'blocked' in (m.group('note') or '').lower() else fails).add(key)
     return fails, blocked
 
 
 def qa_pass_shas(text):
-    return sorted({m.group(1) for m in QA_PASS.finditer(text)})
+    return sorted({m.group(2) for m in QA_PASS.finditer(text)})
 
 
 def pct(n, d):
@@ -278,7 +287,7 @@ def compute(snap):
 
     qa_any, qa_head, qa_rows = 0, 0, []
     for p in sorted(merged, key=lambda p: p['number']):
-        shas = qa_pass_shas(verdict_text(p, snap['comments']))
+        shas = qa_pass_shas(verdict_text(p, snap['comments'], until))
         at_head = any(p['head_sha'].startswith(s) for s in shas)
         qa_any += bool(shas)
         qa_head += at_head
@@ -289,7 +298,7 @@ def compute(snap):
 
     fails_per_pr, blocked_total = {}, 0
     for p in sorted(opened, key=lambda p: p['number']):
-        fails, blocked = fail_rounds(verdict_text(p, snap['comments']))
+        fails, blocked = fail_rounds(verdict_text(p, snap['comments'], until))
         fails_per_pr[p['number']] = len(fails)
         blocked_total += len(blocked)
     m['fail_rounds_total'] = sum(fails_per_pr.values())
@@ -426,7 +435,7 @@ def render(snap, m, snap_sha):
         ('... naming the exact head that merged', m['qa_pass_head'],
          'A PASS on an older commit does not prove the code that merged.'),
         ('Reviewer FAIL rounds (PRs opened in window)',
-         f'{m["fail_rounds_total"]} rounds, mean {m["fail_rounds_mean"]} per PR; PRs with any: '
+         f'total {m["fail_rounds_total"]}, mean {m["fail_rounds_mean"]} per PR; PRs with any: '
          f'{fmt(("#" + str(n), c) for n, c in m["fail_rounds_prs"])} (lower bound); '
          f'plus {m["blocked_rounds"]} rounds blocked by storage or budget',
          'A fresh reviewer catching problems is the safety net working; a falling count means authors got better.'),
@@ -510,18 +519,23 @@ def planted():
         'until': '2026-11-17T00:00:00Z',
         'pulls': [
             pr(1, 'lane/face', '2026-11-09T00:00:00Z', '2026-11-09T10:00:00Z', a40,
-               f'QA PASS — {a40}\nREVIEW FAIL — 12ab567 fixed\nREVIEW FAIL at `12ab567` again, see run 43345365124'),
+               f'QA PASS — {a40}\nREVIEW FAIL — 12ab567 fixed\nREVIEW FAIL at `12ab567` again, see run 43345365124\n'
+               'Earlier heads: `12ab567` (green, but **REVIEW FAIL**: x, fixed in `fe11fe1`)'),   # fe11fe1 is no FAIL
             pr(2, 'lane/face', '2026-11-10T00:00:00Z', '2026-11-10T02:00:00Z', b40, 'QA PASS at `1111aaa`'),
             pr(3, 'main', '2026-11-16T00:00:00Z', '2026-11-16T04:00:00Z', c40, ''),
             pr(4, 'other', '2026-11-10T00:00:00Z', '2026-11-10T01:00:00Z', 'd' * 40, f'QA PASS — {"d" * 40}'),
             pr(5, 'lane/face', '2026-11-01T00:00:00Z', '2026-11-08T00:00:00Z', 'e' * 40, ''),   # merged before window
             pr(6, 'lane/face', '2026-11-11T00:00:00Z', None, 'f' * 40, ''),                    # open
+            pr(7, 'lane/face', '2026-11-16T12:00:00Z', '2026-11-17T00:00:00Z', '7' * 39 + 'a', ''),  # merged AT the end
         ],
         'comments': [
             {'id': 1, 'issue': 6, 'created_at': '2026-11-11T01:00:00Z',
              'body': 'QA FAIL (blocked: artifact storage), head 7777aaa.\nQA FAIL — 8888bbb (reviewer)'},
             {'id': 2, 'issue': 2, 'created_at': '2026-11-10T01:00:00Z',
              'body': 'QA FAIL with no commit named, run 43345365124'},
+            # Posted at the window end (excluded): must count neither as a FAIL round nor as a PASS.
+            {'id': 3, 'issue': 6, 'created_at': '2026-11-17T00:00:00Z', 'body': 'QA FAIL — 9999ccc'},
+            {'id': 4, 'issue': 3, 'created_at': '2026-11-17T00:00:00Z', 'body': f'QA PASS — {c40}'},
         ],
         'runs': [
             r(10, 'windows-ci', '9' * 40, 'b1', 'failure', prs=[1]),          # PR 1: red on an earlier commit
@@ -569,14 +583,14 @@ def self_test():
     expect = {
         'merged_per_week': [('2026-W46', 2), ('2026-W47', 1)],   # PRs 1, 2 (week 46), 3 (week 47); 4 wrong base
         'merged_total': 3,
-        'opened_total': 4,                                          # 1, 2, 3, 6 (5 opened before; 4 wrong base)
+        'opened_total': 5,                                          # 1, 2, 3, 6, 7 (5 opened before; 4 wrong base)
         'revert_rate': '1/3 = 33.3%',
         'qa_pass_any': '2/3 = 66.7%',                               # PR 1 (full sha), PR 2 (short, other head)
         'qa_pass_head': '1/3 = 33.3%',
         'qa_rows': [(1, 'at merged head'), (2, 'other head'), (3, 'none')],
         'fail_rounds_total': 2,                                     # PR 1: one (dedupe by commit); PR 6: one
         'fail_rounds_prs': [(1, 1), (6, 1)],
-        'fail_rounds_mean': '0.50',
+        'fail_rounds_mean': '0.40',
         'blocked_rounds': 1,
         'flaky_rate': '1/5 = 20.0%',                               # windows-ci@a40 failed then passed on re-run
         'flaky_by_workflow': [('windows-ci', 1)],
@@ -606,7 +620,8 @@ def self_test():
         (qa_pass_shas('QA: **PASS** at head `' + 'cd' * 20 + '`. Not merged.'), ['cd' * 20]),
         (qa_pass_shas('QA PASS**, live [43345365124](https://x)'), []),
         (fail_rounds('QA: **FAIL** at `abc1234`'), ({('QA', 'abc1234')}, set())),
-        (fail_rounds('REVIEW FAIL**: x fixed in `f64f73d`'), ({('REVIEW', 'f64f73d')}, set())),
+        (fail_rounds('REVIEW FAIL**: x fixed in `f64f73d`'), (set(), set())),   # the fix commit is not the FAIL
+        (fail_rounds('REVIEW FAIL at `4f8afe2` (fixed).'), ({('REVIEW', '4f8afe2')}, set())),
         (fail_rounds('QA FAIL (blocked: Actions budget), head ' + 'e' * 40), (set(), {('QA', 'eeeeeee')})),
     ]
     bad += [f'regex case {i}: got {got!r}, want {want!r}' for i, (got, want) in enumerate(cases) if got != want]

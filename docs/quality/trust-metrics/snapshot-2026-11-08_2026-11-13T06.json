@@ -6063,7 +6063,7 @@
  ],
  "comments": [
   {
-   "body": "**QA FAIL (blocked: artifact storage), lane/face head `f244e47928ca95de7d903e4d8f188930a33665da`.** The code itself passed every suite with nothing skipped (#4, #5, #6). But the required checks on the PR head are red (storage quota), and the LAN anti-mock gap is open. Re-run windows-ci and demo-ci on the PR head after storage is freed; if both go green, this becomes a PASS candidate.",
+   "body": "| 12 | Hover-to-wake on a real desktop, voice/talk with real mic, screen-explain pointer + ring, research with source links, Apply/Undo with a real key, full 25-min focus session | \u2014 | **UNVERIFIED** in this QA pass (UI smoke covers hover reveal, focus controls and hotkeys on the VM without AI; live smoke covers one typed real-AI round trip only) | \u2014 |\n**QA FAIL (blocked: artifact storage), lane/face head `f244e47928ca95de7d903e4d8f188930a33665da`.** The code itself passed every suite with nothing skipped (#4, #5, #6). But the required checks on the PR head are red (storage quota), and the LAN anti-mock gap is open. Re-run windows-ci and demo-ci on the PR head after storage is freed; if both go green, this becomes a PASS candidate.",
    "created_at": "2026-11-12T14:02:00Z",
    "id": 6825706860,
    "issue": 3
@@ -8803,7 +8803,7 @@
   },
   {
    "base": "lane/face",
-   "body": "Live attempts this round: **1** (passed first time). The previous head `0ea506c` had QA FAIL because Boo's own 45 s OpenAI limit was hit in j3 (\"OpenAI response timed out. Try again.\", run [43333049693](https://github.com/vikas53953/bluey/actions/runs/43333049693)); the request is Boo's own, so the test path cannot cause it. Raising the limit is a product decision (HANDOFF known issue 12); j3 now records `marksAfterSeconds`.\n**QA PASS \u2014 3168e40800e57b1f842780d1523edbf3258f9731**",
+   "body": "Live attempts this round: **1** (passed first time). The previous head `0ea506c` had QA FAIL because Boo's own 45 s OpenAI limit was hit in j3 (\"OpenAI response timed out. Try again.\", run [43333049693](https://github.com/vikas53953/bluey/actions/runs/43333049693)); the request is Boo's own, so the test path cannot cause it. Raising the limit is a product decision (HANDOFF known issue 12); j3 now records `marksAfterSeconds`.\n- Fresh reviewer on **this head**, sync delta since the last full review (separate worktree, no shared context): **REVIEW PASS \u2014 3168e40800e57b1f842780d1523edbf3258f9731**. It proved that since `d2f9827` the PR's own changes are only HANDOFF.md, docs/DECISIONS.md, one j6 failure-message string and one SKILL.md example filename; that the quality ratchet passes without raising the baseline (self-test, 554 hits, and lane/face's own ratchet + baseline as judge); that nothing from `lane/face` was lost; and it re-checked every run above on exactly `3168e40`.\n- Full code review (PR #18/#20 sync, window-only j3/j6): **REVIEW PASS \u2014 d2f98271559e74739b566f21af65d82995a8f473**, overlay pixels recounted by hand.\n- Earlier QA PASS heads: `d2f9827`, `87a1442`, `e86a107`, `60930b9`, `7c5af8d`.\n**QA PASS \u2014 3168e40800e57b1f842780d1523edbf3258f9731**",
    "closed_at": "2026-11-13T01:13:05Z",
    "created_at": "2026-11-12T09:58:11Z",
    "head_ref": "test/verify-boo-skill",
@@ -8843,7 +8843,7 @@
   },
   {
    "base": "lane/face",
-   "body": "**QA PASS \u2014 a1e733182fc7d9933d12fa24fc05aceaed7595b8.** Not merged by the builder; the verifying bot merges.",
+   "body": "| Review of the sync `56b8413` | review | PASS WITH ISSUES: every Progress claim verified against git and GitHub (merge SHAs, live branch protection, decision times); the precision fixes were applied in 77bfb91 | delegated reviewer |\n| **Review of `77bfb91`** (fresh reviewer) | review | **PASS WITH ISSUES, nothing blocking.** Each fix verified (including the runs cited in HANDOFF). Remaining nit: the plan's anti-mock row (~line 124) still says PR #14 is open; it merged 12 Nov. **This goes to the docs follow-up PR.** | delegated reviewer |\n| **Review of the #13 sync `794847d`** (fresh reviewer) | review | **PASS WITH ISSUES.** Conflict resolution lost nothing from `lane/face` (all 6 PR #13 DECISIONS rows and its HANDOFF row intact); every new fact verified (13e5484 = PR #13 merge, files on lane/face, run 43340191296 on 77bfb91). Issues: #13's 6 DECISIONS rows still said \"proposed\"; 2 HANDOFF lines spoke of #13 as open. **All fixed in `a1e7331`** (checked every merged PR #12\u2013#22: no other stale \"proposed\" row). | see next row |\n| **Review of the delta `794847d..a1e7331`** (fresh, separate reviewer) | review | **PASS WITH ISSUES, nothing blocking.** Delta touches only HANDOFF.md and DECISIONS.md (no code or workflows, so CI and the live run above still apply to this head). All 3 earlier findings fixed and true: #13/#18/#20/#21 merged and ancestors of 13e5484; 6 #13 DECISIONS rows say in force, only the status cell changed; no other stale \"proposed\" row; no local paths; branch = a1e7331, 0 behind lane/face. Remaining (already stale on lane/face, not introduced here): HANDOFF item 7 still says \"oracle revision 23\" (lane/face is at 24 since PR #18); the merged #18 row still says \"re-QA'd in the PR body\". **Queued for the docs follow-up PR** so this head keeps its QA. | \u2014 |\n**QA PASS \u2014 a1e733182fc7d9933d12fa24fc05aceaed7595b8.** Not merged by the builder; the verifying bot merges.",
    "closed_at": "2026-11-13T02:20:02Z",
    "created_at": "2026-11-12T15:31:22Z",
    "head_ref": "docs/agent-trust-plan",
@@ -8853,7 +8853,7 @@
   },
   {
    "base": "lane/face",
-   "body": "**QA PASS \u2014 cadc05e9d27b06c44aa7b4a4f2fd5444af7a4def.** All required checks and the real-key live round trip green on this exact head. Earlier QA PASS on `b8f63c8`, `eec75f3`, `51d6d36`, `da52eb7`, `510a3eb` and `b590f92` are superseded by this head.",
+   "body": "| Independent review of `b8f63c8` | review | PASS WITH ISSUES, nothing blocking | delegated reviewer |\n**QA PASS \u2014 cadc05e9d27b06c44aa7b4a4f2fd5444af7a4def.** All required checks and the real-key live round trip green on this exact head. Earlier QA PASS on `b8f63c8`, `eec75f3`, `51d6d36`, `da52eb7`, `510a3eb` and `b590f92` are superseded by this head.",
    "closed_at": "2026-11-12T23:47:09Z",
    "created_at": "2026-11-12T16:40:35Z",
    "head_ref": "fix/live-smoke-off-desktop",
@@ -8873,7 +8873,7 @@
   },
   {
    "base": "lane/face",
-   "body": "**QA PASS \u2014 c852b54058570076bab0703ba0051a615f9a60ec.** Not merged by the builder; the verifying bot merges. Branch protection is changed only after the merge.",
+   "body": "| Independent reviews | review | 1st (0c968d4): PASS WITH ISSUES \u2192 doc fixes. 2nd (8b41197): REVIEW PASS. 3rd (ed7ed61): PASS WITH ISSUES. **4th (`c852b54`, separate reviewer): PASS WITH ISSUES, nothing blocking.** It checked: exactly 4 files; no way the context goes green without a real round trip beyond the documented hole (provided protection pins app id 15368); PR #18 content intact; docs accurate; no local paths. | delegated reviewers |\n**QA PASS \u2014 c852b54058570076bab0703ba0051a615f9a60ec.** Not merged by the builder; the verifying bot merges. Branch protection is changed only after the merge.",
    "closed_at": "2026-11-13T00:13:21Z",
    "created_at": "2026-11-12T18:58:55Z",
    "head_ref": "ci/live-smoke-required",
@@ -8903,7 +8903,7 @@
   },
   {
    "base": "lane/face",
-   "body": "**QA PASS \u2014 c6382f2e3aa656c5eacbd1e729702cb13b256d2a.**",
+   "body": "| Review of `622e394` (fresh) | review | **FAIL** \u2192 alias rewriting erased hits (regression) \u2192 design changed (never subtract) | \u2014 |\n| Review of `11ae7ce` (fresh, separate) | review | **PASS WITH ISSUES:** \"never less\" promise listed too few corrections (directive text, long string openings); all were false hits in the base, no hit hidden; #24 sync lost nothing \u2192 fixed in `c6382f2` (docs + 3 samples) | \u2014 |\n| **Review of the delta `11ae7ce..c6382f2`** (fresh, separate) | review | **PASS.** Samples only (no logic change); docs cover every LESS case of the differential run; 133 consistent; no local paths; 0 behind; all checks green. Two wording nits (name U+0085/U+2028/U+2029 exactly; the corrections list is in the evidence bullet, not Known gaps) queued for the docs follow-up. | \u2014 |\n**QA PASS \u2014 c6382f2e3aa656c5eacbd1e729702cb13b256d2a.**",
    "closed_at": "2026-11-13T03:12:50Z",
    "created_at": "2026-11-13T00:57:17Z",
    "head_ref": "quality/ratchet-hardening",
@@ -8913,7 +8913,7 @@
   },
   {
    "base": "lane/face",
-   "body": "| `HANDOFF.md` | PR #13 row (merged at QA PASS head `3168e40`, live 43339557570); PR #24 row; PR #17 merged (07:50 IST, `879ad4d`) in the status line and its row; known issue 7 corrected to oracle revision **24**; PR #18 row says merged at `cadc05e` (no longer \"is re-QA'd\"); known issue 12 says run 43202679653's evidence \"is no longer available\" (cause UNPROVEN) and gives the measured 4\u20136 s explain latency; known issue 11 lists the open follow-ups; j3 pass list includes `3168e40`. |\nEarlier heads: `4f8afe2` (all green, but **REVIEW FAIL**: the panel name \"Boo companion\" also matched the notch; fixed in `f64f73d`); `f64f73d` (**QA PASS**, live [43345365124](https://github.com/vikas53953/bluey/actions/runs/43345365124), REVIEW PASS) before PR #17 merged.\n- Earlier: REVIEW PASS at `f64f73d`; REVIEW FAIL at `4f8afe2` (fixed).\n**QA PASS \u2014 f2a2a450059993e4cf96f5a08e86b687464c060a**",
+   "body": "| `HANDOFF.md` | PR #13 row (merged at QA PASS head `3168e40`, live 43339557570); PR #24 row; PR #17 merged (07:50 IST, `879ad4d`) in the status line and its row; known issue 7 corrected to oracle revision **24**; PR #18 row says merged at `cadc05e` (no longer \"is re-QA'd\"); known issue 12 says run 43202679653's evidence \"is no longer available\" (cause UNPROVEN) and gives the measured 4\u20136 s explain latency; known issue 11 lists the open follow-ups; j3 pass list includes `3168e40`. |\nEarlier heads: `4f8afe2` (all green, but **REVIEW FAIL**: the panel name \"Boo companion\" also matched the notch; fixed in `f64f73d`); `f64f73d` (**QA PASS**, live [43345365124](https://github.com/vikas53953/bluey/actions/runs/43345365124), REVIEW PASS) before PR #17 merged.\n- Fresh reviewer on **this head** (separate worktree, no shared context): **REVIEW PASS \u2014 f2a2a450059993e4cf96f5a08e86b687464c060a**. It checked that only the 3 files differ from `lane/face`, that every line PR #17 added to HANDOFF.md and DECISIONS.md is still present (the only removed lines are the facts this PR deliberately updated), every fact (PR #17/#18/#13 merge times and heads, oracle revision 24, the known issue 12 runs and latencies, the 45 s timeout untouched), the screenshot-naming paragraph against `BooAppFixture.cs` and run 43351732030's `.capture.txt` files, all gates, and every run above on exactly `f2a2a45`.\n- Earlier: REVIEW PASS at `f64f73d`; REVIEW FAIL at `4f8afe2` (fixed).\n- Follow-ups (very low, not fixed to avoid another CI + live round): the PR #17 row in HANDOFF still uses open-PR wording (\"this head is re-QA'd in the PR body\"; true, PR #17's description ends with QA PASS at its merged head `a1e7331`); the SKILL.md j4 example says \"links\" although a run may return one.\n**QA PASS**, live [43345365124](https://github.com/vikas53953/bluey/actions/runs/43345365124), REVIEW PASS) before PR #17 merged.\n- Fresh reviewer on **this head** (separate worktree, no shared context): **REVIEW PASS \u2014 f64f73d01dc1ac4ab2ba05d521d426f37b26281f**. It checked the window titles in the code (`MainWindow.xaml`, the QA tag in `MainWindow.xaml.cs`, `NotchWindow.xaml`, the overlay), the numbering in `BooAppFixture.CaptureBooWindows`, every `.capture.txt` in run 43345365124 (start-of-title matching picks the right image every time; substring matching would catch the notch), the j4 image and `j4-research.txt`, every HANDOFF / DECISIONS fact, all gates, and every run above on exactly `f64f73d`.\n**QA PASS \u2014 f2a2a450059993e4cf96f5a08e86b687464c060a**",
    "closed_at": "2026-11-13T02:42:11Z",
    "created_at": "2026-11-13T01:14:36Z",
    "head_ref": "docs/verify-boo-followups",
@@ -8923,7 +8923,7 @@
   },
   {
    "base": "lane/face",
-   "body": "**QA PASS \u2014 c9bcce19ed3a476366a1f16ee7f7a0870b40babe.**",
+   "body": "| Review of `403285d` (fresh, separate) | review | PASS WITH ISSUES: decision row in the wrong table (blocking), \"222\" for both runs, \"never fires\" overclaim, \"fixes\" \u2192 \"addresses\" \u2192 **all fixed in `c9bcce1`** | \u2014 |\n| **Review of the delta `403285d..c9bcce1`** (fresh, separate) | review | **PASS.** Comment-only change in the `.cs`; row now in the main 5-cell table and the memory table intact; all four wording fixes present; no local paths; all checks green. | \u2014 |\n**QA PASS \u2014 c9bcce19ed3a476366a1f16ee7f7a0870b40babe.**",
    "closed_at": "2026-11-13T04:40:03Z",
    "created_at": "2026-11-13T03:23:36Z",
    "head_ref": "fix/perf-diag-priority",
@@ -8933,7 +8933,7 @@
   },
   {
    "base": "lane/face",
-   "body": "QA PASS \u2014 eab4d05c3222dd95267a0a0f709d9b7997998767",
+   "body": "| Fresh independent review of the last delta (`b2363c2..eab4d05`) | **manual** (reviewer agent) | REVIEW PASS, no must-fix. The earlier deltas were reviewed by separate fresh reviewers in rounds 6\u20138; round 8 passed `992ad7d..b2363c2` |\nQA PASS \u2014 eab4d05c3222dd95267a0a0f709d9b7997998767",
    "closed_at": "2026-11-13T07:18:55Z",
    "created_at": "2026-11-13T03:31:15Z",
    "head_ref": "quality/key-scan",
@@ -8943,7 +8943,7 @@
   },
   {
    "base": "lane/face",
-   "body": "QA PASS \u2014 95b00ca68146bad2d5653cdb9a8b391a35cdd81b",
+   "body": "| Fresh separate reviewer on this exact head | **REVIEW PASS**: every row checked against code; no WRONG row; no wrong invariant verdict | manual (independent agent) | review on `95b00ca` |\nQA PASS \u2014 95b00ca68146bad2d5653cdb9a8b391a35cdd81b",
    "closed_at": "2026-11-13T05:15:29Z",
    "created_at": "2026-11-13T03:56:45Z",
    "head_ref": "docs/notch-statechart",
@@ -8987,7 +8987,7 @@
    "closed_at": null,
    "created_at": "2026-11-13T06:17:37Z",
    "head_ref": "quality/netarchtest",
-   "head_sha": "ad201920285289e66936b57f7fd74653f6c37fc4",
+   "head_sha": "3ff363dada9f9c2b7e4469b59ec1195eae6895a9",
    "merged_at": null,
    "number": 31
   },
@@ -9003,13 +9003,53 @@
   },
   {
    "base": "lane/face",
-   "body": "",
+   "body": "| Fresh separate reviewer on this exact head | **REVIEW PASS**: the net diff against `lane/face` is byte-identical to the reviewed `9c155fd` code; no conflict markers; HANDOFF keeps `lane/face`'s rows; key scan `--diff` passes | manual (independent agent) | review on `5d81780` |\nQA PASS \u2014 5d81780114b85698d075727edf78d9dba955a510",
    "closed_at": null,
    "created_at": "2026-11-13T07:06:45Z",
    "head_ref": "quality/time-provider",
-   "head_sha": "9c155fdfed63bf4a2b7c99cbdd932ae812a5f1d2",
+   "head_sha": "5d81780114b85698d075727edf78d9dba955a510",
    "merged_at": null,
    "number": 33
+  },
+  {
+   "base": "lane/face",
+   "body": "",
+   "closed_at": null,
+   "created_at": "2026-11-13T07:25:50Z",
+   "head_ref": "quality/pr-evidence",
+   "head_sha": "2591062a17357f86811078f3033d71bbd2719b4c",
+   "merged_at": null,
+   "number": 34
+  },
+  {
+   "base": "quality/pr-evidence",
+   "body": "",
+   "closed_at": "2026-11-13T07:31:59Z",
+   "created_at": "2026-11-13T07:27:34Z",
+   "head_ref": "tmp/redproof-pr-evidence",
+   "head_sha": "53901b9bc40aadf20e4a68da5437909b8dcac730",
+   "merged_at": null,
+   "number": 35
+  },
+  {
+   "base": "lane/face",
+   "body": "21 PRs merged, 0 reverts, QA PASS at the exact merged head 16/21 (all from #11 on), flaky 2.6% the plan's way / 0.9% strict, 11/21 PRs red-then-green, 125 live runs (10.7% of 1,165 runs). Escaped bugs and prose-to-check ratio: **UNVERIFIED** (no data source yet).\nFixes found while measuring (fixed as a class): verdicts are written in several styles (`QA: **PASS** at head ...`), so the pattern accepts them; a commit id must contain a letter so run numbers never count; a push/PR pair is not the same code, so a strict flaky rate sits next to the plan's.",
+   "closed_at": null,
+   "created_at": "2026-11-13T07:30:19Z",
+   "head_ref": "quality/trust-metrics",
+   "head_sha": "88298d7af55938c58dadba9f5fa51f81235a1071",
+   "merged_at": null,
+   "number": 36
+  },
+  {
+   "base": "lane/face",
+   "body": "",
+   "closed_at": null,
+   "created_at": "2026-11-13T07:36:19Z",
+   "head_ref": "quality/build-facts",
+   "head_sha": "155a14bb1383aa59a932369e2cdfbbe1831e4e2d",
+   "merged_at": null,
+   "number": 37
   }
  ],
  "repo": "vikas53953/bluey",

@@ -18,7 +18,7 @@ below is the script's output, unedited.
 
 <!-- generated: start -->
 
-Window: 2026-11-08T00:00:00Z to 2026-11-13T06:00:00Z (UTC; start included, end excluded). Repo `vikas53953/bluey`; base branches: lane/face, main. End-of-window `lane/face` commit: `0122ac745354d5ea62ae910cbff635e41335d716`. Snapshot sha256: `940ef180d24eac358e5e8c78e6ccdf1dfa960dc4027491243032f759150919c8`.
+Window: 2026-11-08T00:00:00Z to 2026-11-13T06:00:00Z (UTC; start included, end excluded). Repo `vikas53953/bluey`; base branches: lane/face, main. End-of-window `lane/face` commit: `0122ac745354d5ea62ae910cbff635e41335d716`. Snapshot sha256: `7350b63e7b682941eb78a404d6bea1f80936f6c103b94ef652c6a81de5f3cbe1`.
 
 | Metric | Value | Why it matters |
 | --- | --- | --- |
@@ -26,7 +26,7 @@ Window: 2026-11-08T00:00:00Z to 2026-11-13T06:00:00Z (UTC; start included, end e
 | Revert rate | 0/21 = 0.0% | A revert means a merged change was wrong and the gates let it through. |
 | Merged PRs with a `QA PASS <commit>` line | 16/21 = 76.2% | The pipeline says no merge without a QA verdict; this shows how often that held. |
 | ... naming the exact head that merged | 16/21 = 76.2% | A PASS on an older commit does not prove the code that merged. |
-| Reviewer FAIL rounds (PRs opened in window) | 3 rounds, mean 0.10 per PR; PRs with any: #24: 2, #28: 1 (lower bound); plus 4 rounds blocked by storage or budget | A fresh reviewer catching problems is the safety net working; a falling count means authors got better. |
+| Reviewer FAIL rounds (PRs opened in window) | total 1, mean 0.03 per PR; PRs with any: #24: 1 (lower bound); plus 4 rounds blocked by storage or budget | A fresh reviewer catching problems is the safety net working; a falling count means authors got better. |
 | PRs that went red, then green at the merged head | 11/21 = 52.4% (#4, #11, #12, #13, #14, #16, #17, #18, #19, #20, #25) | Shows the checks are actually stopping bad commits, not just passing. |
 | Flaky rate (same workflow + same commit, both pass and fail) | 19/743 = 2.6%; by workflow: demo-ci: 4, live-ai-smoke: 2, release: 2, windows-ci: 11 | Target under 2%. A flaky check trains people to re-run instead of read; above 2% the checks are noise. |
 | Flaky, strict (one run whose re-run attempt flipped the result) | 10/1125 = 0.9% | The broad rate above also counts a push run against a pull-request run of one commit, and a pull-request run tests the merge with the base; the strict rate is same code, same trigger. |
@@ -69,12 +69,14 @@ Queries run (ids replaced by placeholders; every exact command was printed to st
 ## What the first table says, in plain words
 
 - **No reverts.** Nothing merged had to be undone. Too early to read much into it: 21 PRs in 5 days.
-- **QA verdicts became the rule from PR #11 on.** Every merged PR from #11 to #27 names a QA PASS for the exact
-  commit that merged. #4, #7, #8, #9 and #10 came before the pipeline (8 to 12 Nov) and have none.
+- **QA verdicts became the rule from PR #11 on.** Every merged PR numbered #11 to #27 names a QA PASS for the exact
+  commit that merged. #4, #7, #8 and #9 (8 Nov) came before the pipeline; #10 was opened on 10 Nov, before it, and
+  merged on 12 Nov without a QA PASS line.
 - **Flaky rate is above the 2% target when counted the plan's way: 19 of 743 (2.6%).** Of those 19: 10 are one run
   whose re-run flipped from fail to pass, 7 are a push run against a pull-request run of the same commit (a
-  pull-request run tests the merge with the base, so the code is not quite the same), and 2 are separate manual
-  live runs of one commit. Counting only re-runs of the very same run, 10 of 1,125 runs flipped (0.9%). Both
+  pull-request run tests the merge with the base, so the code is not quite the same), and 2 are separate
+  `live-ai-smoke` runs of one commit (manual runs of `1f2a977`; a pull-request run against a manual run of
+  `0c968d4`). Counting only re-runs of the very same run, 10 of 1,125 runs flipped (0.9%). Both
   numbers are kept so the trend can be watched honestly. Several fall on 12 Nov, when the artifact storage quota
   turned runs red (PR #15's commit `8836c7e` is one); the table does not yet tell an infrastructure red from a code red.
 - **About half the merged PRs went red first, then green.** The checks are stopping commits, not rubber-stamping.
@@ -102,10 +104,14 @@ Queries run (ids replaced by placeholders; every exact command was printed to st
   opened inside the window.
 - **A run belongs to a PR** when GitHub lists the PR on the run, or the run is on the PR's branch and started while
   the PR was open.
-- **Verdict lines** are read from the PR description and its comments: `QA PASS`, `QA: **PASS**`, `QA FAIL`,
-  `REVIEW FAIL`, followed on the same line by a commit id (7 to 40 hex characters with at least one letter, so a run
-  number never counts as a commit). A FAIL line that says "blocked" (storage, budget) is a blocked round, not a
-  reviewer FAIL. Each (kind, commit) counts once.
+- **Verdicts** are read from the PR description (as it is when fetched) and the comments posted before the window
+  ends: `QA PASS`, `QA: **PASS**`, `QA FAIL`, `REVIEW FAIL`, counted only with a commit id right after the verdict
+  word (after an optional note in brackets, then "at", "head", a dash or a backtick). A commit named elsewhere on the
+  line ("fixed in ...") never counts. A commit id is 7 to 40 hex characters with at least one letter, so a run
+  number never counts. A FAIL whose note says "blocked" (storage, budget) is a blocked round, not a reviewer FAIL.
+  Each (kind, commit) counts once.
+- **Revert rate:** revert commits made on `lane/face` or `main` inside the window, divided by PRs merged inside the
+  window. The plan's "per 30 days" is the same count with a 30-day window.
 - **Red then green:** a workflow failed on an earlier commit of the PR and passed on the commit that merged.
 - **Flaky (plan's way):** the same workflow on the same commit gave both a pass and a fail, counting re-runs and push
   and pull-request runs of that commit. Cancelled and skipped results are ignored.
@@ -116,7 +122,8 @@ Queries run (ids replaced by placeholders; every exact command was printed to st
 
 ## How to reproduce
 
-Recompute from the saved data (gives this table byte for byte):
+Recompute from the saved data (gives the table above byte for byte; the query appendix is printed only by a
+fetch, since a recompute runs no queries):
 
 ```
 python -I scripts/quality/trust_metrics.py --from-snapshot docs/quality/trust-metrics/snapshot-2026-11-08_2026-11-13T06.json --since 2026-11-08T00:00:00Z --until 2026-11-13T06:00:00Z
