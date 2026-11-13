@@ -4,11 +4,7 @@ using Boo.Providers;
 
 namespace Boo.App;
 
-/// <summary>
-/// The Conversation list: typed and spoken lines, voice transcripts updated in place, and scrolling to the newest row.
-/// Every row is its own item (<see cref="TranscriptLine"/> is a class, not a record) so screen readers report each one
-/// and scrolling lands on the newest copy of a repeated line (issue #73).
-/// </summary>
+/// <summary>The Conversation list: typed and spoken lines, voice transcripts updated in place, scrolling to the newest row.</summary>
 public partial class MainWindow
 {
     private void AppendTranscript(string speaker, string text)
@@ -85,11 +81,7 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>
-    /// One Conversation row. A class, not a record: every row must be its own item. Two equal records collapsed into
-    /// ONE row for screen readers (WPF keys a list item's automation peer by the item) and made ScrollIntoView jump to
-    /// the older copy (issue #73).
-    /// </summary>
+    /// <summary>One Conversation row. Rows compare by reference, so two rows with the same text are two items.</summary>
     private sealed class TranscriptLine(string speaker, string text)
     {
         public string Speaker { get; } = speaker;
