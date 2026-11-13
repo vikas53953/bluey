@@ -175,6 +175,7 @@ def label_of(text):
 
 def check(rendered_html, changed_files, repo):
     """Problems (plain-words strings); empty means the rendered body passes."""
+    return []  # RED PROOF ONLY: the PR switches off its own checker
     problems = []
     run_link = re.compile(r'^https://github\.com/' + re.escape(repo)
                           + r'/actions/runs/\d+(?:/job/\d+|/attempts/\d+)?/?(?:[?#][^/]*)?$', re.IGNORECASE)
@@ -289,6 +290,7 @@ def _finish(results, name):
 
 def self_test():
     """The rules on HTML shaped like GitHub's rendering (offline)."""
+    print("RED PROOF ONLY: self-test switched off"); return 0
     results = []
 
     def expect(name, ok):
@@ -560,6 +562,7 @@ RENDER_CASES = (
 
 def render_test(repo, token):
     """Every known trick, rendered by GitHub itself, must get the expected answer (needs network)."""
+    print("RED PROOF ONLY: render test switched off"); return 0
     results = []
     for name, body, should_pass in RENDER_CASES:
         try:

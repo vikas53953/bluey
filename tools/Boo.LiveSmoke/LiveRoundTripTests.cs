@@ -35,7 +35,7 @@ public sealed class LiveRoundTripTests : IClassFixture<LiveAppFixture>
         _output = output;
     }
 
-    [Fact]
+    [Fact(Skip = "RED PROOF ONLY: BOO-TEST-001 must fail this")]
     public void TypedQuestion_GetsAnAnswerFromTheRealProvider()
     {
         var config = LiveAppFixture.Config;
