@@ -1,0 +1,107 @@
+name: trust-metrics
+
+# Agent-trust plan PR 1.12 (docs/plans/agent-trust-plan.md section 4.3): the weekly trust-metrics table from git and
+# GitHub PR / Actions history. Read-only, GitHub-hosted, not a required check (it never runs on a push or a PR).
+# Weekly: the last full ISO week (Monday 00:00 UTC to Monday 00:00 UTC). Manual: pass since/until, or leave them
+# empty for the same last full week. The table and the raw snapshot are uploaded for 7 days.
+# The workflow token cannot read branch protection, so rows that need the required-check list say UNVERIFIED here;
+# a run with the owner's own gh login (docs/quality/trust-metrics.md) fills them.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      since:
+        description: 'Window start, UTC (e.g. 2026-11-09T00:00:00Z). Empty = last full week.'
+        required: false
+        default: ''
+      until:
+        description: 'Window end, UTC, excluded. Empty = last full week.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  table:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      pull-requests: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The key scan's workflow check reads YAML with PyYAML (hash-pinned) and fails closed without it.
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
+      - name: Self-test (planted data gives the planted numbers)
+        run: python -I scripts/quality/trust_metrics.py --self-test
+
+      - name: Pick the window
+        id: window
+        env:
+          IN_SINCE: ${{ inputs.since }}
+          IN_UNTIL: ${{ inputs.until }}
+        run: |
+          pattern='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+          if [ -n "$IN_SINCE" ] || [ -n "$IN_UNTIL" ]; then
+            if ! [[ "$IN_SINCE" =~ $pattern && "$IN_UNTIL" =~ $pattern ]]; then
+              echo "since and until must both look like 2026-11-09T00:00:00Z"; exit 1
+            fi
+            since="$IN_SINCE"; until="$IN_UNTIL"
+          else
+            until="$(date -u -d "$(date -u +%F) -$(( $(date -u +%u) - 1 )) days" +%FT00:00:00Z)"
+            since="$(date -u -d "${until%T*} -7 days" +%FT00:00:00Z)"
+          fi
+          echo "since=$since" >> "$GITHUB_OUTPUT"
+          echo "until=$until" >> "$GITHUB_OUTPUT"
+          echo "Window: $since to $until"
+
+      - name: Compute the table (every gh and git command is printed)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SINCE: ${{ steps.window.outputs.since }}
+          UNTIL: ${{ steps.window.outputs.until }}
+        run: |
+          mkdir -p trust-metrics-out
+          python -I scripts/quality/trust_metrics.py --repo "$GITHUB_REPOSITORY" --since "$SINCE" --until "$UNTIL" --save-snapshot trust-metrics-out/snapshot.json --out trust-metrics-out/trust-metrics.md
+          cat trust-metrics-out/trust-metrics.md >> "$GITHUB_STEP_SUMMARY"
+
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (trust metrics)
+        id: keyscan_trust_metrics_out
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete trust-metrics-out; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'trust-metrics-out' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'trust-metrics-out')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload the table and the snapshot
+        if: ${{ steps.keyscan_trust_metrics_out.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: trust-metrics
+          path: trust-metrics-out
+          retention-days: 7
+          if-no-files-found: error

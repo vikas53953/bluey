@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="App/App.csproj" />
+  <Project Path="LibConfig/LibConfig.csproj" />
+  <Project Path="LibOs/LibOs.csproj" />
+  <Project Path="LibPublishing/LibPublishing.csproj" />
+  <Project Path="LibRid/LibRid.csproj" />
+  <Project Path="LibSolution/LibSolution.csproj" />
+</Solution>

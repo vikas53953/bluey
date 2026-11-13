@@ -1,5 +1,5 @@
 {
-  "revision": 25,
+  "revision": 26,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -108,6 +108,7 @@
     "tests/Boo.Integration.Tests/ProviderRegressionTests.cs": "0c621a978fe78c362e4e6ab3f7ba682b31e53dc2df4cf4d548fae23af3e8e1bb",
     "tests/Boo.Integration.Tests/RealtimeTranscriptProtocolTests.cs": "9077f2fea35c8843a5cf979e4fecbac34a9f1d0b6f316640e243b2e08ca7b09c",
     "tests/Boo.Integration.Tests/RealtimeTranscriptTests.cs": "d02dd5ce15c00569cb11b1dfcb87bcf63c572f2446dab763311526460e818da3",
+    "tests/Boo.Integration.Tests/RealtimeVoiceConfigurationTests.cs": "7f6dfa7b975d19ffbf915344b65624d53d142d3c593c1b14119688af8f4dcae1",
     "tests/Boo.Integration.Tests/ResearchRequestShapeTests.cs": "68607a9544c37c6b439e18aa658dad1bb5cf20da8563dd511611eddc16c9b36b",
     "tests/Boo.Integration.Tests/ResponseDeadlineTests.cs": "a981dcd5cb4d6f5ebd7a84d09ae455e05b627fcf87f3db8aadb4c87636a4ead7",
     "tests/Boo.Integration.Tests/ReviewCaptureDisposeTests.cs": "153e15534f883714d918604ce91ab9b8e07607283a968fbe6b9eeb3985d8fab8",
@@ -150,15 +151,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-24.json",
-  "previousManifestSha256": "6e07ed55b22e217da5827ebf4d611f194031de5fca55f0ab80f209b02c4abd89",
-  "revisionReason": "PR 1.11 (agent-trust plan section 2.9): NetArchTest architecture rules BOO-ARCH-001..006, new project tests/Boo.Architecture.Tests; see docs/verification/test-oracle-revision-25.md",
+  "previousManifest": "docs/verification/test-oracle-history/revision-25.json",
+  "previousManifestSha256": "e6347b90077bb84eb87fd4325673ed4694a7a0acb298dfe06c5f47dfb496fb75",
+  "revisionReason": "PR #47: additive oracle extension for mutation-driven tests, per Vikas's 13 Nov order; only RealtimeVoiceConfigurationTests.cs added, every existing hash unchanged, no rebaseline",
   "addedFiles": [
-    "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs",
-    "tests/Boo.Architecture.Tests/Boo.Architecture.Tests.csproj",
-    "tests/Boo.Architecture.Tests/CecilScan.cs"
+    "tests/Boo.Integration.Tests/RealtimeVoiceConfigurationTests.cs"
   ],
-  "revisionCommit": "5952a2e31435bb1ed8f80cda5bb410dd4e1c1026",
+  "revisionCommit": "ff1269514cd1112861d7f3ddfcdb9ed402dc3f51",
   "changedFiles": [],
   "removedFiles": []
 }
