@@ -1,0 +1,85 @@
+name: eye-tap-profile
+on:
+  pull_request:
+    paths:
+      - .github/workflows/eye-tap-profile.yml
+      - scripts/ci/Profile-EyeTap.ps1
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  profile:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      APP_SHA: 7f8960aa83d2fbbac1f17be6f37c1cef85ad65af
+      HARNESS_SHA: 7f8960aa83d2fbbac1f17be6f37c1cef85ad65af
+    steps:
+      - name: Refuse unless GitHub's own VM
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'GitHub hosted VM required; never the owner PC.' }
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.APP_SHA }}
+          path: app-under-test
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HARNESS_SHA }}
+          path: reviewed-harness
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: app-under-test/global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build pinned app and harness (no AI key)
+        shell: pwsh
+        run: |
+          dotnet publish app-under-test/src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/profile-app
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build reviewed-harness/tools/Boo.QaSuite -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force artifacts/eye-profile | Out-Null
+          "app=$(git -C app-under-test rev-parse HEAD)`nharness=$(git -C reviewed-harness rev-parse HEAD)`nworkflow=$(git rev-parse HEAD)" | Set-Content artifacts/eye-profile/identity.txt
+          Get-FileHash artifacts/profile-app/Boo.exe | Format-List | Out-File artifacts/eye-profile/exe-hash.txt
+      - name: One cold eye tap with ETW (no provider calls)
+        shell: pwsh
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\profile-app\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\eye-profile
+          BOO_CAPTURE_SCOPE: boo-windows
+        run: ./scripts/ci/Profile-EyeTap.ps1
+      - name: Prepare symbols and scanner
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/eye-profile/symbols | Out-Null
+          Copy-Item artifacts/profile-app/Boo*.pdb,artifacts/profile-app/Boo*.dll,artifacts/profile-app/Boo.exe artifacts/eye-profile/symbols -ErrorAction SilentlyContinue
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Key scan before upload
+        id: keyscan_artifacts_eye_profile
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/eye-profile; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/eye-profile' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/eye-profile')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+      - name: Upload diagnostic receipts and symbols
+        if: ${{ !cancelled() && steps.keyscan_artifacts_eye_profile.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eye-tap-profile
+          if-no-files-found: error
+          retention-days: 7
+          path: artifacts/eye-profile
