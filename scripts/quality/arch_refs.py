@@ -126,7 +126,7 @@ class Finding:
         lines = [f'{self.rule_id}  {self.subject}  ({rule.title})', f'  What:   {self.what}', f'  Why:    {rule.why}',
                  f'  Fix:    {rule.fix}', f'  Do NOT: {rule.dont[len("Do NOT "):]}',
                  f'  Rule:   {RULES_DOC}#{self.rule_id.lower()}']
-        shown = self.wheres[:6] + ([f'... and {len(self.wheres) - 6} more'] if len(self.wheres) > 6 else [])
+        shown = self.wheres[:12] + ([f'... and {len(self.wheres) - 12} more'] if len(self.wheres) > 12 else [])
         for index, where in enumerate(shown):
             lines.append(('  Where:  ' if index == 0 else '          ') + where)
         return '\n'.join(lines)
@@ -582,11 +582,11 @@ def judge_unit(out, ctx, name, row, unit, place, used, seen):
     for target, how in edges:
         target_name = by_path.get(target.lower())
         if target_name is None:
-            out.add('BOO-REF-002', f'{name} -> {target}', f'{name} references {target} ({how}), which is not a '
-                    'project in src/ (only src/<Name>/<Name>.csproj projects may be referenced from src/).', place)
+            out.add('BOO-REF-002', f'{name} -> {target}', f'{name} references {target}, which is not a project in '
+                    'src/ (only src/<Name>/<Name>.csproj projects may be referenced from src/).', f'{place}: {how}')
         elif target_name not in row['projects']:
-            out.add('BOO-REF-001', f'{name} -> {target_name}', f'{name} references {target_name} ({how}); '
-                    f'layers.json allows {name} only: {listing(row["projects"])}.', place)
+            out.add('BOO-REF-001', f'{name} -> {target_name}', f'{name} references {target_name}; layers.json allows '
+                    f'{name} only: {listing(row["projects"])}.', f'{place}: {how}')
         else:
             used['projects'].add(target_name.lower())
             seen['projects'].add(target_name)
