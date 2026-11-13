@@ -50,31 +50,11 @@ jobs:
             echo "The base branch ($BASE_REF) has no ratchet yet: this PR introduces it, so there is no older gate to apply."
           fi
 
-      # Architecture references (docs/quality/RULES.md, BOO-REF-001..008): every src/ project may reference only the
-      # projects, packages and frameworks in docs/architecture/layers.json. MSBuild itself reads the references
-      # (evaluation only: no restore, no build), so Directory.Build.props, imports and conditions count; that needs the
-      # SDK pinned in global.json. On a pull request the BASE branch's own arch_refs.py and layers.json (read from git,
-      # not from the PR) also judge the PR's tree, and refuse a PR layers.json that allows more than the base one.
-      - name: Set up .NET for the architecture check (MSBuild evaluation only)
-        uses: actions/setup-dotnet@v4
-        with:
-          global-json-file: global.json
-
-      - name: Architecture references (self-test, then the tree against layers.json)
+      # Architecture references (docs/quality/RULES.md, BOO-REF-001..008): the judging logic on planted build facts and
+      # the format of docs/architecture/layers.json. The judge itself runs in windows-ci on the build facts of the
+      # shipped build (its Release build and win-x64 publish), not here: an evaluation on Linux misses what the real
+      # build does (Release-only, publish-only and Windows-only references, package build code).
+      - name: Architecture references (self-test and layers.json format)
         run: |
           python -I scripts/quality/arch_refs.py --self-test
-          python -I scripts/quality/arch_refs.py
-
-      - name: Architecture references judged by the base branch's own copy (a PR cannot loosen its own layers)
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          git fetch --no-tags --depth=1 origin "$BASE_REF"
-          if git cat-file -e FETCH_HEAD:scripts/quality/arch_refs.py 2>/dev/null && git cat-file -e FETCH_HEAD:docs/architecture/layers.json 2>/dev/null; then
-            git show FETCH_HEAD:scripts/quality/arch_refs.py > "$RUNNER_TEMP/base_arch_refs.py"
-            git show FETCH_HEAD:docs/architecture/layers.json > "$RUNNER_TEMP/base_layers.json"
-            python -I "$RUNNER_TEMP/base_arch_refs.py" --root "$GITHUB_WORKSPACE" --layers "$RUNNER_TEMP/base_layers.json" --rise-only --pr-layers "$GITHUB_WORKSPACE/docs/architecture/layers.json"
-          else
-            echo "The base branch ($BASE_REF) has no arch_refs.py and layers.json yet: this PR introduces them, so there is no older gate to apply."
-          fi
+          python -I scripts/quality/arch_refs.py format

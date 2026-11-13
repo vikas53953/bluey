@@ -154,6 +154,33 @@ jobs:
           path: artifacts/build-facts
           if-no-files-found: warn
 
+      # Architecture references (docs/quality/RULES.md, BOO-REF-001..008), judged on the build facts of the SHIPPED
+      # build above (both logs): every src/ project's ProjectReferences (items and the ones really followed into csc),
+      # packages (PackageReference, PackageDownload, restored direct dependencies), framework references, direct
+      # Reference/Analyzer files, target frameworks and build files imported from packages or NuGet MSBuild SDKs must be
+      # exactly what docs/architecture/layers.json allows. On a pull request the BASE branch's own arch_refs.py and
+      # layers.json (read from git, not from the PR) judge the same facts too and refuse a looser layers.json
+      # (skipped while the base has none).
+      - name: Architecture references (judged on the build facts)
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          python -I scripts/quality/arch_refs.py --self-test
+          python -I scripts/quality/arch_refs.py judge artifacts/build-facts/build-facts.json
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+            if git cat-file -e FETCH_HEAD:scripts/quality/arch_refs.py 2>/dev/null && git cat-file -e FETCH_HEAD:docs/architecture/layers.json 2>/dev/null; then
+              git show FETCH_HEAD:scripts/quality/arch_refs.py > "$RUNNER_TEMP/base_arch_refs.py"
+              git show FETCH_HEAD:docs/architecture/layers.json > "$RUNNER_TEMP/base_layers.json"
+              python -I "$RUNNER_TEMP/base_arch_refs.py" judge artifacts/build-facts/build-facts.json --root . --layers "$RUNNER_TEMP/base_layers.json" --rise-only --pr-layers docs/architecture/layers.json
+            else
+              echo "The base branch ($BASE_REF) has no arch_refs.py and layers.json yet: this PR introduces them, so there is no older judge."
+            fi
+          fi
+
       # Every notch face state rendered offscreen to PNG (Boo.exe --notch-gallery), uploaded with the UI smoke screenshots.
       - name: Notch face gallery
         shell: pwsh

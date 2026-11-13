@@ -1,32 +1,47 @@
 {
-  "about": "Allowed references of every src/ project, exactly as the tree has them today (13 Nov 2026, lane/face 0122ac7). Checked by scripts/quality/arch_refs.py through MSBuild's own evaluation. Anything not listed fails; anything listed but unused also fails. A new edge, package, framework or project is an owner decision: the base branch's copy of this file refuses any loosening.",
+  "about": "Allowed references of every src/ project, exactly as the shipped build has them today (13 Nov 2026, lane/face 4e92aec). Judged by scripts/quality/arch_refs.py on the build facts of windows-ci's Release build of Boo.sln and its win-x64 publish of Boo.App (docs/quality/RULES.md, Build facts). Anything not listed fails; anything listed but unused also fails. A new edge, package, framework, package build file, SDK pack or project is an owner decision: the base branch's copy of this file refuses any loosening.",
   "rules": "docs/quality/RULES.md#architecture-references-boo-ref",
+  "sdk_packs": [
+    "Microsoft.AspNetCore.App.Runtime.win-x64",
+    "Microsoft.NETCore.App.Crossgen2.win-x64",
+    "Microsoft.NETCore.App.Runtime.win-x64",
+    "Microsoft.Windows.SDK.NET.Ref",
+    "Microsoft.WindowsDesktop.App.Runtime.win-x64"
+  ],
   "projects": {
     "Boo.Core": {
       "target_frameworks": ["net10.0"],
       "projects": [],
       "packages": [],
+      "package_build_files": [],
       "framework_references": ["Microsoft.NETCore.App"]
     },
     "Boo.Providers": {
       "target_frameworks": ["net10.0"],
       "projects": ["Boo.Core"],
       "packages": [],
+      "package_build_files": [],
       "framework_references": ["Microsoft.NETCore.App"]
     },
     "Boo.Storage": {
+      "target_frameworks": ["net10.0-windows10.0.19041.0"],
       "projects": ["Boo.Core"],
       "packages": ["Microsoft.Data.Sqlite", "System.Security.Cryptography.ProtectedData"],
+      "package_build_files": ["SQLitePCLRaw.lib.e_sqlite3"],
       "framework_references": ["Microsoft.NETCore.App", "Microsoft.Windows.SDK.NET.Ref.Windows"]
     },
     "Boo.Windows": {
+      "target_frameworks": ["net10.0-windows10.0.19041.0"],
       "projects": ["Boo.Core"],
       "packages": ["NAudio"],
+      "package_build_files": [],
       "framework_references": ["Microsoft.NETCore.App", "Microsoft.Windows.SDK.NET.Ref.Windows", "Microsoft.WindowsDesktop.App"]
     },
     "Boo.App": {
+      "target_frameworks": ["net10.0-windows10.0.19041.0"],
       "projects": ["Boo.Core", "Boo.Windows", "Boo.Providers", "Boo.Storage"],
       "packages": ["Velopack"],
+      "package_build_files": ["SQLitePCLRaw.lib.e_sqlite3"],
       "framework_references": ["Microsoft.NETCore.App", "Microsoft.Windows.SDK.NET.Ref.Windows", "Microsoft.WindowsDesktop.App"]
     }
   }
