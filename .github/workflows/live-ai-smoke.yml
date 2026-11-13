@@ -147,6 +147,11 @@ jobs:
           }
           if ($bad) { $bad | ForEach-Object { "::error title=Live AI smoke FAILED CLOSED::$_" }; exit 1 }
 
+      # Python for scripts/quality/key_scan.py (the key scan before every upload).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -245,8 +250,9 @@ jobs:
           Get-ChildItem artifacts/live-evidence -Recurse -Filter *.capture.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
           if ($bad -gt 0) { "::error title=Live AI smoke::$bad screenshot problem(s): copied from the screen, unreadable, or a capture with no real Boo window content"; exit 1 }
 
-      # Belt and braces: no evidence file may contain a key. A hit deletes the file before upload and fails the run.
-      - name: Key leak scan of the evidence
+      # BOO-SEC-001/002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped
+      # string (or a real secret) is deleted so the upload cannot carry it, and the job fails.
+      - name: Key scan before upload (live evidence)
         if: always()
         shell: pwsh
         env:
@@ -254,16 +260,10 @@ jobs:
           ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
           GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
         run: |
-          $keys = @($env:OPENAI_KEY, $env:ANTHROPIC_KEY, $env:GEMINI_KEY) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Trim() }
-          $leaks = 0
-          Get-ChildItem artifacts/live-evidence -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
-            $text = [System.IO.File]::ReadAllText($_.FullName)
-            foreach ($k in $keys) {
-              if ($text.Contains($k)) { "::error::a key was found in $($_.Name); the file was deleted and will not be uploaded"; Remove-Item $_.FullName -Force; $leaks++; break }
-            }
-          }
-          if ($leaks -gt 0) { exit 1 }
-          'no key found in any evidence file'
+          python -I scripts/quality/key_scan.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python -I scripts/quality/key_scan.py --delete --secret-env OPENAI_KEY --secret-env ANTHROPIC_KEY --secret-env GEMINI_KEY artifacts/live-evidence
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Upload live evidence (screenshots, observations, test results)
         if: always()

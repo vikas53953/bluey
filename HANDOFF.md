@@ -232,7 +232,7 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 2. **Anti-mock guard** (PR #14, merged): rejects loopback, private/LAN, link-local, unique-local, CGNAT and fake-IP
    addresses and proxies. Still not detected: a planted trusted root certificate, or a mock on the PC's own
    public-looking address.
-3. **Demo Step 4 race (fix in PR #22, not merged).**
+3. **Demo Step 4 race: fixed by PR #22 (merged 13 Nov, `af241fa`).**
    `Step4_Focus_NudgeThenBackToIt_EndsHappy` failed twice on docs-only commits
    ([43240958545](https://github.com/vikas53953/bluey/actions/runs/43240958545),
    [43296734862](https://github.com/vikas53953/bluey/actions/runs/43296734862)). Judged a test race, not an app bug:

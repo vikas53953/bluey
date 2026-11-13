@@ -175,3 +175,34 @@ and deliberate evasion is closed by the compiler, which sees the real names, typ
 - Exemption tags: `// INVARIANT: ... see NameTests.Method` is exempt when any file under `tests/` declares
   `class NameTests` and contains `Method(`. The barrier against a fake test is review: `tests/` is the frozen oracle, so
   a new test file needs a visible `scripts/test_oracle.py --extend` revision that the reviewer must check.
+
+## Key scan before every upload (PR 1.7)
+
+[`scripts/quality/key_scan.py`](../../scripts/quality/key_scan.py) runs right before **every** `upload-artifact` step in
+`windows-ci`, `demo-ci` and `live-ai-smoke`, on exactly the path that step uploads, with the same `if:`. A file with a hit
+is deleted (so an `if: always()` upload cannot carry it) and the job fails. It reads every file as raw bytes (binaries,
+screenshots and the published app included), as UTF-16, and URL-decoded, plus every file name. It never prints a value:
+only the file (with any key-shaped part of the path masked), the rule, the byte offset and the length.
+`--self-test` (run by the first scan step of each job) proves every pattern in five forms on fakes built at run time,
+that clean files pass, and that no value is ever printed.
+
+## BOO-SEC-001
+**Key-shaped text in an upload**: OpenAI / Anthropic `sk-`, GitHub `ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_` and
+`github_pat_`, Google `AIza`, AWS access key ids, private-key blocks, Slack `xox?-` and Tailscale `tskey-` tokens, long
+bearer tokens. The only exception: text that appears verbatim inside a **frozen** test file (listed in
+`docs/verification/test-oracle.json`), i.e. the redaction tests' deliberate fakes, also when xUnit shortens them in a
+test name. That list can only change through a reviewed oracle revision, so there is no hand-kept allow-list.
+**Fix:** find what wrote the text and redact it at the source. **Do NOT** skip the scan, narrow a pattern, move the file
+out of the upload path, or add an allow-list.
+
+## BOO-SEC-002
+**The exact value of a secret the job holds** (`--secret-env`; `live-ai-smoke` passes the three `BOO_LIVE_*_KEY`
+secrets), found plain, UTF-16, URL-encoded or base64 (any alignment). Never allowed, not even if the text is in a test.
+**Fix:** revoke and rotate the key, then fix the code that wrote it (log lengths, never values). **Do NOT** allow-list
+it, rename the secret or drop `--secret-env`.
+
+Known gaps of the key scan: a key shown as **pixels** in a screenshot is not text and is not found (Boo never draws its
+keys; the Settings key box is masked); a key-shaped string that is base64-encoded is found only for BOO-SEC-002 (exact
+secrets); `release.yml` uploads (installer, portable ZIP) are not scanned yet (not in PR 1.7's scope).
+Red proof: see the PR 1.7 evidence table (a throwaway branch writes a run-time-built fake key into the test results
+before upload; the scan fails the job and deletes the file).
