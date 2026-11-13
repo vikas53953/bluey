@@ -55,7 +55,14 @@ $VideoFps = 2
 
 Add-Type -AssemblyName System.Drawing
 if (-not ('BooBlankScan' -as [type])) {
-  Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+  # The assemblies that really hold Bitmap and Rectangle (System.Drawing on Windows PowerShell 5.1; System.Drawing.Common
+  # and System.Drawing.Primitives on PowerShell 7), so the same code compiles on both.
+  $drawingRefs = @([System.Drawing.Bitmap].Assembly.Location, [System.Drawing.Rectangle].Assembly.Location) | Select-Object -Unique
+  if ($PSVersionTable.PSEdition -eq 'Core') {
+    $drawingRefs += @([System.Runtime.InteropServices.Marshal].Assembly.Location, [System.Collections.Generic.Stack[int]].Assembly.Location,
+                      [System.ComponentModel.Component].Assembly.Location) | Select-Object -Unique
+  }
+  Add-Type -ReferencedAssemblies $drawingRefs -TypeDefinition @'
 using System;
 using System.Collections.Generic;
 using System.Drawing;
