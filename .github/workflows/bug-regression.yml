@@ -1,0 +1,65 @@
+name: bug-regression
+
+# BOO-BUG-001 (docs/quality/bug-regression.md): every bug found becomes a permanent regression case before its fix
+# merges. A bug-fix PR (title starts with "fix", label "bug", a "## Bug" section, or it closes an issue labelled "bug")
+# must name its regression test in a "## Regression test" section, link the job where that test FAILED on a commit
+# before the fix, and link the run on the PR head where it passes. Any other PR passes untouched. Linux, no build, no
+# artifacts. The body is read from the event file, never pasted into a shell; every GitHub read is read-only and a read
+# that fails makes the check fail (closed).
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled]
+
+# Read-only: actions (the red-before job and its log, the green run), issues (labels of the issues a PR closes),
+# pull-requests (issues linked in the PR sidebar), contents (the checkout).
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: bug-regression-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  bug-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # A PR could loosen its own bug_regression.py. So the BASE branch's copy (read from git, not from the PR) judges
+      # the PR first, before any code from the PR runs. Until the base has the file (the PR that adds it), only the
+      # PR's own copy runs. (A PR that edits this workflow file itself is a gap left to review.)
+      - name: Bug fix judged by the base branch's own checker (a PR cannot loosen its checker script)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "::error::BOO-BUG-001 the base commit is not in the checkout, so the base branch's checker cannot run"
+            exit 1
+          fi
+          if git cat-file -e "$BASE_SHA:scripts/quality/bug_regression.py" 2>/dev/null; then
+            git show "$BASE_SHA:scripts/quality/bug_regression.py" > "$RUNNER_TEMP/bug_regression_base.py"
+            python -I "$RUNNER_TEMP/bug_regression_base.py" --event "$GITHUB_EVENT_PATH"
+          else
+            echo "The base branch has no bug_regression.py yet (this PR adds it); the PR's own copy judges it in the next steps."
+          fi
+
+      - name: Bug regression check self-test (every rule fires on a planted event)
+        run: python -I scripts/quality/bug_regression.py --self-test
+
+      - name: Bug fix carries a regression test seen red before the fix
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -I scripts/quality/bug_regression.py --event "$GITHUB_EVENT_PATH"
