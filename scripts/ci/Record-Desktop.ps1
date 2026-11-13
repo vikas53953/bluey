@@ -347,8 +347,8 @@ if ($exit -eq 'unknown') {
 if (Test-Path -LiteralPath $Log) { Get-Content -LiteralPath $Log -Tail 20 }
 
 # ffmpeg has finished; now check the file itself (fail closed). A non-zero recorder exit also rejects it.
-# THROWAWAY RED PROOF (never merge): replace the good recording with an EMPTY file; ffmpeg's exit stays 0.
-[System.IO.File]::WriteAllBytes($out, [byte[]]@())
+# THROWAWAY RED PROOF (never merge): replace the good recording with 64 KB of RANDOM bytes; ffmpeg's exit stays 0.
+$junk = [byte[]]::new(65536); [System.Random]::new(7).NextBytes($junk); [System.IO.File]::WriteAllBytes($out, $junk)
 $check = Test-DemoVideo $out (Join-Path $State 'ffmpeg.exe') (Join-Path $State 'ffprobe.exe')
 if ($check.Ok -and $exit -ne '0') {
   $check.Ok = $false
