@@ -149,7 +149,10 @@ def msbuild(dotnet, project, extra=()):
                DOTNET_SKIP_FIRST_TIME_EXPERIENCE='1')
     command = [dotnet, 'msbuild', str(project), '-nologo', '-p:EnableWindowsTargeting=true',
                '-getProperty:TargetFramework', '-getProperty:TargetFrameworks'] + [f'-getItem:{i}' for i in ITEMS]
-    run = subprocess.run(command + list(extra), capture_output=True, cwd=str(project.parent), env=env)
+    try:
+        run = subprocess.run(command + list(extra), capture_output=True, cwd=str(project.parent), env=env)
+    except OSError as error:
+        raise ArchError(f'cannot run {dotnet} ({error}). Install the SDK named in global.json or pass --dotnet.')
     out = run.stdout.decode('utf-8', errors='replace')
     start = out.find('{')
     if run.returncode or start < 0:
