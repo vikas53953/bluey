@@ -38,7 +38,7 @@ public sealed class LiveVoiceRoundTripTests
     private const int BytesPerSecond = SampleRate * 2;
     private static readonly TimeSpan TurnTimeout = TimeSpan.FromSeconds(90);
     private static readonly Regex HeardQuestion = new(@"\b(two|2)\s*(plus|\+|and)\s*(three|3)\b", RegexOptions.IgnoreCase);
-    private static readonly Regex SaidAnswer = new(@"\b(five|5)\b", RegexOptions.IgnoreCase);
+    private static readonly Regex SaidAnswer = new(@"\b(seven|7)\b", RegexOptions.IgnoreCase);
 
     private readonly ITestOutputHelper _output;
 
