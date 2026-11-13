@@ -14,7 +14,9 @@
 What counts as a comment, and what is exempt, is decided by the quality ratchet's own C# lexer and rule BOO-CMT-001
 (scripts/quality/ratchet.py, imported, never copied): strings, interpolation holes, verbatim and raw strings and `#`
 directives behave exactly as there; whole-line `// INVARIANT: ... see NameTests.Method` naming a real test under the
-head's tests/, and whole-line `// TODO(#123): ...`, are allowed. Old comments are not judged here: the ratchet counts
+head's tests/, and whole-line `// TODO(#123): ...`, are allowed. A `///` line counts as a doc comment only in a block
+of whole-line `///` lines directly above a declaration (type, member, delegate, enum member; attribute lines may sit
+between); anywhere else (a method body, an accessor, before a blank line or a `}`) it is a new comment too. Old comments are not judged here: the ratchet counts
 them and that count may only go down. Rule page: docs/quality/comment-lint.md.
 """
 import importlib.util
@@ -111,6 +113,93 @@ def load_head_tests(repo, head):
         ratchet.load_tests(tree)
 
 
+# A `///` line is a doc comment only in a block of whole-line `///` lines directly above a declaration (attribute lines
+# may sit between). The ratchet treats every `///` as doc, so `/// retry because flaky` in a method body would pass it.
+MODIFIERS = r'(?:(?:public|private|protected|internal|static|sealed|abstract|partial|readonly|ref|unsafe|new|file)\s+)*'
+TYPE_HEAD = re.compile(r'(?:^|[\s;{}\]])' + MODIFIERS + r'(class|struct|interface|enum|record)\s+[A-Za-z_@]')
+TYPE_DECL = re.compile(r'(?:^|[\s\]])' + MODIFIERS + r'(class|struct|interface|enum|record|delegate)\s+[A-Za-z_@]')
+
+
+def line_contexts(code):
+    """For each line (1-based index), the kinds of the braces open at its start: 'ns', 'type', 'enum' or 'other'.
+    The lexer blanks string text but keeps the quote marks and the closing `}` of interpolation holes, so a brace only
+    counts when an even number of `"` precede it (string quotes and hole strings come in pairs)."""
+    contexts, stack, quotes, head = [None, ()], [], 0, []
+    for char in code:
+        if char == '\n':
+            contexts.append(tuple(stack))
+        if char == '"':
+            quotes += 1
+        if quotes % 2:
+            continue
+        if char == '{':
+            text = ''.join(head)
+            match = TYPE_HEAD.search(text)
+            kind = ('enum' if match.group(1) == 'enum' else 'type') if match else (
+                'ns' if re.search(r'\bnamespace\b', text) else 'other')
+            stack.append(kind)
+            head = []
+        elif char == '}':
+            if stack:
+                stack.pop()
+            head = []
+        elif char == ';':
+            head = []
+        else:
+            head.append(char)
+    return contexts
+
+
+def misplaced_doc_lines(source):
+    """Lines holding a `///` comment that is not part of a doc block directly above a declaration."""
+    code_lines = source.views[0].code_lines
+    contexts = line_contexts(source.views[0].code)
+    whole_docs = {line for line, _, kind, whole in source.comments if kind == 'doc' and whole}
+    bad = {line for line, _, kind, whole in source.comments if kind == 'doc' and not whole}
+    for first in sorted(whole_docs):
+        if first - 1 in whole_docs:
+            continue
+        last = first
+        while last + 1 in whole_docs:
+            last += 1
+        if not declaration_follows(code_lines, contexts, first, last):
+            bad.update(range(first, last + 1))
+    return sorted(bad)
+
+
+def declaration_follows(code_lines, contexts, first, last):
+    where = contexts[first]
+    if any(kind == 'other' for kind in where):
+        return False  # inside a method, accessor or initializer
+    k = last  # code_lines is 0-based: code_lines[last] is the line after the block
+    while k < len(code_lines):
+        text = code_lines[k].strip()
+        if not text.startswith('['):
+            break
+        depth, j = 0, 0
+        while True:  # skip one attribute section, which may span lines
+            for j, char in enumerate(text):
+                depth += (char == '[') - (char == ']')
+                if depth == 0:
+                    break
+            if depth == 0 or k + 1 >= len(code_lines):
+                break
+            k += 1
+            text = code_lines[k].strip()
+        rest = text[j + 1:].strip() if depth == 0 else ''
+        if rest and not rest.startswith('['):
+            text = rest
+            break
+        k += 1
+    else:
+        return False
+    if not text or text.startswith('}') or text.startswith('#'):
+        return False
+    if where and where[-1] in ('type', 'enum'):
+        return True
+    return bool(TYPE_DECL.search(' ' + text))
+
+
 def new_comments(repo, base, head):
     """[(path, line)] of every comment line on head that BOO-CMT-001 counts and that is not on the base."""
     merge_base = git(repo, 'merge-base', base, head).decode().strip()
@@ -121,7 +210,7 @@ def new_comments(repo, base, head):
     for path, old in changed_files(repo, merge_base, head):
         head_text = blob_text(repo, head, path)
         source = ratchet.Source(head_text)
-        flagged = ratchet.comment_lines(source)
+        flagged = sorted(set(ratchet.comment_lines(source)) | set(misplaced_doc_lines(source)))
         if not flagged:
             continue
         head_lines = normalised_lines(head_text)
@@ -158,6 +247,45 @@ def check(repo, base, head):
 # ---------------------------------------------------------------------------------------------------------------------
 TEST_FILE = 'public class UndoJournalTests { [Fact] public void Roundtrip() { } }\n'
 BASE_A = 'class A {\n  void M() {\n    // explains why the loop exists\n    Go();\n  }\n}\n'
+DOCS_OK = '''namespace N
+{
+    /// <summary>A type.</summary>
+    public sealed partial class D
+    {
+        private readonly string _s = $"{(a ? "}" : "{")} {{ }}";
+        private readonly string _r = $$"""{{x}} } { """;
+        /// <summary>A field.</summary>
+        private int _f;
+        /// <summary>A property.</summary>
+        public int P { get; set; }
+        /// <summary>A method</summary>
+        /// <param name="x">X.</param>
+        [Obsolete("a ] b")]
+        [return: NotNull]
+        public void M(int x) { Go(); }
+        /// <summary>Attribute and member on one line.</summary>
+        [Fact] public void T() { }
+        /// <summary>Multi-line attribute.</summary>
+        [Theory(
+            Skip = "no")]
+        public void U() { }
+        /// <summary>Nested type.</summary>
+        private record struct R(int A);
+    }
+
+    /// <summary>A delegate.</summary>
+    public delegate void Handler();
+
+    /// <summary>An enum.</summary>
+    internal enum E
+    {
+        /// <summary>First.</summary>
+        First,
+        /// <summary>Second.</summary>
+        Second = 2,
+    }
+}
+'''
 
 
 def planted(base_files, head_files):
@@ -202,7 +330,23 @@ def self_test():
          []),
         ('a whole new file: every comment line is new',
          {a: BASE_A}, {a: BASE_A, 'src/P/New.cs': 'class N {\n  // one\n  /* two\n     three */\n  /// doc\n}\n'},
-         [('src/P/New.cs', 2), ('src/P/New.cs', 3), ('src/P/New.cs', 4)]),
+         [('src/P/New.cs', 2), ('src/P/New.cs', 3), ('src/P/New.cs', 4), ('src/P/New.cs', 5)]),
+        ('a /// in a method body fails',
+         {a: BASE_A}, {a: BASE_A.replace('    Go();', '    /// retry because flaky\n    Go();')}, [(a, 4)]),
+        ('a /// at the end of a code line fails',
+         {a: BASE_A}, {a: BASE_A.replace('    Go();', '    Go(); /// flaky')}, [(a, 4)]),
+        ('/// above a class, method, property, field, enum member and attributes passes',
+         {a: BASE_A}, {a: BASE_A, 'src/P/D.cs': DOCS_OK}, []),
+        ('a /// block, a blank line, then code fails (both lines)',
+         {a: BASE_A}, {a: BASE_A, 'src/P/D.cs': 'namespace N;\n/// <summary>x</summary>\n/// y\n\npublic class D { }\n'},
+         [('src/P/D.cs', 2), ('src/P/D.cs', 3)]),
+        ('a /// above a closing brace, in an accessor and above top-level code fails',
+         {a: BASE_A}, {a: BASE_A, 'src/P/D.cs': 'class D {\n  int P {\n    /// in accessor\n    get => 1;\n  }\n'
+                                                   '  /// orphan\n}\n/// top-level\nGo();\n'},
+         [('src/P/D.cs', 3), ('src/P/D.cs', 6), ('src/P/D.cs', 8)]),
+        ('an old misplaced /// that is unchanged passes',
+         {a: BASE_A.replace('    Go();', '    /// old\n    Go();')},
+         {a: BASE_A.replace('    Go();', '    /// old\n    Go();').replace('class A', 'class A2')}, []),
         ('a renamed file keeps its old comments',
          {'src/P/B.cs': big}, {'src/Q/Renamed.cs': big}, []),
         ('a renamed file with one added comment fails on that line only',

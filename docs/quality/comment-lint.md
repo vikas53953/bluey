@@ -12,7 +12,7 @@ Still allowed on a new line (the same exemptions as the ratchet's BOO-CMT-001, s
 
 | Allowed | Example |
 | --- | --- |
-| `///` XML doc on a type or member | `/// <summary>Returns the saved colour.</summary>` |
+| `///` XML doc directly above a declaration (type, member, delegate, enum member; attribute lines may sit between) | `/// <summary>Returns the saved colour.</summary>` |
 | A whole-line rule tag that names a real test under `tests/` | `// INVARIANT: undo restores the bytes, see UndoJournalTests.Roundtrip` (also `// SECURITY: ...`) |
 | A whole-line tracked to-do | `// TODO(#123): remove after the provider switch` |
 
@@ -32,6 +32,10 @@ such rules, so they are not deleted in one go; they are turned into tests over t
 - What is a comment comes from the ratchet's own C# lexer (`scripts/quality/ratchet.py`, imported, not copied):
   text inside strings, verbatim strings, raw strings and interpolation holes is not a comment; a `//` after a
   `#pragma` or `#endif` is; a `#region` name is not.
+- A `///` line is a doc comment only inside a block of whole-line `///` lines that sits **directly above a declaration**
+  (a type, member, delegate or enum member; attribute lines may sit between). A `///` in a method body or accessor,
+  at the end of a code line, above a `}`, or followed by a blank line is judged like any other comment. (The ratchet
+  counts every `///` as doc; this check is stricter for new lines.)
 - A comment line on the head is **new** when the same file on the base has no equal line (spaces ignored). So moving
   a comment up or down, or re-indenting it, passes. Writing the same old comment a second time is new.
 - A renamed file is compared with the file it was renamed from (git rename detection). A whole new file's comments
@@ -69,12 +73,21 @@ changes nothing. The PR that adds the script has no older copy to apply, and say
 - Comments in `tests/` and `tools/` (tests are frozen and their comments often explain the scenario; the plan keeps
   them out of Phase 1).
 - XAML `<!-- -->` and `.csproj` comments.
+- Text with no `//` or `/* */`: prose inside `#if false ... #endif`, and `#warning` / `#error` messages.
+- The INVARIANT (and SECURITY) exemption only checks that a `NameTests` class's text contains `Method(`. A PR can add
+  such a test file; the barrier is review plus the frozen-oracle revision that any new test file needs.
+- `.cs` files outside `src/` compiled in through `<Compile Include>` (PR #28's compile list will fail those once it
+  merges).
+- A comment whose text equals any line of the base file (for example a line inside a raw string) counts as old.
 - Whether a `TODO(#123)` issue exists and is open (a later weekly job in the plan).
 - Whether an INVARIANT tag's sentence matches what its named test checks: only that the test exists. A reviewer
   judges the sentence.
 - A pull request that edits `comment-lint.yml` itself (the base copy cannot guard its own workflow); left to review,
   as for the other gates. To block merges it must be added to `lane/face` branch protection as a required check
   (`comments`), which is Vikas's call.
+
+By design, not gaps: moving a comment within the same file (or re-indenting it) passes, and `#region` names are not
+comments.
 
 ## Run it yourself
 
@@ -83,6 +96,8 @@ python -I scripts/quality/comment_lint.py --self-test
 python -I scripts/quality/comment_lint.py --base origin/lane/face
 ```
 
-The self-test runs 16 planted base/head pairs in throwaway git repositories, each with an exact expected result: an
+The self-test runs 22 planted base/head pairs in throwaway git repositories, each with an exact expected result: an
 added `// retry because flaky` fails; a moved comment, a `///`, an INVARIANT naming a real test and a `//` inside a
-string pass; a whole new file's comments fail; a renamed file keeps its old comments.
+string pass; a whole new file's comments fail; a renamed file keeps its old comments; a `///` in a method body, at a
+line end, above a `}` or before a blank line fails, while `///` above a class, method, property, field, delegate,
+enum member or attribute lines passes.
