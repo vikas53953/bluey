@@ -16,7 +16,7 @@ Agent-trust plan, Phase 2, PR 2.2 (`docs/plans/agent-trust-plan.md` 3.2 B and 3.
 | `NotchLifecycle_plan_gaps.cfg` | The plan's rules, as written, that today's code **breaks**. Each must **fail**. |
 | `NotchLifecycle_redproof.cfg` | The plan's own red proof, to run by hand: "apply without Approve" must be caught. |
 | `../scripts/ci/run_tlc.sh` | Downloads the pinned checker, verifies it, runs the whole run table below, prints a summary. |
-| `../.github/workflows/formal.yml` | Runs the script on Linux for changes here, and nightly (plus a wider nightly run). |
+| `../.github/workflows/formal.yml` | Runs the script on Linux for changes here and nightly, plus a wider run (`tlc-wide`) in the same cases. |
 
 ## The three switches
 
@@ -26,7 +26,7 @@ The model has three constants. With all three at their defaults it is today's co
   no rule can pass because it checks nothing.
 - `Fix`: the **obvious fix** of one gap finding. The gap must fail with no fix and pass with its fix. If it still
   fails with its fix on, its counterexample has another cause than the finding says, and CI says so.
-- `MaxActive`: how many features may be busy at the same moment (2 on every PR, 3 in the nightly `tlc-wide` job).
+- `MaxActive`: how many features may be busy at the same moment (2 in the `tlc` job, 3 in the `tlc-wide` job; both run on PRs that touch the model and nightly).
 
 ## Rules, red proofs, witnesses and fixes
 
@@ -148,7 +148,7 @@ Each is LOW: it changes no check result.
 
 Measured with a Python copy of the model (MOCK, not TLC): about 200 thousand states with `MaxActive = 2`. The PR run
 is about 45 TLC runs; most red proofs and witnesses stop at their first counterexample, the main run and the fix
-runs explore everything. The nightly `tlc-wide` job runs only the main cfg with `MaxActive = 3` (about 2 million
+runs explore everything. The `tlc-wide` job (PRs that touch the model, and nightly) runs only the main cfg with `MaxActive = 3` (about 2 million
 states, 10 times more; same Python copy) and has its own 40 minute limit.
 
 ## Run it locally

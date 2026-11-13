@@ -6,7 +6,7 @@ name: formal
 #     docs/architecture/notch-lifecycle.md section 5), so a gap cannot close or open without the doc moving too.
 #   - every main check catches its planted bug (red proof) and its trigger is reached (witness); every gap passes
 #     with its own fix switch on. The run table is in scripts/ci/run_tlc.sh.
-#   - nightly only (job tlc-wide): the main cfg again with MaxActive = 3 (more features overlapping at once).
+#   - job tlc-wide (on PRs that touch these paths, and nightly): the main cfg again with MaxActive = 3.
 # Linux only, no secrets, no .NET build, no uploads: every result and counterexample trace is printed in the job log
 # (so there is nothing for the BOO-SAFE-002 key scan to guard). tla2tools.jar is a pinned release checked by SHA-256 before use.
 
@@ -56,8 +56,9 @@ jobs:
         run: bash scripts/ci/run_tlc.sh
 
 
+  # Runs on every trigger, not only the schedule: a schedule fires only from the default branch (main), so a
+  # schedule-only job would never have run before lane/face reaches main, i.e. it would be unproven.
   tlc-wide:
-    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -73,6 +74,6 @@ jobs:
           java-version: '21'
 
 
-      - name: TLC nightly (main cfg with MaxActive = 3)
+      - name: TLC wide (main cfg with MaxActive = 3)
         run: bash scripts/ci/run_tlc.sh --wide
 
