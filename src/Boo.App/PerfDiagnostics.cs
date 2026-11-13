@@ -15,7 +15,7 @@ namespace Boo.App;
 /// Unset (every normal launch) nothing is created: no timer, no file, no allocations.
 /// The timer runs at <see cref="DispatcherPriority.Background"/>, not ApplicationIdle: while the notch is revealed the
 /// render loop keeps the dispatcher busy and an ApplicationIdle tick can starve for seconds, which left the file stale
-/// mid-measurement (CI 13 Nov 2026: 0 and 11 fps reported over a 2 s window while 222 frames had rendered).
+/// mid-measurement (CI 13 Nov 2026: 0 and 11 fps reported over a 2 s window while 222 and 216 frames had rendered).
 /// Schema (version 1), all numbers cumulative since process start:
 /// <code>
 /// { "schema": 1, "writtenAtUtc": "...", "uptimeMs": 1234, "gen0": 3, "gen1": 1, "gen2": 0,
