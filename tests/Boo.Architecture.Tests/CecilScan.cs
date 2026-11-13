@@ -6,9 +6,10 @@ namespace Boo.Architecture.Tests;
 
 /// <summary>
 /// Exact-type reference scan over a compiled assembly (Mono.Cecil, the library NetArchTest is built on). A type
-/// references X when X is the type of one of its fields, properties, parameters, return values or locals, or when its
-/// code calls, reads, writes or constructs a member declared on X. Generic arguments and arrays count (List&lt;X&gt;,
-/// X[]). Offenders are reported per outermost type, so compiler-made nested types count towards their owner.
+/// references X when X is its base type or an interface, the type of one of its fields, properties, events,
+/// parameters, return values or locals, a custom attribute on it or its members, or when its code calls, reads, writes
+/// or constructs a member declared on X (generic method arguments included). Generic arguments and arrays count
+/// (List&lt;X&gt;, X[]). Offenders are reported per outermost type, so compiler-made nested types count towards their owner.
 /// </summary>
 internal static class CecilScan
 {
@@ -28,19 +29,23 @@ internal static class CecilScan
     {
         bool Hit(TypeReference? reference) => reference is not null && Mentions(reference, wanted);
 
-        if (Hit(type.BaseType) || type.Interfaces.Any(i => Hit(i.InterfaceType))) return true;
-        if (type.Fields.Any(f => Hit(f.FieldType))) return true;
-        if (type.Properties.Any(p => Hit(p.PropertyType))) return true;
+        bool HitAttributes(Mono.Cecil.ICustomAttributeProvider provider) => provider.CustomAttributes.Any(a => Hit(a.AttributeType));
+
+        if (Hit(type.BaseType) || type.Interfaces.Any(i => Hit(i.InterfaceType)) || HitAttributes(type)) return true;
+        if (type.Fields.Any(f => Hit(f.FieldType) || HitAttributes(f))) return true;
+        if (type.Properties.Any(p => Hit(p.PropertyType) || HitAttributes(p))) return true;
+        if (type.Events.Any(e => Hit(e.EventType) || HitAttributes(e))) return true;
         foreach (var method in type.Methods)
         {
-            if (Hit(method.ReturnType) || method.Parameters.Any(p => Hit(p.ParameterType))) return true;
+            if (Hit(method.ReturnType) || method.Parameters.Any(p => Hit(p.ParameterType)) || HitAttributes(method)) return true;
             if (!method.HasBody) continue;
             if (method.Body.Variables.Any(v => Hit(v.VariableType))) return true;
             foreach (var instruction in method.Body.Instructions)
             {
                 switch (instruction.Operand)
                 {
-                    case MethodReference m when Hit(m.DeclaringType) || Hit(m.ReturnType) || m.Parameters.Any(p => Hit(p.ParameterType)):
+                    case MethodReference m when Hit(m.DeclaringType) || Hit(m.ReturnType) || m.Parameters.Any(p => Hit(p.ParameterType))
+                                                || (m is GenericInstanceMethod g && g.GenericArguments.Any(Hit)):
                         return true;
                     case FieldReference f when Hit(f.DeclaringType) || Hit(f.FieldType):
                         return true;

@@ -183,15 +183,31 @@ solution builds; no app starts and no screen is touched. Each rule lists today's
 13 Nov 2026, `lane/face` `af089dd`). The list is exact both ways: a **new** offender fails, and an offender that has been
 **fixed** also fails until its name is removed, so every gain is locked in. The test project is frozen (oracle
 revision 25), so removing a name, like adding a rule, goes through a reviewed `scripts/test_oracle.py --rebaseline`.
-Offenders count per outermost type (lambdas and async state machines count towards the type that wrote them).
+Dependency offenders (001-004) count per outermost type (lambdas and async state machines count towards the type that
+wrote them); static-state offenders (005) are named per declaring type, nested types included.
+
+**Why two tools.** 001 and 004 are about whole namespaces and use NetArchTest. 002 and 003 are about a *class* of
+types (everything that touches the disk; every network client or handler) that cuts across namespaces, so the class
+is written out type by type and checked with `CecilScan` (Mono.Cecil, the library NetArchTest is built on): base
+types, interfaces, fields, properties, events, attributes, parameters, return values, locals and every member the
+code calls or constructs, including generic arguments. Swapping `File.Exists` for `new FileInfo(p).Exists`, or
+`HttpClient` for `SocketsHttpHandler`, is still caught.
+
+**Known gaps.** (1) BOO-ARCH-005 sees fields and setters, not what a `readonly` field points to: a
+`static readonly List<T>` that is changed later (today `AccessibilitySettings.Listeners`, `.Add` at line 48) is
+shared mutable state the rule does not count; counting every `static readonly` collection or array would flood it
+with read-only tables. (2) BOO-ARCH-006 looks at `src/Boo.App/*Window*.cs` in the top folder, which holds every
+window code-behind today; a window elsewhere or not named `...Window` would be missed. (3) A type outside the
+lists in 002/003 (for example a new disk or network API in a future .NET) is not caught until it is added, in a
+reviewed oracle revision.
 
 | Rule | Checks | How | Today (matches plan section 1.5) |
 | --- | --- | --- | --- |
 | [BOO-ARCH-001](#boo-arch-001) | `Boo.Core` uses nothing from `System.Net.Http`, `System.Net.WebSockets`, `Microsoft.Win32`, `Microsoft.Data.Sqlite`, `NAudio`, `Velopack` | NetArchTest, namespace match | 1: `ProviderFailureClassifier` (`ProviderFailure.cs`, `HttpRequestError`) |
-| [BOO-ARCH-002](#boo-arch-002) | `Boo.Core` does not call `System.IO.File` / `System.IO.Directory` | exact types (Mono.Cecil): `FileAttributes` or `FileNotFoundException` alone do not count | 2: `ScopedFiles` (the second class in `ActionPolicy.cs`), `FileActionResolver` |
-| [BOO-ARCH-003](#boo-arch-003) | `Boo.App` does not use `HttpClient` / `ClientWebSocket` | exact types (Mono.Cecil) | 1 type: `MainWindow` (its 3 references: `MainWindow.xaml.cs:65,1624,2123`) |
+| [BOO-ARCH-002](#boo-arch-002) | `Boo.Core` uses no type that reads or writes the disk: `File`, `Directory`, `FileInfo`, `DirectoryInfo`, `FileSystemInfo`, `FileStream`, `FileSystemWatcher`, `DriveInfo`, `RandomAccess` | exact type list (Mono.Cecil); value-only types (`Path`, `FileAttributes`, `FileNotFoundException`) are not in it | 2: `ScopedFiles` (the second class in `ActionPolicy.cs`), `FileActionResolver` |
+| [BOO-ARCH-003](#boo-arch-003) | `Boo.App` uses no network client or handler: `HttpClient`, `HttpMessageInvoker`, `HttpMessageHandler`, `DelegatingHandler`, `HttpClientHandler`, `SocketsHttpHandler`, `WebSocket`, `ClientWebSocket`, `Socket`, `TcpClient`, `UdpClient` | exact type list (Mono.Cecil) | 1 type: `MainWindow` (its 3 references: `MainWindow.xaml.cs:65,1624,2123`) |
 | [BOO-ARCH-004](#boo-arch-004) | `Boo.Windows` uses nothing from `System.Windows.Controls` / `System.Windows.Shapes` and has no `Window` subclass | NetArchTest | 0 |
-| [BOO-ARCH-005](#boo-arch-005) | no static field that is not `readonly`/`const`, no static property with a setter, in all 5 `src` assemblies | reflection; compiler-made caches excluded | 2: `AccessibilitySettings._uiSettings`, `App.StartedInBackground` |
+| [BOO-ARCH-005](#boo-arch-005) | no static field that is not `readonly`/`const`, no static property with a setter, in all 5 `src` assemblies | reflection; compiler-made caches excluded; named per declaring type (`Outer+Inner.Field`) | 2: `AccessibilitySettings._uiSettings`, `App.StartedInBackground` |
 | [BOO-ARCH-006](#boo-arch-006) | every `src/Boo.App/*Window*.cs` file has at most 2,674 lines | line count | 0 over (largest: `MainWindow.xaml.cs`, 2,674) |
 | [BOO-ARCH-007](#boo-arch-007) | a new `MainWindow` feature goes in its own `MainWindow.<Feature>.cs` partial | written rule only (review) | |
 
@@ -203,12 +219,13 @@ database, audio or installer types make it slow and hard to test. **Fix:** put t
 ## BOO-ARCH-002
 **Core does not touch disk.** File checks in Core make rules depend on the machine. **Fix:** an interface in Core (like
 `IStartupRegistry`) with the real implementation outside. **Do NOT** swap `File.Exists` for `FileInfo` to dodge the
-check; the rule is about touching the disk.
+check; it is caught, and the rule is about touching the disk.
 
 ## BOO-ARCH-003
 **The window does not talk to the network.** Network calls belong in `Boo.Providers`, where timeouts, failures and
 keys are handled in one place (the 45 s timeout lives in `MainWindow` today for this reason). **Fix:** create the
-client in Providers and inject it. **Do NOT** hide a new `HttpClient` in a helper class in `Boo.App`.
+client in Providers and inject it. **Do NOT** hide a new `HttpClient` in a helper class in `Boo.App`, or swap it for a
+`SocketsHttpHandler` or a raw `Socket`: all are caught.
 
 ## BOO-ARCH-004
 **Boo.Windows is Windows integration, not UI.** Bitmaps (`System.Windows.Media`) and UI Automation are fine; controls,

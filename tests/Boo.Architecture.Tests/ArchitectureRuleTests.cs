@@ -10,8 +10,9 @@ namespace Boo.Architecture.Tests;
 /// Each rule lists today's offenders by name (baselined 13 Nov 2026 on lane/face af089dd). The list is exact both ways:
 /// a new offender fails ("do not add one"), and an offender that has been fixed also fails until it is removed from
 /// the list, so every improvement is locked in. Removing a name edits this frozen file, so it goes through a reviewed
-/// oracle revision (scripts/test_oracle.py --rebaseline). Offenders are reported per outermost type: compiler-made
-/// nested types (lambdas, iterators, async state machines) count towards the type that wrote the code.
+/// oracle revision (scripts/test_oracle.py --rebaseline). Dependency offenders (001-004) are reported per outermost
+/// type: compiler-made nested types (lambdas, iterators, async state machines) count towards the type that wrote the
+/// code. Static-state offenders (005) are reported per declaring type, nested types included (Outer+Inner.Field).
 /// </summary>
 public sealed class ArchitectureRuleTests
 {
@@ -33,13 +34,31 @@ public sealed class ArchitectureRuleTests
         AssertExactOffenders("BOO-ARCH-001", Offenders(result), ["Boo.Core.ProviderFailureClassifier"]);
     }
 
-    // 002 and 003 name exact types, so they match exact types (CecilScan): NetArchTest matches by name prefix, and
-    // "System.IO.File" would also catch FileAttributes or FileNotFoundException, which touch no file.
+    // 002 and 003 are about a CLASS of types (everything that touches the disk; every network client or handler), and
+    // that class is listed type by type below, so swapping File.Exists for new FileInfo(p).Exists, or HttpClient for
+    // SocketsHttpHandler, is still caught. They use CecilScan (exact type names over every member kind it lists);
+    // value-only types such as FileAttributes, Path or FileNotFoundException are deliberately not in the lists.
+
+    /// <summary>System.IO types whose use reads or writes the disk.</summary>
+    public static readonly string[] FileSystemTypes =
+    [
+        "System.IO.File", "System.IO.Directory", "System.IO.FileInfo", "System.IO.DirectoryInfo", "System.IO.FileSystemInfo",
+        "System.IO.FileStream", "System.IO.FileSystemWatcher", "System.IO.DriveInfo", "System.IO.RandomAccess",
+    ];
+
+    /// <summary>Types that open a network connection or carry HTTP / WebSocket / socket traffic.</summary>
+    public static readonly string[] NetworkClientTypes =
+    [
+        "System.Net.Http.HttpClient", "System.Net.Http.HttpMessageInvoker", "System.Net.Http.HttpMessageHandler",
+        "System.Net.Http.DelegatingHandler", "System.Net.Http.HttpClientHandler", "System.Net.Http.SocketsHttpHandler",
+        "System.Net.WebSockets.WebSocket", "System.Net.WebSockets.ClientWebSocket",
+        "System.Net.Sockets.Socket", "System.Net.Sockets.TcpClient", "System.Net.Sockets.UdpClient",
+    ];
 
     [Fact]
     public void BOO_ARCH_002_Core_does_not_touch_the_file_system()
     {
-        var offenders = CecilScan.TypesReferencing(Core, "System.IO.File", "System.IO.Directory");
+        var offenders = CecilScan.TypesReferencing(Core, FileSystemTypes);
         // ScopedFiles is the second class in ActionPolicy.cs (the plan's "ActionPolicy.cs:209").
         AssertExactOffenders("BOO-ARCH-002", offenders, ["Boo.Core.FileActionResolver", "Boo.Core.ScopedFiles"]);
     }
@@ -47,7 +66,7 @@ public sealed class ArchitectureRuleTests
     [Fact]
     public void BOO_ARCH_003_App_does_not_create_network_clients()
     {
-        var offenders = CecilScan.TypesReferencing(App, "System.Net.Http.HttpClient", "System.Net.WebSockets.ClientWebSocket");
+        var offenders = CecilScan.TypesReferencing(App, NetworkClientTypes);
         // MainWindow: the _http field and its two `new HttpClient` (the plan's 3 references, MainWindow.xaml.cs:65,1624,2123).
         AssertExactOffenders("BOO-ARCH-003", offenders, ["Boo.App.MainWindow"]);
     }
@@ -66,6 +85,9 @@ public sealed class ArchitectureRuleTests
     {
         // A static field that is neither readonly nor const, or a static property with a setter (an auto-property's
         // setter shows up as its writable backing field). Compiler-made caches (lambda singletons) are not counted.
+        // Named with the full nested type name (Outer+Inner), so a new static in a nested class can never hide behind
+        // an allowlisted one with the same name. Known gap (docs/quality/RULES.md): a readonly field holding a mutable
+        // collection that is changed later (static readonly List<T> + Add) is shared state this rule does not see.
         var offenders = new List<string>();
         foreach (var assembly in Src)
         {
@@ -77,12 +99,12 @@ public sealed class ArchitectureRuleTests
                 {
                     if (field.IsInitOnly || field.IsLiteral) continue;
                     var member = BackingFieldProperty(field.Name) ?? field.Name;
-                    offenders.Add($"{OutermostName(type)}.{member}");
+                    offenders.Add($"{type.FullName}.{member}");
                 }
                 foreach (var property in type.GetProperties(Statics))
                 {
                     if (property.SetMethod is null) continue;
-                    offenders.Add($"{OutermostName(type)}.{property.Name}");
+                    offenders.Add($"{type.FullName}.{property.Name}");
                 }
             }
         }
