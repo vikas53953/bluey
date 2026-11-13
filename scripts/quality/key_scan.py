@@ -38,6 +38,7 @@ import os
 import pathlib
 import random
 import re
+import shutil
 import stat
 import string
 import subprocess
@@ -60,7 +61,7 @@ SAFE_PATH = re.compile(r'^[A-Za-z0-9._/-]+$')
 _EDGE = rb'(?:(?<![A-Za-z0-9_])|(?<=\\[ntr0]))'
 SHAPES = [
     ('OpenAI/Anthropic API key',
-     _EDGE + rb'sk-(?:(?:proj|svcacct|admin|ant-[a-z]+\d*)-)?[A-Za-z0-9_-]{20,}'),
+     rb'(?:(?<![A-Za-z0-9_/-])|(?<=\\[ntr0]))sk-(?:(?:proj|svcacct|admin|ant-[a-z]+\d*)-)?[A-Za-z0-9_-]{20,}'),
     ('GitHub token', rb'(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}'),
     ('GitHub fine-grained token', rb'github_pat_[A-Za-z0-9_]{60,}'),
     ('Google API key', rb'(?:(?<![A-Za-z0-9+/])|(?<=\\[ntr0]))AIza[0-9A-Za-z_-]{35}'),   # not inside base64 text
@@ -366,6 +367,39 @@ def _parse_steps(text):
     return steps
 
 
+STEP_ENTRY = re.compile(r'^\s*- ["\']?[A-Za-z][\w-]*["\']?:(\s|$)')
+BLOCK_KEY = re.compile(r'^(\s*)(- )?["\']?[A-Za-z][\w-]*["\']?:\s*[|>][-+]?\s*$')
+
+
+def unreadable_lines(text):
+    """Structural lines under `jobs:` that _parse_steps cannot read and must therefore fail the check: a list entry
+    that is not `- key: ...` (flow `- {...}`, `-` alone, `-   key`), a flow value other than `needs: [...]`, YAML
+    anchors, aliases and merges. Lines inside block scalars (`run: |`) are script text and are skipped."""
+    bad, in_jobs, block = [], False, None
+    for n, line in enumerate(text.splitlines(), 1):
+        if re.match(r'^jobs:\s*$', line):
+            in_jobs = True
+            continue
+        if not in_jobs or not line.strip() or line.lstrip().startswith('#'):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if block is not None:
+            if indent > block:
+                continue
+            block = None
+        m = BLOCK_KEY.match(line)
+        if m:
+            block = len(m.group(1)) + (2 if m.group(2) else 0)
+        stripped = line.strip()
+        if stripped.startswith('-') and not STEP_ENTRY.match(line):
+            bad.append((n, 'a list entry that is not "- key: value"'))
+        elif re.search(r':\s*[\[{]', stripped) and not re.match(r'^needs:\s*\[[\w\s,-]*\]$', stripped):
+            bad.append((n, 'a flow-style [..] / {..} value'))
+        elif re.search(r'(^|[\s:])[&*][A-Za-z_]|<<:', stripped) and not stripped.startswith(('run:', '- run:')):
+            bad.append((n, 'a YAML anchor, alias or merge'))
+    return bad
+
+
 def check_workflows(folder=None, out=print):
     folder = folder or WORKFLOWS
     problems, uploads = [], 0
@@ -390,7 +424,16 @@ def check_workflows(folder=None, out=print):
             if prev.get('_job') != s.get('_job'):
                 problems.append(f'{wf.name}: "{name}" must come right after its key-scan step in the same job')
                 continue
-            secret_envs = sorted(prev.get('env', {})) if isinstance(prev.get('env'), dict) else []
+            env = prev.get('env', {}) if isinstance(prev.get('env'), dict) else {}
+            if 'env' in prev and not isinstance(prev.get('env'), dict):
+                env = {'<unreadable>': ''}
+            bad_env = [k for k, v in env.items()
+                       if not re.fullmatch(r'[A-Z0-9_]+_KEY', k) or not re.fullmatch(r'\$\{\{ secrets\.[A-Z0-9_]+ \}\}', v)]
+            if bad_env:
+                problems.append(f'{wf.name}: "{name}": the scan step env may only hold NAME_KEY: ${{{{ secrets.X }}}} '
+                                f'(found {", ".join(sorted(bad_env))})')
+                continue
+            secret_envs = sorted(env)
             extra_keys = set(prev) - {'_job', 'name', 'id', 'if', 'shell', 'env', 'run'}
             if (prev.get('run') != step_run(path, secret_envs) or prev.get('shell') != 'pwsh'
                     or prev.get('id') != scan_id(path) or extra_keys):
@@ -407,6 +450,10 @@ def check_workflows(folder=None, out=print):
                 problems.append(f'{wf.name}: "{name}": its scan step must have if: {allowed.get(cond) or "(none)"}')
         if scanned and re.search(r'^\s*(working-directory|defaults)\s*:', text, re.M):
             problems.append(f'{wf.name}: no working-directory or defaults: in a workflow with scanned uploads')
+        if wf.name != 'release.yml':
+            for n, why in unreadable_lines(text):
+                problems.append(f'{wf.name}:{n}: the key-scan check cannot read this line ({why}); write steps as '
+                                'block YAML "- name: ..." so every upload can be checked')
     for p in problems:
         out(f'::error::{RULE} workflow check: {p}')
     if problems:
@@ -524,8 +571,13 @@ def self_test(out=print):
         tmp = pathlib.Path(tmp)
         clean = tmp / 'clean'
         clean.mkdir()
-        (clean / 'log.txt').write_text('risk-assessment sk-short ghp_ abc AIza tskey hf_x Bearer token eyJx\nok\n',
-                                       encoding='utf-8')
+        tail = chars(alnum, 40)
+        negatives = ['risk-assessment sk-short ghp_ abc AIza tskey hf_x Bearer token eyJx',
+                     'pip install flask-admin-' + tail, 'risk-proj-' + tail + '.xlsx',     # sk- edge
+                     'img/png;base64,Qk9' + 'AI' + 'za' + chars(alnum, 35),              # AIza inside base64
+                     'id=' + 'AK' + 'IA' + chars(string.ascii_uppercase, 20),           # AWS id runs on: not 16
+                     'b64url-' + 's' + 'k-' + tail, 'path/' + 's' + 'k-' + tail]        # -sk- and /sk-
+        (clean / 'log.txt').write_text('\n'.join(negatives) + '\nok\n', encoding='utf-8')
         (clean / 'shot.png').write_bytes(bytes(range(256)) * 64)
         (clean / 'utf16.trx').write_text('<TestRun>passed</TestRun>', encoding='utf-16')
         code, text = run(clean)
@@ -710,9 +762,42 @@ def self_test(out=print):
                            ('dollar in path, scan generated for it', wf_text(path='out/$x', scan_path='out/$x')),
                            ('multi-line path', wf_text(path='|\n            out/x\n            out/y')),
                            ('another upload action unscanned', wf_text('no-scan', uses='actions/upload-pages-artifact@v3')),
-                           ('quoted uses key', wf_text('no-scan').replace('        uses:', '        "uses":'))):
+                           ('quoted uses key', wf_text('no-scan').replace('        uses:', '        "uses":')),
+                           ('flow-style upload step', wf_text().replace(
+                               '      - name: Upload x\n', '      - {name: Up, uses: actions/upload-artifact@v4, with: {path: s}}\n'
+                               '      - name: Upload x\n')),
+                           ('dash alone on its line', wf_text().replace('      - name: Upload x', '      -\n        name: Upload x')),
+                           ('extra spaces after the dash', wf_text().replace('      - name: Upload x', '      -   name: Upload x')),
+                           ('anchor in a step', wf_text().replace('          name: x\n', '          name: &n x\n')),
+                           ('scan env not a *_KEY secret (run block generated to match)', wf_text().replace(
+                               '        shell: pwsh\n', '        shell: pwsh\n        env:\n          PATH: tools\n', 1)
+                            .replace('--preflight --delete', '--preflight --secret-env PATH --delete')),
+                           ('scan env *_KEY but not a secret (run block generated to match)', wf_text().replace(
+                               '        shell: pwsh\n', '        shell: pwsh\n        env:\n          X_KEY: plain\n', 1)
+                            .replace('--preflight --delete', '--preflight --secret-env X_KEY --delete'))):
             (wf / 'a.yml').write_text(text, encoding='utf-8')
             check(f'workflow check fails: {name}', check_workflows(wf, out=quiet) == 1)
+
+        # the PowerShell wrapper itself: safe=true only after exit 0 or 10; anything else empties the path
+        shell = shutil.which('pwsh') or shutil.which('powershell')
+        if shell:
+            invocation = re.search(r'python -I scripts/quality/key_scan\.py[^;]*', step_run('out/x')).group(0)
+            for label, fake_call, want_safe, want_files in (('exit 0', 'cmd /c exit 0', True, 1),
+                                                            ('exit 10', 'cmd /c exit 10', True, 1),
+                                                            ('exit 3', 'cmd /c exit 3', False, 0),
+                                                            ('exit 1 (python traceback)', 'cmd /c exit 1', False, 0),
+                                                            ('python missing', 'no-such-python-xyz', False, 0)):
+                w = tmp / ('wrap-' + re.sub(r'\W', '', label))
+                (w / 'out' / 'x').mkdir(parents=True)
+                (w / 'out' / 'x' / 'a.log').write_text('fine', encoding='utf-8')
+                gh_out = w / 'gh_output.txt'
+                gh_out.write_text('', encoding='utf-8')
+                script = "$ErrorActionPreference = 'stop'\n" + step_run('out/x').replace(invocation, fake_call)
+                subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', script], cwd=w,
+                               env=dict(env, GITHUB_OUTPUT=str(gh_out)), capture_output=True)
+                wrote = 'safe=true' in gh_out.read_text(encoding='utf-8')
+                check(f'wrapper on {label}: safe written={want_safe}, files left={want_files}',
+                      wrote == want_safe and remaining(w / 'out' / 'x') == want_files)
 
         # a folder that cannot be listed fails closed (not skipped)
         case = tmp / 'unlistable'
