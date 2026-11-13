@@ -47,8 +47,9 @@ Each attempt makes **one** small paid request (one question with a screenshot) o
 live smoke uses. The whole two-request live smoke costs about US$0.004 a run (`docs/LIVE_AI_SMOKE.md`), so one
 attempt costs **at most about US$0.004**: about **US$0.012 per pass^3 run**, at most about US$0.02 at k = 5. At, say,
 30 runs a month that is under US$0.40, far inside the US$10 monthly cap. A request with a model id OpenAI does not
-know is rejected and not billed. Windows minutes are free (public repository); a pass^3 run takes about 15–20
-minutes, most of it the build.
+know is rejected and not billed. Windows minutes are free (public repository); a green pass^3 run took about 2–3
+minutes on 14 Nov 2026 (each attempt 5–8 s); a run whose attempts all fail takes longer (each waits out the test's
+150 s answer timeout: about 8 minutes for 3 attempts).
 
 ## Read the result
 
