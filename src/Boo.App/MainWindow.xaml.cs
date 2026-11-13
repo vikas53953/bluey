@@ -23,6 +23,7 @@ namespace Boo.App;
 public partial class MainWindow : Window
 {
     private const string ResponseInterruptedMessage = "OpenAI response was interrupted before completion. Try again.";
+    private const string StoppedStatusMessage = "Stopped. Nothing is running now; ask again when you are ready.";
     private const string HistoryUnavailableMessage = "Focus history is unavailable.";
     private const string DisplaySelectionPersistenceMessage = "Display selection changed for this session; settings could not be saved.";
     private readonly string _dataDirectory;
@@ -47,6 +48,8 @@ public partial class MainWindow : Window
     private readonly Queue<ToolRequest> _pendingActions = new();
     private CancellationTokenSource _requestCancellation = new();
     private RequestLease? _requestLease;
+    // The "Boo is working" text last put in the status line (ShowBusyStatus), so Stop can replace it (issue #71).
+    private string? _busyStatusText;
     private TargetObserver? _targets;
     private ControlObservationReader? _controlReader;
     private ScreenCapture? _capture;
@@ -313,8 +316,25 @@ public partial class MainWindow : Window
             _focusTimer.Stop();
             FocusStatus.Text = "Paused by Stop; Resume is explicit.";
         }
+        // A cancelled request no longer writes its own message (it is not current any more), so Stop must not leave a
+        // "Boo is working" line behind. Replace it only while it is still showing: an error or a newer message stays.
+        if (_busyStatusText is not null && StatusText.Text == _busyStatusText)
+        {
+            StatusText.Text = StoppedStatusMessage;
+        }
+        _busyStatusText = null;
         UpdateCaptureIndicator();
         SetFace(new FaceInputs(FocusPaused: _focus is { Snapshot.Status: Boo.Core.FocusStatus.Paused }));
+    }
+
+    /// <summary>
+    /// Every status line that says Boo is still working goes through here, so <see cref="StopAll"/> can tell it is
+    /// stale and replace it (issue #71: after Stop the line kept saying "Thinking about the selected context…").
+    /// </summary>
+    private void ShowBusyStatus(string text)
+    {
+        _busyStatusText = text;
+        StatusText.Text = text;
     }
 
     public void DisposeShell()
@@ -748,7 +768,7 @@ public partial class MainWindow : Window
         SetFace(_faceInputs with { Thinking = true, Responding = false, Caption = null });
         AppendTranscript("You", text);
         InputBox.Clear();
-        StatusText.Text = "Thinking about the selected context…";
+        ShowBusyStatus("Thinking about the selected context…");
         var activity = _captureActivities.CreateOperation();
         var handedToRealtime = false;
         try
@@ -800,7 +820,7 @@ public partial class MainWindow : Window
             {
                 _voiceTaskAuthorized = intent == RequestKind.Task;
                 await _realtime.SendTextAsync(text, lease.Token);
-                StatusText.Text = "Sent to the voice conversation; waiting for the response…";
+                ShowBusyStatus("Sent to the voice conversation; waiting for the response…");
                 // The realtime reply (audio delta / response.done / error) clears Thinking.
                 handedToRealtime = IsCurrent(lease.Generation);
                 return;
