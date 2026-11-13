@@ -83,6 +83,7 @@
     "tests/Boo.Core.Tests/StartupRegistrationTests.cs": "dcd5b440b8191dd0adfb49e700e5c53ca45a42aa8e5814d809de997e86ebf64a",
     "tests/Boo.Core.Tests/TestThreadPool.cs": "9aee9db37060b844fc341d9a202b11c064a61e95a17dbd6f94cf961ddbc4f52f",
     "tests/Boo.Core.Tests/UndoJournalTests.cs": "5f73cbb8de8b9a65d7d00bb3cb630fb66cf320437aa452936fa11762945b58c8",
+    "tests/Boo.Core.Tests/UnobservedScreenActionTests.cs": "087a2865b9217aab18ac7a1b7e755f5a2af69c13831a35e33fa72f9547e4544b",
     "tests/Boo.Core.Tests/UntrustedInputFuzzTests.cs": "1260bcb26bcac3b60d43693874fef10d7abf073caf53c93d9388403a6d20c78c",
     "tests/Boo.Core.Tests/UpdatePolicyTests.cs": "6f58aa70493669d9fa81b946694f3d545eb50842f3478bba9ebaa8f6a4e2c987",
     "tests/Boo.Core.Tests/UpdateStatusTextTests.cs": "7a50ed32cbfcd8b1d6c2c721fdb99c03ae9e51a6f23cd451fbd69e933fd3ed9e",
@@ -131,7 +132,6 @@
     "tests/Boo.Providers.Tests/Boo.Providers.Tests.csproj": "98f107dd3c01f6f2b7267926085980da9cc8bb87c82046aeb862775d58a59f0e",
     "tests/Boo.Providers.Tests/GeminiClientTests.cs": "37fbe3aa75e1be5292f89ad8e980e9a134a4315b499c2bbc3a3a54ac5c3c53af",
     "tests/Boo.Providers.Tests/GeminiRequestShapeTests.cs": "011a0038debc428e8aa9b6de7ae95ad203001617addf9605d70cb4b2991c9fcf",
-    "tests/Boo.Providers.Tests/NullFrameScreenActionTests.cs": "cdc6a0fa1229cf65be813d91633d08552f1de4f549ad27d2e633b44638e9b852",
     "tests/Boo.Providers.Tests/ProviderTestKit.cs": "1cc496f2a7a3e94b9dca7c29e7640054c46d2994080e4c82c59340e383f9376f",
     "tests/Boo.Providers.Tests/ResponsesResultShapeTests.cs": "f9bd5f1477847d7bff7c9b514fa5986cfffd297d2a2fab2a37101b6a12edc898",
     "tests/Boo.Providers.Tests/SmokeTests.cs": "612081b6ffe0ec94ddad95aff43e5c33ab6e353039650a2360b9f0e54866f0b4",
@@ -154,11 +154,11 @@
   },
   "previousManifest": "docs/verification/test-oracle-history/revision-26.json",
   "previousManifestSha256": "69154fcbea6b8fc535687ebb386d66ff494f4c999ae4b5b2958871a6217ba0be",
-  "revisionReason": "Regression for PR #3 review block f3039ff: explicit task with no captured frame must drop click/type_text",
+  "revisionReason": "Regression for PR #3 review block f3039ff: explicit task with no screen observation must not offer click/type_text",
   "addedFiles": [
-    "tests/Boo.Providers.Tests/NullFrameScreenActionTests.cs"
+    "tests/Boo.Core.Tests/UnobservedScreenActionTests.cs"
   ],
-  "revisionCommit": "f3039ff6849c1bb17d94b1472fd433fb37fcb4dd",
+  "revisionCommit": "48223f4a75deb0e2ce9bdb4e8c8b5cbee6028f92",
   "changedFiles": [],
   "removedFiles": []
 }

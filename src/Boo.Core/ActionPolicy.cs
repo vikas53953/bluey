@@ -75,6 +75,29 @@ public static class ActionPolicy
         return new PermissionDecision(PermissionVerdict.Allowed, "The exact action has a matching approval.");
     }
 
+    /// <summary>
+    /// Screen actions that only make sense against something Boo observed. When a request carried no captured
+    /// frame, no control observation exists to bind them, so they must never reach the approval preview.
+    /// </summary>
+    public static bool RequiresScreenObservation(string actionName) =>
+        actionName is "click" or "type_text";
+
+    /// <summary>
+    /// Drops click and type_text proposals when <paramref name="controls"/> is null, keeping every other action
+    /// in its original order. A task that never needed the screen (files, search, URLs, apps) is unaffected.
+    /// </summary>
+    public static IReadOnlyList<ToolRequest> WithoutUnobservedScreenActions(
+        IReadOnlyList<ToolRequest> actions, ControlObservation? controls)
+    {
+        ArgumentNullException.ThrowIfNull(actions);
+        if (controls is not null || actions.Count == 0)
+        {
+            return actions;
+        }
+
+        return actions.Where(action => !RequiresScreenObservation(action.Name)).ToArray();
+    }
+
     public static ApprovalTicket Approve(ToolRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);

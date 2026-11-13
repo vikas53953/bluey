@@ -973,13 +973,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        var action = explicitTask ? reply.Actions.FirstOrDefault() : null;
+        var offered = explicitTask ? ActionPolicy.WithoutUnobservedScreenActions(reply.Actions, controls) : reply.Actions;
+        var action = explicitTask ? offered.FirstOrDefault() : null;
         _pendingControls = action is null ? null : controls;
         if (action is not null)
         {
             action = action with { Generation = generation };
             _pendingActions.Clear();
-            foreach (var remaining in reply.Actions.Skip(1))
+            foreach (var remaining in offered.Skip(1))
             {
                 _pendingActions.Enqueue(remaining with { Generation = generation });
             }
@@ -989,7 +990,7 @@ public partial class MainWindow : Window
                 new HashSet<string>(ActionPolicy.ToolNames, StringComparer.OrdinalIgnoreCase),
                 _settings.FileRoot);
             ShowActionPreview(action, authority, frame?.Context.Target ?? TryGetTarget(),
-                _pendingActions.Count == 0 ? string.Empty : $"Step 1 of {reply.Actions.Count}: ");
+                _pendingActions.Count == 0 ? string.Empty : $"Step 1 of {offered.Count}: ");
         }
         else
         {
@@ -997,6 +998,10 @@ public partial class MainWindow : Window
             if (reply.Actions.Count > 0 && !explicitTask)
             {
                 StatusText.Text = "Boo suggested an action, but no explicit task request authorized it.";
+            }
+            else if (reply.Actions.Count > 0)
+            {
+                StatusText.Text = "Boo proposed a screen action, but no screen observation backs it. Nothing was offered.";
             }
             if (reply.Actions.Count == 0)
             {
