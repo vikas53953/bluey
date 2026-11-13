@@ -598,6 +598,50 @@ public sealed class NotchLifecycleTests
     }
 
     [Fact]
+    public void G1_a_talk_tap_during_thinking_clears_the_face_like_the_app()
+    {
+        Do(new E.Send());
+        Assert.True(_state.Thinking);
+
+        Do(new E.TalkDown(TalkHoldSource.Chord));
+        Assert.False(_state.Thinking);
+        _clock.AdvanceMs(100);
+        Do(new E.TalkUp(TalkHoldSource.Chord), new E.PointerLeave());
+        Wait(5000);
+
+        Assert.False(_state.Thinking || _state.Responding);
+        Assert.Equal(NotchFaceState.Hidden, _state.Face);
+    }
+
+    [Fact]
+    public void G1_a_new_hold_ends_responding_at_once_like_the_app()
+    {
+        Do(new E.Send(), new E.Reply(1));
+        Assert.True(_state.Responding);
+
+        Do(new E.TalkDown(TalkHoldSource.Eyes));
+
+        Assert.False(_state.Responding);
+        Assert.Equal(NotchFaceState.Listening, _state.Face);
+    }
+
+    [Fact]
+    public void G1_gap_send_keeps_the_held_keys_so_a_second_press_opens_nothing_today()
+    {
+        Do(new E.TalkDown(TalkHoldSource.Chord), new E.Send());
+        Assert.Contains(TalkHoldSource.Chord, _state.Holds);
+
+        Do(new E.TalkDown(TalkHoldSource.Eyes));
+        Assert.False(_state.MicrophoneOn);
+        None<X.OpenMicrophone>();
+
+        Do(new E.TalkUp(TalkHoldSource.Chord), new E.TalkUp(TalkHoldSource.Eyes));
+        Assert.Empty(_state.Holds);
+        None<X.CommitTurn>();
+        None<X.DiscardTurn>();
+    }
+
+    [Fact]
     public void G1_send_while_listening_closes_the_microphone_and_discards_the_turn()
     {
         Do(new E.TalkDown(TalkHoldSource.Chord));
@@ -745,8 +789,9 @@ public sealed class NotchLifecycleTests
         That(!(s.Pinned || s.Hovered) || (s.Revealed && s.RetractAt is null), "INV-PRIV-1 (pinned means shown)");
         That(e is not E.CaptureStart || (s.Revealed && s.Face == NotchFaceState.Capture), "INV-PRIV-2 (today: capture face first)");
 
-        That(s.MicrophoneOn == !s.Holds.IsEmpty, "INV-TALK-1 (mic on exactly while held)");
-        That(e is not (E.Stop or E.TalkUp) || s.MicrophoneOn == (e is E.TalkUp && !s.Holds.IsEmpty), "INV-TALK-1");
+        That(!s.MicrophoneOn || !s.Holds.IsEmpty, "INV-TALK-1 (mic on only while held)");
+        That(e is not E.Stop || (!s.MicrophoneOn && s.Holds.IsEmpty), "INV-TALK-1 (Stop)");
+        That(e is not E.TalkUp || !s.MicrophoneOn || !s.Holds.IsEmpty, "INV-TALK-1 (TalkUp)");
         var opens = step.Effects.OfType<X.OpenMicrophone>().Count();
         var closes = step.Effects.OfType<X.CloseMicrophone>().Count();
         That(opens - closes == (s.MicrophoneOn ? 1 : 0) - (pre.MicrophoneOn ? 1 : 0) && opens <= 1 && closes <= 1, "INV-TALK-1 (mic effects match)");
@@ -823,14 +868,15 @@ public sealed class NotchLifecycleTests
 
             state = lifecycle.Reduce(state, new E.PointerLeave()).State;
             while (state.CapturesInFlight > 0) state = lifecycle.Reduce(state, new E.CaptureEnd()).State;
-            if (state.Thinking) state = lifecycle.Reduce(state, new E.Stop()).State;
+            foreach (var held in state.Holds.ToArray()) state = lifecycle.Reduce(state, new E.TalkUp(held)).State;
+            if (state.RequestCurrent) state = lifecycle.Reduce(state, new E.ReplyFailed(state.Generation)).State;
             clock.Advance(TimeSpan.FromMinutes(3));
             state = lifecycle.Reduce(state, new E.Tick()).State;
             clock.Advance(TimeSpan.FromSeconds(2));
             state = lifecycle.Reduce(state, new E.Tick()).State;
 
             var where = $"seed={seed} run={run} settled={state}";
-            Assert.False(state.Responding || state.NudgeShowing || state.Happy || state.MicrophoneOn, "LIVE-1 " + where);
+            Assert.False(state.Thinking || state.Responding || state.NudgeShowing || state.Happy || state.MicrophoneOn, "LIVE-1 " + where);
             var expected = state.FocusPaused ? NotchFaceState.Paused : NotchFaceState.Hidden;
             Assert.True(state.Face == expected, "LIVE-2 " + where);
         }

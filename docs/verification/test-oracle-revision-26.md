@@ -29,6 +29,7 @@ behaviour change has to edit a frozen test in a reviewed revision:
 | `INV_STOP_1_gap_the_capture_face_outlasts_stop_until_the_capture_operation_ends_today` | `INV-STOP-1` (b): the capture indicator clears when the operation ends |
 | `LIVE_1_gap_F7_thinking_has_no_local_timeout_today` | F7: Thinking has no local timeout |
 | `LIVE_2_hover_lasts_as_long_as_the_pointer_stays_today` | `LIVE-2`: Hover means the pointer is on the notch |
+| `G1_gap_send_keeps_the_held_keys_so_a_second_press_opens_nothing_today` | `HoldToTalkController` is only reset by Stop, lock or sleep: after a Send the held keys stay held, a second press opens nothing and their release sends nothing |
 
 ## Why this does not weaken anything
 
@@ -42,3 +43,8 @@ Purely additive: no existing test, assertion, timeout or `Skip` is touched, and 
 2. Planted "a new request keeps the old card": 5 tests failed, among them
    `INV_APPLY_3_a_new_request_drops_the_older_proposal` and all 3 seeds (`INV-APPLY-3 (card belongs to the current
    request) broken ...`). Reverted.
+3. After the review of `bc0c791` (a new talk hold kept Thinking/Responding on, while the app's `BeginRequest` →
+   `StopListening` clears both): with the fix removed again, `G1_a_talk_tap_during_thinking_clears_the_face_like_the_app`
+   and `G1_a_new_hold_ends_responding_at_once_like_the_app` fail. Reverted. The random-sequence test no longer presses
+   Stop to settle a Thinking face: it releases every hold and ends the current request as a reply or timeout would,
+   then requires Thinking to be off too, so a Thinking face with no request left is reported as stuck.

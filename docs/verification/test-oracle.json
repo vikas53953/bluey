@@ -61,7 +61,7 @@
     "tests/Boo.Core.Tests/NotchAppearanceTests.cs": "b6c7dde2aeced5c8e067e32ac697592bf9ba7eceb5ee5de488bfe69a9cafd092",
     "tests/Boo.Core.Tests/NotchFaceGeometryTests.cs": "16d87b6bd7380910490cfa6513663bc83096c2a79d4151556a4afbea89a3f9f0",
     "tests/Boo.Core.Tests/NotchLayoutTests.cs": "08b9fb2bd60bac708093c203b0fe7b28e0b0da57062601fbacf2bb7391915c0c",
-    "tests/Boo.Core.Tests/NotchLifecycleTests.cs": "0e6b0a801cbf7b80b45faa77e6a5ced5a84901d423a21a82271ae7b5759be4dd",
+    "tests/Boo.Core.Tests/NotchLifecycleTests.cs": "5b8b0a1e1567af55e25f817c50c17ea0ae26aa435c8c4f108cc7209fda7398a2",
     "tests/Boo.Core.Tests/OcrNudgeTargetMatcherTests.cs": "16fda5c38efedac9b863cb0b45ef1dd68115ead6ce3be5230e2e92bcf1974236",
     "tests/Boo.Core.Tests/ParityMotionTests.cs": "a25acc807a997524b2b37310a0aab58567de114b484b7c829e3e2356f5dcf745",
     "tests/Boo.Core.Tests/PauseAllShortcutTests.cs": "65696aecc08b8d3b044f60c1bf34c5fc4bed2022ce5b9cdc4de31bcba4bd1f40",
@@ -153,11 +153,11 @@
   },
   "previousManifest": "docs/verification/test-oracle-history/revision-25.json",
   "previousManifestSha256": "e6347b90077bb84eb87fd4325673ed4694a7a0acb298dfe06c5f47dfb496fb75",
-  "revisionReason": "Agent-trust plan Phase 2, PR 2.4: freeze NotchLifecycleTests (pure notch lifecycle reducer, invariants of plan section 3.2 B)",
+  "revisionReason": "PR 2.4 (agent-trust plan section 3.2 C): NotchLifecycle reducer tests, new file tests/Boo.Core.Tests/NotchLifecycleTests.cs; see docs/verification/test-oracle-revision-26.md",
   "addedFiles": [
     "tests/Boo.Core.Tests/NotchLifecycleTests.cs"
   ],
-  "revisionCommit": "a3ba89e83e3b858e50f920dec6d301cc06ec3d66",
+  "revisionCommit": "bc0c791ce0f8e8330325081c873930315cc3777e",
   "changedFiles": [],
   "removedFiles": []
 }

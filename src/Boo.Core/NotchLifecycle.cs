@@ -156,7 +156,11 @@ public sealed record NotchStep(NotchLifecycleState State, ImmutableArray<NotchEf
 /// (docs/architecture/notch-lifecycle.md), gaps included; the gaps are named by tests in NotchLifecycleTests. Time comes
 /// only from the injected <see cref="TimeProvider"/>: every step first lets time act (moments expire, a hold past
 /// <see cref="HoldToTalkController.MaximumHold"/> is sent, the retract finishes), then applies the event, then settles
-/// the reveal. Not modelled yet: the panel Talk button (finding F8), multi-step action queues, voice session reuse.
+/// the reveal. Like the app, a new request (Send, Undo, a new hold) clears Thinking and Responding and closes the
+/// microphone but keeps the held talk keys (HoldToTalkController is only reset by Stop, lock or sleep), so a second
+/// press while they are held does nothing and their release sends nothing. Not modelled yet: the panel Talk button
+/// (finding F8), voice disconnect or error (F10), going to sleep (F10b), voice "speech started" (F7), Stop with the
+/// chosen display gone (F21, F22), multi-step action queues, voice session reuse.
 /// </summary>
 public sealed class NotchLifecycle
 {
@@ -280,10 +284,18 @@ public sealed class NotchLifecycle
         {
             effects.Add(new NotchEffect.CancelRequest(s.Generation));
         }
-        s = CloseMicrophone(s, effects, discardHeldTurn: true);
+        s = CloseMicrophone(s, effects, discardHeldTurn: true, keepHolds: true);
         var generation = s.Generation + 1;
         effects.Add(new NotchEffect.BeginRequest(generation));
-        return s with { Generation = generation, RequestCurrent = true, PendingProposal = null, PendingUndo = null };
+        return s with
+        {
+            Generation = generation,
+            RequestCurrent = true,
+            PendingProposal = null,
+            PendingUndo = null,
+            Thinking = false,
+            RespondingUntil = null,
+        };
     }
 
     private static NotchLifecycleState TalkDown(NotchLifecycleState s, TalkHoldSource source, DateTimeOffset now, ImmutableArray<NotchEffect>.Builder effects)
@@ -297,20 +309,27 @@ public sealed class NotchLifecycle
 
     private static NotchLifecycleState EndHold(NotchLifecycleState s, DateTimeOffset now, ImmutableArray<NotchEffect>.Builder effects, bool sendRegardless)
     {
+        if (!s.MicrophoneOn)
+        {
+            return s with { Holds = ImmutableHashSet<TalkHoldSource>.Empty, HoldStartedAt = null };
+        }
+
         var tapped = !sendRegardless && s.HoldStartedAt is { } started && now - started < HoldToTalkController.MinimumHold;
-        s = CloseMicrophone(s, effects, discardHeldTurn: false);
+        s = CloseMicrophone(s, effects, discardHeldTurn: false, keepHolds: false);
         effects.Add(tapped ? new NotchEffect.DiscardTurn(HoldToTalkController.TapHint) : new NotchEffect.CommitTurn());
         return s;
     }
 
-    private static NotchLifecycleState CloseMicrophone(NotchLifecycleState s, ImmutableArray<NotchEffect>.Builder effects, bool discardHeldTurn)
+    private static NotchLifecycleState CloseMicrophone(NotchLifecycleState s, ImmutableArray<NotchEffect>.Builder effects, bool discardHeldTurn, bool keepHolds)
     {
         if (s.MicrophoneOn)
         {
             effects.Add(new NotchEffect.CloseMicrophone());
             if (discardHeldTurn) effects.Add(new NotchEffect.DiscardTurn(null));
         }
-        return s with { MicrophoneOn = false, Holds = ImmutableHashSet<TalkHoldSource>.Empty, HoldStartedAt = null };
+        return keepHolds
+            ? s with { MicrophoneOn = false }
+            : s with { MicrophoneOn = false, Holds = ImmutableHashSet<TalkHoldSource>.Empty, HoldStartedAt = null };
     }
 
     private static NotchLifecycleState Stop(NotchLifecycleState s, ImmutableArray<NotchEffect>.Builder effects)
@@ -319,7 +338,7 @@ public sealed class NotchLifecycle
         {
             effects.Add(new NotchEffect.CancelRequest(s.Generation));
         }
-        s = CloseMicrophone(s, effects, discardHeldTurn: true);
+        s = CloseMicrophone(s, effects, discardHeldTurn: true, keepHolds: false);
         return s with
         {
             RequestCurrent = false,
