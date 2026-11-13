@@ -18,13 +18,13 @@ the compiler-exact versions (banned APIs, analyzers) come in later Phase 1 PRs.
 import json
 import pathlib
 import re
+import subprocess
 import sys
 import tempfile
 
 root = pathlib.Path(__file__).resolve().parent.parent.parent
 BASELINE = root / 'docs' / 'quality' / 'baseline.json'
 RULES_DOC = 'docs/quality/RULES.md'
-GENERATED_PARTS = {'bin', 'obj'}
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -32,7 +32,9 @@ GENERATED_PARTS = {'bin', 'obj'}
 # as code), plus the comments found, as (line, text, kind) with kind 'doc' (exactly ///), 'line' or 'block'.
 # ---------------------------------------------------------------------------------------------------------------------
 def lex(text):
-    text = text.replace('\r\n', '\n')
+    # Every C# line break (CR LF, lone CR, NEL, LINE SEPARATOR, PARAGRAPH SEPARATOR) becomes \n, so none can hide code
+    # inside a `//` comment.
+    text = re.sub('\r\n?|[\u0085\u2028\u2029]', '\n', text)
     out = list(text)
     comments = []
     n = len(text)
@@ -161,11 +163,41 @@ def lex(text):
     return ''.join(out), comments
 
 
+# Static members the rules guard, by type: `using static System.GC;` then `Collect()` is still GC.Collect.
+STATIC_MEMBERS = {'GC': ['Collect'], 'Thread': ['Sleep'], 'Task': ['Delay', 'WaitAll', 'WaitAny'],
+                  'DateTime': ['Now', 'UtcNow', 'Today'], 'DateTimeOffset': ['Now', 'UtcNow', 'Today'],
+                  'Environment': ['GetEnvironmentVariable'], 'Process': ['Start']}
+USING = re.compile(r'^[ \t]*(global\s+)?using\s+(static\s+)?(?:(\w+)\s*=\s*)?(?:global::)?([\w.]+)\s*(?:<[^;\n]*>)?\s*;',
+                   re.M)
+
+
+def plain_identifiers(code):
+    """Spell identifiers the plain way: `\\u0043ollect` -> `Collect`, `@GC` -> `GC` (string text is already blank)."""
+    def decode(m):
+        char = chr(int(m.group(1) or m.group(2), 16))
+        return char if char.isprintable() else ' '
+    code = re.sub(r'\\u([0-9A-Fa-f]{4})|\\U([0-9A-Fa-f]{8})', decode, code)
+    return re.sub(r'@(?=[A-Za-z_])', '', code)
+
+
+def expand_usings(code, usings):
+    """Rewrite aliases and `using static` members to the full Type.Member form the rules look for."""
+    for _, static, alias, target in usings:
+        name = target.split('.')[-1]
+        if alias:
+            code = re.sub(r'(?<![\w.])' + re.escape(alias) + r'\b(?!\s*=[^=>])', name, code)
+        elif static and name in STATIC_MEMBERS:
+            code = re.sub(r'(?<![\w.])(' + '|'.join(STATIC_MEMBERS[name]) + r')\b', name + r'.\1', code)
+    return code
+
+
 class Source:
-    def __init__(self, text):
-        self.code, self.comments = lex(text)
+    def __init__(self, text, project_usings=()):
+        code, self.comments = lex(text)
+        code = plain_identifiers(code)
+        self.usings = [(bool(m.group(1)), bool(m.group(2)), m.group(3), m.group(4)) for m in USING.finditer(code)]
+        self.code = expand_usings(code, list(project_usings) + self.usings)
         self.code_lines = self.code.split('\n')
-        self.using_static_thread = bool(re.search(r'using\s+static\s+(global::)?System\.Threading\.Thread\s*;', self.code))
 
 
 def pattern_hits(pattern):
@@ -174,13 +206,6 @@ def pattern_hits(pattern):
     def count(source):
         return [number for number, line in enumerate(source.code_lines, 1) for _ in compiled.finditer(line)]
     return count
-
-
-def thread_sleep(source):
-    hits = pattern_hits(r'\bThread\s*\.\s*Sleep\b')(source)
-    if source.using_static_thread:
-        hits += pattern_hits(r'(?<![\w.])Sleep\s*\(')(source)
-    return hits
 
 
 def broad_catches(source):
@@ -277,9 +302,12 @@ DISPATCHER = r'\b\w*[Dd]ispatcher\s*\??\.\s*'
 RULES = [
     Rule('BOO-ASYNC-001', 'Thread.Sleep', 'A sleep hides a race instead of fixing it.',
          'Await the thing you are waiting for (Task, TaskCompletionSource, SemaphoreSlim.WaitAsync) or inject TimeProvider.',
-         'Do NOT make the sleep longer.', thread_sleep,
+         'Do NOT make the sleep longer.', pattern_hits(r'\bThread\s*\.\s*Sleep\b'),
          [('Thread.Sleep(10);', 1), ('Thread .Sleep(1); System.Threading.Thread.Sleep(2);', 2),
-          ('Action a = Thread.Sleep;', 1)]),
+          ('Action a = Thread.Sleep;', 1),
+          ('using static System.Threading.Thread;\n Sleep(1); x.Sleep(2);', 1),
+          ('using T = System.Threading.Thread;\n T.Sleep(1);', 1),
+          ('Thread.\\u0053leep(1); @Thread.@Sleep(2);', 2)]),
     Rule('BOO-ASYNC-002', 'Blocking wait on async work (Task.Wait/WaitAll/WaitAny, .Result, GetAwaiter().GetResult())',
          'Blocking on a task from the WPF UI thread deadlocks.', 'Make the caller async and await it.',
          'Do NOT wrap it in Task.Run to hide the block.',
@@ -356,7 +384,13 @@ RULES = [
                                                     ('var s = @"a""\n GC.Collect(); b";', 0),
                                                     ('// GC.Collect();', 0),
                                                     ('var s = $"{F(x):it\'s}"; GC.Collect();', 1),
-                                                    ('var s = $"{global::System.GC.Collect()}";', 1)]),
+                                                    ('var s = $"{global::System.GC.Collect()}";', 1),
+                                                    ('var r = """"x""""; GC.Collect();', 1),
+                                                    ('// note\u2028GC.Collect(); // a\rGC.Collect(); // b\u0085GC.Collect();', 3),
+                                                    ('// c\u2029GC.Collect();', 1),
+                                                    ('GC.\\u0043ollect(); @GC.@Collect(); GC.\\U00000043ollect();', 3),
+                                                    ('using G = System.GC;\n G.Collect(); var s = "G.Collect()";', 1),
+                                                    ('using static System.GC;\n Collect();', 1)]),
     Rule('BOO-RT-002', 'Environment.GetEnvironmentVariable',
          'Hidden switches (for example BOO_QA_CAPTURABLE) change privacy behaviour and must be auditable.',
          'Read environment variables in one place and pass the value in.', 'Do NOT add another reader.',
@@ -393,6 +427,9 @@ RULES = [
          [('// retry because it is flaky', 1), ('/* a\n b */', 2), ('//// four slashes', 1),
           ('// INVARIANT: undo restores bytes, see UndoJournalTests.Roundtrip', 0),
           ('// INVARIANT: undo restores bytes, see MissingTests.Roundtrip', 1),
+          ('// INVARIANT: undo restores bytes, see UndoJournalTests.NoSuchMethod', 1),
+          ('// TODO: fix later', 1), ('// TODO(12): no hash', 1),
+          ('#pragma warning disable CS0168 // TODO(#1): tracked here', 1),
           ('// INVARIANT: retry because flaky, see e.g. above', 1),
           ('// INVARIANT: no reference', 1),
           ('Go(); // INVARIANT: undo restores bytes, see UndoJournalTests.Roundtrip', 1),
@@ -410,47 +447,84 @@ RULES = [
 RULES_BY_ID = {rule.id: rule for rule in RULES}
 
 
-def projects(base):
-    return sorted(p for p in (base / 'src').iterdir() if p.is_dir() and any(p.glob('*.csproj')))
+def files(base, top):
+    """Every file git would commit under base/top (tracked, plus new files that are not ignored), as relative parts.
+    Build output (bin/, obj/) is skipped because it is git-ignored; a file forced into git there is judged."""
+    run = subprocess.run(['git', '-C', str(base), 'ls-files', '-z', '-c', '-o', '--exclude-standard', '--', top],
+                         capture_output=True)
+    if run.returncode:
+        raise SystemExit(f'RATCHET FAILED: cannot list files with git in {base} '
+                         f'({run.stderr.decode(errors="replace").strip()}).')
+    names = sorted({name for name in run.stdout.decode('utf-8').split('\0') if name and (base / name).is_file()})
+    return [tuple(name.split('/')) for name in names]
+
+
+def layout(base):
+    """(projects, problems): projects are src/<Name>/ folders that hold a .csproj directly; any C# project or file in
+    src/ that sits anywhere else is a problem, because the build compiles it but the ratchet would not judge it."""
+    listed = files(base, 'src')
+    projects = sorted({parts[1] for parts in listed if len(parts) == 3 and parts[2].endswith('.csproj')})
+    problems = []
+    for parts in listed:
+        path = '/'.join(parts)
+        if parts[-1].endswith('.csproj') and len(parts) != 3:
+            problems.append(f'{path}: a project outside src/<Name>/ is not judged. Put it at src/<Name>/<Name>.csproj.')
+        elif parts[-1].endswith('.cs') and (len(parts) < 3 or parts[1] not in projects):
+            problems.append(f'{path}: C# file outside a src/<Name>/ project is not judged. Move it into a project.')
+    return projects, problems
 
 
 def load_tests(base):
     KNOWN_TESTS.clear()
-    tests = base / 'tests'
-    if tests.is_dir():
-        for path in tests.rglob('*.cs'):
-            if path.relative_to(tests).parts and set(path.relative_to(tests).parts) & GENERATED_PARTS:
-                continue
-            text = path.read_text(encoding='utf-8-sig', errors='replace')
+    for parts in files(base, 'tests'):
+        if parts[-1].endswith('.cs'):
+            text = (base / '/'.join(parts)).read_text(encoding='utf-8-sig', errors='replace')
             for name in re.findall(r'\bclass\s+([A-Z]\w*Tests)\b', text):
                 KNOWN_TESTS[name] = KNOWN_TESTS.get(name, '') + text
 
 
+def project_usings(base, project, texts):
+    """`global using` lines from the project's files and <Using> items from its .csproj and Directory.Build files."""
+    found = [u for text in texts for u in Source(text).usings if u[0]]
+    folder = base / 'src' / project
+    xml_files = sorted(folder.glob('*.csproj'))
+    for up in [folder, base / 'src', base]:
+        xml_files += [up / name for name in ('Directory.Build.props', 'Directory.Build.targets') if (up / name).is_file()]
+    for path in xml_files:
+        for item in re.findall(r'<Using\b[^>]*>', path.read_text(encoding='utf-8-sig', errors='replace')):
+            include = re.search(r'\bInclude\s*=\s*"([^"]*)"', item)
+            alias = re.search(r'\bAlias\s*=\s*"([^"]*)"', item)
+            static = re.search(r'\bStatic\s*=\s*"\s*true\s*"', item, re.I)
+            if include:
+                found.append((True, bool(static), alias.group(1) if alias else None, include.group(1)))
+    return found
+
+
 def scan(base):
-    """{rule: {project: [(relative file, line), ...]}}"""
+    """({rule: {project: [(relative file, line), ...]}}, layout problems)"""
     load_tests(base)
-    result = {rule.id: {} for rule in RULES}
-    for project in projects(base):
-        for rule in RULES:
-            result[rule.id][project.name] = []
-        for path in sorted(project.rglob('*.cs')):
-            if path.relative_to(project).parts[0] in GENERATED_PARTS:
-                continue
-            source = Source(path.read_text(encoding='utf-8-sig'))
-            relative = path.relative_to(base).as_posix()
+    projects, problems = layout(base)
+    result = {rule.id: {project: [] for project in projects} for rule in RULES}
+    listed = files(base, 'src')
+    for project in projects:
+        paths = ['/'.join(parts) for parts in listed if parts[1:2] == (project,) and parts[-1].endswith('.cs')]
+        texts = {path: (base / path).read_text(encoding='utf-8-sig') for path in paths}
+        usings = project_usings(base, project, texts.values())
+        for path in paths:
+            source = Source(texts[path], usings)
             for rule in RULES:
-                result[rule.id][project.name].extend((relative, n) for n in rule.hits(source))
-    return result
+                result[rule.id][project].extend((path, n) for n in rule.hits(source))
+    return result, problems
 
 
 def counts(result):
     return {rule: {project: len(hits) for project, hits in by_project.items()} for rule, by_project in result.items()}
 
 
-def compare(result, baseline, rise_only=False):
+def compare(result, baseline, rise_only=False, problems=()):
     """Return (rose, fell) message lists."""
     now = counts(result)
-    rose, fell = [], []
+    rose, fell = list(problems), []
     scanned = {project for by_project in now.values() for project in by_project}
     for rule_id, by_project in baseline.items():
         for project, allowed in by_project.items():
@@ -481,8 +555,8 @@ def check(base, baseline_path, rise_only=False):
         print(f'RATCHET FAILED: {baseline_path} is missing.')
         return 1
     baseline = json.loads(baseline_path.read_text(encoding='utf-8'))['counts']
-    result = scan(base)
-    rose, fell = compare(result, baseline, rise_only)
+    result, problems = scan(base)
+    rose, fell = compare(result, baseline, rise_only, problems)
     label = 'RATCHET (against the base branch\'s own ratchet and baseline)' if rise_only else 'RATCHET'
     if rose:
         print(f'{label} FAILED: a known-bad pattern went UP. Fix the cause in the code.\n')
@@ -494,13 +568,17 @@ def check(base, baseline_path, rise_only=False):
         print('\n'.join('  ' + line for line in fell))
         return 1
     total = sum(sum(by.values()) for by in counts(result).values())
-    print(f'{label} OK: {len(RULES)} rules, {len(projects(base))} projects, {total} hits, none above the baseline')
+    print(f'{label} OK: {len(RULES)} rules, {len(result[RULES[0].id])} projects, {total} hits, none above the baseline')
     return 0
 
 
 def lower(base, baseline_path):
     old = json.loads(baseline_path.read_text(encoding='utf-8')) if baseline_path.is_file() else {'counts': {}}
-    now = counts(scan(base))
+    result, problems = scan(base)
+    if problems:
+        print('REFUSED: fix the layout first:\n  ' + '\n  '.join(problems))
+        return 1
+    now = counts(result)
     for rule, by_project in now.items():
         for project, count in by_project.items():
             previous = old['counts'].get(rule, {}).get(project)
@@ -535,6 +613,7 @@ def self_test():
     # The pass/fail logic itself, on a throwaway tree.
     with tempfile.TemporaryDirectory() as temp:
         tree = pathlib.Path(temp)
+        subprocess.run(['git', 'init', '-q', str(tree)], check=True)
         (tree / 'src' / 'P').mkdir(parents=True)
         (tree / 'src' / 'P' / 'P.csproj').write_text('<Project/>', encoding='utf-8')
         code = tree / 'src' / 'P' / 'A.cs'
@@ -559,6 +638,28 @@ def self_test():
             (tree / 'src' / 'P' / 'Sub' / 'bin' / 'N.cs').write_text('class N { void M() { Thread.Sleep(8); Thread.Sleep(9); } }', encoding='utf-8')
             steps += [('a nested bin/ folder is scanned', check(tree, baseline_path, rise_only=True), 1)]
             (tree / 'src' / 'P' / 'Sub' / 'bin' / 'N.cs').unlink()
+            (tree / '.gitignore').write_text('bin/\nobj/\n', encoding='utf-8')
+            (tree / 'src' / 'P' / 'bin').mkdir()
+            (tree / 'src' / 'P' / 'bin' / 'Gen.cs').write_text('class G { void M() { Thread.Sleep(1); Thread.Sleep(2); } }', encoding='utf-8')
+            steps += [('ignored build output is skipped', check(tree, baseline_path, rise_only=True), 0)]
+            subprocess.run(['git', '-C', str(tree), 'add', '-f', 'src/P/bin/Gen.cs'], check=True)
+            steps += [('a file forced into git under bin/ is judged', check(tree, baseline_path, rise_only=True), 1)]
+            subprocess.run(['git', '-C', str(tree), 'rm', '-q', '--cached', 'src/P/bin/Gen.cs'], check=True)
+            for stray, body in [('src/Loose.cs', 'class L { }'), ('src/Shared/S.cs', 'class S { }'),
+                                ('src/Group/Hack/Hack.csproj', '<Project/>'), ('src/P/Inner/Inner.csproj', '<Project/>')]:
+                (tree / stray).parent.mkdir(parents=True, exist_ok=True)
+                (tree / stray).write_text(body, encoding='utf-8')
+                steps += [(f'{stray} outside a judged project fails', check(tree, baseline_path, rise_only=True), 1)]
+                (tree / stray).unlink()
+            (tree / 'src' / 'P' / 'Glob.cs').write_text('global using static System.GC;', encoding='utf-8')
+            code.write_text('class A { void M() { Collect(); } }', encoding='utf-8')
+            steps += [('a global using static in another file is followed', check(tree, baseline_path, rise_only=True), 1)]
+            (tree / 'src' / 'P' / 'Glob.cs').unlink()
+            (tree / 'src' / 'P' / 'P.csproj').write_text('<Project><ItemGroup><Using Include="System.GC" Alias="G" />'
+                                                         '</ItemGroup></Project>', encoding='utf-8')
+            code.write_text('class A { void M() { G.Collect(); } }', encoding='utf-8')
+            steps += [('a <Using Alias> in the .csproj is followed', check(tree, baseline_path, rise_only=True), 1)]
+            (tree / 'src' / 'P' / 'P.csproj').write_text('<Project/>', encoding='utf-8')
             code.write_text('class A { void M() { } }', encoding='utf-8')
             steps += [('check fall fails until lowered', check(tree, baseline_path), 1),
                       ('rise-only accepts a fall', check(tree, baseline_path, rise_only=True), 0),
@@ -587,7 +688,7 @@ def list_rule(base, rule_id):
     if rule_id not in RULES_BY_ID:
         print('usage: --list RULE, one of: ' + ', '.join(RULES_BY_ID))
         return 1
-    for _, hits in scan(base)[rule_id].items():
+    for _, hits in scan(base)[0][rule_id].items():
         for relative, number in hits:
             print(f'{relative}:{number}')
     return 0

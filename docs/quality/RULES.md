@@ -6,20 +6,27 @@ fix, because that is what an agent reaches for next.
 
 ## How the ratchet works
 
-[`scripts/quality/ratchet.py`](../../scripts/quality/ratchet.py) reads every `src/**/*.cs` with a small C# lexer
-(strings, `$"{...}"` interpolation holes, verbatim and raw strings, char literals, line and block comments), counts
-each pattern below **per project, every match on a line**, and compares with [`baseline.json`](baseline.json):
+[`scripts/quality/ratchet.py`](../../scripts/quality/ratchet.py) reads every `.cs` file git would commit under `src/`
+(tracked files, plus new files that are not git-ignored; build output in `bin/` and `obj/` is ignored, but a file forced
+into git there is read) with a small C# lexer (strings, `$"{...}"` interpolation holes, verbatim and raw strings, char
+literals, line and block comments, `#` directive lines, every C# line break). Before matching, identifiers are spelled
+the plain way (`\u0043ollect` and `@Collect` read as `Collect`) and `using` aliases and `using static` members are
+written out in full (`using G = System.GC;` then `G.Collect()`, or `using static System.GC;` then `Collect()`, both read
+as `GC.Collect()`), including `global using` lines and `<Using>` items in the `.csproj` or `Directory.Build` files. It
+counts each pattern below **per project, every match on a line**, and compares with [`baseline.json`](baseline.json):
 
 - a count that goes **up** fails (new problem);
 - a count that goes **down** also fails until you run `python -I scripts/quality/ratchet.py --lower` and commit the
   lower baseline, so every gain is locked in; `--lower` refuses to raise any number;
-- `--list <RULE>` prints every hit; `--self-test` checks 83 snippets with exact expected counts (including tricky
-  strings, interpolation format clauses and `#` directive lines that could hide code), that clean code stays quiet,
-  and the pass/fail logic itself (equal passes, rise fails, fall fails until lowered, a vanished or renamed project,
-  an extra empty project, a nested `bin/`, the test loader). Each lexer rule has a snippet whose count changes if that
-  rule breaks: string, verbatim `""`, `\` escapes, char literals, `{{`, hole brace and bracket depth, format clauses,
-  `::`, raw strings, line and block comments, `#` directive lines, and the comment exemptions (checked by switching
-  each off in a scratch copy, 13 Nov 2026).
+- a C# file or project in `src/` that is not inside a `src/<Name>/` project (a loose `src/X.cs`, a folder without a
+  `.csproj`, a project nested deeper such as `src/Group/Hack/Hack.csproj`) fails, because the build would compile it
+  but no project count would include it;
+- `--list <RULE>` prints every hit; `--self-test` checks 102 snippets with exact expected counts (including tricky
+  strings, interpolation format clauses, `#` directive lines and unusual line breaks that could hide code), that clean
+  code stays quiet, and the pass/fail logic itself on a throwaway git tree (equal passes, rise fails, fall fails until
+  lowered, a vanished or renamed project, an extra empty project, a nested `bin/`, ignored and forced build output,
+  stray files and projects, global and `.csproj` usings, the test loader). Every lexer, exemption and layout rule has a
+  check that fails if that rule is switched off (proved by breaking each one in a scratch copy, 13 Nov 2026).
 
 **A PR cannot loosen its own gate.** On a pull request, the workflow
 [`quality-gates.yml`](../../.github/workflows/quality-gates.yml) (job `quality`, Linux, about a minute, no uploads)
@@ -119,7 +126,8 @@ ordering bugs. **Fix:** an instance member owned by one object, or `readonly`. *
 
 ## BOO-CMT-001
 **Comment that is not `///`** (`////` counts). Agents use comments to justify workarounds, and rules written in comments
-are not checked. Not counted: whole-line comments of the form `// INVARIANT: ... see NameTests.Method` or
+are not checked. A `//` at the end of a `#` directive line (`#pragma ... // why`, `#endif // HACK`) counts like any
+other; on `#region` / `#endregion` the text is a name and does not. Not counted: whole-line comments of the form `// INVARIANT: ... see NameTests.Method` or
 `// SECURITY: ... see NameTests.Method`, where a class `NameTests` with a method `Method(` really exists under `tests/`,
 and whole-line `// TODO(#123): ...`. The same text at the end of a code line, or naming a test that does not exist,
 counts. **Fix:** fix the cause instead of explaining it; if it states a rule, write the test and use
@@ -136,9 +144,9 @@ the INVARIANT tag; API docs use `///`. **Do NOT** reword the comment to dodge th
 - A static field declared over two lines, or with a tuple type plus `=>` initializer.
 - `///` comments written inside a method body count as documentation.
 - Identity: a swap (one removed, one added, same rule and project) passes, as explained above.
-- Scope: only `src/<Project>/` folders that hold a `.csproj` are scanned; only the project's own top-level `bin/` and
-  `obj/` are skipped (a nested `Sub/bin/` is scanned, as the build compiles it); files compiled in from outside `src/`
-  (`<Compile Include="../..">`) are not scanned.
+- Scope: files compiled in from outside `src/` (`<Compile Include="../..">` in a `.csproj`) and projects outside `src/`
+  (`tools/`, `tests/`) are not judged. A `using` alias of a namespace (`using T = System.Threading;` then
+  `T.Thread.Sleep`) still matches, because the type name stays in the text.
 - Renames: a baselined project that disappears fails both the PR's own check and the base branch's check, on purpose:
   a judged-on-totals mode would let a PR swap hits between projects or drop a project from the scan. A real rename is
   rare; it needs the owner to override the check once, with the reason in the PR. An extra project with no hits
