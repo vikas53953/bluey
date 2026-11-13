@@ -54,6 +54,10 @@ RULES_DOC = 'docs/quality/RULES.md#boo-safe-002'
 EXIT_HIT, EXIT_FAIL_CLOSED = 10, 3
 GLOB = re.compile(r'[*?\[\]!{}]')
 SAFE_PATH = re.compile(r'^[A-Za-z0-9._/-]+$')
+# An upload path in a workflow must also start with a letter: PyYAML (YAML 1.1) and GitHub (YAML 1.2 core) read some
+# plain values differently (`08` is text to one and the number 8 to the other), and no reading of a value that starts
+# with a letter is a number; true/false/null/yes/no are refused because PyYAML does not read them as text.
+UPLOAD_PATH = re.compile(r'^[A-Za-z][A-Za-z0-9._/-]*$')
 
 # `sk-` forms keep a word edge (so `risk-...`, `flask-admin-...` are not keys) and `AIza` must not sit inside base64
 # text; every other prefix is distinctive and is found anywhere, also glued to other bytes in a binary. The edge also
@@ -315,9 +319,9 @@ def step_run(path, secret_envs=()):
     ])
 
 
-BLOCK_KEY = re.compile(r'^(\s*)(- )?run:\s*\|-?\s*$')          # the only block scalar allowed: a run: | script
-KEY_LINE = re.compile(r'^\s*(- )?[A-Za-z][\w-]*:(?:\s+(?P<v>.*))?$')
-ITEM_LINE = re.compile(r'^\s*- (?P<v>.*)$')
+BLOCK_KEY = re.compile(r'^( *)(- )?run: *\|-? *$')          # the only block scalar allowed: a run: | script
+KEY_LINE = re.compile(r'^ *(- )?[A-Za-z][A-Za-z0-9_-]*:(?: +(?P<v>.*))?$')
+ITEM_LINE = re.compile(r'^ *- (?P<v>.*)$')
 FLOW_LIST = re.compile(r'^\[\s*(?:"?[\w./*-]+"?\s*(?:,\s*"?[\w./*-]+"?\s*)*)?\]$')
 
 
@@ -346,12 +350,9 @@ def grammar_problems(text):
     merges, flow mappings, documents, tabs) fails. Defence in depth: the meaning is read by PyYAML below."""
     bad, block = [], None
     for n, line in enumerate(text.splitlines(), 1):
-        if '\t' in line[:len(line) - len(line.lstrip())]:
-            bad.append(n)
-            continue
+        indent = len(line) - len(line.lstrip(' '))       # plain spaces; KEY_LINE / ITEM_LINE refuse any other space
         if not line.strip() or line.lstrip().startswith('#'):
             continue
-        indent = len(line) - len(line.lstrip())
         if block is not None:
             if indent > block:
                 continue
@@ -385,7 +386,21 @@ def _yaml_steps(text):
     except ImportError:
         return None
     try:
-        doc = yaml.safe_load(text)
+        class _NoDuplicates(yaml.SafeLoader):
+            pass
+
+        def _mapping(loader, node, deep=False):
+            seen = set()
+            for key_node, _ in node.value:
+                key = loader.construct_object(key_node, deep=deep)
+                folded = key.lower() if isinstance(key, str) else key
+                if folded in seen:
+                    raise yaml.constructor.ConstructorError(None, None, f'duplicate key {key!r}', key_node.start_mark)
+                seen.add(folded)
+            return yaml.SafeLoader.construct_mapping(loader, node, deep=deep)
+
+        _NoDuplicates.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping)
+        doc = yaml.load(text, Loader=_NoDuplicates)  # noqa: S506 (a SafeLoader subclass)
     except yaml.YAMLError:
         return 'invalid'
     out = []
@@ -425,8 +440,9 @@ def _check_pair(wf_name, prev, s, problems):
     name = s.get('name', s.get('uses'))
     w = s.get('with') if isinstance(s.get('with'), dict) else {}
     path = w.get('path') if isinstance(w.get('path'), str) else ''
-    if not SAFE_PATH.match(path) or GLOB.search(path):
-        problems.append(f'{wf_name}: "{name}" must upload one literal path of letters, digits and ._/- only')
+    if not UPLOAD_PATH.match(path) or GLOB.search(path):
+        problems.append(f'{wf_name}: "{name}" must upload one literal path of letters, digits and ._/- only, starting '
+                        'with a letter')
         return
     env = prev.get('env', {})
     if not isinstance(env, dict):
@@ -478,7 +494,13 @@ def check_workflows(folder=None, out=print, use_grammar=True):
         problems += [f'{wf.name}: {b}' for b in case_problems(doc)]
         scanned = False
         for job, body, steps in jobs:
+            if 'uses' in body and not exempt:
+                problems.append(f'{wf.name}: job {job}: a reusable workflow (job-level uses:) cannot be checked for '
+                                'unscanned uploads')
             for i, s in enumerate(steps):
+                if isinstance(s, dict) and isinstance(s.get('uses'), str) and s['uses'].startswith('.') and not exempt:
+                    problems.append(f'{wf.name}: job {job}: a local action ({s["uses"]}) cannot be checked for '
+                                    'unscanned uploads')
                 if not isinstance(s, dict):
                     problems.append(f'{wf.name}: job {job}: step {i + 1} is not a mapping')
                     continue
@@ -851,6 +873,25 @@ def self_test(out=print):
             check(f'workflow check fails: {name}', check_workflows(wf, out=quiet) == 1)
             check(f'the grammar alone rejects: {name}', bool(grammar_problems(text)))
             check(f'the PyYAML meaning layer alone catches: {name}', check_workflows(wf, out=quiet, use_grammar=False) == 1)
+        for bad_path in ('08', '0o10', '1e3', '.5e3', '-08', 'yes'):
+            text = wf_text(path=bad_path, scan_path=bad_path)
+            (wf / 'a.yml').write_text(text, encoding='utf-8')
+            check(f'workflow check fails: number-shaped upload path {bad_path} (scan generated for it)',
+                  check_workflows(wf, out=quiet) == 1)
+        for name, text in (('duplicate uses key in a step', wf_text().replace(
+                               '        uses: actions/upload-artifact@v4\n',
+                               '        uses: actions/upload-artifact@v4\n        uses: actions/upload-artifact@v4\n')),
+                           ('duplicate key differing only in case', wf_text().replace(
+                               '          name: x\n', '          name: x\n          Name: y\n')),
+                           ('reusable workflow job', wf_text() + '  b:\n    uses: org/repo/.github/workflows/up.yml@v1\n'),
+                           ('local action step', wf_text() + '      - uses: ./.github/actions/up\n'),
+                           ('non-ASCII letter in a key', wf_text('no-scan').replace('        uses:', '        u\u017fes:')),
+                           ('Unicode space as indentation', wf_text().replace('        shell: pwsh\n', '\u3000       shell: pwsh\n'))):
+            (wf / 'a.yml').write_text(text, encoding='utf-8')
+            check(f'workflow check fails: {name}', check_workflows(wf, out=quiet) == 1)
+        for space in ('\t', '　', ' '):
+            check(f'the grammar alone rejects indentation by {space!r}',
+                  bool(grammar_problems(wf_text().replace('        shell: pwsh\n', '      ' + space + ' shell: pwsh\n'))))
         for name, text in (('capital Uses: in an unscanned upload', wf_text('no-scan').replace('        uses:', '        Uses:')),
                            ('capital Steps: hides the steps', wf_text().replace('    steps:\n', '    Steps:\n')),
                            ('folded run: > scan block', wf_text().replace('        run: |\n', '        run: >\n')),
