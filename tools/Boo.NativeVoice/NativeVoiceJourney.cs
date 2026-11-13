@@ -82,17 +82,18 @@ public sealed class NativeVoiceJourney : IClassFixture<NativeVoiceFixture>
             {
                 Observe(panel, statuses);
                 using var doc = Device();
+                var currentRows = Rows(panel);
                 return statuses.LastOrDefault()?.StartsWith("Reply complete.", StringComparison.Ordinal) == true
-                    && Rows(panel).Any(s => s.StartsWith("Boo: ") && Five(s))
+                    && currentRows.Any(s => s.StartsWith("Boo: ") && Five(s))
+                    && currentRows.Any(HeardQuestion)
                     && doc is not null && doc.RootElement.GetProperty("renderedBytes").GetInt64() >= 4800
                     && doc.RootElement.GetProperty("nonzeroBytes").GetInt64() > 0;
             }, TimeSpan.FromSeconds(45));
             var rows = Rows(panel);
             _boo.CaptureScreen("native-reply");
             _boo.WriteObservation("native-voice", $"answered={answered}\nrows={string.Join(" | ", rows)}\nstatuses={string.Join(" > ", statuses)}\nmodel={Environment.GetEnvironmentVariable("BOO_QA_VOICE_MODEL")}\ntranscription={Environment.GetEnvironmentVariable("BOO_QA_VOICE_TRANSCRIBE_MODEL")}\nOne response, 128 output-token ceiling; virtual devices, physical audio UNVERIFIED.");
-            Assert.True(answered, "App did not show five and consume non-silent reply audio; inspect native-voice.txt.");
-            Assert.Contains(rows, s => !s.StartsWith("Boo: ") && Regex.IsMatch(s, @"two|2", RegexOptions.IgnoreCase)
-                && Regex.IsMatch(s, @"three|3", RegexOptions.IgnoreCase));
+            Assert.True(answered, "App did not show the question, completed five reply and consumed non-silent audio; inspect native-voice.txt.");
+            Assert.Contains(rows, HeardQuestion);
             using var device = Device();
             Assert.NotNull(device);
             Assert.Equal(device.RootElement.GetProperty("expectedInputBytes").GetInt64(), device.RootElement.GetProperty("inputBytes").GetInt64());
@@ -111,6 +112,9 @@ public sealed class NativeVoiceJourney : IClassFixture<NativeVoiceFixture>
             throw;
         }
     }
+    private static bool HeardQuestion(string s) => s.StartsWith("You: ", StringComparison.Ordinal)
+        && Regex.IsMatch(s, @"two|2", RegexOptions.IgnoreCase)
+        && Regex.IsMatch(s, @"three|3", RegexOptions.IgnoreCase);
     private static bool Five(string s) => Regex.IsMatch(s, @"\b(five|5)\b", RegexOptions.IgnoreCase);
     private static string[] Rows(Window panel) => panel.FindFirstDescendant(cf => cf.ByAutomationId("TranscriptList"))!
         .FindAllChildren(cf => cf.ByControlType(ControlType.ListItem)).Select(BooAppFixture.SafeName).ToArray();
