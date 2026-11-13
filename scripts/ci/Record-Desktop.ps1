@@ -28,8 +28,8 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # ---- Safety first: nothing below this line runs off a GitHub-hosted runner (BOO-SAFE-001). ----
-if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
-  Write-Host 'Record-Desktop refused: desktop video is only allowed on a GitHub-hosted runner (RUNNER_ENVIRONMENT=github-hosted).'
+if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:GITHUB_ACTIONS -ne 'true') {
+  Write-Host 'Record-Desktop refused: desktop video is only allowed inside GitHub Actions on a GitHub-hosted runner (GITHUB_ACTIONS=true, RUNNER_ENVIRONMENT=github-hosted).'
   Write-Host 'It never records a personal PC (rule BOO-SAFE-001). Nothing was started.'
   exit 2
 }
