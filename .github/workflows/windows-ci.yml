@@ -76,7 +76,23 @@ jobs:
       - name: Publish app
         run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
 
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (published app)
+        id: keyscan_artifacts_ci
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/ci; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/ci' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/ci')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
       - name: Upload published app
+        if: ${{ steps.keyscan_artifacts_ci.outputs.safe == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           retention-days: 7
@@ -148,8 +164,24 @@ jobs:
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\ui-smoke
         run: dotnet test tests/Boo.Ui.Tests -c Release --no-build --logger trx --logger "console;verbosity=detailed" --results-directory artifacts/test-results/ui
 
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (UI smoke screenshots)
+        id: keyscan_artifacts_ui_smoke
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/ui-smoke; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/ui-smoke' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/ui-smoke')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
       - name: Upload UI smoke screenshots
-        if: always()
+        if: ${{ !cancelled() && steps.keyscan_artifacts_ui_smoke.outputs.safe == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           retention-days: 7
@@ -172,8 +204,24 @@ jobs:
       - name: Test gate (UI smoke and perf results)
         run: python -I scripts/test_gate.py trx artifacts/test-results/ui artifacts/test-results/perf
 
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (perf results)
+        id: keyscan_artifacts_ui_smoke_perf
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/ui-smoke/perf; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/ui-smoke/perf' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/ui-smoke/perf')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
       - name: Upload perf results
-        if: always()
+        if: ${{ !cancelled() && steps.keyscan_artifacts_ui_smoke_perf.outputs.safe == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           retention-days: 7
@@ -181,8 +229,24 @@ jobs:
           path: artifacts/ui-smoke/perf
           if-no-files-found: warn
 
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (test results)
+        id: keyscan_artifacts_test_results
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/test-results; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/test-results' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/test-results')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
       - name: Upload test results
-        if: always()
+        if: ${{ !cancelled() && steps.keyscan_artifacts_test_results.outputs.safe == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           retention-days: 7
