@@ -181,20 +181,15 @@ def scan_bytes(data, allowed, secrets):
 
 
 def safe(path, secrets=()):
-    """The path for printing: any part whose name holds a key in ANY view (raw, URL-decoded, UTF-16) or a secret value
-    is replaced by `<hidden name sha256:...>`, so a key in a file name is never printed in any encoding."""
+    """The path for printing. If the path holds a key or a secret value anywhere, in ANY view (raw, URL-decoded,
+    UTF-16), in one folder or file name or across a "/", the whole path is replaced by `<hidden path sha256:...>`, so no
+    part of a key is ever printed."""
     text = path.as_posix() if isinstance(path, pathlib.Path) else str(path)
-    whole = text.encode('utf-8', errors='replace')
-    if scan_bytes(whole, (), secrets) and not any(scan_bytes(x.encode('utf-8', errors='replace'), (), secrets)
-                                                  for x in text.split('/')):
-        return f'<hidden path sha256:{hashlib.sha256(whole).hexdigest()[:12]}>'   # a key across a "/": hide it all
-    parts = []
-    for part in text.split('/'):
-        raw = part.encode('utf-8', errors='replace')
-        if scan_bytes(raw, (), secrets):
-            part = f'<hidden name sha256:{hashlib.sha256(raw).hexdigest()[:12]}>'
-        parts.append(part)
-    return '/'.join(parts)
+    pieces = [text] + text.split('/')
+    if any(scan_bytes(x.encode('utf-8', errors='replace'), (), secrets) for x in pieces):
+        whole = text.encode('utf-8', errors='replace')
+        return f'<hidden path sha256:{hashlib.sha256(whole).hexdigest()[:12]}>'
+    return text
 
 
 def files_under(path):
@@ -237,19 +232,34 @@ def remaining(path):
 
 
 def purge(path, out=print):
-    """Fail closed: delete every file under the path (read-only ones too), then check nothing is left."""
+    """Fail closed: delete every file under the path (read-only ones too), then check nothing is left. Never raises:
+    a folder that cannot be listed is reported by error type and errno only (an exception's own text, or Python's
+    report of it, could print a key-named path)."""
     p = pathlib.Path(path)
-    for f in list(files_under(p)) if p.exists() else []:
+    trouble = None
+    try:
+        files = list(files_under(p)) if p.exists() else []
+    except Exception as e:                            # noqa: BLE001 - reported below, never re-raised
+        files, trouble = [], e
+    for f in files:
         try:
             remove(f)
         except OSError:
             pass
-    if p.is_file() or p.is_symlink():
-        try:
+    try:
+        if p.is_file() or p.is_symlink():
             remove(p)
-        except OSError:
-            pass
-    left = remaining(p)
+    except OSError:
+        pass
+    try:
+        left = remaining(p)
+    except Exception as e:                            # noqa: BLE001
+        left, trouble = -1, trouble or e
+    if trouble is not None:
+        code = getattr(trouble, 'errno', None)
+        out(f'::error::{RULE} fail closed: part of {safe(p)} could not be listed or deleted '
+            f'({type(trouble).__name__}{f" errno {code}" if code else ""})')
+        return left or -1
     if left:
         out(f'::error::{RULE} fail closed: {left} file(s) could not be deleted under {safe(p)}')
     else:
@@ -721,6 +731,33 @@ def self_test(out=print):
             del os.environ['KEYSCAN_SELFTEST_SLASH_KEY']
         check('a secret value holding "/" spread over folder and file names fails', code == EXIT_HIT)
         check('a secret value across a "/" is never printed (whole path hidden)', a not in text and b not in text)
+        both = tmp / 'both'
+        (both / fakes['OpenAI/Anthropic API key'] / bearer).mkdir(parents=True)
+        tail = chars(alnum, 20)
+        (both / fakes['OpenAI/Anthropic API key'] / bearer / (tail + '.txt')).write_text('x', encoding='utf-8')
+        code, text = run(both)
+        check('a key across a "/" next to a key-named folder: neither is printed',
+              code == EXIT_HIT and bearer[7:] not in text and tail not in text
+              and fakes['OpenAI/Anthropic API key'][5:] not in text)
+        lines = []
+        purge(tmp / 'no-such-folder' / 'x', out=lines.append)
+        if os.name != 'nt':                           # a folder that cannot be listed: purge reports, never raises
+            locked = tmp / 'locked' / ('k' + fakes['GitHub token'])
+            locked.mkdir(parents=True)
+            (locked / 'f.txt').write_text('x', encoding='utf-8')
+            os.chmod(locked, 0)
+            try:
+                lines = []
+                raised = False
+                try:
+                    purge(tmp / 'locked', out=lines.append)
+                except BaseException:                 # noqa: BLE001
+                    raised = True
+                check('purge never raises on a folder it cannot list', not raised)
+                check('purge reports an unlistable folder without its key-named path',
+                      fakes['GitHub token'][4:] not in '\n'.join(lines))
+            finally:
+                os.chmod(locked, 0o755)
 
         # allowed only when written verbatim in a frozen test file that matches its oracle hash
         allowed_fake, other_fake = fakes['GitHub token'], 'gh' + 'p_' + chars(alnum, 36)
@@ -827,7 +864,8 @@ def self_test(out=print):
         keep = tmp / 'keep'
         (keep / 'sub').mkdir(parents=True)
         (keep / 'sub' / 'a.txt').write_text('x', encoding='utf-8')
-        for bad in ('', '.', './x', '../x', 'out/../x', '/abs', '-x', 'out/x\t', 'a b'):
+        for bad in ('', '.', './x', '../x', 'out/../x', '/abs', '-x', 'out/x\t', 'a b', 'x\n', '...', 'x/...', 'xx.',
+                    'x//y'):
             proc = subprocess.run([sys.executable, '-I', os.path.abspath(__file__), '--delete', '--bogus', bad], capture_output=True,
                                   cwd=keep, env=env)
             check(f'the path {bad!r} is refused and nothing is deleted', proc.returncode == EXIT_FAIL_CLOSED
@@ -1093,8 +1131,8 @@ def self_test(out=print):
 def _cli_path_ok(path):
     """One literal relative path of letters, digits and ._/- with no empty, "." or ".." parts (never "", the current
     folder, an absolute path or a wildcard): the only kind of path the scan reads, and the only kind it may purge."""
-    return (bool(SAFE_PATH.match(path)) and not GLOB.search(path)
-            and not any(x in ('.', '..', '') for x in path.rstrip('/').split('/')))
+    return (bool(SAFE_PATH.fullmatch(path)) and not GLOB.search(path) and not path.startswith('-')
+            and not any(x == '' or x.endswith('.') for x in path.rstrip('/').split('/')))
 
 
 def main(argv):
@@ -1136,8 +1174,8 @@ def main(argv):
         if bad:
             raise ValueError('; '.join(bad))
         if len(paths) != 1 or not _cli_path_ok(paths[0]):
-            raise ValueError('scan exactly one literal relative path (letters, digits and ._/- only; no "." or '
-                             '".." parts, not absolute)')
+            raise ValueError('scan exactly one literal relative path (letters, digits and ._/- only; no empty part '
+                             'and no part ending in ".", so no ".", "..", trailing-dot or absolute path)')
         if os.environ.get('BOO_KEYSCAN_SELFTEST_CRASH') == '1':
             raise RuntimeError('simulated internal error (self-test)')
         if preflight and (self_test() != 0 or check_workflows() != 0):
@@ -1152,7 +1190,10 @@ def main(argv):
         if delete:
             for p in paths:
                 if _cli_path_ok(p):                   # never purge a refused path: "" or "." would be the whole folder
-                    purge(p)
+                    try:
+                        purge(p)                      # never raises; belt and braces so nothing escapes with its text
+                    except BaseException as e:        # noqa: BLE001
+                        print(f'::error::{RULE} cleanup failed ({type(e).__name__}); failing closed')
         return EXIT_FAIL_CLOSED
 
 
