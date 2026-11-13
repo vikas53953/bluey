@@ -700,7 +700,7 @@ Reject ==
 \* ok = the read-back verified the step. Then [A7] more steps queued -> next card (needs a new Approve), or [A8] done.
 \* STRUCTURAL: INV_APPLY_1 and INV_APPLY_3 hold because of this guard; the real proof is PR 2.7's conformance test.
 Apply ==
-    /\ card # None /\ card.st = "Executing" /\ ticket = card.p
+    /\ card # None   \* THROWAWAY RED PROOF for tlc-wide: Executing + ticket guard removed (Apply without Approve)
     /\ card.cur \/ Plant = "CommitIgnoresGeneration"
     /\ \E ok \in BOOLEAN, more \in BOOLEAN, t \in Targets :
           /\ fileJ' = FileAfter(card.p, ok)
