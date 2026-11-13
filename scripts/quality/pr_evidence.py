@@ -71,6 +71,8 @@ class _Tables(html.parser.HTMLParser):
         top = self._top()
         if top is not None and top.cell is not None and tag not in CELL_TAGS and tag != 'table':
             top.plain = False                             # raw HTML inside a cell
+        if top is not None and top.cell is not None:
+            top.cell[2].add(tag)                          # what the cell holds (a Label cell may hold only words)
         if top is not None and (tag in STRUCTURE or tag == 'table'):
             if set(names) - ALLOWED_ATTRS.get(tag, set()):
                 top.plain = False
@@ -98,7 +100,7 @@ class _Tables(html.parser.HTMLParser):
             top.row = []
             top.rows.append(top.row)
         elif tag in ('td', 'th') and top.row is not None:
-            top.cell = ([], [])
+            top.cell = ([], [], set())
             top.row.append(top.cell)
         elif tag == 'a' and top.cell is not None and names.get('href'):
             self._links.append([names['href'], [], top.cell])
@@ -137,27 +139,31 @@ class _Tables(html.parser.HTMLParser):
 
 
 def tables(rendered_html):
-    """[(header cell texts, [(row number, [(text, hrefs)])], pipe_shaped)] for every table on the rendered page."""
+    """[(header cell texts, [(row number, [(text, hrefs, tags)])], pipe_shaped)] for every table on the page."""
     parser = _Tables()
     parser.feed(rendered_html or '')
     parser.close()
     out = []
     for table in parser.tables:
-        rows = [[(' '.join(''.join(text).split()), hrefs) for text, hrefs in r] for r in table.rows]
+        rows = [[(' '.join(''.join(text).split()), hrefs, tags) for text, hrefs, tags in r] for r in table.rows]
         shaped = table.plain and bool(PIPE_TABLE_SHAPE.match(''.join(table.shape)))
         if not rows:
             out.append(([], [], False))
             continue
-        out.append(([text for text, _ in rows[0]], list(enumerate(rows[1:], 1)), bool(shaped)))
+        out.append(([text for text, _, _ in rows[0]], list(enumerate(rows[1:], 1)), bool(shaped)))
     return out
 
 
-# Non-ASCII characters a table may hold: everyday punctuation, arrows, comparison signs and the usual check marks
-# (with the emoji variation selector). Anything else - letters of any script, look-alikes such as circled, squared,
-# full-width or regional-indicator letters, Roman numerals - fails the table, so no look-alike can hide a label.
-TABLE_EXTRA_CHARS = set('\u00a0\u00b7\u00d7\u2010\u2011\u2012\u2013\u2014\u2018\u2019\u201c\u201d\u2022\u2026'
-                        '\u2190\u2191\u2192\u2193\u2194\u21d2\u2212\u2248\u2260\u2264\u2265'
-                        '\u2705\u274c\u2714\u2716\u26a0\u2b50\u23f3\ufe0f\U0001f7e2\U0001f534\U0001f7e1')
+# Non-ASCII characters allowed where a look-alike could hide a label (every header row, every Label-column cell, and
+# every cell of a table without a Label column): everyday punctuation, arrows, comparison and currency signs, check
+# marks and common emoji (with the emoji variation selector). Anything else - letters of any script, look-alikes such
+# as circled, squared, full-width or regional-indicator letters, Roman numerals - fails there.
+TABLE_EXTRA_CHARS = set('\u00a0\u00a3\u00a7\u00b0\u00b1\u00b7\u00d7\u2010\u2011\u2012\u2013\u2014\u2018\u2019\u201c'
+                        '\u201d\u2022\u2026\u20ac\u20b9\u2190\u2191\u2192\u2193\u2194\u21d2\u2212\u2248\u2260\u2264'
+                        '\u2265\u231b\u23f3\u26a0\u2705\u2713\u2714\u2716\u2717\u2728\u274c\u2b50\ufe0f'
+                        '\U0001f389\U0001f440\U0001f41b\U0001f4a1\U0001f4dd\U0001f512\U0001f534\U0001f680\U0001f6a7'
+                        '\U0001f6d1\U0001f44d\U0001f7e1\U0001f7e2')
+LABEL_CELL_TAGS = {'strong', 'em', 'del', 'code', 'tt', 'g-emoji'}  # words only: no image, link or line break
 
 
 def label_of(text):
@@ -180,21 +186,23 @@ def check(rendered_html, changed_files, repo):
                             'footer): write every table as a Markdown pipe table with plain text, links, bold, italic, '
                             'strikethrough and code in its cells')
             continue
-        foreign = [ch for text in header + [x for _, cells in rows for x, _ in cells] for ch in text
-                   if ord(ch) > 127 and ch not in TABLE_EXTRA_CHARS]
-        if foreign:
-            problems.append(f'table {k} has a character outside plain ASCII and the allowed symbols (for example '
-                            f'"{foreign[0]}", U+{ord(foreign[0]):04X}): a look-alike character could hide a label '
-                            'from this check; use plain ASCII text in tables (dashes, quotes, arrows, check marks '
-                            'and comparison signs are fine)')
-            continue
         cols = [c for c, h in enumerate(header) if label_of(h) == 'label'
                 and len([w for w in h.split() if re.search(r'[A-Za-z]', w)]) == 1]
+        watched = header + ([cells[c][0] for _, cells in rows for c in cols if c < len(cells)] if cols
+                            else [x for _, cells in rows for x, _, _ in cells])
+        foreign = [ch for text in watched for ch in text if ord(ch) > 127 and ch not in TABLE_EXTRA_CHARS]
+        if foreign:
+            problems.append(f'table {k} has a character outside plain ASCII and the allowed symbols in a header, a '
+                            f'Label cell or a table without a Label column (for example "{foreign[0]}", '
+                            f'U+{ord(foreign[0]):04X}): a look-alike character could hide a label from this check; '
+                            'use plain ASCII there (dashes, quotes, arrows, check marks and common emoji are fine)')
+            continue
         if cols:
             evidence.append((k, cols, rows))
             continue
-        for n, cells in [(0, [(h, []) for h in header])] + rows:
-            if any(label_of(text) == 'live' or re.match(r'^\W*[Il1|]ive\b', text) for text, _ in cells):
+        for n, cells in [(0, [(h, [], set()) for h in header])] + rows:
+            if any(label_of(text) == 'live' or re.match(r'^\W*[Il1|][Il1|i!]ve\b', text, re.IGNORECASE)
+                   for text, _, _ in cells):
                 problems.append(f'table {k}, ' + (f'row {n}' if n else 'header row') + ': a "live" cell in a table '
                                 'without a Label column (is the header misspelled?); put claims in the evidence table')
     if not evidence and problems:
@@ -209,9 +217,15 @@ def check(rendered_html, changed_files, repo):
             problems.append(f'evidence table {k} has a header but no rows')
         for n, cells in rows:
             where = f'evidence table {k}, row {n}'
-            hrefs = [h for _, hs in cells for h in hs]
+            hrefs = [h for _, hs, _ in cells for h in hs]
             for col in cols:
                 text = cells[col][0] if col < len(cells) else ''
+                extra = (cells[col][2] if col < len(cells) else set()) - LABEL_CELL_TAGS
+                if extra:
+                    problems.append(f'{where}: a Label cell shows only the label word and plain words (bold, italic, '
+                                    f'strikethrough, emoji); it holds <{sorted(extra)[0]}> - an image, link or line '
+                                    'break there could show a different label than the one this check reads')
+                    continue
                 label = label_of(text)
                 if label not in LABELS:
                     problems.append(f'{where}: label "{text[:40]}" is not one of live, mock, manual, UNVERIFIED, '
@@ -222,7 +236,7 @@ def check(rendered_html, changed_files, repo):
                     problems.append(f'{where}: a "live" row needs a link to a GitHub Actions run of {repo} '
                                     f'(https://github.com/{repo}/actions/runs/<id>); no run link means UNVERIFIED')
                 if label == 'blocked':
-                    after = text.split(None, 1)[1:] + [t for t, _ in cells[col + 1:]]
+                    after = text.split(None, 1)[1:] + [t for t, _, _ in cells[col + 1:]]
                     if not re.search(r'[A-Za-z]{3,}', ' '.join(after)):
                         problems.append(f'{where}: a "BLOCKED" row must say why, after the label (in the same cell '
                                         'or the columns to its right)')
@@ -395,6 +409,18 @@ def self_test():
                != [])
     expect('a look-alike letter before a real label in a Label cell fails',
            check(table(rows + [['rt', '\U0001f17b\U0001f178\U0001f185\U0001f174 review', 'x']]), [], repo) != [])
+    for word in ('LlVE', 'L1VE', 'L|VE'):
+        expect(f'"{word}" in a table without a Label column fails',
+               check(good + table([['rt', f'{word} (OpenAI)']], ('Claim', 'Status')), ['src/a.cs'], repo) != [])
+    expect('an image in a Label cell fails (a badge could show a different label)',
+           check(table(rows + [['rt', '<img src="https://img.example/LIVE.svg"> review', 'x']]), [], repo) != [])
+    expect('a line break in a Label cell fails',
+           check(table(rows + [['rt', 'review<br><strong>LIVE</strong>', 'x']]), [], repo) != [])
+    expect('a link in a Label cell fails', check(table(rows + [['rt', f'<a href="{run}">live</a>', 'x']]), [], repo)
+           != [])
+    expect('accents and emoji in the Claim and Proof cells of an evidence table pass',
+           check(table(rows + [['caf\u00e9 \U0001f680 \u00b5s', 'mock', 'na\u00efve \U0001f60a']]), ['src/a.cs'], repo)
+           == [])
     expect('"Iive" (capital I) in a table without a Label column fails',
            check(good + table([['rt', 'Iive (OpenAI)']], ('Claim', 'Status')), ['src/a.cs'], repo) != [])
     expect('struck-out text is not read: "~~mock~~ live" is a live row and needs a run link',
@@ -515,6 +541,13 @@ RENDER_CASES = (
      '| real AI round trip | \U0001f17b\U0001f178\U0001f185\U0001f174 (OpenAI) | trust me |\n', False),
     ('negative squared LIVE before a real label', '| Claim | Label | Proof |\n|---|---|---|\n'
      '| real AI round trip | \U0001f17b\U0001f178\U0001f185\U0001f174 review | trust me |\n', False),
+    ('a LIVE badge image in a Label cell', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| real AI round trip | ![LIVE](https://img.shields.io/badge/-LIVE-brightgreen) review | trust me |\n'
+     '| live run | BLOCKED | no runner today |\n', False),
+    ('LlVE in a Status table', '| Claim | Label | Proof |\n|---|---|---|\n| live run | BLOCKED | no runner today |\n\n'
+     '| Claim | Status | Proof |\n|---|---|---|\n| real AI round trip | LlVE (OpenAI) | trust me |\n', False),
+    ('emoji shortcodes and accents in Claim cells pass', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| :rocket: caf\u00e9 release :tada: | **live** | [run](https://github.com/{repo}/actions/runs/1) |\n', True),
     ('a struck-out run link', '| Claim | Label | Proof |\n|---|---|---|\n'
      '| rt | live | ~~[run](https://github.com/{repo}/actions/runs/123)~~ |\n', False),
     ('commit and PR autolinks, emoji, code in cells pass', '| Claim | Label | Proof |\n|---|---|---|\n'

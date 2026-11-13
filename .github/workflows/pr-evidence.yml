@@ -48,7 +48,7 @@ jobs:
             git show "$BASE_SHA:scripts/quality/pr_evidence.py" > "$RUNNER_TEMP/pr_evidence_base.py"
             python -I "$RUNNER_TEMP/pr_evidence_base.py" --event "$GITHUB_EVENT_PATH"
           else
-            echo "The base branch has no pr_evidence.py yet (this PR adds it); the PR's own copy judged the body above."
+            echo "The base branch has no pr_evidence.py yet (this PR adds it); the PR's own copy judges the body in the next steps."
           fi
 
       - name: Evidence check self-test (every rule fires on a planted sample)
