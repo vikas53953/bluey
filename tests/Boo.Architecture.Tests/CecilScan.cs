@@ -8,37 +8,42 @@ namespace Boo.Architecture.Tests;
 /// Reference scan over a compiled assembly (Mono.Cecil, the library NetArchTest is built on). A type references X when
 /// X is its base type or an interface, the type of one of its fields, properties, events, parameters, return values or
 /// locals, a custom attribute on it or its members, or when its code calls, reads, writes, constructs, casts to or
-/// takes typeof of a member or type of X (generic arguments and arrays included: List&lt;X&gt;, X[]). Which X counts is
-/// decided by the caller's predicate, so a rule can deny a whole namespace and allow a short list of harmless types
-/// (default-deny), instead of listing the bad types one by one and missing one. Offenders are reported per outermost
-/// type, so compiler-made nested types (lambdas, async state machines) count towards their owner. Not scanned (harmless
-/// for the rules that use it): generic constraints, catch clause types, typeof inside attribute arguments.
+/// takes typeof of a member or type of X (generic arguments and arrays included: List&lt;X&gt;, X[]). What counts is
+/// decided by the caller's predicates (a type predicate, and a member predicate for calls and field reads), so a rule
+/// can be an allowlist ("only these framework types") instead of a list of bad types that always misses one.
+/// Results are per outermost type (compiler-made nested types such as lambdas and async state machines count towards
+/// their owner), each with the references that hit, for the failure message. Not scanned: generic constraints, catch
+/// clause types, typeof inside attribute arguments (none can do anything by itself), and compiled XAML (BAML).
 /// </summary>
 internal static class CecilScan
 {
-    public static IReadOnlyCollection<string> TypesReferencing(
-        Assembly assembly, Func<TypeReference, bool> bannedType, Func<MethodReference, bool>? bannedMethod = null)
+    public static IReadOnlyDictionary<string, SortedSet<string>> TypesReferencing(
+        Assembly assembly, Func<TypeReference, bool> bannedType, Func<MemberReference, bool>? bannedMember = null)
     {
-        var offenders = new SortedSet<string>(StringComparer.Ordinal);
+        var offenders = new SortedDictionary<string, SortedSet<string>>(StringComparer.Ordinal);
         using var module = ModuleDefinition.ReadModule(assembly.Location);
         foreach (var type in module.GetTypes())
         {
-            if (References(type, bannedType, bannedMethod ?? (_ => false))) offenders.Add(Outermost(type).FullName);
+            var hits = new SortedSet<string>(StringComparer.Ordinal);
+            Collect(type, bannedType, bannedMember ?? (_ => false), hits);
+            if (hits.Count == 0) continue;
+            var owner = Outermost(type).FullName;
+            if (!offenders.TryGetValue(owner, out var all)) offenders[owner] = all = new SortedSet<string>(StringComparer.Ordinal);
+            all.UnionWith(hits);
         }
         return offenders;
     }
 
-    /// <summary>Types that declare a native call (DllImport / LibraryImport) into a DLL the predicate rejects.</summary>
-    public static IReadOnlyCollection<string> TypesCallingNative(Assembly assembly, Func<string, bool> bannedDll)
+    /// <summary>Types that declare a native call (DllImport, or LibraryImport, which generates one) into a DLL the
+    /// predicate rejects, or (when <paramref name="countComImports"/>) a COM class or interface ([ComImport]).</summary>
+    public static IReadOnlyCollection<string> TypesCallingNative(Assembly assembly, Func<string, bool> bannedDll, bool countComImports)
     {
         var offenders = new SortedSet<string>(StringComparer.Ordinal);
         using var module = ModuleDefinition.ReadModule(assembly.Location);
         foreach (var type in module.GetTypes())
         {
-            if (type.Methods.Any(m => m.IsPInvokeImpl && m.PInvokeInfo is not null && bannedDll(m.PInvokeInfo.Module.Name)))
-            {
-                offenders.Add(Outermost(type).FullName);
-            }
+            var native = type.Methods.Any(m => m.IsPInvokeImpl && m.PInvokeInfo is not null && bannedDll(m.PInvokeInfo.Module.Name));
+            if (native || (countComImports && type.IsImport)) offenders.Add(Outermost(type).FullName);
         }
         return offenders;
     }
@@ -50,56 +55,80 @@ internal static class CecilScan
         return reference.Namespace;
     }
 
+    /// <summary>The full name of a type without generic arguments (List`1, not List`1&lt;string&gt;).</summary>
+    public static string OpenName(TypeReference reference) =>
+        reference is GenericInstanceType generic ? generic.ElementType.FullName : reference.FullName;
+
     /// <summary>True when <paramref name="ns"/> is one of <paramref name="roots"/> or lies under one of them.</summary>
     public static bool InNamespace(string ns, IEnumerable<string> roots) =>
         roots.Any(root => ns == root || ns.StartsWith(root + ".", StringComparison.Ordinal));
 
-    private static bool References(TypeDefinition type, Func<TypeReference, bool> bannedType, Func<MethodReference, bool> bannedMethod)
+    private static void Collect(TypeDefinition type, Func<TypeReference, bool> bannedType, Func<MemberReference, bool> bannedMember, SortedSet<string> hits)
     {
-        bool Hit(TypeReference? reference) => reference is not null && Mentions(reference, bannedType);
+        void Type(TypeReference? reference)
+        {
+            if (reference is not null) Mentions(reference, bannedType, hits);
+        }
 
-        bool HitAttributes(Mono.Cecil.ICustomAttributeProvider provider) => provider.CustomAttributes.Any(a => Hit(a.AttributeType));
+        void Attributes(Mono.Cecil.ICustomAttributeProvider provider)
+        {
+            foreach (var a in provider.CustomAttributes) Type(a.AttributeType);
+        }
 
-        if (Hit(type.BaseType) || type.Interfaces.Any(i => Hit(i.InterfaceType)) || HitAttributes(type)) return true;
-        if (type.Fields.Any(f => Hit(f.FieldType) || HitAttributes(f))) return true;
-        if (type.Properties.Any(p => Hit(p.PropertyType) || HitAttributes(p))) return true;
-        if (type.Events.Any(e => Hit(e.EventType) || HitAttributes(e))) return true;
+        Type(type.BaseType);
+        foreach (var i in type.Interfaces) Type(i.InterfaceType);
+        Attributes(type);
+        foreach (var f in type.Fields) { Type(f.FieldType); Attributes(f); }
+        foreach (var p in type.Properties) { Type(p.PropertyType); Attributes(p); }
+        foreach (var e in type.Events) { Type(e.EventType); Attributes(e); }
         foreach (var method in type.Methods)
         {
-            if (Hit(method.ReturnType) || method.Parameters.Any(p => Hit(p.ParameterType)) || HitAttributes(method)) return true;
+            Type(method.ReturnType);
+            foreach (var p in method.Parameters) Type(p.ParameterType);
+            Attributes(method);
             if (!method.HasBody) continue;
-            if (method.Body.Variables.Any(v => Hit(v.VariableType))) return true;
+            foreach (var v in method.Body.Variables) Type(v.VariableType);
             foreach (var instruction in method.Body.Instructions)
             {
                 switch (instruction.Operand)
                 {
-                    case MethodReference m when bannedMethod(m) || Hit(m.DeclaringType) || Hit(m.ReturnType)
-                                                || m.Parameters.Any(p => Hit(p.ParameterType))
-                                                || (m is GenericInstanceMethod g && g.GenericArguments.Any(Hit)):
-                        return true;
-                    case FieldReference f when Hit(f.DeclaringType) || Hit(f.FieldType):
-                        return true;
-                    case TypeReference t when Hit(t):
-                        return true;
+                    case MethodReference m:
+                        if (bannedMember(m)) hits.Add($"{OpenName(m.DeclaringType)}::{m.Name}");
+                        Type(m.DeclaringType);
+                        Type(m.ReturnType);
+                        foreach (var p in m.Parameters) Type(p.ParameterType);
+                        if (m is GenericInstanceMethod g) foreach (var a in g.GenericArguments) Type(a);
+                        break;
+                    case FieldReference f:
+                        if (bannedMember(f)) hits.Add($"{OpenName(f.DeclaringType)}::{f.Name}");
+                        Type(f.DeclaringType);
+                        Type(f.FieldType);
+                        break;
+                    case TypeReference t:
+                        Type(t);
+                        break;
                 }
             }
         }
-        return false;
     }
 
-    /// <summary>True when the reference is a banned type, or wraps one (array, by-ref, pointer, generic argument).</summary>
-    private static bool Mentions(TypeReference reference, Func<TypeReference, bool> bannedType)
+    /// <summary>Adds every banned type the reference is, or wraps (array, by-ref, pointer, generic argument).</summary>
+    private static void Mentions(TypeReference reference, Func<TypeReference, bool> bannedType, SortedSet<string> hits)
     {
         switch (reference)
         {
             case GenericInstanceType generic:
-                return Mentions(generic.ElementType, bannedType) || generic.GenericArguments.Any(a => Mentions(a, bannedType));
+                Mentions(generic.ElementType, bannedType, hits);
+                foreach (var a in generic.GenericArguments) Mentions(a, bannedType, hits);
+                break;
             case TypeSpecification specification:
-                return Mentions(specification.ElementType, bannedType);
+                Mentions(specification.ElementType, bannedType, hits);
+                break;
             case GenericParameter:
-                return false;
+                break;
             default:
-                return bannedType(reference);
+                if (bannedType(reference)) hits.Add(reference.FullName);
+                break;
         }
     }
 

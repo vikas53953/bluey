@@ -186,33 +186,41 @@ revision 25), so removing a name, like adding a rule, goes through a reviewed `s
 Dependency offenders (001-004) count per outermost type (lambdas and async state machines count towards the type that
 wrote them); static-state offenders (005) are named per declaring type, nested types included.
 
-**Why two tools.** 001 and 004 are about whole namespaces and use NetArchTest. 002 and 003 are about a *kind of
-access* (touching the disk; talking to the network) and are **default-deny**, checked with `CecilScan` (Mono.Cecil,
-the library NetArchTest is built on): every type in the disk namespaces (`System.IO.*`, `System.Xml.*`, plus
-`Process` / `FileVersionInfo`) or the network namespaces (`System.Net.*`, `Windows.Networking.*`, `Windows.Web.*`,
-WebView2) counts, except a short list of harmless types (paths as text, in-memory streams, enums, exceptions, status
-codes). Native calls count too: Core may make none, and the app may only call `user32`, `kernel32`, `shcore`,
-`dwmapi` and `gdi32`. So an API nobody listed (`new StreamWriter(path)`, `ZipFile`, `XDocument.Load(path)`,
-`TcpListener`, `SslStream`, `Dns`, a `ws2_32` import) is caught, and a harmless type missing from the list fails loudly
-instead of slipping through. The scan covers base types, interfaces, fields, properties, events, attributes,
-parameters, return values, locals and every member the code calls, constructs, casts to or names, generic
-arguments included.
+**Why two tools, and two shapes.** 001 and 004 are about whole namespaces and use NetArchTest. 002 and 003 use
+`CecilScan` (Mono.Cecil, the library NetArchTest is built on), which sees base types, interfaces, fields,
+properties, events, attributes, parameters, return values, locals and every member the code calls, constructs,
+casts to or names, generic arguments included.
+
+- **002 is an allowlist.** Disk access is spread across the whole framework (`File`, `FileInfo`,
+  `StreamWriter(path)`, `Path.Exists`, `XDocument.Load(path)`, `TarFile`, certificate and resource loaders,
+  `AssemblyLoadContext`, ...), so any list of bad types or namespaces misses one; three reviews proved it. Core is
+  small and pure, so it may use **only** the framework types approved in the test (text, collections, maths, JSON,
+  regex, tasks, hashing, and the exceptions and enums it needs), and of `Path` only the members that work on the text
+  of a path. Native and COM calls are not allowed at all. Anything else fails and the message names it; if it is
+  harmless, a reviewer approves it in a one-line oracle revision.
+- **003 is a deny rule**, because the app is the UI and uses far too much of WPF and Windows for an allowlist. It
+  counts every `System.Net.*` type except a few harmless ones (status codes, request errors, `WebUtility`,
+  `NetworkCredential` as a password reader), WebView2, the WPF browser controls (`WebBrowser`, `Frame`,
+  `NavigationWindow`), every Windows Runtime area except the two the app uses (`Windows.Foundation`,
+  `Windows.UI.ViewManagement`), and native calls into anything but `user32`, `kernel32`, `shcore`, `dwmapi`, `gdi32`.
 
 **Known gaps.** (1) BOO-ARCH-005 sees fields and setters, not what a `readonly` field points to: a
 `static readonly List<T>` that is changed later (today `AccessibilitySettings.Listeners`, `.Add` at line 48) is
 shared mutable state the rule does not count; counting every `static readonly` collection or array would flood it
 with read-only tables. (2) BOO-ARCH-006 looks at `src/Boo.App/*Window*.cs` in the top folder, which holds every
-window code-behind today; a window elsewhere or not named `...Window` would be missed. (3) 002/003 see what the
-compiled code names, not what it does at run time: reaching a type by reflection (`Type.GetType("...")`), through a
-library outside the listed namespaces, or through a function pointer is not caught. (4) 003 does not count Velopack's
-update download (`UpdateService`, release lane) or opening a link in the browser (`Process.Start`); neither is a
-chat or AI client.
+window code-behind today; a window elsewhere or not named `...Window` would be missed. (3) 002 and 003 read the
+compiled code, not what it does at run time: reflection (`Type.GetType("...")`, `Activator`), function pointers and
+calls hidden inside an approved type are not seen. (4) 003 is a deny rule, so it does **not** see the app reaching
+the web some other way: a WPF image, media or font given a web address (`BitmapImage`, `MediaElement`), anything
+declared only in XAML (compiled XAML is not scanned), COM objects, or a third-party library. It also does not count,
+on purpose, Velopack's update check and download (`UpdateService`, release lane) or opening a link in the browser
+(`Process.Start`); neither is a chat or AI client.
 
 | Rule | Checks | How | Today (matches plan section 1.5) |
 | --- | --- | --- | --- |
 | [BOO-ARCH-001](#boo-arch-001) | `Boo.Core` uses nothing from `System.Net.Http`, `System.Net.WebSockets`, `Microsoft.Win32`, `Microsoft.Data.Sqlite`, `NAudio`, `Velopack` | NetArchTest, namespace match | 1: `ProviderFailureClassifier` (`ProviderFailure.cs`, `HttpRequestError`) |
-| [BOO-ARCH-002](#boo-arch-002) | `Boo.Core` does not touch the disk: no type from `System.IO.*` / `System.Xml.*` except the harmless list (`Path`, in-memory streams, enums, exceptions), no `Process` / `FileVersionInfo`, no `Path.GetTempFileName`, no native call | default-deny (Mono.Cecil) | 2: `ScopedFiles` (the second class in `ActionPolicy.cs`), `FileActionResolver` |
-| [BOO-ARCH-003](#boo-arch-003) | `Boo.App` does not talk to the network: no type from `System.Net.*`, `Windows.Networking.*`, `Windows.Web.*` or WebView2 except the harmless list (`HttpStatusCode`, `WebUtility`, request errors, `NetworkCredential` as a password reader), no native call outside `user32`/`kernel32`/`shcore`/`dwmapi`/`gdi32` | default-deny (Mono.Cecil) | 1 type: `MainWindow` (its 3 references: `MainWindow.xaml.cs:65,1624,2123`) |
+| [BOO-ARCH-002](#boo-arch-002) | `Boo.Core` does not touch the disk: it uses only approved framework types (and only the text members of `Path`), and no native or COM call | allowlist (Mono.Cecil) | 2: `ScopedFiles` (the second class in `ActionPolicy.cs`), `FileActionResolver` |
+| [BOO-ARCH-003](#boo-arch-003) | `Boo.App` does not talk to the network through `System.Net.*` (harmless types aside), WebView2, the WPF browser controls, other Windows Runtime areas, or native network DLLs | deny rule (Mono.Cecil); gaps listed above | 1 type: `MainWindow` (its 3 references: `MainWindow.xaml.cs:65,1624,2123`) |
 | [BOO-ARCH-004](#boo-arch-004) | `Boo.Windows` uses nothing from `System.Windows.Controls` / `System.Windows.Shapes` and has no `Window` subclass | NetArchTest | 0 |
 | [BOO-ARCH-005](#boo-arch-005) | no static field that is not `readonly`/`const`, no static property with a setter, in all 5 `src` assemblies | reflection; compiler-made caches excluded; named per declaring type (`Outer+Inner.Field`) | 2: `AccessibilitySettings._uiSettings`, `App.StartedInBackground` |
 | [BOO-ARCH-006](#boo-arch-006) | every `src/Boo.App/*Window*.cs` file has at most 2,674 lines | line count | 0 over (largest: `MainWindow.xaml.cs`, 2,674) |
@@ -225,16 +233,16 @@ database, audio or installer types make it slow and hard to test. **Fix:** put t
 
 ## BOO-ARCH-002
 **Core does not touch disk.** File checks in Core make rules depend on the machine. **Fix:** an interface in Core (like
-`IStartupRegistry`) with the real implementation outside. **Do NOT** swap `File.Exists` for `FileInfo` to dodge the
-check, or for `StreamReader(path)`, `ZipFile`, `XDocument.Load(path)` or a native call: every disk namespace is denied
-by default, so all are caught. **Do NOT** add a type to the harmless list unless it cannot reach the disk.
+`IStartupRegistry`) with the real implementation outside. The failure message names every framework type or member
+that is not approved. **Do NOT** swap `File.Exists` for `FileInfo`, `Path.Exists`, a stream or another loader: Core may
+use only approved types, so all are caught. **Do NOT** approve a type unless it cannot reach the disk.
 
 ## BOO-ARCH-003
 **The window does not talk to the network.** Network calls belong in `Boo.Providers`, where timeouts, failures and
 keys are handled in one place (the 45 s timeout lives in `MainWindow` today for this reason). **Fix:** create the
 client in Providers and inject it. **Do NOT** hide a new `HttpClient` in a helper class in `Boo.App`, or swap it for a
-`SocketsHttpHandler`, a `TcpListener`, `Dns` or a `ws2_32` import: every network namespace is denied by default, so
-all are caught. **Do NOT** add a type to the harmless list unless it cannot reach the network.
+handler, a socket, `Dns`, a browser control or a Windows Runtime network API: all are caught. The rule cannot see a web
+address handed to a WPF image or media element, or XAML-only elements (known gap 4); reviewers check those.
 
 ## BOO-ARCH-004
 **Boo.Windows is Windows integration, not UI.** Bitmaps (`System.Windows.Media`) and UI Automation are fine; controls,

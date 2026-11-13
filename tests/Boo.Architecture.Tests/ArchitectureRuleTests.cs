@@ -1,6 +1,7 @@
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Mono.Cecil;
 using NetArchTest.Rules;
 
 namespace Boo.Architecture.Tests;
@@ -34,37 +35,111 @@ public sealed class ArchitectureRuleTests
         AssertExactOffenders("BOO-ARCH-001", Offenders(result), ["Boo.Core.ProviderFailureClassifier"]);
     }
 
-    // 002 and 003 are DEFAULT-DENY: every type in the disk namespaces (002) or the network namespaces (003) counts, except
-    // a short list of harmless value / in-memory types. A disk or network API that nobody thought of is therefore caught
-    // (StreamWriter(path), ZipFile, TcpListener, SslStream, Dns, ...); a harmless type missing from the list fails
-    // loudly instead of slipping through silently. Native calls (DllImport) are covered too. CecilScan does the scan.
+    // 002 is an ALLOWLIST: Core may use only the framework types (and, for Path, the members) approved below; anything
+    // else fails and the message names it. Disk access is spread across the whole framework (File, StreamWriter(path),
+    // Path.Exists, XDocument.Load(path), TarFile, X509 loaders, ...), so a list of bad types or namespaces always misses
+    // one; an allowlist of what Core needs cannot. Approving a new type is a one-line reviewed oracle revision.
+    // 003 is a DENY rule (the app is the UI and uses far too much of WPF and Windows for an allowlist): every network
+    // namespace, the browser controls, Windows Runtime outside the two areas the app uses, and native calls outside the
+    // window DLLs. Its known gaps are named in docs/quality/RULES.md. CecilScan does both scans.
 
-    /// <summary>002: namespaces whose types read or write files (System.IO.* includes Compression, MemoryMappedFiles,
-    /// Pipes, IsolatedStorage; System.Xml.* includes the loaders that take a path).</summary>
-    public static readonly string[] DiskNamespaces = ["System.IO", "System.Xml"];
-
-    /// <summary>002: types outside those namespaces that read the disk or start a program that can.</summary>
-    public static readonly string[] DiskTypesElsewhere =
+    /// <summary>002: framework namespaces Core may use in full: text, collections, maths, JSON, regex, tasks. Exact
+    /// names, not their sub-namespaces, so a new namespace needs review.</summary>
+    public static readonly string[] CoreApprovedNamespaces =
     [
-        "System.Diagnostics.Process", "System.Diagnostics.ProcessStartInfo", "System.Diagnostics.FileVersionInfo",
+        "System.Buffers", "System.Buffers.Binary", "System.CodeDom.Compiler", "System.Collections", "System.Collections.Frozen",
+        "System.Collections.Generic", "System.Collections.Immutable", "System.Collections.ObjectModel",
+        "System.Diagnostics.CodeAnalysis", "System.Globalization", "System.Linq", "System.Numerics",
+        "System.Runtime.CompilerServices", "System.Runtime.Versioning", "System.Text", "System.Text.Json",
+        "System.Text.Json.Serialization", "System.Text.RegularExpressions", "System.Threading", "System.Threading.Channels",
+        "System.Threading.Tasks",
     ];
 
-    /// <summary>002: the only disk-namespace types Core may use: paths as text, in-memory streams, enums, exceptions.</summary>
-    public static readonly string[] HarmlessIoTypes =
+    /// <summary>002: single framework types Core may use from namespaces that also hold disk, network or process APIs.
+    /// None of these types can read or write a file (System.IO.Path is approved per member, below).</summary>
+    public static readonly string[] CoreApprovedTypes =
     [
-        "System.IO.Path", "System.IO.FileAttributes", "System.IO.SearchOption", "System.IO.SeekOrigin",
-        "System.IO.Stream", "System.IO.MemoryStream", "System.IO.StringReader", "System.IO.StringWriter",
-        "System.IO.TextReader", "System.IO.TextWriter", "System.IO.BinaryReader", "System.IO.BinaryWriter",
+        // System: values, primitives, delegates, exceptions, maths, time, Uri as text, runtime facts.
+        "System.AccessViolationException", "System.Action", "System.Action`1", "System.Action`2", "System.Action`3",
+        "System.AggregateException", "System.AppContext", "System.ArgumentException", "System.ArgumentNullException",
+        "System.ArgumentOutOfRangeException", "System.Array", "System.BadImageFormatException", "System.Boolean", "System.Byte",
+        "System.Char", "System.Convert", "System.DateTime", "System.DateTimeKind", "System.DateTimeOffset", "System.Decimal",
+        "System.Delegate", "System.Double", "System.Enum", "System.Environment", "System.EventArgs", "System.EventHandler",
+        "System.EventHandler`1", "System.Exception", "System.FlagsAttribute", "System.FormatException", "System.Func`1",
+        "System.Func`2", "System.Func`3", "System.Func`4", "System.Guid", "System.HashCode", "System.IAsyncDisposable",
+        "System.IComparable`1", "System.IDisposable", "System.IEquatable`1", "System.IFormatProvider", "System.Index",
+        "System.InsufficientExecutionStackException", "System.Int16", "System.Int32", "System.Int64",
+        "System.InvalidOperationException", "System.InvalidProgramException", "System.Lazy`1", "System.Math",
+        "System.MemoryExtensions", "System.Memory`1", "System.MidpointRounding", "System.MulticastDelegate",
+        "System.NotImplementedException", "System.NotSupportedException", "System.Nullable`1", "System.Object",
+        "System.ObjectDisposedException", "System.ObsoleteAttribute", "System.OperatingSystem", "System.OperationCanceledException",
+        "System.OutOfMemoryException", "System.OverflowException", "System.ParamArrayAttribute", "System.Predicate`1",
+        "System.Random", "System.Range", "System.ReadOnlyMemory`1", "System.ReadOnlySpan`1", "System.RuntimeFieldHandle",
+        "System.RuntimeTypeHandle", "System.Single", "System.Span`1", "System.StackOverflowException", "System.String",
+        "System.StringComparer", "System.StringComparison", "System.StringSplitOptions", "System.TimeoutException",
+        "System.TimeProvider", "System.TimeSpan", "System.Type", "System.TypeInitializationException", "System.UInt16",
+        "System.UInt32", "System.UInt64", "System.UnauthorizedAccessException", "System.Uri", "System.UriKind",
+        "System.ValueTuple`2", "System.ValueTuple`3", "System.ValueTuple`4", "System.ValueType", "System.Version", "System.Void",
+        // System.Diagnostics: debugger attributes and timing only (no Process, no trace listeners).
+        "System.Diagnostics.DebuggableAttribute", "System.Diagnostics.DebuggableAttribute/DebuggingModes",
+        "System.Diagnostics.DebuggerHiddenAttribute", "System.Diagnostics.DebuggerDisplayAttribute",
+        "System.Diagnostics.DebuggerBrowsableAttribute", "System.Diagnostics.DebuggerBrowsableState",
+        "System.Diagnostics.DebuggerStepThroughAttribute", "System.Diagnostics.DebuggerNonUserCodeAttribute",
+        "System.Diagnostics.Stopwatch", "System.Diagnostics.UnreachableException",
+        // System.IO: exceptions, the attributes enum and in-memory streams. File and Directory are the two offenders.
         "System.IO.IOException", "System.IO.FileNotFoundException", "System.IO.DirectoryNotFoundException",
         "System.IO.PathTooLongException", "System.IO.EndOfStreamException", "System.IO.InvalidDataException",
+        "System.IO.FileAttributes", "System.IO.Stream", "System.IO.MemoryStream", "System.IO.StringReader",
+        "System.IO.StringWriter", "System.IO.TextReader", "System.IO.TextWriter", "System.IO.SeekOrigin",
+        // System.Net / System.Net.Http: status codes and the error a provider reports (001 counts the Http ones).
+        "System.Net.HttpStatusCode", "System.Net.WebUtility", "System.Net.Http.HttpRequestException", "System.Net.Http.HttpRequestError",
+        // System.Reflection: the assembly attributes the compiler writes.
+        "System.Reflection.AssemblyCompanyAttribute", "System.Reflection.AssemblyConfigurationAttribute",
+        "System.Reflection.AssemblyFileVersionAttribute", "System.Reflection.AssemblyInformationalVersionAttribute",
+        "System.Reflection.AssemblyProductAttribute", "System.Reflection.AssemblyTitleAttribute",
+        "System.Reflection.DefaultMemberAttribute",
+        // System.Runtime.InteropServices: span helpers and attributes only (no DllImport, no Marshal).
+        "System.Runtime.InteropServices.InAttribute", "System.Runtime.InteropServices.MemoryMarshal",
+        "System.Runtime.InteropServices.CollectionsMarshal", "System.Runtime.InteropServices.SEHException",
+        // System.Security.Cryptography: hashing and constant-time compare (no certificate or key-file loaders).
+        "System.Security.Cryptography.CryptographicOperations", "System.Security.Cryptography.SHA256",
+        "System.Security.Cryptography.RandomNumberGenerator", "System.Security.Cryptography.IncrementalHash",
+        "System.Security.Cryptography.HashAlgorithmName",
     ];
 
-    /// <summary>002: members of a harmless type that still touch the disk.</summary>
-    public static readonly string[] DiskMembersOfHarmlessTypes = ["System.IO.Path::GetTempFileName"];
+    /// <summary>002: the System.IO.Path members Core may use: they work on the text of a path and never look at the
+    /// disk (Path.Exists and Path.GetTempFileName do, so they are not here).</summary>
+    public static readonly string[] CorePathTextMembers =
+    [
+        "Combine", "Join", "GetFileName", "GetFileNameWithoutExtension", "GetExtension", "HasExtension", "ChangeExtension",
+        "GetDirectoryName", "GetFullPath", "GetRelativePath", "GetPathRoot", "IsPathRooted", "IsPathFullyQualified",
+        "TrimEndingDirectorySeparator", "EndsInDirectorySeparator", "GetInvalidPathChars", "GetInvalidFileNameChars",
+        "DirectorySeparatorChar", "AltDirectorySeparatorChar", "PathSeparator", "VolumeSeparatorChar",
+    ];
+
+    private static bool CoreMayUse(TypeReference type)
+    {
+        // Own code: anything defined in the scanned assembly (including compiler-generated regex classes, which use a
+        // System.* namespace) or in another Boo assembly. Built-in primitives (int, IntPtr, string, object, void) are fine.
+        if (type.Scope is ModuleDefinition || type.IsPrimitive) return true;
+        if (type.MetadataType is MetadataType.Void or MetadataType.String or MetadataType.Object or MetadataType.TypedByReference) return true;
+        var ns = CecilScan.NamespaceOf(type);
+        if (ns == "Boo" || ns.StartsWith("Boo.", StringComparison.Ordinal)) return true;
+        return CoreApprovedNamespaces.Contains(ns) || CoreApprovedTypes.Contains(type.FullName) || type.FullName == "System.IO.Path";
+    }
+
+    private static bool CoreMayNotCall(MemberReference member) =>
+        CecilScan.OpenName(member.DeclaringType) == "System.IO.Path" && !CorePathTextMembers.Contains(member.Name);
 
     /// <summary>003: namespaces whose types talk to the network (System.Net.* includes Http, Sockets, Security,
-    /// WebSockets, Quic, Mail, NetworkInformation; plus the WinRT and WebView2 network surfaces).</summary>
-    public static readonly string[] NetworkNamespaces = ["System.Net", "Windows.Networking", "Windows.Web", "Microsoft.Web.WebView2"];
+    /// WebSockets, Quic, Mail, NetworkInformation) and the WebView2 browser.</summary>
+    public static readonly string[] NetworkNamespaces = ["System.Net", "Microsoft.Web.WebView2"];
+
+    /// <summary>003: WPF controls that load web pages.</summary>
+    public static readonly string[] NetworkTypesElsewhere =
+    [
+        "System.Windows.Controls.WebBrowser", "System.Windows.Controls.Frame", "System.Windows.Navigation.NavigationWindow",
+    ];
 
     /// <summary>003: the only network-namespace types the app may use: status codes, errors, text helpers.</summary>
     public static readonly string[] HarmlessNetTypes =
@@ -75,35 +150,49 @@ public sealed class ArchitectureRuleTests
         "System.Net.NetworkCredential",
     ];
 
+    /// <summary>003: the only Windows Runtime areas the app may use (today: the async types and the UI settings for
+    /// accessibility). Any other Windows.* namespace (Networking, Web, Storage, Security.Authentication.Web, ...) counts.</summary>
+    public static readonly string[] AppWinRtNamespaces = ["Windows.Foundation", "Windows.UI.ViewManagement"];
+
     /// <summary>003: the only native DLLs the app may call: windows, input, monitors, DPI. Anything else (ws2_32,
-    /// winhttp, wininet, ...) counts as a network client.</summary>
+    /// winhttp, wininet, ...) counts.</summary>
     public static readonly string[] AppNativeDlls = ["user32.dll", "kernel32.dll", "shcore.dll", "dwmapi.dll", "gdi32.dll"];
+
+    private static bool AppNetwork(TypeReference type)
+    {
+        var ns = CecilScan.NamespaceOf(type);
+        if (NetworkTypesElsewhere.Contains(type.FullName)) return true;
+        if (CecilScan.InNamespace(ns, NetworkNamespaces)) return !HarmlessNetTypes.Contains(type.FullName);
+        return (ns == "Windows" || ns.StartsWith("Windows.", StringComparison.Ordinal)) && !CecilScan.InNamespace(ns, AppWinRtNamespaces);
+    }
 
     [Fact]
     public void BOO_ARCH_002_Core_does_not_touch_the_file_system()
     {
-        var offenders = CecilScan.TypesReferencing(Core,
-            t => DiskTypesElsewhere.Contains(t.FullName)
-                 || (CecilScan.InNamespace(CecilScan.NamespaceOf(t), DiskNamespaces) && !HarmlessIoTypes.Contains(t.FullName)),
-            m => DiskMembersOfHarmlessTypes.Contains($"{m.DeclaringType.FullName}::{m.Name}"));
-        var native = CecilScan.TypesCallingNative(Core, _ => true); // Core makes no native calls at all
+        var scan = CecilScan.TypesReferencing(Core, t => !CoreMayUse(t), CoreMayNotCall);
+        var native = CecilScan.TypesCallingNative(Core, _ => true, countComImports: true); // Core makes no native or COM calls
         // ScopedFiles is the second class in ActionPolicy.cs (the plan's "ActionPolicy.cs:209").
-        AssertExactOffenders("BOO-ARCH-002", offenders.Concat(native).Distinct().ToList(), ["Boo.Core.FileActionResolver", "Boo.Core.ScopedFiles"]);
+        AssertExactOffenders("BOO-ARCH-002", scan.Keys.Concat(native).Distinct().ToList(),
+            ["Boo.Core.FileActionResolver", "Boo.Core.ScopedFiles"], Detail(scan, native, "not approved for Core"));
     }
 
     [Fact]
     public void BOO_ARCH_003_App_does_not_create_network_clients()
     {
-        var offenders = CecilScan.TypesReferencing(App,
-            t => CecilScan.InNamespace(CecilScan.NamespaceOf(t), NetworkNamespaces) && !HarmlessNetTypes.Contains(t.FullName));
-        var native = CecilScan.TypesCallingNative(App, dll => !AppNativeDlls.Contains(NativeDllName(dll), StringComparer.OrdinalIgnoreCase));
+        var scan = CecilScan.TypesReferencing(App, AppNetwork);
+        var native = CecilScan.TypesCallingNative(App, dll => !AppNativeDlls.Contains(NativeDllName(dll), StringComparer.OrdinalIgnoreCase), countComImports: false);
         // MainWindow: the _http field and its two `new HttpClient` (the plan's 3 references, MainWindow.xaml.cs:65,1624,2123).
-        // Not counted on purpose: Velopack's update download (UpdateService), owned by the release lane, not a chat client.
-        AssertExactOffenders("BOO-ARCH-003", offenders.Concat(native).Distinct().ToList(), ["Boo.App.MainWindow"]);
+        // Not counted on purpose: Velopack's update check and download (UpdateService, release lane), not a chat client.
+        AssertExactOffenders("BOO-ARCH-003", scan.Keys.Concat(native).Distinct().ToList(), ["Boo.App.MainWindow"],
+            Detail(scan, native, "network"));
     }
 
     private static string NativeDllName(string module) =>
         module.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? module : module + ".dll";
+
+    private static string Detail(IReadOnlyDictionary<string, SortedSet<string>> scan, IReadOnlyCollection<string> native, string what) =>
+        string.Join("; ", scan.Select(kv => $"{kv.Key} uses ({what}): {string.Join(", ", kv.Value)}")
+            .Concat(native.Select(n => $"{n}: native or COM call")));
 
     [Fact]
     public void BOO_ARCH_004_Windows_layer_has_no_WPF_controls_shapes_or_windows()
@@ -195,13 +284,14 @@ public sealed class ArchitectureRuleTests
             ? fieldName[1..fieldName.IndexOf('>', StringComparison.Ordinal)]
             : null;
 
-    private static void AssertExactOffenders(string rule, IReadOnlyCollection<string> actual, IReadOnlyCollection<string> allowed)
+    private static void AssertExactOffenders(string rule, IReadOnlyCollection<string> actual, IReadOnlyCollection<string> allowed, string detail = "")
     {
         var added = actual.Except(allowed).OrderBy(n => n, StringComparer.Ordinal).ToList();
         var fixedNow = allowed.Except(actual).OrderBy(n => n, StringComparer.Ordinal).ToList();
         var anchor = rule.ToLowerInvariant();
         Assert.True(added.Count == 0,
             $"{rule}: new offender(s): {string.Join(", ", added)}. See {RulesDoc}#{anchor} for the fix. " +
+            (detail.Length > 0 ? $"What was found: {detail}. " : "") +
             "Do NOT add the name to the allowlist; the allowlist only shrinks.");
         Assert.True(fixedNow.Count == 0,
             $"{rule}: no longer an offender (good): {string.Join(", ", fixedNow)}. Remove it from this rule's allowlist " +
