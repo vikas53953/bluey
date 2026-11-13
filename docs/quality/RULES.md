@@ -12,7 +12,7 @@ but a file forced into git there is read) with a small C# lexer (strings, `$"{..
 clauses, verbatim and raw strings, char literals, line and block comments, `#` directive lines, every C# line break). It
 counts each pattern below **per project, every match**, and compares with [`baseline.json`](baseline.json).
 
-**What it promises: it catches ordinary spellings, and it can only add detection, never hide a hit.** The text as
+**What it promises: it catches ordinary spellings, and it never counts less than the `lane/face` ratchet did, except where that one counted text that is not code (listed below).** The text as
 written is always counted. Extra *views* of the same file can add hits, never remove them (per line, the highest count
 of any view wins): identifiers spelled the plain way (`\u0043ollect` and `@Collect` read as `Collect`; invisible
 formatting characters dropped), and `using` aliases and `using static` members written out in full (`using G =
@@ -27,13 +27,19 @@ checks of PRs 1.3 and 1.4; see Known gaps.
 - a C# file or project in `src/` that is not inside a `src/<Name>/` project (a loose `src/X.cs`, a folder without a
   `.csproj`, a project nested deeper such as `src/Group/Hack/Hack.csproj`) fails, because the build would compile it
   but no project count would include it; so does a symbolic link committed under `src/`;
-- `--list <RULE>` prints every hit; `--self-test` checks 130 snippets with exact expected counts (every attack the PR
+- `--list <RULE>` prints every hit; `--self-test` checks 133 snippets with exact expected counts (every attack the PR
   #23 reviews found that the text can follow is a sample), checks on every snippet that the extra views never count less
   than the text as written, that clean code stays quiet, and the pass/fail logic itself on a throwaway git tree.
 - PR #23's evidence (13 Nov 2026): each guard switched off one at a time in a scratch copy made the self-test fail; and
   a differential run over every sample and every review attack file found the new ratchet never counting less than the
-  one on `lane/face`, except three deliberate lexer corrections of false hits (text in an interpolation format clause
-  such as `$"{d:dd//MM}"`, and the name after `#region` / `#endregion`, are not code or comments).
+  one on `lane/face`, except where the old lexer counted text that is not code. These corrections are deliberate and
+  each has a self-test sample: (1) text in an interpolation format clause, such as `$"{d:dd//MM}"`; (2) the text of a
+  `#` directive line (`#warning do not call GC.Collect`, `#region static fields`, a `/* */` on `#warning`), except a `//`
+  comment on a line other than `#region` / `#endregion`, which counts; as a side effect a `catch { }` whose body holds
+  only a directive is "empty" (BOO-ERR-001), not "handles" (BOO-ERR-002); (3) raw and interpolated strings that open with
+  more than 12 characters of `$` and quotes, which the old lexer misread. Code that is not valid C# (a Unicode line
+  separator inside a string or char literal) may also count differently; the build rejects it anyway. A second review (13 Nov) fuzzed 120,000 random
+  inputs and found no other way to count less.
 
 **A PR cannot loosen its own gate.** On a pull request, the workflow
 [`quality-gates.yml`](../../.github/workflows/quality-gates.yml) (job `quality`, Linux, about a minute, no uploads)

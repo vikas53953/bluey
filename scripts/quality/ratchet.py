@@ -444,6 +444,9 @@ RULES = [
                                                     ('var s = $"{a[0]:GC.Collect}";', 0),
                                                     ('using GC = Foo.Bar;\n GC.Collect();', 1),
                                                     ('System.GC\n   .Collect();', 1),
+                                                    # corrections: directive text and long raw-string openings are not code
+                                                    ('#warning do not call GC.Collect', 0),
+                                                    ('var s = ' + '$' * 10 + '"""a" GC.Collect(); "b""";', 0),
                                                     ('using static global::System.GC;\n Collect();', 1)]),
     Rule('BOO-RT-002', 'Environment.GetEnvironmentVariable',
          'Hidden switches (for example BOO_QA_CAPTURABLE) change privacy behaviour and must be auditable.',
@@ -504,7 +507,7 @@ RULES = [
          'Untracked debt is invisible.', 'Open a GitHub issue and write TODO(#123): ...', 'Do NOT delete the note '
          'and keep the debt.', untracked_todos,
          [('// TODO: fix later', 1), ('/* FIXME */', 1), ('// TODO(#12): tracked', 0), ('/// HACK in a doc', 1),
-          ('#endif // HACK', 1)]),
+          ('#endif // HACK', 1), ('#warning x /* TODO later */', 0)]),
 ]
 RULES_BY_ID = {rule.id: rule for rule in RULES}
 
