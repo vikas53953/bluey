@@ -266,11 +266,13 @@ body from the event file, never from a `${{ }}` expression pasted into a shell.
 **GitHub renders the body, the check reads the result.** The script does not parse Markdown itself: it sends the body
 to GitHub's Markdown API (the same renderer as the PR page) and reads only the rendered tables and the real link
 targets (`<a href>`). So what GitHub does not show as a table or a link does not count: HTML comments, code blocks,
-text inside HTML attributes, a run URL that is only a link's hover title. **Every table on the page must be a
+text inside HTML attributes, a run URL that is only a link's hover title. **Every table on the page must be a plain
 Markdown pipe table**: a table written in raw HTML can be drawn in a different order than it is written (merged cells,
-rows before the header, a footer, a table inside a table), so any table that does not have exactly the shape GitHub
-gives a pipe table fails the check. A `live` cell in a table without a `Label` column (for example a misspelled or
-look-alike header) also fails. If GitHub cannot render the body, the check fails closed. A self-test first proves every rule on HTML samples, and a render test sends the known tricks through
+rows before the header, a footer, a table inside a table), and raw HTML inside a cell (`<details>`, `<ruby>`,
+`<span>`, ...) can hide text or links from the reader. So any table that does not have exactly the shape GitHub gives a
+pipe table, or whose cells hold anything but text, links, bold, italic, strikethrough, code, emoji, images and line
+breaks, fails the check. A cell starting with `live` in a table without a `Label` column (for example a misspelled
+or look-alike header) also fails. If GitHub cannot render the body, the check fails closed. A self-test first proves every rule on HTML samples, and a render test sends the known tricks through
 GitHub's real renderer. Then the PR's own copy of the checker judges the body, and so does the **base branch's** copy
 (read from git), so a PR cannot loosen the checker script it is judged by.
 

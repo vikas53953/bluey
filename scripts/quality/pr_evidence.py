@@ -46,6 +46,10 @@ class _Table:
 PIPE_TABLE_SHAPE = re.compile(r'^<thead><tr>(?:<th></th>)+</tr></thead>(?:<tbody>(?:<tr>(?:<td></td>)+</tr>)+</tbody>)?$')
 STRUCTURE = {'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col'}
 ALLOWED_ATTRS = {'table': {'role'}, 'th': {'align'}, 'td': {'align'}}
+# What Markdown itself puts inside a pipe-table cell on GitHub (links, autolinked PRs and commits, bold, italic,
+# strikethrough, code, emoji, line breaks, images). Raw HTML that a browser does not draw as written (<details>, <rp>,
+# <ruby>, <span>, ...) could make the check read different text or links than the reader sees, so it fails the table.
+CELL_TAGS = {'a', 'strong', 'em', 'del', 'code', 'tt', 'br', 'g-emoji', 'img'}
 
 
 class _Tables(html.parser.HTMLParser):
@@ -64,6 +68,8 @@ class _Tables(html.parser.HTMLParser):
     def handle_starttag(self, tag, attrs):
         names = dict(attrs)
         top = self._top()
+        if top is not None and top.cell is not None and tag not in CELL_TAGS and tag != 'table':
+            top.plain = False                             # raw HTML inside a cell
         if top is not None and (tag in STRUCTURE or tag == 'table'):
             if set(names) - ALLOWED_ATTRS.get(tag, set()):
                 top.plain = False
@@ -93,8 +99,8 @@ class _Tables(html.parser.HTMLParser):
         elif tag in ('td', 'th') and top.row is not None:
             top.cell = ([], [])
             top.row.append(top.cell)
-        elif tag == 'a' and top.cell is not None and names.get('href') and 'details' not in self._tags:
-            self._links.append([names['href'], [], top.cell])       # (a link folded inside <details> is hidden)
+        elif tag == 'a' and top.cell is not None and names.get('href'):
+            self._links.append([names['href'], [], top.cell])
 
     def handle_endtag(self, tag):
         if tag not in self._tags:
@@ -158,8 +164,9 @@ def check(rendered_html, changed_files, repo):
     evidence = []
     for k, (header, rows, shaped) in enumerate(tables(rendered_html), 1):
         if not shaped:
-            problems.append(f'table {k} is not a Markdown pipe table (raw HTML table, merged cells, a table inside '
-                            'it, rows before the header or a footer): write every table as a Markdown pipe table')
+            problems.append(f'table {k} is not a plain Markdown pipe table (raw HTML table or HTML inside a cell, '
+                            'merged cells, a table inside it, rows before the header or a footer): write every table '
+                            'as a Markdown pipe table with plain text, links, bold, italic and code in its cells')
             continue
         cols = [c for c, h in enumerate(header) if label_of(h) == 'label'
                 and len([w for w in h.split() if re.search(r'[A-Za-z]', w)]) == 1]
@@ -167,7 +174,7 @@ def check(rendered_html, changed_files, repo):
             evidence.append((k, cols, rows))
             continue
         for n, cells in rows:
-            if any(label_of(text) == 'live' and len(re.findall(r'[A-Za-z]+', text)) == 1 for text, _ in cells):
+            if any(label_of(text) == 'live' for text, _ in cells):
                 problems.append(f'table {k}, row {n}: a "live" cell in a table without a Label column (is the header '
                                 'misspelled?); put claims in the evidence table')
     if not evidence and problems:
@@ -319,6 +326,8 @@ def self_test():
            check(table([['rt', 'live', f'trust me <a href="{run}"></a>']]), [], repo) != [])
     expect('a link with only whitespace does not count',
            check(table([['rt', 'live', f'<a href="{run}"> </a>']]), [], repo) != [])
+    expect('a table inside an open <details> is judged normally',
+           check(f'<details open><summary>Evidence</summary>{good}</details>', ['src/a.cs'], repo) == [])
     expect('a link folded inside <details> in the cell does not count',
            check(table([['rt', 'live', f'trust me <details><summary></summary><a href="{run}">r</a></details>']]),
                  [], repo) != [])
@@ -344,8 +353,20 @@ def self_test():
     expect('aligned columns (align attribute) pass',
            check(good.replace('<th>', '<th align="center">').replace('<td>', '<td align="left">'), ['src/a.cs'], repo)
            == [])
-    expect('a non-evidence table with "live run" text passes (only a lone "live" cell fails)',
-           check(good + table([['live run', 'x']], ('a', 'b')), ['src/a.cs'], repo) == [])
+    expect('a cell starting with "live" in a table without a Label column fails',
+           check(good + table([['real AI round trip', 'live (OpenAI)']], ('Claim', 'L\u0430bel')), ['src/a.cs'], repo)
+           != [])
+    expect('a table without a Label column that mentions "the live run" passes',
+           check(good + table([['the live run', 'x']], ('a', 'b')), ['src/a.cs'], repo) == [])
+    for name, cell in (('a folded <details> before the label', '<details><summary></summary>mock</details> live'),
+                       ('ruby <rp> text before the label', '<ruby><rp>mock</rp></ruby> live'),
+                       ('a <span> in a cell', '<span>live</span>')):
+        expect(f'raw HTML in a cell fails the table: {name}',
+               check(table([['rt', cell, f'<a href="{run}">r</a>']]), [], repo) != [])
+    expect('Markdown cell content passes (code, emoji, bold, italic, strikethrough, br, commit link)',
+           check(table([['<a href="https://github.com/x/y/commit/1"><tt>1</tt></a> <code>c</code>',
+                         '<g-emoji>✅</g-emoji> <strong>live</strong> <em>a</em> <del>b</del>',
+                         f'<br><a href="{run}">r</a>']]), ['src/a.cs'], repo) == [])
     expect('an emoji before the label is fine', check(table([['rt', '\u2705 live', f'<a href="{run}">r</a>']]),
                                                      [], repo) == [])
     expect('a run link that walks out of the run fails',
@@ -414,6 +435,18 @@ RENDER_CASES = (
      '<th>Label</th><th>mock</th></tr></thead></table>\n', False),
     ('a look-alike Label header', '| Claim | Label | Proof |\n|---|---|---|\n| live run | BLOCKED | no runner |\n\n'
      '| Claim | L\u0430bel | Proof |\n|---|---|---|\n| real AI round trip | live | trust me |\n', False),
+    ('a folded details before the label', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| real AI round trip | <details><summary></summary>mock</details> live | trust me |\n'
+     '| live run | BLOCKED | no runner today |\n', False),
+    ('a run link hidden in <rp>', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| real AI round trip | live | trust me <ruby>x<rp><a href="https://github.com/{repo}/actions/runs/123">run</a>'
+     '</rp><rt>y</rt></ruby> |\n', False),
+    ('a look-alike Label header with "live (OpenAI)"', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| live run | BLOCKED | no runner today |\n\n| Claim | L\u0430bel | Proof |\n|---|---|---|\n'
+     '| real AI round trip | live (OpenAI) | trust me |\n', False),
+    ('commit and PR autolinks, emoji, code in cells pass', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| #1 and 342b93d72418efd7520219fb99ca27fa9b2f5904 `x` | :white_check_mark: **live** | '
+     '[run](https://github.com/{repo}/actions/runs/1) <br> ~~old~~ |\n', True),
     ('aligned columns and a job link pass', '| Claim | Label | Proof |\n|:--|:-:|--:|\n'
      '| rt | \u2705 **live** (OpenAI) | [job](https://github.com/{repo}/actions/runs/1/job/2) |\n', True),
 )
