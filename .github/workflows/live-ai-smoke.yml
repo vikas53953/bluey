@@ -147,6 +147,16 @@ jobs:
           }
           if ($bad) { $bad | ForEach-Object { "::error title=Live AI smoke FAILED CLOSED::$_" }; exit 1 }
 
+      # Python for scripts/quality/key_scan.py (the key scan before every upload).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The key scan's workflow check reads YAML with PyYAML (hash-pinned) and fails closed without it.
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -245,28 +255,28 @@ jobs:
           Get-ChildItem artifacts/live-evidence -Recurse -Filter *.capture.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
           if ($bad -gt 0) { "::error title=Live AI smoke::$bad screenshot problem(s): copied from the screen, unreadable, or a capture with no real Boo window content"; exit 1 }
 
-      # Belt and braces: no evidence file may contain a key. A hit deletes the file before upload and fails the run.
-      - name: Key leak scan of the evidence
-        if: always()
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (live evidence)
+        id: keyscan_artifacts_live_evidence
+        if: ${{ !cancelled() }}
         shell: pwsh
         env:
-          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
           ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
           GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
         run: |
-          $keys = @($env:OPENAI_KEY, $env:ANTHROPIC_KEY, $env:GEMINI_KEY) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Trim() }
-          $leaks = 0
-          Get-ChildItem artifacts/live-evidence -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
-            $text = [System.IO.File]::ReadAllText($_.FullName)
-            foreach ($k in $keys) {
-              if ($text.Contains($k)) { "::error::a key was found in $($_.Name); the file was deleted and will not be uploaded"; Remove-Item $_.FullName -Force; $leaks++; break }
-            }
-          }
-          if ($leaks -gt 0) { exit 1 }
-          'no key found in any evidence file'
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --secret-env ANTHROPIC_KEY --secret-env GEMINI_KEY --secret-env OPENAI_KEY --delete artifacts/live-evidence; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/live-evidence' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/live-evidence')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
 
       - name: Upload live evidence (screenshots, observations, test results)
-        if: always()
+        if: ${{ !cancelled() && steps.keyscan_artifacts_live_evidence.outputs.safe == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: live-ai-evidence

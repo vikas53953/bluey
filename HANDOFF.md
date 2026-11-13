@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #27 merged (10:45 IST)**, with `lane/face` at `0122ac7`; PR #31 (agent-trust PR 1.11) synced on top.
+Status last updated: **13 Nov 2026, after PR #26 merged (12:48 IST)**, with `lane/face` at `342b93d`; PR #31 (agent-trust PR 1.11) synced on top.
 
 ---
 
@@ -195,6 +195,7 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | PR | Branch → base | State (13 Nov, after PR #27) | Notes |
 | --- | --- | --- | --- |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
+| [#26](https://github.com/vikas53953/bluey/pull/26) | `quality/key-scan` → `lane/face` | merged 13 Nov (12:48 IST), `342b93d` | Agent-trust PR 1.7: `scripts/quality/key_scan.py` scans exactly what each upload step in `windows-ci`, `demo-ci` and `live-ai-smoke` sends, right before it (rule BOO-SAFE-002: key-shaped text and real secret values). Each upload runs only when its scan step reports `safe=true`; any other outcome skips it. `--diff` mode is ready for the `quality` workflow. |
 | [#31](https://github.com/vikas53953/bluey/pull/31) | `quality/netarchtest` → `lane/face` | **open** (QA verdict in its PR description) | Agent-trust **Phase 1, PR 1.11**: new frozen test project `tests/Boo.Architecture.Tests` (oracle **revision 25**, `--extend`, 3 new files) with the 6 architecture rules BOO-ARCH-001..006 of plan section 2.4 B, each an exact allowlist of today's offenders matching plan section 1.5; rule texts in `docs/quality/RULES.md`. Two lines in `windows-ci.yml` run it and add it to the trx test gate (agreed with the agent-trust thread). |
 | [#27](https://github.com/vikas53953/bluey/pull/27) | `docs/notch-statechart` → `lane/face` | **merged 13 Nov** 10:45 IST (`0122ac7`) | Agent-trust **Phase 2, PR 2.1**, docs only: `docs/architecture/notch-lifecycle.md` maps today's notch lifecycle (reveal timeline, face states, hold-to-talk, focus, request generations, approval card, undo, pointer) with a `file:line` cite per transition, each plan invariant marked enforced / partly / not enforced, and 9 findings to settle before the model and reducer PRs. Records Vikas's go for Phases 2 and 3 and the Phase 2 limits ($0 GitHub, $10/month OpenAI). QA verdict and run links: in the PR body. |
 | [#22](https://github.com/vikas53953/bluey/pull/22) | `fix/demo-step4-state-race` → `lane/face` | **merged 13 Nov** (`af241fa`) | Demo Step 4 test race fix: re-read the notch state after the button search; oracle revisions 22–23 (`docs/verification/test-oracle-revision-22.md`). |
@@ -235,7 +236,7 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 2. **Anti-mock guard** (PR #14, merged): rejects loopback, private/LAN, link-local, unique-local, CGNAT and fake-IP
    addresses and proxies. Still not detected: a planted trusted root certificate, or a mock on the PC's own
    public-looking address.
-3. **Demo Step 4 race (fix in PR #22, not merged).**
+3. **Demo Step 4 race: fixed by PR #22 (merged 13 Nov, `af241fa`).**
    `Step4_Focus_NudgeThenBackToIt_EndsHappy` failed twice on docs-only commits
    ([43240958545](https://github.com/vikas53953/bluey/actions/runs/43240958545),
    [43296734862](https://github.com/vikas53953/bluey/actions/runs/43296734862)). Judged a test race, not an app bug:
