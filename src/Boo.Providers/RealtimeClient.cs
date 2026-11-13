@@ -24,11 +24,15 @@ public static class RealtimeProtocol
         "conversation.item.added", "conversation.item.done"
     };
 
+    /// <summary>The speech-to-text model that writes the transcript of what the user said (the cheapest OpenAI one).</summary>
+    public const string DefaultTranscriptionModel = "gpt-4o-mini-transcribe";
+
     /// <param name="pushToTalk">
     /// True turns server VAD off (turn_detection: null): the app commits each turn itself with
     /// input_audio_buffer.commit + response.create when the user releases hold-to-talk.
     /// </param>
-    public static string SessionUpdate(ProviderSettings settings, bool pushToTalk = false)
+    /// <param name="transcriptionModel">Speech-to-text model for the user's words; null = <see cref="DefaultTranscriptionModel"/>.</param>
+    public static string SessionUpdate(ProviderSettings settings, bool pushToTalk = false, string? transcriptionModel = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         object? turnDetection = pushToTalk ? null : new { type = "server_vad" };
@@ -50,7 +54,7 @@ public static class RealtimeProtocol
                     {
                         format = new { type = "audio/pcm", rate = 24000 },
                         turn_detection = turnDetection,
-                        transcription = new { model = "gpt-4o-mini-transcribe" }
+                        transcription = new { model = transcriptionModel ?? DefaultTranscriptionModel }
                     },
                     output = new
                     {
@@ -279,6 +283,7 @@ public sealed class RealtimeClient : IAsyncDisposable
     private readonly Func<string?> _credential;
     private readonly ProviderSettings _settings;
     private readonly bool _pushToTalk;
+    private readonly string? _transcriptionModel;
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly object _stateGate = new();
@@ -293,9 +298,11 @@ public sealed class RealtimeClient : IAsyncDisposable
     public static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(10);
     public static readonly TimeSpan KeepAliveTimeout = TimeSpan.FromSeconds(10);
 
-    public RealtimeClient(Func<string?> credential, ProviderSettings settings, bool pushToTalk = false)
+    /// <param name="transcriptionModel">Speech-to-text model for the user's words; null = Boo's default (the cheapest).</param>
+    public RealtimeClient(Func<string?> credential, ProviderSettings settings, bool pushToTalk = false, string? transcriptionModel = null)
     {
         _pushToTalk = pushToTalk;
+        _transcriptionModel = transcriptionModel;
         _credential = credential ?? throw new ArgumentNullException(nameof(credential));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
     }
@@ -350,7 +357,7 @@ public sealed class RealtimeClient : IAsyncDisposable
             await socket.ConnectAsync(uri, connectDeadline.Token).ConfigureAwait(false);
             var readiness = _readiness!;
             _receiveTask = ReceiveLoopAsync(socket, _lifetime.Token, readiness);
-            await SendJsonAsync(RealtimeProtocol.SessionUpdate(_settings, _pushToTalk), connectDeadline.Token).ConfigureAwait(false);
+            await SendJsonAsync(RealtimeProtocol.SessionUpdate(_settings, _pushToTalk, _transcriptionModel), connectDeadline.Token).ConfigureAwait(false);
             try
             {
                 await readiness.Task.WaitAsync(ConnectTimeout, cancellationToken).ConfigureAwait(false);

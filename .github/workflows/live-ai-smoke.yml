@@ -1,9 +1,11 @@
 name: live-ai-smoke
 
-# ONE real AI round trip against the published Boo.exe (no mock): typed question -> screen capture -> real provider ->
-# answer row in Boo's transcript. Runs on EVERY pull request (its final job `live-ai-smoke` is meant to be a required
-# check once added to branch protection) and by hand
-# (workflow_dispatch). Each run spends one small paid request. How to add the key and run it: docs/LIVE_AI_SMOKE.md.
+# TWO real AI round trips (no mock): (1) typed question -> the published Boo.exe captures the screen -> real provider ->
+# answer row in Boo's transcript; (2) voice: a synthetic spoken question (a checked-in WAV, never a microphone) -> Boo's
+# own OpenAI Realtime client -> OpenAI's transcript of the question and a spoken answer. Runs on EVERY pull request (its
+# final job `live-ai-smoke` is meant to be a required check once added to branch protection) and by hand
+# (workflow_dispatch). Each run spends two small paid requests on the cheapest OpenAI models that do the job (about
+# US$0.01 per run, see docs/LIVE_AI_SMOKE.md). How to add the key and run it: docs/LIVE_AI_SMOKE.md.
 #
 # RUNS ONLY ON GITHUB'S OWN WINDOWS VM (windows-latest), never on the owner's PC: the test drives the mouse and
 # keyboard, and Boo sends a picture of the screen to the AI. A step refuses any runner that is not GitHub-hosted, and
@@ -28,7 +30,17 @@ on:
         options: [openai, anthropic, gemini]
         default: openai
       model:
-        description: Optional model id override for the chosen provider (blank = Boo's default)
+        description: Optional chat model id for the chosen provider (blank = the cheapest that does the job; OpenAI gpt-5.4-mini)
+        type: string
+        required: false
+        default: ''
+      realtime_model:
+        description: Optional OpenAI realtime (voice) model id (blank = gpt-realtime-2.1-mini, the cheapest)
+        type: string
+        required: false
+        default: ''
+      transcribe_model:
+        description: Optional OpenAI speech-to-text model id (blank = gpt-4o-mini-transcribe, Boo's own and the cheapest)
         type: string
         required: false
         default: ''
@@ -56,6 +68,8 @@ jobs:
         env:
           PROVIDER: ${{ inputs.text_provider || 'openai' }}
           MODEL: ${{ inputs.model }}
+          REALTIME_MODEL: ${{ inputs.realtime_model }}
+          TRANSCRIBE_MODEL: ${{ inputs.transcribe_model }}
           OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
           ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
           GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
@@ -79,8 +93,15 @@ jobs:
             echo "::error title=Live AI smoke FAILED CLOSED::Repository secret $NAME is too short (${#VALUE} characters) to be a real key."
             exit 1
           fi
-          if [ -n "$MODEL" ] && ! printf '%s' "$MODEL" | grep -Eq '^[A-Za-z0-9._:-]{1,128}$'; then
-            echo "::error title=Live AI smoke FAILED CLOSED::Model override '$MODEL' is not a valid model id."
+          for M in "$MODEL" "$REALTIME_MODEL" "$TRANSCRIBE_MODEL"; do
+            if [ -n "$M" ] && ! printf '%s' "$M" | grep -Eq '^[A-Za-z0-9._:-]{1,128}$'; then
+              echo "::error title=Live AI smoke FAILED CLOSED::Model override '$M' is not a valid model id."
+              exit 1
+            fi
+          done
+          # Voice is always OpenAI (Boo's voice uses BOO_LIVE_OPENAI_KEY whatever the text provider is).
+          if [ -z "$(printf '%s' "$OPENAI_KEY" | tr -d '[:space:]')" ]; then
+            echo "::error title=Live AI smoke FAILED CLOSED::Repository secret BOO_LIVE_OPENAI_KEY is missing or empty, so the live voice round trip cannot run. This run is NOT a pass."
             exit 1
           fi
           # Lengths only, never values.
@@ -96,6 +117,12 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       # Evidence screenshots show Boo's own windows only, never the whole desktop (BooAppFixture.CaptureScreen).
       BOO_CAPTURE_SCOPE: boo-windows
+      # Models, set per run (workflow_dispatch inputs) and defaulting to the cheapest OpenAI model that does each job:
+      # chat answers a question about a screenshot (needs vision): gpt-5.4-mini; voice: gpt-realtime-2.1-mini;
+      # speech-to-text: gpt-4o-mini-transcribe (Boo's own). A step below checks each exists before any paid call.
+      BOO_LIVE_MODEL: ${{ inputs.model || ((inputs.text_provider || 'openai') == 'openai' && 'gpt-5.4-mini' || '') }}
+      BOO_LIVE_REALTIME_MODEL: ${{ inputs.realtime_model || 'gpt-realtime-2.1-mini' }}
+      BOO_LIVE_TRANSCRIBE_MODEL: ${{ inputs.transcribe_model || 'gpt-4o-mini-transcribe' }}
     steps:
       - name: Refuse unless this is GitHub's own VM (never the owner's PC)
         shell: pwsh
@@ -124,6 +151,30 @@ jobs:
           $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts\live-evidence'
           if (Test-Path $evidence) { Remove-Item $evidence -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+
+      # Free check before any paid call: every OpenAI model this run will use exists for this key (GET /v1/models/<id>
+      # costs nothing). A retired or misspelled model fails here in seconds with its name, not later as a vague error.
+      - name: OpenAI models exist (free check, before any paid call)
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          TEXT_PROVIDER: ${{ inputs.text_provider || 'openai' }}
+        run: |
+          $models = @($env:BOO_LIVE_REALTIME_MODEL, $env:BOO_LIVE_TRANSCRIBE_MODEL)
+          if ($env:TEXT_PROVIDER -eq 'openai' -and $env:BOO_LIVE_MODEL) { $models += $env:BOO_LIVE_MODEL }
+          $headers = @{ Authorization = "Bearer $($env:OPENAI_KEY.Trim())" }
+          $bad = 0
+          foreach ($m in $models) {
+            try {
+              $null = Invoke-RestMethod -Method Get -Uri "https://api.openai.com/v1/models/$([uri]::EscapeDataString($m))" -Headers $headers -TimeoutSec 30
+              "OpenAI model available: $m"
+            } catch {
+              $status = $_.Exception.Response.StatusCode.value__
+              "::error title=Live AI smoke FAILED CLOSED::OpenAI model '$m' is not available to this key (HTTP $status). Pick another with the workflow inputs."
+              $bad++
+            }
+          }
+          if ($bad -gt 0) { exit 1 }
 
       # A leftover hosts-file redirect (the demo-ci mock trick) would send Boo to a fake server and turn this into a
       # false green. Refuse to run unless every provider host resolves to a real, non-loopback address.
@@ -168,14 +219,13 @@ jobs:
           dotnet build tools/Boo.LiveSmoke -c Release
           dotnet build tools/Boo.VerifyLive -c Release
 
-      - name: Real AI round trip (FlaUI against published Boo.exe)
+      - name: Real AI round trips (typed question via FlaUI on published Boo.exe; spoken question via Boo's voice client)
         timeout-minutes: 15
         shell: pwsh
         env:
           BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\live-evidence
           BOO_LIVE_TEXT_PROVIDER: ${{ inputs.text_provider || 'openai' }}
-          BOO_LIVE_MODEL: ${{ inputs.model }}
           BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
           BOO_LIVE_ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
           BOO_LIVE_GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
@@ -201,7 +251,6 @@ jobs:
           BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\live-evidence\journeys
           BOO_LIVE_TEXT_PROVIDER: ${{ inputs.text_provider || 'openai' }}
-          BOO_LIVE_MODEL: ${{ inputs.model }}
           BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
           BOO_LIVE_ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
           BOO_LIVE_GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
