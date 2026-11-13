@@ -265,9 +265,10 @@ body from the event file, never from a `${{ }}` expression pasted into a shell.
 
 **GitHub renders the body, the check reads the result.** The script does not parse Markdown itself: it sends the body
 to GitHub's Markdown API (the same renderer as the PR page) and reads only the rendered tables and the real link
-targets (`<a href>`). So anything a reader cannot see does not count: HTML comments, code blocks, text inside HTML
-attributes, a run URL that is only a link's hover title, hidden elements. If GitHub cannot render the body, the check
-fails closed. A self-test first proves every rule on HTML samples, and a render test sends the known tricks through
+targets (`<a href>`). So what GitHub does not show as a table or a link does not count: HTML comments, code blocks,
+text inside HTML attributes, a run URL that is only a link's hover title, a link with no text. An evidence table must
+be a plain grid (no merged cells, no table inside it), so its `Label` column is the column a reader sees. If GitHub
+cannot render the body, the check fails closed. A self-test first proves every rule on HTML samples, and a render test sends the known tricks through
 GitHub's real renderer. Then the PR's own copy of the checker judges the body, and so does the **base branch's** copy
 (read from git), so a PR cannot loosen the checker script it is judged by.
 
@@ -282,8 +283,9 @@ GitHub's real renderer. Then the PR's own copy of the checker judges the body, a
 
 - Each label (the first word of the cell; bold and extra words after it are fine) is one of `live`, `mock`, `manual`,
   `UNVERIFIED`, `BLOCKED`, `review`.
-- Every `live` row has a real link (not just the address as text) to a GitHub Actions run of this repository. No run
-  link means it is not live.
+- Every `live` row has a real, visible link (text or an image, not just the address in an attribute) to a GitHub
+  Actions run of this repository, written as a full `https://github.com/...` address (a run, a job or an attempt of
+  it). No run link means it is not live.
 - A PR that changes anything under `src/` or `tools/` has at least one `live` row, or a `BLOCKED` row that says what
   blocks the live run (after the label, in the same cell or a column to its right).
 
@@ -291,8 +293,8 @@ GitHub's real renderer. Then the PR's own copy of the checker judges the body, a
 `mock`, never `local`; a claim that was not checked is `UNVERIFIED`, never `—`. **Do NOT** label a mock run `live`,
 link an unrelated run, or hide the table or a link in a code block or an HTML comment (neither is counted).
 
-Known gaps: the check needs GitHub's Markdown API (it fails closed when that is down; re-run the job). It proves a
-table and links exist, not that each linked run is green, is on the PR's head, or
+Known gaps: the check needs GitHub's Markdown API (it fails closed when that is down; re-run the job). A table inside
+a collapsed `<details>` counts (a reader can open it). It proves a table and links exist, not that each linked run is green, is on the PR's head, or
 proves the claim next to it (the separate reviewer and the QA PASS line cover that). A PR can edit
 `pr-evidence.yml` itself; like every gate here, that is caught by review and the required-check settings (Vikas's
 decision), not by the workflow.

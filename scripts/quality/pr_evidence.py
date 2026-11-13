@@ -34,86 +34,124 @@ LABELS = {'live', 'mock', 'manual', 'unverified', 'blocked', 'review'}
 API = 'https://api.github.com/markdown'
 
 
+class _Table:
+    def __init__(self):
+        self.rows, self.row, self.cell, self.plain = [], None, None, True
+
+
 class _Tables(html.parser.HTMLParser):
-    """Tables in rendered HTML as [[(cell text, [hrefs], is_header)]] (one list of rows per table)."""
+    """Every table in rendered HTML, with open tables kept on a stack (a table inside a cell is its own table and
+    makes the outer one not plain). A cell is (text, hrefs of links that show something); a merged cell
+    (colspan/rowspan) also makes its table not plain, because its columns no longer line up with the header."""
 
     VOID = {'br', 'img', 'hr', 'input', 'meta', 'link', 'wbr', 'source', 'col', 'area', 'base', 'embed', 'track'}
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.tables, self._stack, self._hidden = [], [], 0
-        self._row = self._cell = None
+        self.tables, self._open, self._tags, self._links = [], [], [], []
+
+    def _top(self):
+        return self._open[-1] if self._open else None
 
     def handle_starttag(self, tag, attrs):
-        if tag in self.VOID:
-            if tag == 'br' and self._cell is not None:
-                self._cell[0].append(' ')
-            return
         names = dict(attrs)
-        hidden = 'hidden' in names or tag in ('template', 'script', 'style')
-        self._stack.append((tag, hidden))
-        self._hidden += hidden
-        if self._hidden:
+        top = self._top()
+        if tag in self.VOID:
+            if top is not None and top.cell is not None:
+                if tag == 'br':
+                    top.cell[0].append(' ')
+                if tag == 'img':                          # an image shows something: its link is visible
+                    for link in self._links:
+                        link[1] = True
             return
+        self._tags.append(tag)
         if tag == 'table':
-            self.tables.append([])
-        elif tag == 'tr' and self.tables:
-            self._row = []
-            self.tables[-1].append(self._row)
-        elif tag in ('td', 'th') and self._row is not None:
-            self._cell = ([], [], tag == 'th')
-            self._row.append(self._cell)
-        elif tag == 'a' and self._cell is not None and names.get('href'):
-            self._cell[1].append(names['href'])
+            if top is not None:
+                top.plain = False                         # a table inside a table: the outer one is not a grid
+            table = _Table()
+            self.tables.append(table)
+            self._open.append(table)
+        elif top is None:
+            return
+        elif tag == 'tr':
+            top.row = []
+            top.rows.append(top.row)
+        elif tag in ('td', 'th') and top.row is not None:
+            if names.get('colspan', '1') != '1' or names.get('rowspan', '1') != '1':
+                top.plain = False
+            top.cell = ([], [])
+            top.row.append(top.cell)
+        elif tag == 'a' and top.cell is not None and names.get('href'):
+            self._links.append([names['href'], False, top.cell])
 
     def handle_endtag(self, tag):
-        if tag not in (t for t, _ in self._stack):
+        if tag not in self._tags:
             return                                         # a stray closing tag closes nothing
-        while self._stack:
-            open_tag, hidden = self._stack.pop()
-            self._hidden -= hidden
-            if open_tag in ('td', 'th'):
-                self._cell = None
-            if open_tag == 'tr':
-                self._row = None
+        while self._tags:
+            open_tag = self._tags.pop()
+            top = self._top()
+            if open_tag == 'a' and self._links:
+                href, shown, cell = self._links.pop()
+                if shown:
+                    cell[1].append(href)
+            elif open_tag in ('td', 'th') and top is not None:
+                top.cell = None
+            elif open_tag == 'tr' and top is not None:
+                top.row = None
+            elif open_tag == 'table' and self._open:
+                self._open.pop()
             if open_tag == tag:
                 break
 
     def handle_data(self, data):
-        if self._cell is not None and not self._hidden:
-            self._cell[0].append(data)
+        top = self._top()
+        if top is not None and top.cell is not None:
+            top.cell[0].append(data)
+            if data.strip():
+                for link in self._links:
+                    link[1] = True
 
 
 def tables(rendered_html):
-    """[(header cell texts, [(row number, [(text, hrefs)])])] for every visible table."""
+    """[(header cell texts, [(row number, [(text, hrefs)])], plain)] for every table on the rendered page."""
     parser = _Tables()
     parser.feed(rendered_html or '')
     parser.close()
     out = []
-    for rows in parser.tables:
-        rows = [[(' '.join(''.join(text).split()), hrefs, is_th) for text, hrefs, is_th in r] for r in rows if r]
+    for table in parser.tables:
+        rows = [[(' '.join(''.join(text).split()), hrefs) for text, hrefs in r] for r in table.rows if r]
         if not rows:
             continue
         header, body = rows[0], rows[1:]
-        out.append(([t for t, _, _ in header], [(n, [(t, h) for t, h, _ in r]) for n, r in enumerate(body, 1)]))
+        out.append(([text for text, _ in header], list(enumerate(body, 1)), table.plain))
     return out
 
 
 def label_of(text):
-    """The first word of a cell, lower-cased, letters only ('UNVERIFIED (no key)' -> 'unverified')."""
-    words = (text or '').split()
+    """The first word with a letter in it, lower-cased, letters only ('UNVERIFIED (no key)' -> 'unverified',
+    a leading emoji is skipped: '✅ live' -> 'live')."""
+    words = [w for w in (text or '').split() if re.search(r'[A-Za-z]', w)]
     return re.sub(r'[^A-Za-z]', '', words[0]).lower() if words else ''
 
 
 def check(rendered_html, changed_files, repo):
     """Problems (plain-words strings); empty means the rendered body passes."""
     problems = []
-    run_link = re.compile(r'^https://github\.com/' + re.escape(repo) + r'/actions/runs/\d+(?:[/?#]|$)', re.IGNORECASE)
+    run_link = re.compile(r'^https://github\.com/' + re.escape(repo)
+                          + r'/actions/runs/\d+(?:/job/\d+|/attempts/\d+)?/?(?:[?#][^/]*)?$', re.IGNORECASE)
     evidence = []
-    for k, (header, rows) in enumerate(tables(rendered_html), 1):
-        cols = [c for c, h in enumerate(header) if label_of(h) == 'label' and len(h.split()) == 1]
-        if cols:
-            evidence.append((k, cols, rows))
+    for k, (header, rows, plain) in enumerate(tables(rendered_html), 1):
+        cols = [c for c, h in enumerate(header) if label_of(h) == 'label'
+                and len([w for w in h.split() if re.search(r'[A-Za-z]', w)]) == 1]
+        if not cols:
+            continue
+        if not plain:
+            problems.append(f'evidence table {k} is not a plain grid (merged cells or a table inside it): write it '
+                            'as a Markdown pipe table')
+            continue
+        evidence.append((k, cols, rows))
+    if not evidence and problems:
+        return problems
     if not evidence:
         return ['the PR body has no evidence table a reader can see: add a Markdown table with a column headed '
                 '"Label" (values: live, mock, manual, UNVERIFIED, BLOCKED, review), one row per claim, outside code '
@@ -243,10 +281,30 @@ def self_test():
     expect('every Label column is judged',
            check(table([['mock', 'round trip', 'live']], ('Label', 'Claim', 'Label')), [], repo) != [])
     expect('a header-only evidence table fails', check(table([]), [], repo) != [])
-    expect('a table inside a hidden element does not count',
-           check(f'<div hidden>{good}</div>', ['src/a.cs'], repo) != [])
-    expect('a link inside a hidden element does not count',
-           check(table([['rt', 'live', f'<span hidden><a href="{run}">r</a></span>']]), [], repo) != [])
+    expect('merged cells (colspan) make the evidence table fail',
+           check('<table><tr><th colspan="2">Claim</th><th>Label</th></tr><tr><td>rt</td><td>mock</td>'
+                 '<td>live</td></tr></table>', [], repo) != [])
+    expect('merged cells (rowspan) make the evidence table fail',
+           check(table([['<span>rt</span>', 'mock', 'x']]).replace('<td><span>', '<td rowspan="2"><span>'), [], repo)
+           != [])
+    expect('a table inside the evidence table makes it fail (rows after it cannot hide)',
+           check(table([['Claude', 'BLOCKED', 'no key today<table><tr><td></td></tr></table>'],
+                        ['real AI round trip', 'live', 'trust me']]), ['src/a.cs'], repo) != [])
+    expect('a table inside a table marks the outer one as not a plain grid',
+           [plain for _, _, plain in tables(table([['a', 'mock', '<table><tr><td>x</td></tr></table>']]))]
+           == [False, True])
+    expect('a link with no text does not count',
+           check(table([['rt', 'live', f'trust me <a href="{run}"></a>']]), [], repo) != [])
+    expect('a link with only whitespace does not count',
+           check(table([['rt', 'live', f'<a href="{run}"> </a>']]), [], repo) != [])
+    expect('an image link counts', check(table([['rt', 'live', f'<a href="{run}"><img src="x.png"></a>']]), [], repo)
+           == [])
+    expect('an emoji before the label is fine', check(table([['rt', '\u2705 live', f'<a href="{run}">r</a>']]),
+                                                     [], repo) == [])
+    expect('a run link that walks out of the run fails',
+           check(table([['rt', 'live', f'<a href="{run}/../../../pull/1">r</a>']]), [], repo) != [])
+    expect('a run attempt link counts', check(table([['rt', 'live', f'<a href="{run}/attempts/2">r</a>']]), [], repo)
+           == [])
     expect('a second table without Label does not disturb the evidence table',
            check(table([['1', '2']], ('a', 'b')) + good, ['src/a.cs'], repo) == [])
     with tempfile.TemporaryDirectory() as tmp:
@@ -255,6 +313,8 @@ def self_test():
                          encoding='utf-8')
         expect('a body GitHub cannot render fails closed',
                run_event(event, repo, out=lambda *_: None, renderer=_broken_renderer) == 1)
+        expect('a PR whose changed files git cannot list fails closed (even with a good table)',
+               run_event(event, repo, out=lambda *_: None, renderer=lambda b, r: good) == 1)
     return _finish(results, 'SELF_TEST')
 
 
@@ -291,6 +351,13 @@ RENDER_CASES = (
      '> | rt | live | [r](https://github.com/{repo}/actions/runs/123) |\n', True),
     ('a bare run URL is autolinked', '| Claim | Label | Proof |\n|-|-|-|\n'
      '| rt | live | https://github.com/{repo}/actions/runs/123 |\n', True),
+    ('merged cells shift the Label column', '<table><tr><th colspan="2">Claim</th><th>Label</th></tr>\n'
+     '<tr><td>real AI round trip</td><td>mock</td><td>live</td></tr></table>\n', False),
+    ('a table inside the evidence table', '<table><tr><th>Claim</th><th>Label</th><th>Proof</th></tr>\n'
+     '<tr><td>Claude</td><td>BLOCKED</td><td>no key today<table><tr><td></td></tr></table></td></tr>\n'
+     '<tr><td>real AI round trip</td><td>live</td><td>trust me</td></tr></table>\n', False),
+    ('a run link with no text', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| rt | live | trust me <a href="https://github.com/{repo}/actions/runs/123"></a> |\n', False),
 )
 
 
@@ -325,6 +392,8 @@ def run_event(event_path, repo, out=print, renderer=None):
 
 
 def main(argv):
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     repo = os.environ.get('GITHUB_REPOSITORY', 'vikas53953/bluey')
     token = os.environ.get('GITHUB_TOKEN')
     if argv == ['--self-test']:
