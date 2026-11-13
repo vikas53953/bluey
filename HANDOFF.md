@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #34 merged**, with `lane/face` at `f3b2c32` (PR #34); PR #44 (Vikas's 13 Nov decisions) (OpenAI only, cheap models, every notch state, phase gates) on top.
+Status last updated: **13 Nov 2026, after PR #34 merged**, with `lane/face` at `f3b2c32` (PR #34); PR #44 on top: Vikas's 13 Nov decisions (OpenAI only, cheap models, every notch state, phase gates).
 
 ---
 
@@ -180,10 +180,10 @@ screenshot a key; logs record lengths only.
 9. **Secrets:** names only. Never print a key, write one to disk logs, or put one in a screenshot.
 10. **Reports for Vikas** are short, plain words (no jargon), and anything he must review is a visual page.
 
-## 6. Live QA scope (as of 12 Nov)
+## 6. Live QA scope (as of 13 Nov)
 
-Only the **OpenAI** key is in use, for chat **and voice** (Vikas, 13 Nov 2026: one provider). **Claude (Anthropic) and Gemini are out of scope** (their code paths remain, untested); **voice is in scope and must be live-tested**. Earlier wording, kept for history: "Claude (Anthropic), Gemini and voice are UNVERIFIED: not tested, by
-choice.** Mark them that way, not as BLOCKED and not as green.
+Only the **OpenAI** key is in use, for chat **and voice** (Vikas, 13 Nov 2026: one provider). **Claude (Anthropic) and Gemini are out of scope** (their code paths remain, untested); **voice is in scope and must be live-tested**. (Until 12 Nov the wording was "Claude (Anthropic), Gemini and voice
+are UNVERIFIED: not tested, by choice"; that is superseded.)
 
 ## 7. Current status
 

@@ -658,7 +658,7 @@ fixing it; Phase 3's fuzz uses it as its action vocabulary. Boo already has `--n
 | 2.10 | `live-journeys` required check | S | Branch protection shows it; a PR without a live run cannot merge |
 | 2.11 | **Every notch state tested** (Vikas, 13 Nov): Listening, Nudge, Paused, Stop, the second Undo and every state in PR #27's notch map, each driven live on `windows-latest` with evidence | M | Each state has a live journey step with screenshots and a run link; the feature map has no `UNVERIFIED` notch-state row |
 
-**Effort:** about 13 PRs, 3–4 weeks. The big one is 2.6 (moving behaviour out of 4,163 lines of code-behind);
+**Effort:** about 14 PRs (row 2.11 added 13 Nov), 3–4 weeks. The big one is 2.6 (moving behaviour out of 4,163 lines of code-behind);
 everything else is additive.
 
 **Risks:**
