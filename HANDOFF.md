@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #37 merged**, with `lane/face` at `34473d6` (PR #37; PR #31 at `a3ba89e` and PR #33 at `2433397` before it); PR #34 (agent-trust Phase 1 PR 1.10, evidence-table check) synced on top.
+Status last updated: **13 Nov 2026, after PR #34 merged**, with `lane/face` at `f3b2c32` (PR #34); docs PR "Vikas's 13 Nov decisions" (OpenAI only, cheap models, every notch state, phase gates) on top.
 
 ---
 
@@ -182,7 +182,7 @@ screenshot a key; logs record lengths only.
 
 ## 6. Live QA scope (as of 12 Nov)
 
-Only the **OpenAI** key is in use for live QA. **Claude (Anthropic), Gemini and voice are UNVERIFIED: not tested, by
+Only the **OpenAI** key is in use, for chat **and voice** (Vikas, 13 Nov 2026: one provider). **Claude (Anthropic) and Gemini are out of scope** (their code paths remain, untested); **voice is in scope and must be live-tested**. Earlier wording, kept for history: "Claude (Anthropic), Gemini and voice are UNVERIFIED: not tested, by
 choice.** Mark them that way, not as BLOCKED and not as green.
 
 ## 7. Current status
@@ -221,6 +221,7 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | [#9](https://github.com/vikas53953/bluey/pull/9), [#8](https://github.com/vikas53953/bluey/pull/8), [#7](https://github.com/vikas53953/bluey/pull/7) | lanes → `lane/face` | merged 8 Nov | Perf budgets; Velopack installer + opt-in updates; security hardening. |
 | [#4](https://github.com/vikas53953/bluey/pull/4) | → `main` | merged 8 Nov (`384241a`) | FlaUI UI smoke in windows-ci. |
 | [#1](https://github.com/vikas53953/bluey/pull/1), [#2](https://github.com/vikas53953/bluey/pull/2), [#5](https://github.com/vikas53953/bluey/pull/5), [#6](https://github.com/vikas53953/bluey/pull/6) | lanes → `main` | closed 12 Nov | **Superseded**: all their commits are already in `lane/face`. |
+| PR decisions-13nov | `docs/vikas-decisions-13nov` → `lane/face` | **open** | Docs only: records Vikas's 13 Nov decisions (OpenAI only for chat and voice, Claude/Gemini out of scope; cheapest OpenAI models in tests; every notch state tested, plan row 2.11; phase gates, plan section 7; Vikas's 10-minute pre-release check). QA verdict in the PR body. |
 
 Each PR's latest evidence table and verdict is in its own latest QA comment. This table only tracks state.
 
@@ -288,7 +289,7 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 
 ### UNVERIFIED (not proven on `lane/face`)
 
-- **Claude (Anthropic) and Gemini** text providers against the live APIs (no keys set; by choice).
+- **Claude (Anthropic) and Gemini** text providers: **out of scope** since 13 Nov 2026 (OpenAI only); not tested.
 - **Voice** (OpenAI Realtime, hold-to-talk) as a live round trip on `lane/face`. PR #12's builder reports one live
   voice turn on `feat/living-ink`; not re-verified independently.
 - **Pointer + ring with a real model, beyond PR #13's one target.** Since PR #13 merged (`13e5484`), its live journey j3 proves the
