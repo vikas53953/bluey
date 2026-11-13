@@ -39,6 +39,7 @@ PLAIN = {
     'S4': 'Focus Start / Pause (notch Paused) / Resume / End',
     'S5': 'Settings saved to file; a new Boo starts with the same choices',
     'Q7': 'Hover edges: all four real-clock branches (no AI key)',
+    'Q18': 'Newer typed request only answer during 15-second watch (partial j18)',
     'Q16': 'Second approved file Undo restores exact contents (partial j16; field pending)',
     'Q15': 'Approval Cancel / Escape / replacement (partial j15 a-c)',
     'Q13': 'Focus edges: End from Paused and replace Running (no AI key; partial j13)',
@@ -76,7 +77,7 @@ JOURNEYS = [
     ('j15', 'Approval card edges (a-c driven by Q15; d-e pending)', []),
     ('j16', 'Second undo (file branch Q16; field branch pending)', []),
     ('j17', 'Voice ends itself and drives focus', 'voice'),
-    ('j18', 'Newer request wins', []),
+    ('j18', 'Newer request wins (typed Q18; ring and face ownership pending)', []),
 ]
 STATES = ['Hidden', 'Hover', 'Idle', 'Listening', 'Thinking', 'Responding', 'Capture', 'Nudge', 'Paused', 'Happy']
 
