@@ -85,8 +85,11 @@ public partial class MainWindow
         }
     }
 
-    // A class, not a record: every row must be its own item. Two equal records collapsed into ONE row for screen readers
-    // (WPF keys a list item's automation peer by the item) and made ScrollIntoView jump to the older copy (issue #73).
+    /// <summary>
+    /// One Conversation row. A class, not a record: every row must be its own item. Two equal records collapsed into
+    /// ONE row for screen readers (WPF keys a list item's automation peer by the item) and made ScrollIntoView jump to
+    /// the older copy (issue #73).
+    /// </summary>
     private sealed class TranscriptLine(string speaker, string text)
     {
         public string Speaker { get; } = speaker;
