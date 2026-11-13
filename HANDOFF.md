@@ -6,9 +6,9 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #36 merged**, with `lane/face` at `f232474` (PR #36; PR #34 at `f3b2c32`, PR #37 at
-`34473d6`, PR #31 at `a3ba89e` and PR #33 at `2433397` before it); PR #28 (Phase 1 PR 1.3, banned APIs, rebuilt on the build facts)
-synced on top.
+Status last updated: **13 Nov 2026, after PR #44 merged**, with `lane/face` at `4e92aec` (PR #44, Vikas's 13 Nov decisions; PR #36 at
+`f232474`, PR #34 at `f3b2c32`, PR #37 at `34473d6` before it); PR #28 (Phase 1 PR 1.3, banned APIs, rebuilt on the build
+facts) synced on top.
 
 ---
 
@@ -183,10 +183,10 @@ screenshot a key; logs record lengths only.
 9. **Secrets:** names only. Never print a key, write one to disk logs, or put one in a screenshot.
 10. **Reports for Vikas** are short, plain words (no jargon), and anything he must review is a visual page.
 
-## 6. Live QA scope (as of 12 Nov)
+## 6. Live QA scope (as of 13 Nov)
 
-Only the **OpenAI** key is in use for live QA. **Claude (Anthropic), Gemini and voice are UNVERIFIED: not tested, by
-choice.** Mark them that way, not as BLOCKED and not as green.
+Only the **OpenAI** key is in use, for chat **and voice** (Vikas, 13 Nov 2026: one provider). **Claude (Anthropic) and Gemini are out of scope** (their code paths remain, untested); **voice is in scope and must be live-tested**. (Until 12 Nov the wording was "Claude (Anthropic), Gemini and voice
+are UNVERIFIED: not tested, by choice"; that is superseded.)
 
 ## 7. Current status
 
@@ -195,7 +195,7 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 PRs into `lane/face` must be **up to date** with it to merge, so every merge makes the others BEHIND. Sync by merging
 `origin/lane/face` into the branch (no force push), then re-run CI and one live smoke on the new head.
 
-| PR | Branch → base | State (13 Nov, after PR #36) | Notes |
+| PR | Branch → base | State (13 Nov, after PR #44) | Notes |
 | --- | --- | --- | --- |
 | [#28](https://github.com/vikas53953/bluey/pull/28) | `quality/banned-apis` → `lane/face` | **open** | Phase 1 PR 1.3, judged on the **shipped** build: `Microsoft.CodeAnalysis.BannedApiAnalyzers` on every `src/` project (`Directory.Build.props`); `src/BannedSymbols.txt` (86 lines, every overload, generated from the .NET reference packs); today's 25 hits baselined per member in `src/*/AnalyzerBaseline.cs` with exact counts (re-measured after PR #33). In `windows-ci`, right after "Build facts": `banned_apis.py judge` checks every `src/` compile of the build and the publish (SDK csc only, both ban analyzers, exactly `src/BannedSymbols.txt`, no response file, no RS0030 option, no analyzer config touching RS0030, RS0030 results of a replay of each compile, made by the build-facts reader after the build, = baselines) and `compile_list.py` checks the files csc got against what the ratchet reads; the base branch's copy judges the same facts on PRs. `quality-gates` keeps `list-check`, the canary, `format` and the base `rise-check`; the ubuntu build of `src/` is gone. Touches `src/` only by adding/updating `AnalyzerBaseline.cs` (no behaviour change), so it still needs the per-PR live smoke. See `docs/quality/RULES.md`. |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
@@ -226,6 +226,7 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | [#9](https://github.com/vikas53953/bluey/pull/9), [#8](https://github.com/vikas53953/bluey/pull/8), [#7](https://github.com/vikas53953/bluey/pull/7) | lanes → `lane/face` | merged 8 Nov | Perf budgets; Velopack installer + opt-in updates; security hardening. |
 | [#4](https://github.com/vikas53953/bluey/pull/4) | → `main` | merged 8 Nov (`384241a`) | FlaUI UI smoke in windows-ci. |
 | [#1](https://github.com/vikas53953/bluey/pull/1), [#2](https://github.com/vikas53953/bluey/pull/2), [#5](https://github.com/vikas53953/bluey/pull/5), [#6](https://github.com/vikas53953/bluey/pull/6) | lanes → `main` | closed 12 Nov | **Superseded**: all their commits are already in `lane/face`. |
+| [#44](https://github.com/vikas53953/bluey/pull/44) | `docs/vikas-decisions-13nov` → `lane/face` | **merged 13 Nov** (`4e92aec`) | Docs only: records Vikas's 13 Nov decisions (OpenAI only for chat and voice, Claude/Gemini out of scope; cheapest OpenAI models in tests; every notch state tested, plan row 2.11; phase gates, plan section 7; Vikas's 10-minute pre-release check). QA verdict in the PR body. |
 
 Each PR's latest evidence table and verdict is in its own latest QA comment. This table only tracks state.
 
@@ -293,7 +294,7 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 
 ### UNVERIFIED (not proven on `lane/face`)
 
-- **Claude (Anthropic) and Gemini** text providers against the live APIs (no keys set; by choice).
+- **Claude (Anthropic) and Gemini** text providers: **out of scope** since 13 Nov 2026 (OpenAI only); not tested.
 - **Voice** (OpenAI Realtime, hold-to-talk) as a live round trip on `lane/face`. PR #12's builder reports one live
   voice turn on `feat/living-ink`; not re-verified independently.
 - **Pointer + ring with a real model, beyond PR #13's one target.** Since PR #13 merged (`13e5484`), its live journey j3 proves the
