@@ -152,6 +152,13 @@ def tables(rendered_html):
     return out
 
 
+def _letterlike(ch):
+    """A non-ASCII character that reads as a letter or digit: a letter or number in any script, or one whose
+    compatibility form contains A-Z/0-9 (circled, full-width, Roman-numeral look-alikes). Emoji, punctuation, spaces
+    and marks are not."""
+    return unicodedata.category(ch)[0] in 'LN' or bool(re.search(r'[A-Za-z0-9]', unicodedata.normalize('NFKC', ch)))
+
+
 def label_of(text):
     """The first word with a letter in it, lower-cased, letters only ('UNVERIFIED (no key)' -> 'unverified',
     a leading emoji is skipped: '✅ live' -> 'live')."""
@@ -173,21 +180,21 @@ def check(rendered_html, changed_files, repo):
                             'strikethrough and code in its cells')
             continue
         foreign = [ch for text in header + [x for _, cells in rows for x, _ in cells] for ch in text
-                   if ord(ch) > 127 and unicodedata.category(ch).startswith('L')]
+                   if ord(ch) > 127 and _letterlike(ch)]
         if foreign:
-            problems.append(f'table {k} has letters outside plain A-Z (for example "{foreign[0]}", '
-                            f'U+{ord(foreign[0]):04X}): a look-alike letter could hide a label from this check; use '
-                            'plain ASCII letters in tables')
+            problems.append(f'table {k} has a letter or digit outside plain A-Z and 0-9 (for example '
+                            f'"{foreign[0]}", U+{ord(foreign[0]):04X}): a look-alike character could hide a label '
+                            'from this check; use plain ASCII letters in tables')
             continue
         cols = [c for c, h in enumerate(header) if label_of(h) == 'label'
                 and len([w for w in h.split() if re.search(r'[A-Za-z]', w)]) == 1]
         if cols:
             evidence.append((k, cols, rows))
             continue
-        for n, cells in rows:
+        for n, cells in [(0, [(h, []) for h in header])] + rows:
             if any(label_of(text) == 'live' for text, _ in cells):
-                problems.append(f'table {k}, row {n}: a "live" cell in a table without a Label column (is the header '
-                                'misspelled?); put claims in the evidence table')
+                problems.append(f'table {k}, ' + (f'row {n}' if n else 'header row') + ': a "live" cell in a table '
+                                'without a Label column (is the header misspelled?); put claims in the evidence table')
     if not evidence and problems:
         return problems
     if not evidence:
@@ -372,6 +379,11 @@ def self_test():
            != [])
     expect('full-width letters fail the table',
            check(good + table([['rt', '\uff4c\uff49\uff56\uff45']], ('Claim', 'Status')), ['src/a.cs'], repo) != [])
+    for name, word in (('Roman-numeral look-alikes', '\u217c\u2170ve'), ('circled letters', '\u24db\u24d8\u24e5\u24d4')):
+        expect(f'{name} fail the table', check(good + table([['rt', word]], ('Claim', 'Status')), ['src/a.cs'], repo)
+               != [])
+    expect('a live claim in the header row of a table without a Label column fails',
+           check(good + table([], ('real AI round trip', 'live (OpenAI)', 'trust me')), ['src/a.cs'], repo) != [])
     expect('emoji and dashes are not letters: they pass',
            check(table(rows + [['x \u2014 y', 'mock \u2705', 'z']]), ['src/a.cs'], repo) == [])
     expect('struck-out text is not read: "~~mock~~ live" is a live row and needs a run link',
@@ -481,6 +493,12 @@ RENDER_CASES = (
     ('full-width live in a Status table', '| Claim | Label | Proof |\n|---|---|---|\n'
      '| live run | BLOCKED | no runner today |\n\n| Claim | Status | Proof |\n|---|---|---|\n'
      '| real AI round trip | \uff4c\uff49\uff56\uff45 (OpenAI) | trust me |\n', False),
+    ('Roman-numeral look-alike live', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| live run | BLOCKED | no runner today |\n\n| Claim | Status | Proof |\n|---|---|---|\n'
+     '| real AI round trip | \u217c\u2170ve (OpenAI) | trust me |\n', False),
+    ('a live claim as the header row', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| live run | BLOCKED | no runner today |\n\n| real AI round trip | live (OpenAI) | trust me |\n|---|---|---|\n',
+     False),
     ('a struck-out run link', '| Claim | Label | Proof |\n|---|---|---|\n'
      '| rt | live | ~~[run](https://github.com/{repo}/actions/runs/123)~~ |\n', False),
     ('commit and PR autolinks, emoji, code in cells pass', '| Claim | Label | Proof |\n|---|---|---|\n'

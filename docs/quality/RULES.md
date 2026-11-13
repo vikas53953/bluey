@@ -272,9 +272,10 @@ rows before the header, a footer, a table inside a table), and raw HTML inside a
 `<span>`, ...) can hide text or links from the reader. So any table that does not have exactly the shape GitHub gives a
 pipe table, or whose cells hold anything but text, links, bold, italic, strikethrough, code, emoji, images and line
 breaks, fails the check (footnotes and math in a cell fail too). Struck-out text (`~~...~~`) is not read, as a
-reader would not read it: `~~mock~~ live` is a live row. A cell starting with `live` in a table without a `Label`
-column (for example a misspelled header) also fails, and so does any table with letters outside plain A-Z (a
-look-alike letter, such as a Cyrillic `а`, could hide a label). Only tables are evidence: a claim written in prose,
+reader would not read it: `~~mock~~ live` is a live row. Any cell starting with `live` in a table without a `Label`
+column (header row included; for example a misspelled header) also fails, and so does any table with a letter or digit
+outside plain A-Z and 0-9 (a look-alike such as a Cyrillic `а`, a circled `ⓛ` or a Roman-numeral `ⅼ` could hide a
+label). Emoji and punctuation are fine. Only tables are evidence: a claim written in prose,
 a list or a code block is not checked and does not count. If GitHub cannot render the body, the check fails closed. A self-test first proves every rule on HTML samples, and a render test sends the known tricks through
 GitHub's real renderer. Then the PR's own copy of the checker judges the body, and so does the **base branch's** copy
 (read from git), so a PR cannot loosen the checker script it is judged by.
@@ -300,6 +301,11 @@ GitHub's real renderer. Then the PR's own copy of the checker judges the body, a
 `mock`, never `local`; a claim that was not checked is `UNVERIFIED`, never `—`. **Do NOT** label a mock run `live`,
 link an unrelated run, or hide the table or a link in a code block or an HTML comment (neither is counted).
 
+What this check is for: it catches a missing or sloppy evidence table and every trick its reviews found (listed in
+the self-test and the render test). It cannot prove an author is honest: a claim written so that it does not look
+like a label (`tested live`), a broken image whose alt text says "live", or a link to a run that proves nothing all
+pass it. The separate reviewer and the QA PASS line remain the judge of whether the evidence is true.
+
 Known gaps: the check needs GitHub's Markdown API (it fails closed when that is down; re-run the job). A table inside
 a collapsed `<details>` counts (a reader can open it). It proves a table and links exist, not that each linked run is green, is on the PR's head, or
 proves the claim next to it (the separate reviewer and the QA PASS line cover that). A PR can edit
@@ -308,7 +314,7 @@ decision), not by the workflow.
 
 ## BOO-TEST-001
 **A skipped or empty test outside `tests/`.** `scripts/test_gate.py static` (in `windows-ci`) checks every xUnit
-test project in the repository, wherever it lives (today the 7 under `tests/` and `tools/Boo.CaptureProof`,
+test project in the repository, wherever it lives (a test fixture project that references xUnit is checked too) (today the 7 under `tests/` and `tools/Boo.CaptureProof`,
 `tools/Boo.LiveSmoke`, `tools/Boo.VerifyLive`): no empty `.cs` file, every `*Tests.cs` file declares a `[Fact]` or
 `[Theory]`, every test project declares a test, and no `Skip =` on any test attribute.
 

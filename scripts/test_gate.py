@@ -1,7 +1,8 @@
 """Fail the build when tests can pass vacuously. Never read secrets.
 
   python -I scripts/test_gate.py static
-      Source check over every xUnit test project anywhere in the repo (tests/, tools/, ...; rule BOO-TEST-001):
+      Source check over every xUnit test project anywhere in the repo (tests/, tools/, fixtures that reference
+      xUnit too; rule BOO-TEST-001):
       - no empty or whitespace-only .cs file (8185c1d emptied a 474-line test file and CI stayed green);
       - every *Tests.cs / *Tests.<part>.cs file declares at least one [Fact] or [Theory];
       - every test project declares at least one test;
