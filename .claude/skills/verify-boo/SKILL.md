@@ -96,12 +96,17 @@ An evidence table, one row per feature or check you touched, every row with a la
 
 | Feature / check | Label | Evidence |
 | --- | --- | --- |
-| Research shows real source links | live | https://github.com/vikas53953/bluey/actions/runs/NNN (j4-research-sources.boo-0.png, j4-research.txt) |
+| Research shows real source links | live | https://github.com/vikas53953/bluey/actions/runs/NNN (the panel image `j4-research-sources.boo-<n>.png` named in `j4-research-sources.capture.txt`, and `j4-research.txt`) |
 | Research edge cases | mock | windows-ci run link (ResearchSourcesTests) |
 | Pointer at 150 % scaling | manual | runbook 4.2, not run yet = UNVERIFIED |
 
 Then one line: `QA PASS — <full head SHA>` or `QA FAIL — <full head SHA>: <reason>`. Look at the screenshots yourself
 before writing PASS: a test that passed with a wrong-looking screen is a finding, not a pass.
+
+Screenshots are of Boo's own windows only (never the desktop): each capture moment saves one image per visible Boo
+window, `<moment>.boo-0.png`, `<moment>.boo-1.png`, ..., and `<moment>.capture.txt` says which number is which window
+("Boo companion" = the panel, "Open Boo companion" = the notch, "Boo screen explanation" = the pointer/ring overlay).
+The numbers follow window order, so read the `.capture.txt` before citing an image; never assume `boo-0` is the panel.
 
 ## How to maintain (keep the skill and the map true)
 

@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #21 merged (06:12 IST)**, with `lane/face` at `1c82af8`.
+Status last updated: **13 Nov 2026, after PR #13 merged (06:43 IST)**, with `lane/face` at `13e5484`.
 
 ---
 
@@ -192,11 +192,11 @@ choice.** Mark them that way, not as BLOCKED and not as green.
 PRs into `lane/face` must be **up to date** with it to merge, so every merge makes the others BEHIND. Sync by merging
 `origin/lane/face` into the branch (no force push), then re-run CI and one live smoke on the new head.
 
-| PR | Branch → base | State (13 Nov, after PR #21) | Notes |
+| PR | Branch → base | State (13 Nov, after PR #13) | Notes |
 | --- | --- | --- | --- |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
 | [#22](https://github.com/vikas53953/bluey/pull/22) | `fix/demo-step4-state-race` → `lane/face` | **merged 13 Nov** (`af241fa`) | Demo Step 4 test race fix: re-read the notch state after the button search; oracle revisions 22–23 (`docs/verification/test-oracle-revision-22.md`). |
-| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | **open**, synced with `1c82af8` (PR #21); the QA verdict for the current head is in the PR description | `verify-boo` skill (`.claude/skills/verify-boo`), live journeys j0–j6 (`tools/Boo.VerifyLive`), `docs/FEATURE_MAP.md`, prove-it rule (AGENTS.md, CLAUDE.md), `journeys` input on `live-ai-smoke` (journeys run only on a manual dispatch with `journeys=true`, never on the per-PR run). Also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks; inside a string, so the quality ratchet stays at 554). Since PR #18 the journeys capture Boo's windows only (j3 reads the ring and pointer from Boo's overlay rendered from its own content; "target in front" is asked of Windows), and the skill's local runner refuses to run on a personal PC. Last QA PASS at `d2f9827` (live [43335756258](https://github.com/vikas53953/bluey/actions/runs/43335756258); fresh reviewer REVIEW PASS). |
+| [#13](https://github.com/vikas53953/bluey/pull/13) | `test/verify-boo-skill` → `lane/face` | merged 13 Nov 06:43 IST (`13e5484`) at QA PASS head `3168e40` | `verify-boo` skill (`.claude/skills/verify-boo`), live journeys j0–j6 (`tools/Boo.VerifyLive`), `docs/FEATURE_MAP.md`, prove-it rule (AGENTS.md, CLAUDE.md), `journeys` input on `live-ai-smoke` (journeys run only on a manual dispatch with `journeys=true`, never on the per-PR run). Also changes `src/Boo.Providers/StructuredReplies.cs` (AI instructions for drawable ring marks; inside a string, so the quality ratchet stays at 554). Since PR #18 the journeys capture Boo's windows only (j3 reads the ring and pointer from Boo's overlay rendered from its own content; "target in front" is asked of Windows), and the skill's local runner refuses to run on a personal PC. Final QA: live [43339557570](https://github.com/vikas53953/bluey/actions/runs/43339557570) (round trip + 7/7 journeys), fresh reviewer REVIEW PASS. Follow-ups: branch `docs/verify-boo-followups` (known issues 11–12). |
 | [#17](https://github.com/vikas53953/bluey/pull/17) | `docs/agent-trust-plan` → `lane/face` | **open** | 3-phase agent trust plan (`docs/plans/agent-trust-plan.md`). |
 | [#18](https://github.com/vikas53953/bluey/pull/18) | `fix/live-smoke-off-desktop` → `lane/face` | **merged 13 Nov** (`00a1fc2`) | Live smoke on GitHub's VM only, with screenshots of Boo's windows only. Removes the self-hosted runner option; runner check in windows-ci; overlay capture proof in demo-ci; oracle revision 24 (3 capture fixtures). Latest completed QA: **QA PASS at `b590f92`** (live [43313942831](https://github.com/vikas53953/bluey/actions/runs/43313942831), windows-ci [43313897620](https://github.com/vikas53953/bluey/actions/runs/43313897620), demo-ci [43313897674](https://github.com/vikas53953/bluey/actions/runs/43313897674)); the head after this sync is re-QA'd in the PR body. |
 | [#20](https://github.com/vikas53953/bluey/pull/20) | `ci/live-smoke-required` → `lane/face` | **merged 13 Nov** (`e1d4b5c`) | Live smoke on every pull request with a final required `live-ai-smoke` job; per-PR concurrency; docs on cost, fork/Dependabot PRs and the gate-edit hole. Latest completed QA: none yet on lane/face base (stacked QA PASS at `ed7ed61`). |
@@ -258,7 +258,7 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    otherwise.
 10. Resolved 13 Nov: the artifact storage quota and the Actions budget block. The repo went public, so standard runners
    are free. On 12 Nov the 8 Nov app copies (168 artifacts, 15.93 GB) were deleted, and uploads work again.
-11. **PR #13 follow-ups (low, from its reviews).** `Test-FeatureMap.ps1` does not catch a map row typed without its
+11. **Open follow-ups from PR #13's reviews (low; PR #13 merged).** `Test-FeatureMap.ps1` does not catch a map row typed without its
    leading `|` or a lowercase ID; a failed restore of Windows animation effects after a live run is only written
    to stderr; Boo's `AnnotationValidator` still drops a whole explanation when one mark is invalid (run 43196068202:
    "The annotation mark bounds are invalid"; PR #13 only tells the AI the mark rules); j3 does not prove its ring is
@@ -267,17 +267,17 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
 12. **Explain requests can hit Boo's 45 s OpenAI limit** (the panel's `HttpClient { Timeout = 45 s }`,
    `MainWindow.xaml.cs`). PR #13 live run 43333049693 ended j3 with Boo's status "OpenAI response timed out. Try again.";
    run 43202679653 failed j3 the same way from the outside, but its cause is UNPROVEN (the test did not yet record Boo's
-   status, and its evidence has expired). Chat, research and Apply/Undo never timed out. The request is Boo's own (its
+   status then, and that run's evidence is no longer available). Chat, research and Apply/Undo never timed out. The request is Boo's own (its
    capture of the display plus the question), so the test's screenshot method cannot cause it; in passing runs the
-   marks arrive in about 6 s (`marksAfterSeconds`). Raising the limit (longer waits vs fewer timeouts) is a product
-   decision for Vikas.
+   marks arrive in about 4 to 6 s (`marksAfterSeconds`: 6.2 s in 43335756258, 4.2 s in 43339557570). Raising the limit
+   (longer waits vs fewer timeouts) is a product decision for Vikas; nothing in the code was changed.
 
 ### UNVERIFIED (not proven on `lane/face`)
 
 - **Claude (Anthropic) and Gemini** text providers against the live APIs (no keys set; by choice).
 - **Voice** (OpenAI Realtime, hold-to-talk) as a live round trip on `lane/face`. PR #12's builder reports one live
   voice turn on `feat/living-ink`; not re-verified independently.
-- **Pointer + ring with a real model, beyond PR #13's one target.** Once PR #13 merges, its live journey j3 proves the
+- **Pointer + ring with a real model, beyond PR #13's one target.** PR #13 (merged) adds live journey j3, which proves the
   ring runs through a known button's edges and the pointer lands on it (passed on `de9492f`, `7c5af8d`, `60930b9`,
   `e86a107`, `87a1442` and, reading Boo's own overlay render, `d2f9827`), on one 1024x768 VM screen. Still
   UNVERIFIED: other targets, other DPI or multiple monitors, and **Windows animation effects off**: Boo then hides the
