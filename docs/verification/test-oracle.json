@@ -1,5 +1,5 @@
 {
-  "revision": 25,
+  "revision": 26,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -61,6 +61,7 @@
     "tests/Boo.Core.Tests/NotchAppearanceTests.cs": "b6c7dde2aeced5c8e067e32ac697592bf9ba7eceb5ee5de488bfe69a9cafd092",
     "tests/Boo.Core.Tests/NotchFaceGeometryTests.cs": "16d87b6bd7380910490cfa6513663bc83096c2a79d4151556a4afbea89a3f9f0",
     "tests/Boo.Core.Tests/NotchLayoutTests.cs": "08b9fb2bd60bac708093c203b0fe7b28e0b0da57062601fbacf2bb7391915c0c",
+    "tests/Boo.Core.Tests/NotchLifecycleTests.cs": "0e6b0a801cbf7b80b45faa77e6a5ced5a84901d423a21a82271ae7b5759be4dd",
     "tests/Boo.Core.Tests/OcrNudgeTargetMatcherTests.cs": "16fda5c38efedac9b863cb0b45ef1dd68115ead6ce3be5230e2e92bcf1974236",
     "tests/Boo.Core.Tests/ParityMotionTests.cs": "a25acc807a997524b2b37310a0aab58567de114b484b7c829e3e2356f5dcf745",
     "tests/Boo.Core.Tests/PauseAllShortcutTests.cs": "65696aecc08b8d3b044f60c1bf34c5fc4bed2022ce5b9cdc4de31bcba4bd1f40",
@@ -150,15 +151,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-24.json",
-  "previousManifestSha256": "6e07ed55b22e217da5827ebf4d611f194031de5fca55f0ab80f209b02c4abd89",
-  "revisionReason": "PR 1.11 (agent-trust plan section 2.9): NetArchTest architecture rules BOO-ARCH-001..006, new project tests/Boo.Architecture.Tests; see docs/verification/test-oracle-revision-25.md",
+  "previousManifest": "docs/verification/test-oracle-history/revision-25.json",
+  "previousManifestSha256": "e6347b90077bb84eb87fd4325673ed4694a7a0acb298dfe06c5f47dfb496fb75",
+  "revisionReason": "Agent-trust plan Phase 2, PR 2.4: freeze NotchLifecycleTests (pure notch lifecycle reducer, invariants of plan section 3.2 B)",
   "addedFiles": [
-    "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs",
-    "tests/Boo.Architecture.Tests/Boo.Architecture.Tests.csproj",
-    "tests/Boo.Architecture.Tests/CecilScan.cs"
+    "tests/Boo.Core.Tests/NotchLifecycleTests.cs"
   ],
-  "revisionCommit": "5952a2e31435bb1ed8f80cda5bb410dd4e1c1026",
+  "revisionCommit": "a3ba89e83e3b858e50f920dec6d301cc06ec3d66",
   "changedFiles": [],
   "removedFiles": []
 }
