@@ -135,8 +135,7 @@ def tables(rendered_html):
     out = []
     for table in parser.tables:
         rows = [[(' '.join(''.join(text).split()), hrefs) for text, hrefs in r] for r in table.rows]
-        shaped = table.plain and bool(PIPE_TABLE_SHAPE.match(''.join(table.shape))) and rows \
-            and all(len(r) == len(rows[0]) for r in rows)
+        shaped = table.plain and bool(PIPE_TABLE_SHAPE.match(''.join(table.shape)))
         if not rows:
             out.append(([], [], False))
             continue
