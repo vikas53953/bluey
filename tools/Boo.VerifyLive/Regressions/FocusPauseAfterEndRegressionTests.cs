@@ -9,9 +9,9 @@ using Xunit.Abstractions;
 namespace Boo.VerifyLive.Regressions;
 
 /// <summary>A fresh Boo with no key and speech off: focus controls need no AI, so this costs no request.</summary>
-public sealed class NoKeyBooFixture : BooAppFixture
+public sealed class FocusNoKeyBooFixture : BooAppFixture
 {
-    public NoKeyBooFixture() : base(dir =>
+    public FocusNoKeyBooFixture() : base(dir =>
     {
         Environment.SetEnvironmentVariable("BOO_CAPTURE_SCOPE", "boo-windows");
         new SettingsStore(Path.Combine(dir, "settings.json"))
@@ -27,12 +27,12 @@ public sealed class NoKeyBooFixture : BooAppFixture
 /// The rule this test holds: the Pause button only acts on a RUNNING session (the class of bug: a focus control that
 /// acts on a session state it does not apply to); after End it changes nothing.
 /// </summary>
-public sealed class FocusPauseAfterEndRegressionTests : IClassFixture<NoKeyBooFixture>
+public sealed class FocusPauseAfterEndRegressionTests : IClassFixture<FocusNoKeyBooFixture>
 {
-    private readonly NoKeyBooFixture _boo;
+    private readonly FocusNoKeyBooFixture _boo;
     private readonly ITestOutputHelper _output;
 
-    public FocusPauseAfterEndRegressionTests(NoKeyBooFixture boo, ITestOutputHelper output)
+    public FocusPauseAfterEndRegressionTests(FocusNoKeyBooFixture boo, ITestOutputHelper output)
     {
         _boo = boo;
         _output = output;
@@ -85,7 +85,7 @@ public sealed class FocusPauseAfterEndRegressionTests : IClassFixture<NoKeyBooFi
 
     private FlaUI.Core.AutomationElements.Button Button(Window panel, string id) => Element(panel, id).AsButton();
 
-    private TextBox Box(Window panel, string id) => Element(panel, id).AsTextBox();
+    private FlaUI.Core.AutomationElements.TextBox Box(Window panel, string id) => Element(panel, id).AsTextBox();
 
     private string Name(Window panel, string id) =>
         panel.FindFirstDescendant(cf => cf.ByAutomationId(id)) is { } e ? BooAppFixture.SafeName(e) : string.Empty;
