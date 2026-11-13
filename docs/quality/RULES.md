@@ -256,3 +256,62 @@ Known gaps of the key scan:
 Red proof (13 Nov 2026): run [43359573803](https://github.com/vikas53953/bluey/actions/runs/43359573803) on a
 throwaway branch planted a run-time-built fake key in the test results; the scan before that upload reported
 `OpenAI/Anthropic API key ... The value is not shown`, deleted the file and failed the job (`KEY_SCAN_FAILED 1 of 7`).
+
+## Build facts (the shipped build)
+
+Two gates were once bypassed because they judged a different build from the one that ships (the banned-API gate by a
+per-folder `.editorconfig` and by `<CompilerResponseFile>`; the architecture gate, which evaluated each project alone in
+Debug on Linux, by references that exist only under `Configuration == Release`, a `RuntimeIdentifier`, `_IsPublishing`,
+`SolutionName` or `IsOSPlatform('Windows')`, by `PackageDownload` plus an `Exists()`-guarded import, and by NuGet MSBuild
+SDKs). So the gates now read **facts of the real build**: `windows-ci`'s own Release build of `Boo.sln` and its publish
+of `Boo.App` write binary logs (`-bl`, nothing else changes), and the step **Build facts (the shipped build)** turns them
+into `build-facts.json`. This PR is the plumbing only; the banned-API and architecture judges are added on top later.
+
+**What is captured** (`scripts/quality/buildfacts`, a small .NET reader pinned to `MSBuild.StructuredLogger` 2.3.269
+and Roslyn 5.6.0 with a lock file, restored in locked mode): for every project / target framework / runtime identifier
+evaluated in each log: its global properties, key properties, every imported file (`<= importer`), every skipped import
+with the reason, `PackageReference` / `PackageDownload` / `ProjectReference` / `Reference` / `FrameworkReference`
+items, the packages and download dependencies restored into `obj/project.assets.json`, and the ProjectReferences really
+followed into the compile. For every `Csc` task that ran: its target and the file defining it, the task's assembly, the
+compiler, the whole command line with **every response file expanded** (and each response file's text), each
+`/analyzerconfig:` with its **text**, analyzers, additional files, sources, `/nowarn`, `/warnaserror`, `/ruleset`,
+`/errorlog` (with the SARIF log), Roslyn's own reading of the options, every reference with where it came from
+(ProjectReference, PackageReference, FrameworkReference, direct Reference) and the output assembly with its SHA-256. For
+the whole build: every task that ran (`Task | Target | file defining the target | task assembly`), every copy of an
+assembly with the source's SHA-256, every ReadyToRun compile (input and output with SHA-256) and the runtime packs.
+Paths are repo-relative or under `<dotnet>/`, `<nuget>/`, `<temp>/`, `<home>/`, `<repo-parent-N>/`; the log's
+environment block is never read, and the reader refuses to write a file that still holds a machine path or the user
+name. Same logs, same file (sorted keys).
+
+**What fails closed** (`scripts/quality/build_facts.py check`, exit 1): malformed facts or a failed build; a machine
+path or the user name in the facts; a project of `Boo.sln` without a `Csc` call from `CoreCompile` in the build log; a
+`Csc` call with no output hash, a compiler or task class outside the SDK install, a command-line parse error, a
+response file (the SDK passes none, so build code added it), or a switch not in
+`scripts/quality/buildfacts/known.json`; any task not in `known.json` (so a target added by repo build code, a package
+or an MSBuild SDK that runs a task is unknown until reviewed); and any managed `.dll`/`.exe` in the publish folder that
+does not trace, hash for hash and under its own name, through recorded copies and ReadyToRun compiles to a recorded
+`Csc` output or to a restored package or runtime pack. `--self-test` proves each failure on planted facts.
+`fixtures` builds seven must-fail fixtures (`scripts/quality/buildfacts/fixtures/`) and quotes the facts lines that
+show each bypass: per-folder `.editorconfig` severity, `CompilerResponseFile`, the five conditions, `PackageDownload` +
+`Exists()` import, a NuGet MSBuild SDK, and two tamper fixtures that must fail the check (a `Copy` over the compiled
+assembly right after `CoreCompile`: caught as an unknown task; an `Exec` that copies other code over the published
+`App.dll`: caught as an unknown task and by the hash trace). `learn FACTS` lists task keys and switches that
+`known.json` does not hold yet; adding one is a reviewed change.
+
+Only `build-facts.json` is uploaded (artifact `build-facts`, 7 days, through its key scan); the binary logs never are,
+because they can hold environment values.
+
+**Still open (known holes):**
+- the workflow file itself: a PR can edit `windows-ci.yml` (drop `-bl`, the step, or `known.json`) and judge itself
+  (HANDOFF known issue 0); the first PR has no base-branch judge, so this PR's own copy judges it;
+- build code that lies to the logger: a task that writes files it does not log, or a compiler server or tool that is
+  not what its path says; the facts record what MSBuild logged;
+- a file changed **in place** after the compile by a step the task rule allows (an SDK task fed crafted items): the
+  hash trace compares the publish folder with the compile output as it is on disk when the reader runs, so an
+  overwrite of the compile output itself is caught only by the task rule; replaying the recorded `csc` command (the
+  build is deterministic) would close it;
+- what the code does at run time (reflection, loading other assemblies, `Process.Start`) is not a build fact;
+- the reader and `build_facts.py` run from the PR's own tree and the repo's `Directory.Build.props` applies to the
+  reader's build; a later PR runs the base branch's copy (like the ratchet's `--rise-only`);
+- `known.json` was learned from one build on 13 Nov 2026 (SDK 10.0.403); an SDK or package change that runs a new
+  task fails closed until reviewed.

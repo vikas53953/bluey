@@ -50,8 +50,9 @@ jobs:
       - name: Restore
         run: dotnet restore Boo.sln
 
+      # -bl: binary log of this exact build, read by the build-facts step below (it changes nothing that is built).
       - name: Build
-        run: dotnet build Boo.sln -c Release --no-restore
+        run: dotnet build Boo.sln -c Release --no-restore -bl:artifacts/binlog/build.binlog
 
       # Provider tests use in-memory HTTP handlers; no OpenAI key or other secret is needed.
       - name: Core tests
@@ -74,7 +75,7 @@ jobs:
         run: python -I scripts/test_gate.py trx artifacts/test-results/core artifacts/test-results/integration artifacts/test-results/providers artifacts/test-results/liveguard
 
       - name: Publish app
-        run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
+        run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci -bl:artifacts/binlog/publish.binlog
 
       # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
       # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
@@ -98,6 +99,54 @@ jobs:
           retention-days: 7
           name: boo-win-x64
           path: artifacts/ci
+
+      # Build facts (docs/quality/RULES.md "Build facts (the shipped build)"): read the binary logs of the Release build
+      # and publish above and write build-facts.json (what csc was really given, what was imported and referenced, what
+      # came out, with hashes). Fails closed on malformed facts, an unknown task or compiler switch, a response file, a
+      # solution project without a compile, or a published assembly that does not trace to a judged compile or a
+      # restored package. The fixtures prove each known bypass shows up in the facts. Only build-facts.json is uploaded:
+      # the raw binary logs can hold environment values.
+      - name: Build facts (the shipped build)
+        shell: pwsh
+        run: |
+          dotnet restore scripts/quality/buildfacts/BuildFacts.csproj --locked-mode
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build scripts/quality/buildfacts/BuildFacts.csproj -c Release --no-restore -o artifacts/buildfacts-tool
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force -Path artifacts/build-facts | Out-Null
+          artifacts/buildfacts-tool/BuildFacts.exe --repo . --out artifacts/build-facts/build-facts.json build=artifacts/binlog/build.binlog publish=artifacts/binlog/publish.binlog
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I scripts/quality/build_facts.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I scripts/quality/build_facts.py check artifacts/build-facts/build-facts.json --solution Boo.sln --publish-dir artifacts/ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I scripts/quality/build_facts.py fixtures --extractor artifacts/buildfacts-tool/BuildFacts.exe --work "$env:RUNNER_TEMP/buildfacts-fixtures"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (build facts)
+        id: keyscan_artifacts_build_facts
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/build-facts; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/build-facts' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/build-facts')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload build facts
+        if: ${{ !cancelled() && steps.keyscan_artifacts_build_facts.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: build-facts
+          path: artifacts/build-facts
+          if-no-files-found: warn
 
       # Every notch face state rendered offscreen to PNG (Boo.exe --notch-gallery), uploaded with the UI smoke screenshots.
       - name: Notch face gallery
