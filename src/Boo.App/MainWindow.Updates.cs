@@ -43,7 +43,7 @@ public partial class MainWindow
         ShowUpdateTokenHint(token);
         _updates = CreateUpdateService(token, updates.IncludePrerelease);
         var install = _updates?.InstallKind ?? UpdateInstallKind.Portable;
-        var decision = UpdatePolicy.DecideStartupCheck(updates, install, token is not null, DateTimeOffset.UtcNow);
+        var decision = UpdatePolicy.DecideStartupCheck(updates, install, token is not null, _timeProvider.GetUtcNow());
         switch (decision)
         {
             case UpdateCheckDecision.Check:
@@ -140,7 +140,7 @@ public partial class MainWindow
         _updates = CreateUpdateService(token, updates.IncludePrerelease);
         _availableVersion = null;
         var install = _updates?.InstallKind ?? UpdateInstallKind.Portable;
-        var decision = UpdatePolicy.DecideStartupCheck(updates, install, token is not null, DateTimeOffset.UtcNow);
+        var decision = UpdatePolicy.DecideStartupCheck(updates, install, token is not null, _timeProvider.GetUtcNow());
         SetUpdateStatus(decision == UpdateCheckDecision.Check || decision == UpdateCheckDecision.CheckedRecently
             ? UpdateCheckOutcome.NotChecked
             : OutcomeFor(decision));
@@ -171,7 +171,7 @@ public partial class MainWindow
         try
         {
             _availableVersion = await service.CheckAsync(_updateCancellation.Token);
-            RememberUpdateCheck(DateTimeOffset.UtcNow);
+            RememberUpdateCheck(_timeProvider.GetUtcNow());
             _updateBusy = false;
             SetUpdateStatus(_availableVersion is null ? UpdateCheckOutcome.UpToDate : UpdateCheckOutcome.UpdateAvailable, _availableVersion);
         }
