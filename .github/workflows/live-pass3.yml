@@ -52,7 +52,7 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       BOO_CAPTURE_SCOPE: boo-windows
       PASS_K: ${{ inputs.attempts || 3 }}
-      BOO_LIVE_MODEL: ${{ inputs.model || 'gpt-6-luna' }}
+      BOO_LIVE_MODEL: ${{ inputs.model || 'no-such-model' }}
     steps:
       - name: Refuse unless this is GitHub's own VM (never the owner's PC)
         shell: pwsh
