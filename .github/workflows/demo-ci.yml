@@ -155,16 +155,21 @@ jobs:
           '=====DEMO-SHEET-END====='
 
       # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
-      # (or a real secret) is deleted and the job fails; if the scan cannot prove itself it deletes everything (fail closed).
+      # (or a real secret) is deleted and the job fails; any other failure empties the upload path (fail closed).
+      # Generated from scripts/quality/key_scan.py step_run(); --check-workflows rejects any edit.
       - name: Key scan before upload (demo evidence)
-        if: always()
+        if: ${{ !cancelled() }}
         shell: pwsh
         run: |
-          python -I scripts/quality/key_scan.py --preflight --delete artifacts/demo-evidence
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/demo-evidence; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/demo-evidence' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/demo-evidence')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
 
       - name: Upload demo evidence
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           retention-days: 7
