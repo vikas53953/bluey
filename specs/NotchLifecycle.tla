@@ -6,28 +6,34 @@
 (* PR 2.1). Every action below names the rows of that doc it models, for   *)
 (* example [R1] (reveal timeline), [F3] (face flags), [H4] (hold-to-talk), *)
 (* [Fo2] (focus), [G1] (request generations), [A5] (approval card),        *)
-(* [U6] (undo). Findings F1-F9 of the doc are the "doc findings" below.    *)
+(* [U6] (undo). Findings F1-F10 of the doc are the "doc findings" below.   *)
 (* If the code changes, the doc row, this action and (from PR 2.4) the C#  *)
 (* reducer change together in one PR.                                      *)
 (*                                                                         *)
-(* Abstractions (each one is listed again in specs/README.md):             *)
-(*  - Time is not a number. Timers and the render loop are actions (Tick   *)
-(*    and the Expire actions) with weak fairness; the user and the AI      *)
-(*    provider are actions WITHOUT fairness (they may never act).          *)
+(* THE FAIRNESS RULE (specs/README.md has the table with code lines): an   *)
+(* action is weakly fair if and only if the C# guarantees the step         *)
+(* completes by a LOCAL bound (a timer, a CancelAfter or the 45 s          *)
+(* HttpClient timeout, a cancelled token, a finally after a bounded        *)
+(* await). Events pushed by the provider and awaits with no local bound    *)
+(* (websocket sends: SendTextAsync, CompleteToolAsync, InterruptAsync,     *)
+(* CommitAudioTurnAsync) are never fair; neither is the user. Fairness is  *)
+(* always on the disjunction of ALL outcomes of a step (success and        *)
+(* failure), never on the success branch alone.                            *)
+(*                                                                         *)
+(* Three switches (constants), "none" for today's code:                    *)
+(*  - Plant: a planted, plausible code bug. Each main check has one, and   *)
+(*    scripts/ci/run_tlc.sh requires the check to catch it (red proof).    *)
+(*  - Fix: the obvious fix of one gap finding. The script requires the     *)
+(*    gap to FAIL with Fix = "none" and to PASS with its Fix.              *)
+(*  - MaxActive: how many lanes may be busy at once (see Active).          *)
+(*                                                                         *)
+(* Other abstractions (each one is listed again in specs/README.md):       *)
+(*  - Time is not a number: timers and the render loop are fair actions.  *)
 (*  - Request generations are a "still current" bit (cur) on each piece of *)
-(*    in-flight work instead of a counter. This is exact: generations only *)
-(*    grow and every check in the code is "equal to the current one", so a *)
-(*    thing stops being current at the first BeginRequest / Stop / voice   *)
-(*    session end after it was created, and never becomes current again.   *)
-(*  - At most one typed request, one voice tool call, one spoken undo and  *)
-(*    one focus check are in flight at a time. And at most MaxActive       *)
-(*    "lanes" are busy at once (see Active): behaviours where more lanes   *)
-(*    overlap are not explored. With MaxActive = 2 every PAIR of features  *)
-(*    interacts; 3 is about 8x more states (see specs/README.md).          *)
+(*    in-flight work. This is exact: generations only grow and every check *)
+(*    in the code is "equal to the current one".                           *)
 (*  - "mic" has two parts: micDev = who has the microphone DEVICE open,    *)
-(*    micInd = the notch's microphoneActive indicator (what the face uses, *)
-(*    NotchWindow.xaml.cs:355-359). They differ in one path, see           *)
-(*    TalkUp and INV_PRIV_1_DEVICE.                                        *)
+(*    micInd = the notch's microphoneActive indicator (finding F10).       *)
 (*  - Ghost variables, not app state: effect (what the last step applied), *)
 (*    last (what kind of step produced this state). Both are reset by      *)
 (*    every step, so they cost few extra states.                           *)
@@ -35,12 +41,36 @@
 EXTENDS Naturals
 
 CONSTANTS
-    None,                      \* model value: "nothing here"
-    MaxActive,                 \* how many lanes may be busy at once (see Active)
-    PlantApplyWithoutApprove   \* TRUE only in the red-proof cfg
+    None,       \* model value: "nothing here"
+    MaxActive,  \* how many lanes may be busy at once (see Active)
+    Plant,      \* "none", or one planted bug from Plants (red proofs only)
+    Fix         \* "none", or one gap fix from Fixes (fix runs only)
+
+Plants ==
+    {"none",
+     "PinIgnoresCapture",        \* INV_PRIV_1: starting a capture does not re-pin the notch
+     "ApplyWithoutApprove",      \* INV_APPLY_1: a pending proposal is applied with no Approve
+     "FieldUndoKeepsJournal",    \* INV_APPLY_2_FIELD: a verified field undo forgets to clear the journal
+     "UndoWithoutJournal",       \* INV_APPLY_2_FIELD: a field undo is planned with nothing recorded
+     "CommitIgnoresGeneration",  \* INV_APPLY_3: TryCommit stops checking the generation
+     "StopKeepsMic",             \* INV_TALK_1: Stop forgets to stop the audio device
+     "ReleaseKeepsIndicator",    \* INV_TALK_1_RELEASE: the last release leaves the mic indicator on
+     "EndNotGuarded",            \* INV_FOCUS_AT_MOST_ONE: End after Complete raises a second end event
+     "NoRespondingTimer",        \* LIVE_1_RESPONDING: the Responding moment timer never fires
+     "NoRetractTimer"}           \* LIVE_2: the 900 ms retract delay never fires
+
+Fixes ==
+    {"none",
+     "F4",   \* INV_STOP_1: Stop ends every capture at once and ends a live focus session (with its event)
+     "F5",   \* INV_PRIV_2: a pending capture pins the notch; the grab waits until the notch is out
+     "F6",   \* INV_APPLY_2_FILE: a verified file undo clears the file journal instead of journaling itself
+     "F7",   \* LIVE_1_THINKING: a local Thinking timeout
+     "F9",   \* INV_FOCUS_1_EXACT: replacing or quitting a live session raises its end event
+     "F10"}  \* INV_PRIV_1_DEVICE, INV_TALK_1_DEVICE: the last release stops whichever audio is current
 
 ASSUME MaxActive \in 1..8
-ASSUME PlantApplyWithoutApprove \in BOOLEAN
+ASSUME Plant \in Plants
+ASSUME Fix \in Fixes
 
 VARIABLES
     alive,       \* Boo is running (FALSE after Quit)
@@ -54,11 +84,11 @@ VARIABLES
     micInd,      \* notch microphoneActive indicator (= MainWindow._listening)
     chord,       \* HoldToTalkController: Ctrl+Alt+Space holder
     eyes,        \* HoldToTalkController: eyes holder
-    voice,       \* realtime voice session: "Off" | "Ptt" (push-to-talk) | "Other" (Talk button) | "Text" (typed hand-off, no audio)
+    voice,       \* realtime voice session: "Off" | "Ptt" | "Other" (Talk button) | "Text" (typed hand-off, no audio)
     typed,       \* in-flight typed request, or None
     vtool,       \* in-flight voice tool call (screen_help), or None
     vundo,       \* in-flight spoken "undo", or None
-    fcheck,      \* focus check capture in flight
+    fcheck,      \* focus check: "None" | "Pre" (only with Fix F5) | "On" (capturing / classifying)
     card,        \* approval card (proposal + Pending/Executing), or None
     ticket,      \* approval ticket = the approved proposal's digest, or None
     fileJ,       \* FileUndoJournal top entry: "none" | "edit" | "undo" (an entry written BY an undo)
@@ -66,7 +96,7 @@ VARIABLES
     focus,       \* focus session: "Off" (none or Ended) | "Running" | "Paused"
     focusEnds,   \* end events raised for the current focus session (_endRaised)
     effect,      \* ghost: what the last step applied, or None
-    last         \* ghost: "Other" | "Stop" | "QuietEnd" (a live focus session closed with no end event)
+    last         \* ghost: "Other" | "Input" | "Stop" | "QuietEnd" | "Replaced" (see the checks)
 
 flagV  == <<thinking, responding, nudge, happy>>
 micV   == <<micDev, micInd, chord, eyes, voice>>
@@ -85,28 +115,36 @@ Targets   == {"File", "Field"}
 Proposals == [id : Ids, kind : Kinds, target : Targets]
 OtherId(i) == IF i = "p1" THEN "p2" ELSE "p1"
 Live      == {"Running", "Paused"}
+Caps      == {"Pre", "On", "Off"}
 
-TypedReqs == [kind : {"Ask", "Undo"}, cur : BOOLEAN, cap : {"Pre", "On", "Off"}]
-ToolReqs  == [cur : BOOLEAN, cap : {"Pre", "On"}]
-UndoReqs  == [cur : BOOLEAN]
+\* path: "Plain" = answered over HTTP (speech off or muted; also every typed undo), "Voice" = speech on, so
+\* the text may be handed to a voice session (an unbounded websocket send).
+TypedReqs == [kind : {"Ask", "Undo"}, cur : BOOLEAN, cap : Caps, path : {"Plain", "Voice"}]
+\* st: "Work" = capture and HTTP answer; "Send" = answer done, CompleteToolAsync still pending.
+ToolReqs  == [cur : BOOLEAN, cap : Caps, st : {"Work", "Send"}]
+UndoReqs  == [cur : BOOLEAN, cap : Caps]
 Cards     == [p : Proposals, st : {"Pending", "Executing"}, cur : BOOLEAN]
 Effects   == [p : Proposals, ticket : Proposals \cup {None}, cur : BOOLEAN,
-              journal : {"none", "edit", "undo"}]
+              journal : {"none", "edit", "undo"}, ok : BOOLEAN]
 
 -----------------------------------------------------------------------------
 (* What the notch shows *)
 
+CapOn(x) == x # None /\ x.cap = "On"
+CapPre(x) == x # None /\ x.cap = "Pre"
+
 \* Capture indicator: any capture operation open (CaptureActivityTracker). [F14] [F15]
-CaptureOn ==
-    \/ typed # None /\ typed.cap = "On"
-    \/ vtool # None /\ vtool.cap = "On"
-    \/ vundo # None
-    \/ fcheck
+CaptureOn == CapOn(typed) \/ CapOn(vtool) \/ CapOn(vundo) \/ fcheck = "On"
+
+\* Fix F5 only: a capture that is about to start pins the notch first.
+PrePin == Fix = "F5" /\ (CapPre(typed) \/ CapPre(vtool) \/ CapPre(vundo) \/ fcheck = "Pre")
 
 \* "Pinned" = the face would be non-Hidden without the pointer (NotchWindow.xaml.cs:510-512). [R9]
 \* The Paused face comes from FocusPaused, which every path keeps equal to (focus = "Paused") [F19] [F20].
 \* UserHidden, FaceInputs.Listening and FaceInputs.CaptureActive are never set by the app (doc finding F2).
-Pinned == CaptureOn \/ micInd \/ responding \/ thinking \/ nudge \/ happy \/ focus = "Paused"
+Pinned ==
+    \/ CaptureOn /\ Plant # "PinIgnoresCapture"
+    \/ PrePin \/ micInd \/ responding \/ thinking \/ nudge \/ happy \/ focus = "Paused"
 Want   == hovered \/ Pinned
 
 \* FaceStateResolver.Resolve priority (NotchFace.cs:38-53), section 3.2 of the doc.
@@ -140,7 +178,7 @@ Quiet == Face \in {"Hidden", "Idle", "Hover"} /\ micDev = "Off" /\ ~micInd /\ ~C
 \* session, a hold, a live focus session. Next never goes above MaxActive (a model bound, not app behaviour).
 B(c) == IF c THEN 1 ELSE 0
 Active ==
-    B(typed # None) + B(vtool # None) + B(vundo # None) + B(fcheck) + B(card # None)
+    B(typed # None) + B(vtool # None) + B(vundo # None) + B(fcheck # "None") + B(card # None)
   + B(voice # "Off") + B(chord \/ eyes) + B(focus \in Live)
 
 -----------------------------------------------------------------------------
@@ -148,6 +186,9 @@ Active ==
 
 \* A piece of in-flight work stops being current (generation bump). [G1] [G2] [G3] [G4]
 Stale(x) == IF x = None THEN None ELSE [x EXCEPT !.cur = FALSE]
+
+\* Fix F4 only: Stop ends a capture operation at once.
+CapEnd(x) == IF x = None \/ Fix # "F4" THEN x ELSE [x EXCEPT !.cap = "Off"]
 
 \* New request / Stop / voice session end: a pending card is cleared [A3]; an executing one keeps running but
 \* is no longer current, so TryCommit refuses its effects [G5].
@@ -162,19 +203,30 @@ UndoCardFor(t) == [p |-> [id |-> "p1", kind |-> "Undo", target |-> t], st |-> "P
 \* Simplification: a reply that arrives while a card is already up drops its actions.
 ProposeCard(propose, t) == IF propose /\ card = None THEN EditCard(t) ELSE card
 
-\* [U1] the file journal wins if it holds something, else the field journal; [U2] nothing -> no card;
-\* [U3] [U4] a plan can be refused (file changed since, newer field change, ambiguous control): planOK = FALSE.
+\* [U1] the file journal wins if it holds something, else the field journal; [U2] nothing -> no card
+\* (HasPendingUndo, MainWindow.Edits.cs:74-85); [U3] [U4] a plan can be refused (file changed since, newer field
+\* change, ambiguous control, no frame): planOK = FALSE.
 UndoCard(planOK) ==
     IF card = None /\ planOK
     THEN (IF fileJ # "none" THEN UndoCardFor("File")
-          ELSE (IF fieldJ # "none" THEN UndoCardFor("Field") ELSE None))
+          ELSE (IF fieldJ # "none" \/ Plant = "UndoWithoutJournal" THEN UndoCardFor("Field") ELSE None))
     ELSE card
 
 JournalOf(t) == IF t = "File" THEN fileJ ELSE fieldJ
-\* [A6] an edit is journaled; [U6] an approved FILE undo is journaled as a new entry (written by an undo);
-\* [U5] an approved FIELD undo clears the field journal.
-FileAfter(p)  == IF p.target = "File"  THEN (IF p.kind = "Edit" THEN "edit" ELSE "undo") ELSE fileJ
-FieldAfter(p) == IF p.target = "Field" THEN (IF p.kind = "Edit" THEN "edit" ELSE "none") ELSE fieldJ
+
+\* Journals after an applied step; ok = the read-back verified it (MainWindow.xaml.cs:1224-1231).
+\* File [A6] [U6]: a verified write is journaled (RecordFileEdit only on success); a verified undo is journaled as a
+\* new entry written BY an undo (doc finding F6), or, with Fix F6, clears the journal.
+FileAfter(p, ok) ==
+    IF p.target # "File" \/ ~ok THEN fileJ
+    ELSE IF p.kind = "Edit" THEN "edit"
+    ELSE IF Fix = "F6" THEN "none" ELSE "undo"
+\* Field [A6] [U5]: a verified type_text is journaled, an unverified one clears the journal (Edits.cs:318-322); a
+\* field undo clears the journal only after its read-back succeeds (Edits.cs:340-352 -> UndoJournal.cs:197-211).
+FieldAfter(p, ok) ==
+    IF p.target # "Field" THEN fieldJ
+    ELSE IF p.kind = "Edit" THEN (IF ok THEN "edit" ELSE "none")
+    ELSE IF ok /\ Plant # "FieldUndoKeepsJournal" THEN "none" ELSE fieldJ
 
 \* Ends every step that applies nothing: ghosts reset, timeline reacts to the new flags.
 \* Must be the LAST conjunct of an action (Want' needs every other primed variable).
@@ -217,6 +269,14 @@ StopListeningV ==
           ELSE UNCHANGED <<typed, vtool, vundo, card, ticket>>
     /\ UNCHANGED <<hovered, nudge, happy, fcheck, fileJ, fieldJ>>
 
+\* The last hold release (StopPushToTalkMic, MainWindow.Talk.cs:383-398): the indicator always goes off; the device
+\* only if it is the push-to-talk audio (doc finding F10), or always with Fix F10.
+ReleaseMicDev == IF Fix = "F10" \/ micDev = "Hold" THEN "Off" ELSE micDev
+ReleaseMicInd == IF Plant = "ReleaseKeepsIndicator" THEN micInd ELSE FALSE
+
+\* Fix F9 only: a live session that is replaced or quit raises its end event first.
+CloseLabel == IF focus \in Live THEN (IF Fix = "F9" THEN "Replaced" ELSE "QuietEnd") ELSE "Other"
+
 -----------------------------------------------------------------------------
 Init ==
     /\ alive = TRUE
@@ -224,7 +284,7 @@ Init ==
     /\ phase = "Hidden"
     /\ thinking = FALSE /\ responding = FALSE /\ nudge = FALSE /\ happy = FALSE
     /\ micDev = "Off" /\ micInd = FALSE /\ chord = FALSE /\ eyes = FALSE /\ voice = "Off"
-    /\ typed = None /\ vtool = None /\ vundo = None /\ fcheck = FALSE
+    /\ typed = None /\ vtool = None /\ vundo = None /\ fcheck = "None"
     /\ card = None /\ ticket = None /\ fileJ = "none" /\ fieldJ = "none"
     /\ focus = "Off" /\ focusEnds = 0
     /\ effect = None
@@ -233,27 +293,27 @@ Init ==
 -----------------------------------------------------------------------------
 (* Pointer and reveal timeline (doc 3.1) *)
 
-\* [R1] [R7] [R8] [F1] pointer enters the notch strip.
+\* USER. [R1] [R7] [R8] [F1] pointer enters the notch strip.
 PointerEnter ==
     /\ ~hovered
     /\ hovered' = TRUE
     /\ UNCHANGED <<flagV, micV, workV, applyV, focusV>>
     /\ Fin("Other")
 
-\* [R3] [R10] [F2] pointer leaves.
+\* USER. [R3] [R10] [F2] pointer leaves.
 PointerLeave ==
     /\ hovered
     /\ hovered' = FALSE
     /\ UNCHANGED <<flagV, micV, workV, applyV, focusV>>
     /\ Fin("Other")
 
-\* Time passing on the reveal timeline, picked up by the render loop (NotchWindow.xaml.cs:639-674). FAIR.
+\* FAIR (render loop, NotchWindow.xaml.cs:639-674; timeline NotchFace.cs:347-353).
 \* [R2] Revealing -> Revealed (240 ms); [R4] left mid-reveal: the reveal ends, then the retract delay starts;
 \* [R5] RetractPending -> Retracting (900 ms); [R6] Retracting -> Hidden (160 ms).
 Tick ==
     /\ alive
     /\ phase \in {"Revealing", "RetractPending", "Retracting"}
-    /\ phase # "RetractPending" \/ ~Want
+    /\ phase # "RetractPending" \/ (~Want /\ Plant # "NoRetractTimer")
     /\ phase' = (CASE phase = "Revealing"      -> (IF Want THEN "Revealed" ELSE "RetractPending")
                    [] phase = "RetractPending" -> "Retracting"
                    [] OTHER                    -> "Hidden")
@@ -264,54 +324,65 @@ Tick ==
 -----------------------------------------------------------------------------
 (* Moments: each timed flag is cleared by its own timer (MainWindow.xaml.cs:175-202). FAIR. *)
 
-\* [F5] Responding moment expires (4 s, or the playback tail capped by FaceMoments).
+\* FAIR. [F5] Responding moment expires (4 s, or the playback tail capped by FaceMoments).
 ExpireResponding ==
-    /\ alive /\ responding
+    /\ alive /\ responding /\ Plant # "NoRespondingTimer"
     /\ responding' = FALSE
     /\ UNCHANGED <<hovered, thinking, nudge, happy, micV, workV, applyV, focusV>>
     /\ Fin("Other")
 
-\* [F16] nudge 6 s.
+\* FAIR. [F16] nudge 6 s.
 ExpireNudge ==
     /\ alive /\ nudge
     /\ nudge' = FALSE
     /\ UNCHANGED <<hovered, thinking, responding, happy, micV, workV, applyV, focusV>>
     /\ Fin("Other")
 
-\* [F18] happy 2.5 s.
+\* FAIR. [F18] happy 2.5 s.
 ExpireHappy ==
     /\ alive /\ happy
     /\ happy' = FALSE
     /\ UNCHANGED <<hovered, thinking, responding, nudge, micV, workV, applyV, focusV>>
     /\ Fin("Other")
 
+\* FAIR, Fix F7 only: a local Thinking timeout (does not exist today: doc finding F7).
+ExpireThinking ==
+    /\ alive /\ thinking /\ Fix = "F7"
+    /\ thinking' = FALSE
+    /\ UNCHANGED <<hovered, responding, nudge, happy, micV, workV, applyV, focusV>>
+    /\ Fin("Other")
+
 -----------------------------------------------------------------------------
 (* Typed requests (Send, MainWindow.xaml.cs:728-850) *)
 
-\* [F3] [G1] [U1] Send: StopListening if listening, BeginRequest, Thinking on, Responding off.
-\* k = "Undo" when the text is classified as Undo (:760-764), else "Ask".
-Send(k) ==
+\* USER. [F3] [G1] [U1] Send: StopListening if listening, BeginRequest, Thinking on, Responding off.
+\* k = "Undo" when the text is classified as Undo (:760-764), else "Ask". pth = the speech setting at Send.
+Send(k, pth) ==
     /\ typed = None
-    /\ NewRequest(TRUE, [kind |-> k, cur |-> TRUE, cap |-> "Pre"], "Off", "Off", FALSE)
+    /\ k = "Undo" => pth = "Plain"
+    /\ NewRequest(TRUE, [kind |-> k, cur |-> TRUE, cap |-> "Pre", path |-> pth], "Off", "Off", FALSE)
     /\ UNCHANGED <<chord, eyes>>
     /\ Fin("Input")
 
-\* [F14] the capture indicator goes on AFTER Thinking already pinned the notch (doc INV-PRIV-2 row).
+\* FAIR (local screenshot, CaptureForRequestAsync :1999-2058). [F14] the capture indicator goes on AFTER Thinking
+\* already pinned the notch (doc INV-PRIV-2 row). With Fix F5 the grab waits until the notch is out.
 TypedCapture ==
-    /\ typed # None /\ typed.cur /\ typed.cap = "Pre"
+    /\ CapPre(typed) /\ typed.cur
+    /\ Fix # "F5" \/ phase # "Hidden"
     /\ typed' = [typed EXCEPT !.cap = "On"]
     /\ UNCHANGED <<hovered, flagV, micV, vtool, vundo, fcheck, applyV, focusV>>
     /\ Fin("Other")
 
-\* No frame taken: the capture operation ends at once (:752-755); the request goes on.
+\* FAIR (same step, other outcome). No frame taken: the capture operation ends at once (:752-755).
 TypedNoFrame ==
-    /\ typed # None /\ typed.cur /\ typed.cap = "Pre"
+    /\ CapPre(typed) /\ typed.cur
     /\ typed' = [typed EXCEPT !.cap = "Off"]
     /\ UNCHANGED <<hovered, flagV, micV, vtool, vundo, fcheck, applyV, focusV>>
     /\ Fin("Other")
 
-\* [F4] [A1] plain-text reply (speech off or muted, or the voice connect failed): capture ends in finally
-\* [F15], Thinking off, Responding on (4 s moment); an explicit task's actions become a card. Provider: NOT fair.
+\* [F4] [A1] HTTP reply (path Plain; or path Voice when the voice connect failed, :779): capture ends in finally
+\* [F15], Thinking off, Responding on (4 s moment); an explicit task's actions become a card.
+\* FAIR on path Plain together with TypedEnd (RespondAsync: 45 s HttpClient timeout, :2123).
 TypedReply ==
     /\ typed # None /\ typed.kind = "Ask" /\ typed.cur /\ typed.cap # "Pre"
     /\ typed' = None
@@ -321,15 +392,17 @@ TypedReply ==
     /\ UNCHANGED <<hovered, nudge, happy, micV, vtool, vundo, fcheck, ticket, fileJ, fieldJ, focusV>>
     /\ Fin("Other")
 
-\* [F3] [F6] speech on (the default): the text is handed to a voice session; finally ends the capture but
-\* leaves Thinking on (!handedToRealtime, :846). Only voice events, Stop or a new request clear it (doc F7).
+\* NOT FAIR while current: SendTextAsync has no timeout (RealtimeClient.cs:406-410). [F3] [F6] path Voice: the
+\* text is handed to a text-only voice session; finally ends the capture but leaves Thinking on (:846). A failed
+\* send after a successful connect is TypedEnd here (the code keeps the connected session, the model does not).
 TypedHandOff ==
-    /\ typed # None /\ typed.kind = "Ask" /\ typed.cur /\ typed.cap # "Pre"
+    /\ typed # None /\ typed.kind = "Ask" /\ typed.cur /\ typed.cap # "Pre" /\ typed.path = "Voice"
     /\ typed' = None
-    /\ voice' = IF voice = "Off" THEN "Text" ELSE voice
+    /\ voice' = "Text"
     /\ UNCHANGED <<hovered, flagV, micDev, micInd, chord, eyes, vtool, vundo, fcheck, applyV, focusV>>
     /\ Fin("Other")
 
+\* FAIR together with TypedEnd (local: HandleUndoRequestAsync reads controls and the journals, Edits.cs:71-123).
 \* [U1]-[U4] typed "undo": the plan becomes an Undo card (or a message); finally clears Thinking.
 TypedUndoPlan ==
     /\ typed # None /\ typed.kind = "Undo" /\ typed.cur /\ typed.cap # "Pre"
@@ -339,7 +412,9 @@ TypedUndoPlan ==
     /\ UNCHANGED <<hovered, responding, nudge, happy, micV, vtool, vundo, fcheck, ticket, fileJ, fieldJ, focusV>>
     /\ Fin("Other")
 
-\* [F6] failed, cancelled or stale: finally ends the capture; Thinking cleared only if still current.
+\* [F6] failed, timed out, cancelled or stale: finally ends the capture; Thinking cleared only if still current.
+\* FAIR when stale (the lease token is cancelled, so every await ends) and on path Plain (with TypedReply /
+\* TypedUndoPlan); NOT FAIR for a current path Voice request (the send may hang).
 TypedEnd ==
     /\ typed # None
     /\ typed' = None
@@ -347,8 +422,15 @@ TypedEnd ==
     /\ UNCHANGED <<hovered, responding, nudge, happy, micV, vtool, vundo, fcheck, applyV, focusV>>
     /\ Fin("Other")
 
+\* The fair group for a typed request's end: every outcome, when the code bounds it locally.
+TypedFinishBounded ==
+    /\ alive
+    /\ typed # None
+    /\ ~typed.cur \/ typed.path = "Plain"
+    /\ TypedReply \/ TypedUndoPlan \/ TypedEnd
+
 -----------------------------------------------------------------------------
-(* Voice session events from the provider (MainWindow.xaml.cs:2240-2320). None of them is fair. *)
+(* Voice session events from the provider (MainWindow.xaml.cs:2240-2320). PROVIDER: none of them is fair. *)
 
 VoiceOpen == voice # "Off"
 
@@ -356,21 +438,21 @@ VoiceOpen == voice # "Off"
 \* transcription, MainWindow.xaml.cs:2252-2275) can only come from one; a typed hand-off never opens the mic.
 AudioSession == voice \in {"Ptt", "Other"}
 
-\* [F7] speech started: Thinking off.
+\* PROVIDER. [F7] speech started: Thinking off.
 VSpeechStarted ==
     /\ AudioSession
     /\ thinking' = FALSE
     /\ UNCHANGED <<hovered, responding, nudge, happy, micV, workV, applyV, focusV>>
     /\ Fin("Other")
 
-\* [F7] speech stopped / committed: Thinking on.
+\* PROVIDER. [F7] speech stopped / committed: Thinking on.
 VSpeechStopped ==
     /\ AudioSession
     /\ thinking' = TRUE
     /\ UNCHANGED <<hovered, responding, nudge, happy, micV, workV, applyV, focusV>>
     /\ Fin("Other")
 
-\* [F8] audio delta: Thinking off, Responding on, moment refreshed (SetFace at MainWindow.xaml.cs:2281).
+\* PROVIDER. [F8] audio delta: Thinking off, Responding on, moment refreshed (SetFace at MainWindow.xaml.cs:2281).
 VAudioDelta ==
     /\ VoiceOpen
     /\ thinking' = FALSE
@@ -378,14 +460,14 @@ VAudioDelta ==
     /\ UNCHANGED <<hovered, nudge, happy, micV, workV, applyV, focusV>>
     /\ Fin("Other")
 
-\* [F9] response.done: Thinking = tools in flight > 0; Responding keeps its (playback) moment.
+\* PROVIDER. [F9] response.done: Thinking = tools in flight > 0; Responding keeps its (playback) moment.
 VResponseDone ==
     /\ VoiceOpen
     /\ thinking' = (vtool # None /\ vtool.cur)
     /\ UNCHANGED <<hovered, responding, nudge, happy, micV, workV, applyV, focusV>>
     /\ Fin("Other")
 
-\* [F10] disconnect / error: AbortHoldToTalk (holds cleared, NO Cancel command), StopListening [G3],
+\* PROVIDER. [F10] disconnect / error: AbortHoldToTalk (holds cleared, NO Cancel command), StopListening [G3],
 \* a running focus session is paused [Fo3] [F19].
 VDrop ==
     /\ VoiceOpen
@@ -395,7 +477,7 @@ VDrop ==
     /\ UNCHANGED focusEnds
     /\ Fin("Other")
 
-\* [F10b] go_to_sleep (MainWindow.Voice.cs:124-137): AbortHoldToTalk + StopListening; focus untouched.
+\* PROVIDER. [F10b] go_to_sleep (MainWindow.Voice.cs:124-137): AbortHoldToTalk + StopListening; focus untouched.
 \* Also stands for FailVoiceSession (mic or realtime failure, MainWindow.Talk.cs:405-411), same effect.
 VGoToSleep ==
     /\ VoiceOpen
@@ -404,46 +486,78 @@ VGoToSleep ==
     /\ UNCHANGED focusV
     /\ Fin("Other")
 
-\* [F11] voice tool call (screen_help): Thinking on first, the capture starts after (VToolCapture).
+\* PROVIDER. [F11] voice tool call (screen_help, MainWindow.xaml.cs:2364-2366): Thinking on first, then capture.
 VToolCall ==
     /\ VoiceOpen /\ vtool = None
     /\ thinking' = TRUE
-    /\ vtool' = [cur |-> TRUE, cap |-> "Pre"]
+    /\ vtool' = [cur |-> TRUE, cap |-> "Pre", st |-> "Work"]
     /\ UNCHANGED <<hovered, responding, nudge, happy, micV, typed, vundo, fcheck, applyV, focusV>>
     /\ Fin("Other")
 
-\* [F14] voice tool capture starts.
+\* FAIR (local screenshot). [F14] voice tool capture starts (or no frame: the operation ends at once, :2370-2373).
 VToolCapture ==
-    /\ vtool # None /\ vtool.cur /\ vtool.cap = "Pre"
+    /\ CapPre(vtool) /\ vtool.cur
+    /\ Fix # "F5" \/ phase # "Hidden"
     /\ vtool' = [vtool EXCEPT !.cap = "On"]
     /\ UNCHANGED <<hovered, flagV, micV, typed, vundo, fcheck, applyV, focusV>>
     /\ Fin("Other")
 
-\* [F11] [F15] [A1] tool answer through RenderReply (Thinking off, Responding on, maybe a card), capture
-\* ends; a stale tool only ends its capture.
-VToolDone ==
-    /\ vtool # None /\ (vtool.cap = "On" \/ ~vtool.cur)
-    /\ vtool' = None
-    /\ IF vtool.cur
-          THEN /\ thinking' = FALSE
-               /\ responding' = TRUE
-               /\ \E propose \in BOOLEAN, t \in Targets : card' = ProposeCard(propose, t)
-          ELSE UNCHANGED <<thinking, responding, card>>
+VToolNoFrame ==
+    /\ CapPre(vtool) /\ vtool.cur
+    /\ vtool' = [vtool EXCEPT !.cap = "Off"]
+    /\ UNCHANGED <<hovered, flagV, micV, typed, vundo, fcheck, applyV, focusV>>
+    /\ Fin("Other")
+
+\* FAIR together with VToolFail (RespondAsync: 45 s HttpClient timeout). [F11] [A1] the answer goes through
+\* RenderReply (Thinking off, Responding on, maybe a card, :2405). With a card the call id is parked and finally
+\* runs at once (:2406-2409); otherwise CompleteToolAsync is still to be sent (st = "Send", capture still open).
+VToolAnswer ==
+    /\ vtool # None /\ vtool.cur /\ vtool.st = "Work" /\ vtool.cap # "Pre"
+    /\ thinking' = FALSE
+    /\ responding' = TRUE
+    /\ \E propose \in BOOLEAN, t \in Targets :
+          /\ card' = ProposeCard(propose, t)
+          /\ vtool' = IF propose THEN None ELSE [vtool EXCEPT !.st = "Send"]
     /\ UNCHANGED <<hovered, nudge, happy, micV, typed, vundo, fcheck, ticket, fileJ, fieldJ, focusV>>
     /\ Fin("Other")
 
-\* [U1] spoken "undo" (MainWindow.Edits.cs:129-182): the FOURTH capture source. The capture operation opens
-\* at once and Thinking is NOT set first.
+\* FAIR together with VToolAnswer. Timeout, HTTP failure, window changed (:2384-2391, :2415-2432): no RenderReply,
+\* so Thinking STAYS on; the failure text still has to be sent with CompleteToolAsync.
+VToolFail ==
+    /\ vtool # None /\ vtool.cur /\ vtool.st = "Work" /\ vtool.cap # "Pre"
+    /\ vtool' = [vtool EXCEPT !.st = "Send"]
+    /\ UNCHANGED <<hovered, flagV, micV, typed, vundo, fcheck, applyV, focusV>>
+    /\ Fin("Other")
+
+\* finally (:2433-2440): the capture ends, the tool leaves the in-flight count; Thinking untouched.
+\* NOT FAIR while current (CompleteToolAsync has no timeout, RealtimeClient.cs:412-419); FAIR once stale (the lease
+\* token cancels the send, and a stale tool returns before sending).
+VToolRelease ==
+    /\ vtool # None /\ (vtool.st = "Send" \/ ~vtool.cur)
+    /\ vtool' = None
+    /\ UNCHANGED <<hovered, flagV, micV, typed, vundo, fcheck, applyV, focusV>>
+    /\ Fin("Other")
+
+\* PROVIDER (an input transcription). [U1] spoken "undo" (MainWindow.Edits.cs:129-182): the FOURTH capture source.
+\* The capture opens at once and Thinking is NOT set first. With Fix F5 it waits for the notch (cap "Pre").
 VUndoStart ==
     /\ AudioSession /\ vundo = None
-    /\ vundo' = [cur |-> TRUE]
+    /\ vundo' = [cur |-> TRUE, cap |-> IF Fix = "F5" THEN "Pre" ELSE "On"]
+    /\ UNCHANGED <<hovered, flagV, micV, typed, vtool, fcheck, applyV, focusV>>
+    /\ Fin("Other")
+
+\* FAIR, Fix F5 only: the grab starts once the notch is out.
+VUndoCapture ==
+    /\ CapPre(vundo) /\ vundo.cur /\ phase # "Hidden"
+    /\ vundo' = [vundo EXCEPT !.cap = "On"]
     /\ UNCHANGED <<hovered, flagV, micV, typed, vtool, fcheck, applyV, focusV>>
     /\ Fin("Other")
 
 \* [U1]-[U4] [F11] spoken undo finishes: capture ends; if current, the plan becomes a card and finally sets
-\* Thinking = tools in flight > 0 (Edits.cs:178).
+\* Thinking = tools in flight > 0 (SetFace at Edits.cs:181). NOT FAIR while current: it first awaits
+\* realtime.InterruptAsync with no timeout (Edits.cs:144-150, RealtimeClient.cs:457-458); FAIR once stale.
 VUndoDone ==
-    /\ vundo # None
+    /\ vundo # None /\ (vundo.cap = "On" \/ ~vundo.cur)
     /\ vundo' = None
     /\ IF vundo.cur
           THEN /\ thinking' = (vtool # None /\ vtool.cur)
@@ -455,7 +569,7 @@ VUndoDone ==
 -----------------------------------------------------------------------------
 (* Microphone: Talk button (doc finding F8) and hold-to-talk (doc 3.3) *)
 
-\* [F8 finding] [F12] [F13] Talk button (MainWindow.xaml.cs:853-908). If listening: StopListening. Else
+\* USER. [F8 finding] [F12] [F13] Talk button (MainWindow.xaml.cs:853-908). If listening: StopListening. Else
 \* BeginRequest, connect, then open the Talk-button audio and light the indicator (connect step collapsed;
 \* a failed connect is VGoToSleep/VDrop after this step).
 TalkButton ==
@@ -466,7 +580,7 @@ TalkButton ==
                /\ UNCHANGED <<chord, eyes>>
     /\ Fin("Input")
 
-\* [H1] [H2] [F12] [F24] TalkDown (chord) / eyes held >= 200 ms. A second holder only joins (no command).
+\* USER. [H1] [H2] [F12] [F24] TalkDown (chord) / eyes held >= 200 ms. A second holder only joins (no command).
 \* First holder: StartListening -> StartPushToTalk (MainWindow.Talk.cs:225-276): reuse an open push-to-talk
 \* session, else BeginRequest; the mic is opened and the indicator lit before the first await (one step).
 TalkDown(s) ==
@@ -483,68 +597,71 @@ TalkDown(s) ==
     /\ UNCHANGED <<hovered, focusV>>
     /\ Fin("Input")
 
-\* [H3] one holder released, the other still held: nothing. [H4] [H5] [H7] last release: StopAndSend or
-\* Cancel; both run StopPushToTalkMic first (MainWindow.Talk.cs:384-397), which ALWAYS turns the indicator
-\* off but stops the device only if the current audio is the push-to-talk audio. If the Talk button opened
-\* its own audio while the hold was still down, that audio keeps running with the indicator off
-\* (INV_PRIV_1_DEVICE and INV_TALK_1_DEVICE; lifecycle doc finding F10). The commit itself is a provider event (VSpeechStopped).
+\* USER. [H3] one holder released, the other still held: nothing. [H4] [H5] [H7] last release: StopAndSend or
+\* Cancel; both run StopPushToTalkMic first (ReleaseMicDev / ReleaseMicInd above). The commit itself is a provider
+\* event (VSpeechStopped).
 TalkUp(s) ==
     /\ IF s = "chord" THEN chord ELSE eyes
     /\ chord' = (chord /\ s # "chord")
     /\ eyes' = (eyes /\ s # "eyes")
     /\ IF chord' \/ eyes'
           THEN UNCHANGED <<micDev, micInd>>
-          ELSE /\ micDev' = IF micDev = "Hold" THEN "Off" ELSE micDev
-               /\ micInd' = FALSE
+          ELSE /\ micDev' = ReleaseMicDev
+               /\ micInd' = ReleaseMicInd
     /\ UNCHANGED <<hovered, flagV, voice, workV, applyV, focusV>>
     /\ Fin("Other")
 
-\* [H8] held longer than 120 s: StopAndSend; holds cleared, later releases ignored.
+\* FAIR (250 ms ticker, MainWindow.Talk.cs:57-58, :196-208; HoldToTalk.cs:163-174). [H8] held longer than 120 s:
+\* StopAndSend; holds cleared, later releases ignored.
 HoldTimeout ==
-    /\ chord \/ eyes
+    /\ alive /\ (chord \/ eyes)
     /\ chord' = FALSE /\ eyes' = FALSE
-    /\ micDev' = IF micDev = "Hold" THEN "Off" ELSE micDev
-    /\ micInd' = FALSE
+    /\ micDev' = ReleaseMicDev
+    /\ micInd' = ReleaseMicInd
     /\ UNCHANGED <<hovered, flagV, voice, workV, applyV, focusV>>
     /\ Fin("Other")
 
 -----------------------------------------------------------------------------
 (* Stop and quit (StopAll, MainWindow.xaml.cs:265-318) *)
 
-\* [F21] [G2] [H6] [A3] [Fo3] Stop from any source (hotkeys, tray, panel, right-click, lock, sleep, update
-\* restart, internal). Holds cancelled, mic off, voice session dropped, all work stale, pending card cleared,
-\* a running focus session PAUSED, face flags replaced by FocusPaused only. Capture operations are NOT
-\* ended here: each ends when its own finally runs (doc INV-STOP-1 row, part b).
+\* USER (or the OS / an internal guard). [F21] [G2] [H6] [A3] [Fo3] Stop from any source: holds cancelled, mic off,
+\* voice session dropped, all work stale, pending card cleared, a running focus session PAUSED, face flags replaced
+\* by FocusPaused only. Capture operations are NOT ended here: each ends when its own finally runs (doc INV-STOP-1
+\* row, part b). With Fix F4: captures end at once and a live focus session ends (one end event, no Happy face).
 Stop ==
     /\ chord' = FALSE /\ eyes' = FALSE
-    /\ micDev' = "Off" /\ micInd' = FALSE /\ voice' = "Off"
+    /\ micDev' = IF Plant = "StopKeepsMic" THEN micDev ELSE "Off"
+    /\ micInd' = FALSE /\ voice' = "Off"
     /\ thinking' = FALSE /\ responding' = FALSE /\ nudge' = FALSE /\ happy' = FALSE
-    /\ typed' = Stale(typed) /\ vtool' = Stale(vtool) /\ vundo' = Stale(vundo)
+    /\ typed' = CapEnd(Stale(typed)) /\ vtool' = CapEnd(Stale(vtool)) /\ vundo' = CapEnd(Stale(vundo))
+    /\ fcheck' = IF Fix = "F4" THEN "None" ELSE fcheck
     /\ card' = CardNewGen /\ ticket' = TicketNewGen
-    /\ focus' = IF focus = "Running" THEN "Paused" ELSE focus
-    /\ UNCHANGED <<hovered, fcheck, fileJ, fieldJ, focusEnds>>
+    /\ IF Fix = "F4" /\ focus \in Live
+          THEN focus' = "Off" /\ focusEnds' = focusEnds + 1
+          ELSE focus' = (IF focus = "Running" THEN "Paused" ELSE focus) /\ UNCHANGED focusEnds
+    /\ UNCHANGED <<hovered, fileJ, fieldJ>>
     /\ Fin("Stop")
 
-\* [F21] quit = StopAll, then the process ends. [Fo3] [F9 finding] an open focus session is only paused,
-\* never ended: no end event (last = "QuietEnd"). After Quit nothing is enabled (TLC runs with
-\* CHECK_DEADLOCK FALSE).
+\* USER. [F21] quit = StopAll, then the process ends. [Fo3] [F9 finding] an open focus session is only paused,
+\* never ended: no end event (last = "QuietEnd"; with Fix F9 its event is raised: "Replaced"). After Quit nothing
+\* is enabled (TLC runs with CHECK_DEADLOCK FALSE).
 Quit ==
     /\ alive' = FALSE
     /\ hovered' = FALSE
     /\ phase' = "Hidden"
     /\ thinking' = FALSE /\ responding' = FALSE /\ nudge' = FALSE /\ happy' = FALSE
     /\ micDev' = "Off" /\ micInd' = FALSE /\ chord' = FALSE /\ eyes' = FALSE /\ voice' = "Off"
-    /\ typed' = None /\ vtool' = None /\ vundo' = None /\ fcheck' = FALSE
+    /\ typed' = None /\ vtool' = None /\ vundo' = None /\ fcheck' = "None"
     /\ card' = None /\ ticket' = None
     /\ focus' = IF focus = "Running" THEN "Paused" ELSE focus
     /\ UNCHANGED <<fileJ, fieldJ, focusEnds>>
     /\ effect' = None
-    /\ last' = IF focus \in Live THEN "QuietEnd" ELSE "Other"
+    /\ last' = CloseLabel
 
 -----------------------------------------------------------------------------
 (* Approval card and undo (doc 3.6, 3.7). Approve covers the plan's Approve and ApproveUndo. *)
 
-\* [A5] Approve, still current: the ticket is the digest of THIS proposal (ActionPolicy.cs:62-82).
+\* USER. [A5] Approve, still current: the ticket is the digest of THIS proposal (ActionPolicy.cs:62-82).
 \* [A4] Approve but expired / denied by policy / target window changed: card closed.
 Approve ==
     /\ card # None /\ card.st = "Pending"
@@ -556,7 +673,7 @@ Approve ==
     /\ UNCHANGED <<hovered, flagV, micV, workV, fileJ, fieldJ, focusV>>
     /\ Fin("Other")
 
-\* [A2] Reject (Cancel button, Escape).
+\* USER. [A2] Reject (Cancel button, Escape).
 Reject ==
     /\ card # None /\ card.st = "Pending"
     /\ card' = None
@@ -564,27 +681,32 @@ Reject ==
     /\ UNCHANGED <<hovered, flagV, micV, workV, fileJ, fieldJ, focusV>>
     /\ Fin("Other")
 
-\* [A6] [G5] [U5] [U6] the effect commits inside TryCommit (under the coordinator's lock, so Stop cannot
-\* interleave): only for the current generation and only with the ticket of this exact proposal
-\* (DesktopTools.cs:968-971). Then [A7] more steps queued -> next card (new proposal, needs a new Approve)
-\* or [A8] done.
+\* FAIR together with ExecEnd (local: ExecuteAsync with the lease token, then a read-back of at most five 120 ms
+\* polls, MainWindow.xaml.cs:1225-1226, Edits.cs:358-364).
+\* [A6] [G5] [U5] [U6] the effect commits inside TryCommit under the coordinator's lock (DesktopTools.cs:130, 165,
+\* 223, 287, 332, 384, 467; RequestCoordinator.cs:46-62), so Stop cannot interleave: only for the current
+\* generation and only while IsStillAuthorized accepts the ticket of this exact proposal (DesktopTools.cs:968).
+\* ok = the read-back verified the step. Then [A7] more steps queued -> next card (needs a new Approve), or [A8] done.
+\* STRUCTURAL: INV_APPLY_1 and INV_APPLY_3 hold because of this guard; the real proof is PR 2.7's conformance test.
 Apply ==
-    /\ card # None /\ card.st = "Executing" /\ card.cur /\ ticket = card.p
-    /\ fileJ' = FileAfter(card.p)
-    /\ fieldJ' = FieldAfter(card.p)
-    /\ effect' = [p |-> card.p, ticket |-> ticket, cur |-> card.cur, journal |-> JournalOf(card.p.target)]
-    /\ \E more \in BOOLEAN, t \in Targets :
-          card' = IF more /\ card.p.kind = "Edit"
-                  THEN [p |-> [id |-> OtherId(card.p.id), kind |-> "Edit", target |-> t],
-                        st |-> "Pending", cur |-> TRUE]
-                  ELSE None
+    /\ card # None /\ card.st = "Executing" /\ ticket = card.p
+    /\ card.cur \/ Plant = "CommitIgnoresGeneration"
+    /\ \E ok \in BOOLEAN, more \in BOOLEAN, t \in Targets :
+          /\ fileJ' = FileAfter(card.p, ok)
+          /\ fieldJ' = FieldAfter(card.p, ok)
+          /\ effect' = [p |-> card.p, ticket |-> ticket, cur |-> card.cur,
+                        journal |-> JournalOf(card.p.target), ok |-> ok]
+          /\ card' = IF ok /\ more /\ card.p.kind = "Edit"
+                     THEN [p |-> [id |-> OtherId(card.p.id), kind |-> "Edit", target |-> t],
+                           st |-> "Pending", cur |-> TRUE]
+                     ELSE None
     /\ ticket' = None
     /\ UNCHANGED <<hovered, flagV, micV, workV, focusV>>
     /\ last' = "Other"
     /\ UNCHANGED alive
     /\ phase' = Retime(phase, Want')
 
-\* [A8] execution failed, refused (stale ticket) or stopped: card closed (finally).
+\* FAIR together with Apply. [A8] execution failed, refused (stale ticket) or stopped: card closed (finally).
 ExecEnd ==
     /\ card # None /\ card.st = "Executing"
     /\ card' = None
@@ -592,14 +714,14 @@ ExecEnd ==
     /\ UNCHANGED <<hovered, flagV, micV, workV, fileJ, fieldJ, focusV>>
     /\ Fin("Other")
 
-\* RED PROOF ONLY (plan 3.3 row 2.2): a planted bug that applies a PENDING proposal with no Approve.
-\* Disabled unless PlantApplyWithoutApprove = TRUE (NotchLifecycle_redproof.cfg). INV_APPLY_1 must catch it.
+\* RED PROOF ONLY (plan 3.3 row 2.2), Plant "ApplyWithoutApprove": a PENDING proposal is applied with no Approve.
 BuggyApply ==
-    /\ PlantApplyWithoutApprove
+    /\ Plant = "ApplyWithoutApprove"
     /\ card # None /\ card.st = "Pending"
-    /\ fileJ' = FileAfter(card.p)
-    /\ fieldJ' = FieldAfter(card.p)
-    /\ effect' = [p |-> card.p, ticket |-> ticket, cur |-> card.cur, journal |-> JournalOf(card.p.target)]
+    /\ fileJ' = FileAfter(card.p, TRUE)
+    /\ fieldJ' = FieldAfter(card.p, TRUE)
+    /\ effect' = [p |-> card.p, ticket |-> ticket, cur |-> card.cur,
+                  journal |-> JournalOf(card.p.target), ok |-> TRUE]
     /\ card' = None
     /\ ticket' = None
     /\ UNCHANGED <<hovered, flagV, micV, workV, focusV>>
@@ -610,39 +732,41 @@ BuggyApply ==
 -----------------------------------------------------------------------------
 (* Focus session (doc 3.4). Button and voice versions (focus_start/pause/resume/end) make the same moves. *)
 
-\* [Fo1] [F20] start (Happy off); [Fo2] a live session is replaced with EndQuietly: NO end event.
+\* USER. [Fo1] [F20] start (Happy off); [Fo2] a live session is replaced with EndQuietly: NO end event
+\* (with Fix F9 the old session's event is raised first).
 FocusStart ==
     /\ focus' = "Running"
     /\ focusEnds' = 0
     /\ happy' = FALSE
     /\ UNCHANGED <<hovered, thinking, responding, nudge, micV, workV, applyV>>
-    /\ Fin(IF focus \in Live THEN "QuietEnd" ELSE "Other")
+    /\ Fin(CloseLabel)
 
-\* [Fo3] [F19] Pause button, voice focus_pause, sleep gap, tick error (Stop, disconnect and the 5 min break
-\* are in Stop, VDrop and NudgeBreak).
+\* USER (also the OS: sleep gap, tick error). [Fo3] [F19] Pause (Stop, disconnect and the 5 min break are in Stop,
+\* VDrop and NudgeBreak).
 FocusPause ==
     /\ focus = "Running"
     /\ focus' = "Paused"
     /\ UNCHANGED <<hovered, flagV, micV, workV, applyV, focusEnds>>
     /\ Fin("Other")
 
-\* [Fo4] [F20] Resume (only by button or voice).
+\* USER. [Fo4] [F20] Resume (only by button or voice).
 FocusResume ==
     /\ focus = "Paused"
     /\ focus' = "Running"
     /\ UNCHANGED <<hovered, flagV, micV, workV, applyV, focusEnds>>
     /\ Fin("Other")
 
-\* [Fo5] [Fo7] [F18] the planned time is reached: one end event, Happy moment.
+\* FAIR (1 s focus timer, FocusTimer_OnTick MainWindow.xaml.cs:1438-1460). [Fo5] [Fo7] [F18] the planned time is
+\* reached: one end event, Happy moment.
 FocusComplete ==
-    /\ focus = "Running"
+    /\ alive /\ focus = "Running"
     /\ focus' = "Off"
     /\ focusEnds' = focusEnds + 1
     /\ happy' = TRUE
     /\ UNCHANGED <<hovered, thinking, responding, nudge, micV, workV, applyV>>
     /\ Fin("Other")
 
-\* [Fo6] [Fo7] [F18] End (button or voice): one end event, Happy moment.
+\* USER. [Fo6] [Fo7] [F18] End (button or voice): one end event, Happy moment.
 FocusEnd ==
     /\ focus \in Live
     /\ focus' = "Off"
@@ -651,29 +775,46 @@ FocusEnd ==
     /\ UNCHANGED <<hovered, thinking, responding, nudge, micV, workV, applyV>>
     /\ Fin("Other")
 
-\* [Fo8] [F14] a focus check is due: its capture STARTS the reveal (nothing pinned the notch before).
+\* RED PROOF ONLY, Plant "EndNotGuarded": an End that races a completion raises a second event (no _endRaised).
+FocusEndAgain ==
+    /\ Plant = "EndNotGuarded"
+    /\ focus = "Off" /\ focusEnds = 1
+    /\ focusEnds' = 2
+    /\ UNCHANGED <<hovered, flagV, micV, workV, applyV, focus>>
+    /\ Fin("Other")
+
+\* FAIR (capture timer, FocusCaptureTimer_OnTick MainWindow.xaml.cs:1497-1500). [Fo8] [F14] a focus check is due:
+\* its capture STARTS the reveal (nothing pinned the notch before). With Fix F5 it pins first ("Pre").
 FocusCheckStart ==
-    /\ focus = "Running" /\ ~fcheck
-    /\ fcheck' = TRUE
+    /\ alive /\ focus = "Running" /\ fcheck = "None"
+    /\ fcheck' = IF Fix = "F5" THEN "Pre" ELSE "On"
     /\ UNCHANGED <<hovered, flagV, micV, typed, vtool, vundo, applyV, focusV>>
     /\ Fin("Other")
 
+\* FAIR, Fix F5 only: the grab starts once the notch is out.
+FocusCheckCapture ==
+    /\ alive /\ fcheck = "Pre" /\ phase # "Hidden"
+    /\ fcheck' = "On"
+    /\ UNCHANGED <<hovered, flagV, micV, typed, vtool, vundo, applyV, focusV>>
+    /\ Fin("Other")
+
+\* FAIR (local capture, then ClassifyAsync over the 45 s HttpClient, MainWindow.xaml.cs:1506-1582, :1624).
 \* [Fo8] [F15] [F16] the check ends: capture off; "drifting" while still running -> Nudge moment.
 FocusCheckDone ==
-    /\ fcheck
-    /\ fcheck' = FALSE
+    /\ alive /\ fcheck = "On"
+    /\ fcheck' = "None"
     /\ \E drift \in BOOLEAN : nudge' = (nudge \/ (drift /\ focus = "Running"))
     /\ UNCHANGED <<hovered, thinking, responding, happy, micV, typed, vtool, vundo, applyV, focusV>>
     /\ Fin("Other")
 
-\* [F17] nudge "Back to it".
+\* USER. [F17] nudge "Back to it".
 NudgeBack ==
     /\ nudge
     /\ nudge' = FALSE
     /\ UNCHANGED <<hovered, thinking, responding, happy, micV, workV, applyV, focusV>>
     /\ Fin("Other")
 
-\* [F17] [Fo3] nudge "5 min break": the nudge closes and a running session pauses.
+\* USER. [F17] [Fo3] nudge "5 min break": the nudge closes and a running session pauses.
 NudgeBreak ==
     /\ nudge
     /\ nudge' = FALSE
@@ -688,39 +829,49 @@ NudgeBreak ==
 Next ==
     /\ alive
     /\ \/ PointerEnter \/ PointerLeave \/ Tick
-       \/ ExpireResponding \/ ExpireNudge \/ ExpireHappy
-       \/ \E k \in {"Ask", "Undo"} : Send(k)
+       \/ ExpireResponding \/ ExpireNudge \/ ExpireHappy \/ ExpireThinking
+       \/ \E k \in {"Ask", "Undo"}, pth \in {"Plain", "Voice"} : Send(k, pth)
        \/ TypedCapture \/ TypedNoFrame \/ TypedReply \/ TypedHandOff \/ TypedUndoPlan \/ TypedEnd
        \/ VSpeechStarted \/ VSpeechStopped \/ VAudioDelta \/ VResponseDone \/ VDrop \/ VGoToSleep
-       \/ VToolCall \/ VToolCapture \/ VToolDone \/ VUndoStart \/ VUndoDone
+       \/ VToolCall \/ VToolCapture \/ VToolNoFrame \/ VToolAnswer \/ VToolFail \/ VToolRelease
+       \/ VUndoStart \/ VUndoCapture \/ VUndoDone
        \/ TalkButton
        \/ \E s \in {"chord", "eyes"} : TalkDown(s) \/ TalkUp(s)
        \/ HoldTimeout
        \/ Stop \/ Quit
        \/ Approve \/ Reject \/ Apply \/ ExecEnd \/ BuggyApply
-       \/ FocusStart \/ FocusPause \/ FocusResume \/ FocusComplete \/ FocusEnd
-       \/ FocusCheckStart \/ FocusCheckDone \/ NudgeBack \/ NudgeBreak
+       \/ FocusStart \/ FocusPause \/ FocusResume \/ FocusComplete \/ FocusEnd \/ FocusEndAgain
+       \/ FocusCheckStart \/ FocusCheckCapture \/ FocusCheckDone \/ NudgeBack \/ NudgeBreak
     /\ Active' <= MaxActive
 
-\* Fairness ONLY for real local drivers: the render loop (Tick), the moment timers, and steps that are pure
-\* local code with no provider wait (taking or skipping the screenshot, planning a typed undo, and a typed
-\* request's finally, which the 45 s HTTP timeout guarantees). The end of a spoken undo is NOT fair: it may
-\* await realtime.InterruptAsync with no timeout of its own (MainWindow.Edits.cs:144-150). The user and the AI
-\* provider get none, so "the provider never answers" is a legal behaviour (that is doc finding F7). The
-\* local steps are guarded by alive, so nothing is owed after Quit.
+\* THE FAIRNESS RULE (top of file; table in specs/README.md). One WF per step, on all of its outcomes, and only
+\* where the code bounds that step locally. Everything not listed here is USER or PROVIDER: never fair.
 Fairness ==
     /\ WF_vars(Tick)
     /\ WF_vars(ExpireResponding)
     /\ WF_vars(ExpireNudge)
     /\ WF_vars(ExpireHappy)
+    /\ WF_vars(ExpireThinking)
+    /\ WF_vars(HoldTimeout)
     /\ WF_vars(alive /\ (TypedCapture \/ TypedNoFrame))
-    /\ WF_vars(alive /\ TypedUndoPlan)
-    /\ WF_vars(alive /\ TypedEnd)
+    /\ WF_vars(TypedFinishBounded)
+    /\ WF_vars(alive /\ (VToolCapture \/ VToolNoFrame))
+    /\ WF_vars(alive /\ (VToolAnswer \/ VToolFail))
+    /\ WF_vars(alive /\ vtool # None /\ ~vtool.cur /\ VToolRelease)
+    /\ WF_vars(alive /\ VUndoCapture)
+    /\ WF_vars(alive /\ vundo # None /\ ~vundo.cur /\ VUndoDone)
+    /\ WF_vars(alive /\ (Apply \/ ExecEnd))
+    /\ WF_vars(FocusComplete)
+    /\ WF_vars(FocusCheckStart)
+    /\ WF_vars(FocusCheckCapture)
+    /\ WF_vars(FocusCheckDone)
 
 Spec == Init /\ [][Next]_vars /\ Fairness
 
 -----------------------------------------------------------------------------
-(* Checks that HOLD today (NotchLifecycle.cfg). Names use _ for the plan's - (TLA+ identifiers). *)
+(* Checks that HOLD today (NotchLifecycle.cfg). Names use _ for the plan's - (TLA+ identifiers).
+   "STRUCTURAL" = holds by the model's shape (a guard the model copies from the code); the real proof that the
+   code keeps that shape is PR 2.7's conformance test. Each check has a red proof and a witness (README). *)
 
 TypeOK ==
     /\ alive \in BOOLEAN /\ hovered \in BOOLEAN /\ phase \in Phases
@@ -730,31 +881,32 @@ TypeOK ==
     /\ typed \in {None} \cup TypedReqs
     /\ vtool \in {None} \cup ToolReqs
     /\ vundo \in {None} \cup UndoReqs
-    /\ fcheck \in BOOLEAN
+    /\ fcheck \in {"None", "Pre", "On"}
     /\ card \in {None} \cup Cards
     /\ ticket \in {None} \cup Proposals
     /\ fileJ \in {"none", "edit", "undo"} /\ fieldJ \in {"none", "edit"}
     /\ focus \in {"Off", "Running", "Paused"} /\ focusEnds \in 0..2
     /\ effect \in {None} \cup Effects
-    /\ last \in {"Other", "Input", "Stop", "QuietEnd"}
+    /\ last \in {"Other", "Input", "Stop", "QuietEnd", "Replaced"}
 
 \* INV-PRIV-1 (doc 4, today's form): the mic indicator or a capture is on => the notch is out (Revealing
 \* counts: the 240 ms slide has started) and shows Listening or Capture.
 INV_PRIV_1 == (micInd \/ CaptureOn) => (phase # "Hidden" /\ Face \in {"Capture", "Listening"})
 
-\* INV-APPLY-1: every applied effect carries the ticket of that exact proposal (same id, kind, target).
+\* INV-APPLY-1, STRUCTURAL: every applied effect carries the ticket of that exact proposal.
 INV_APPLY_1 == effect # None => effect.ticket = effect.p
 
-\* INV-APPLY-2, field part: a field undo needs a recorded edit, and after it the journal is empty (U5).
+\* INV-APPLY-2, field part: a field undo needs a recorded edit, and after a VERIFIED undo the journal is empty
+\* (an unverified one keeps it, so a later undo can be planned again against the same entry).
 INV_APPLY_2_FIELD ==
     (effect # None /\ effect.p.kind = "Undo" /\ effect.p.target = "Field")
-        => (effect.journal = "edit" /\ fieldJ = "none")
+        => (effect.journal = "edit" /\ (effect.ok => fieldJ = "none"))
 
-\* INV-APPLY-3: nothing from an older request generation is ever applied.
+\* INV-APPLY-3, STRUCTURAL: nothing from an older request generation is ever applied.
 INV_APPLY_3 == effect # None => effect.cur
 
-\* INV-TALK-1 (doc 4, today's form): the push-to-talk mic is open only while a hold is down, and right
-\* after Stop the mic and its indicator are off. The release part is INV_TALK_1_RELEASE.
+\* INV-TALK-1 (doc 4, today's form): the push-to-talk mic is open only while a hold is down, and (STRUCTURAL)
+\* right after Stop the mic and its indicator are off. The release part is INV_TALK_1_RELEASE.
 INV_TALK_1 ==
     /\ micDev = "Hold" => (chord \/ eyes)
     /\ last = "Stop" => (micDev = "Off" /\ ~micInd)
@@ -775,40 +927,62 @@ LIVE_1_RESPONDING == responding ~> ~responding
 LIVE_2 == (alive /\ ~hovered /\ ~Pinned) ~> (~alive \/ hovered \/ Pinned \/ phase = "Hidden")
 
 -----------------------------------------------------------------------------
-(* The plan's checks AS WRITTEN that today's code breaks (NotchLifecycle_plan_gaps.cfg). Each must FAIL
-   with a counterexample until Vikas decides: change the behaviour, or reword the invariant. *)
+(* The plan's checks AS WRITTEN that today's code breaks (NotchLifecycle_plan_gaps.cfg). Each must FAIL with
+   Fix = "none" and PASS with its own Fix, until Vikas decides: change the behaviour, or reword the invariant. *)
 
-\* INV-STOP-1 (doc finding F4): right after Stop the notch is quiet with mic and capture off.
+\* INV-STOP-1 (doc finding F4, Fix F4): right after Stop the notch is quiet with mic and capture off.
 \* Breaks: a running focus session is paused and Paused pins the notch; captures outlast Stop.
 INV_STOP_1 == last = "Stop" => Quiet
 
-\* INV-PRIV-2 (doc finding F5): no capture starts while the notch is Hidden (no capture is ever approved).
+\* INV-PRIV-2 (doc finding F5, Fix F5): no capture starts while the notch is Hidden (no capture is ever approved).
 \* Breaks: a focus check (and a spoken undo) starts its capture from Hidden.
 INV_PRIV_2 == [][(~CaptureOn /\ CaptureOn') => phase # "Hidden"]_vars
 
-\* INV-APPLY-2, file part (doc finding F6): undo only once. Breaks: an approved file undo is journaled as a
+\* INV-APPLY-2, file part (doc finding F6, Fix F6): undo only once. Breaks: an approved file undo is journaled as a
 \* new entry, so a second undo reverses the undo.
 INV_APPLY_2_FILE ==
     (effect # None /\ effect.p.kind = "Undo" /\ effect.p.target = "File") => effect.journal = "edit"
 
-\* INV-FOCUS-1 as written (doc finding F9): exactly one end event per session. Breaks: a session replaced
+\* INV-FOCUS-1 as written (doc finding F9, Fix F9): exactly one end event per session. Breaks: a session replaced
 \* by a new Start, or open at quit, closes with none.
 INV_FOCUS_1_EXACT == last # "QuietEnd"
 
-\* LIVE-1, Thinking part (doc finding F7): Thinking always ends, unless new user input (Send, Talk button,
-\* a new hold: last = "Input") arrives first or Boo quits. The escape matters: without it a user who keeps
-\* asking keeps Thinking on, so the check would still fail after F7 were fixed. Breaks: no local timeout; a
-\* silent provider after a voice turn (or after a typed question handed to voice) leaves Thinking on forever.
+\* LIVE-1, Thinking part (doc finding F7, Fix F7): Thinking always ends, unless new user input (Send, Talk button,
+\* a new hold: last = "Input") arrives first or Boo quits. Breaks: no local timeout; a silent provider after a voice
+\* turn, a typed question handed to voice, or a failed voice tool leaves Thinking on forever.
 LIVE_1_THINKING == thinking ~> (~thinking \/ ~alive \/ last = "Input")
 
-\* INV-TALK-1 as written (doc finding F10): after the last release, the microphone DEVICE is off. Breaks the
-\* same way as INV_PRIV_1_DEVICE: the Talk-button audio survives the release (or the 120 s hold timeout).
+\* INV-TALK-1 as written (doc finding F10, Fix F10): after the last release, the microphone DEVICE is off.
 INV_TALK_1_DEVICE ==
     [][((chord \/ eyes) /\ ~(chord' \/ eyes')) => micDev' = "Off"]_vars
 
-\* INV-PRIV-1 as written, for the microphone DEVICE (lifecycle doc finding F10): the mic is open =>
-\* the notch is visible. Breaks: hold Ctrl+Alt+Space, press Talk twice (stop, start), release the chord:
-\* StopPushToTalkMic turns the indicator off but leaves the Talk-button audio running (MainWindow.Talk.cs:383-398).
+\* INV-PRIV-1 as written, for the microphone DEVICE (doc finding F10, Fix F10): the mic is open => the notch is
+\* visible. Breaks: hold Ctrl+Alt+Space, press Talk twice (stop, start), release the chord: StopPushToTalkMic
+\* turns the indicator off but leaves the Talk-button audio running (MainWindow.Talk.cs:383-398).
 INV_PRIV_1_DEVICE == (micDev # "Off" \/ CaptureOn) => phase # "Hidden"
+
+-----------------------------------------------------------------------------
+(* Reachability witnesses. Each one says "the trigger of a check never happens"; run_tlc.sh requires TLC to
+   find it FALSE (a trace that reaches the trigger), so no check passes only because its trigger is unreachable.
+   Main checks are witnessed with Fix = "none"; each gap's witness runs with that gap's Fix on. *)
+
+W_PRIV_1_MIC        == ~micInd
+W_PRIV_1_CAPTURE    == ~CaptureOn
+W_APPLY_1           == effect = None
+W_APPLY_2_FIELD     == ~(effect # None /\ effect.p.kind = "Undo" /\ effect.p.target = "Field" /\ effect.ok)
+W_APPLY_3           == ~(card # None /\ card.st = "Executing" /\ ~card.cur)
+W_TALK_1_HOLD       == micDev # "Hold"
+W_TALK_1_STOP       == [][~((micDev # "Off" \/ micInd) /\ last' = "Stop")]_vars
+W_TALK_1_RELEASE    == [][~((chord \/ eyes) /\ ~(chord' \/ eyes'))]_vars
+W_FOCUS_END         == focusEnds = 0
+W_LIVE_1_RESPONDING == ~responding
+W_LIVE_2            == ~(alive /\ ~hovered /\ ~Pinned /\ phase # "Hidden")
+
+W_STOP_1            == [][~((focus \in Live \/ CaptureOn) /\ last' = "Stop")]_vars
+W_PRIV_2            == [][~(~CaptureOn /\ CaptureOn')]_vars
+W_APPLY_2_FILE      == ~(effect # None /\ effect.p.kind = "Undo" /\ effect.p.target = "File" /\ effect.ok)
+W_FOCUS_1_EXACT     == last \notin {"QuietEnd", "Replaced"}
+W_THINKING          == ~thinking
+W_DEVICE            == [][~((chord \/ eyes) /\ ~(chord' \/ eyes') /\ micDev = "Button")]_vars
 
 =============================================================================

@@ -11,100 +11,157 @@ Agent-trust plan, Phase 2, PR 2.2 (`docs/plans/agent-trust-plan.md` 3.2 B and 3.
 
 | File | Role |
 | --- | --- |
-| `NotchLifecycle.tla` | The model. One action per user, timer or provider event. |
+| `NotchLifecycle.tla` | The model. One action per user, timer, local or provider step. |
 | `NotchLifecycle.cfg` | The rules that **hold** today. TLC must **pass**. |
 | `NotchLifecycle_plan_gaps.cfg` | The plan's rules, as written, that today's code **breaks**. Each must **fail**. |
-| `NotchLifecycle_redproof.cfg` | Turns on a planted bug ("apply without Approve"). Must **fail** on `INV_APPLY_1`. |
-| `../scripts/ci/run_tlc.sh` | Downloads the pinned checker, verifies it, runs all of the above, prints a summary. |
-| `../.github/workflows/formal.yml` | Runs the script on Linux for changes here, and nightly. |
+| `NotchLifecycle_redproof.cfg` | The plan's own red proof, to run by hand: "apply without Approve" must be caught. |
+| `../scripts/ci/run_tlc.sh` | Downloads the pinned checker, verifies it, runs the whole run table below, prints a summary. |
+| `../.github/workflows/formal.yml` | Runs the script on Linux for changes here, and nightly (plus a wider nightly run). |
 
-## How it maps to the lifecycle doc
+## The three switches
 
-The model copies `docs/architecture/notch-lifecycle.md`, not the plan's ideal picture. Every action has a comment
-with the doc's row ids, for example `[R4]` (reveal timeline), `[F10b]` (face flags), `[H8]` (hold-to-talk), `[Fo2]`
-(focus), `[G3]` (request generations), `[A5]` (approval card), `[U6]` (undo). Search the `.tla` for a row id to find
-its action.
+The model has three constants. With all three at their defaults it is today's code.
 
-| Rule | Plain words | Where | Expected |
-| --- | --- | --- | --- |
-| `INV_PRIV_1` | Mic indicator or capture on: the notch is out and shows Listening or Capture | main | pass |
-| `INV_APPLY_1` | Nothing is applied without Approve of that exact proposal | main | pass |
-| `INV_APPLY_2_FIELD` | A field undo needs a recorded edit, and clears it | main | pass |
-| `INV_APPLY_3` | Nothing from an older request is applied | main | pass |
-| `INV_TALK_1`, `INV_TALK_1_RELEASE` | After the last hold release or Stop, the hold's mic and the indicator are off | main | pass |
-| `INV_FOCUS_AT_MOST_ONE` | At most one end event per focus session | main | pass |
-| `LIVE_1_RESPONDING` | Never stuck on Responding | main | pass |
-| `LIVE_2` | After the pointer leaves with nothing pinning it, the notch hides (unless new input comes) | main | pass |
-| `INV_STOP_1` | Stop leaves the notch quiet (finding F4: Stop leaves it on Paused) | gaps | fail |
-| `INV_PRIV_2` | No capture starts while hidden (finding F5: a focus check does) | gaps | fail |
-| `INV_APPLY_2_FILE` | Undo only once (finding F6: a second file undo re-applies) | gaps | fail |
-| `INV_FOCUS_1_EXACT` | Exactly one end event (finding F9: replaced or quit sessions have none) | gaps | fail |
-| `LIVE_1_THINKING` | Thinking always ends (finding F7: no local timeout) | gaps | fail |
-| `INV_PRIV_1_DEVICE` | Mic device on: the notch is visible (finding F10, see below) | gaps | fail |
-| `INV_TALK_1_DEVICE` | After the last release, the mic device is off (finding F10) | gaps | fail |
-| `INV_APPLY_1` with the planted bug | The checker catches a real apply-without-approve bug | red proof | fail |
+- `Plant`: a **planted bug**, one plausible code mistake per main rule. The rule must catch it (a "red proof"), so
+  no rule can pass because it checks nothing.
+- `Fix`: the **obvious fix** of one gap finding. The gap must fail with no fix and pass with its fix. If it still
+  fails with its fix on, its counterexample has another cause than the finding says, and CI says so.
+- `MaxActive`: how many features may be busy at the same moment (2 on every PR, 3 in the nightly `tlc-wide` job).
 
-`INV_PRIV_1_DEVICE`: holding Ctrl+Alt+Space, then starting a Talk-button session, then releasing the chord turns
-the notch's mic indicator off but leaves the Talk-button microphone running (`StopPushToTalkMic`,
-`src/Boo.App/MainWindow.Talk.cs:383-398`). Found while building the model, by reading the code; no run has shown
-it yet. It is finding F10 in `docs/architecture/notch-lifecycle.md` (section 5) and HANDOFF known issue 13.
+## Rules, red proofs, witnesses and fixes
+
+A **witness** is the opposite of a rule's trigger ("the mic indicator is never on"). TLC must find it false, which
+proves the trigger really happens, so a rule like "if the mic is on then ..." cannot pass only because the mic never
+comes on. "Structural" means the rule holds because the model copies one guard from the code; whether the code keeps
+that guard is proved later by the conformance test (PR 2.7), not here.
+
+| Rule | Plain words | Today | Red proof (`Plant`) | Witness |
+| --- | --- | --- | --- | --- |
+| `INV_PRIV_1` | Mic indicator or capture on: the notch is out and shows Listening or Capture | pass | `PinIgnoresCapture` (starting a capture does not re-pin the notch) | `W_PRIV_1_MIC`, `W_PRIV_1_CAPTURE` |
+| `INV_APPLY_1` | Nothing is applied without Approve of that exact proposal (**structural**) | pass | `ApplyWithoutApprove` | `W_APPLY_1` |
+| `INV_APPLY_2_FIELD` | A field undo needs a recorded edit; after a **verified** undo the journal is empty | pass | `FieldUndoKeepsJournal`, `UndoWithoutJournal` | `W_APPLY_2_FIELD` |
+| `INV_APPLY_3` | Nothing from an older request is applied (**structural**) | pass | `CommitIgnoresGeneration` | `W_APPLY_3` |
+| `INV_TALK_1` | The hold's mic is open only while a hold is down; after Stop mic and indicator are off (that part **structural**) | pass | `StopKeepsMic` | `W_TALK_1_HOLD`, `W_TALK_1_STOP` |
+| `INV_TALK_1_RELEASE` | After the last release, the hold's mic and the indicator are off | pass | `ReleaseKeepsIndicator` | `W_TALK_1_RELEASE` |
+| `INV_FOCUS_AT_MOST_ONE` | At most one end event per focus session | pass | `EndNotGuarded` | `W_FOCUS_END` |
+| `LIVE_1_RESPONDING` | Never stuck on Responding | pass | `NoRespondingTimer` (the timer never fires) | `W_LIVE_1_RESPONDING` |
+| `LIVE_2` | After the pointer leaves with nothing pinning it, the notch hides (unless new input comes) | pass | `NoRetractTimer` (the 900 ms delay never fires) | `W_LIVE_2` |
+| `TypeOK` | Every variable stays in its value set (model sanity, not behaviour) | pass | none (no behaviour to plant) | none |
+
+| Gap (plan wording) | Finding | Today | `Fix` (the modelled obvious fix) | With fix | Witness under fix |
+| --- | --- | --- | --- | --- | --- |
+| `INV_STOP_1` Stop leaves the notch quiet | F4 | fail | `F4`: Stop ends every capture at once and ends a live focus session (one end event, no Happy face) | pass | `W_STOP_1` |
+| `INV_PRIV_2` No capture starts while hidden | F5 | fail | `F5`: a capture about to start pins the notch first; the grab waits until it is out | pass | `W_PRIV_2` |
+| `INV_APPLY_2_FILE` Undo only once | F6 | fail | `F6`: a verified file undo clears the file journal | pass | `W_APPLY_2_FILE` |
+| `LIVE_1_THINKING` Thinking always ends | F7 | fail | `F7`: a local Thinking timeout | pass | `W_THINKING` |
+| `INV_FOCUS_1_EXACT` Exactly one end event | F9 | fail | `F9`: replacing or quitting a live session raises its end event | pass | `W_FOCUS_1_EXACT` |
+| `INV_PRIV_1_DEVICE` Mic device on: the notch is visible | F10 | fail | `F10`: the last release stops whichever audio is current | pass | `W_DEVICE` |
+| `INV_TALK_1_DEVICE` After the last release the mic device is off | F10 | fail | `F10` (same) | pass | `W_DEVICE` |
+
+The fixes are candidates that show each gap has the cause the finding says. They are not decisions: Vikas decides
+each finding in the lifecycle doc.
+
+## The fairness rule
+
+"Fair" means "if this step stays possible, it eventually happens". The model gives that promise only where the
+code keeps it on its own:
+
+> A step is **fair if and only if the C# guarantees it completes by a local bound**: a timer, a `CancelAfter` or the
+> 45 s `HttpClient` timeout, a cancelled request token, or a `finally` after a bounded await. Events the AI provider
+> pushes, and awaits with no local bound (websocket sends: `SendTextAsync`, `CompleteToolAsync`, `InterruptAsync`,
+> `CommitAudioTurnAsync`), are **never** fair, and neither is the user. Fairness is always on **all outcomes** of a
+> step (success and failure together), never on the success branch alone.
+
+Local OS calls (taking a screenshot, reading controls through UI Automation, writing a file) have no timeout of
+their own; the model assumes they return (LOW, see Simplifications).
+
+| Action | Fair? | Why (code) |
+| --- | --- | --- |
+| `Tick` (reveal timeline) | fair | render loop, `NotchWindow.xaml.cs:639-674`; timeline `NotchFace.cs:347-353` |
+| `ExpireResponding`, `ExpireNudge`, `ExpireHappy` | fair | face moment timer, `MainWindow.xaml.cs:175-202` (4 s, 6 s, 2.5 s) |
+| `ExpireThinking` (Fix F7 only) | fair | the fix is a local timer |
+| `HoldTimeout` | fair | 250 ms ticker, `MainWindow.Talk.cs:57-58`, `:196-208`; 120 s limit `HoldToTalk.cs:163-174` |
+| `FocusComplete` | fair | 1 s focus timer, `FocusTimer_OnTick` `MainWindow.xaml.cs:1438-1460` |
+| `FocusCheckStart` | fair | capture timer, `FocusCaptureTimer_OnTick` `MainWindow.xaml.cs:1497-1500` |
+| `FocusCheckCapture` (Fix F5 only) | fair | local step of the fix |
+| `FocusCheckDone` | fair | local capture, then `ClassifyAsync` over the 45 s `HttpClient` (`:1506-1582`, `:1624`) |
+| `TypedCapture` or `TypedNoFrame` | fair | local screenshot, `CaptureForRequestAsync` `:1999-2058` |
+| `TypedReply` or `TypedUndoPlan` or `TypedEnd` | fair when the request is stale, or on the HTTP path (speech off; every typed undo) | `RespondAsync` over the 45 s `HttpClient` (`:2123`); undo is local (`Edits.cs:71-123`); a stale request's token is cancelled |
+| `TypedHandOff`, and `TypedEnd` of a current speech-on request | **not fair** | `SendTextAsync` has no timeout (`RealtimeClient.cs:406-410`) |
+| `VToolCapture` or `VToolNoFrame` | fair | local screenshot |
+| `VToolAnswer` or `VToolFail` | fair | `RespondAsync` over the 45 s `HttpClient`; failure keeps Thinking on (`:2384-2391`, `:2415-2432`) |
+| `VToolRelease` (the tool's `finally`) | fair only when stale | otherwise it waits for `CompleteToolAsync`, no timeout (`RealtimeClient.cs:412-419`) |
+| `VUndoCapture` (Fix F5 only) | fair | local step of the fix |
+| `VUndoDone` | fair only when stale | otherwise it may wait for `InterruptAsync`, no timeout (`Edits.cs:144-150`, `RealtimeClient.cs:457-458`) |
+| `Apply` or `ExecEnd` | fair | `ExecuteAsync` is local and honours the lease token; read-back is at most five 120 ms polls (`MainWindow.xaml.cs:1225-1226`, `Edits.cs:358-364`) |
+| `PointerEnter/Leave`, `Send`, `TalkButton`, `TalkDown/Up`, `Stop`, `Quit`, `Approve`, `Reject`, `FocusStart/Pause/Resume/End`, `NudgeBack`, `NudgeBreak` | not fair | the user |
+| `VSpeechStarted/Stopped`, `VAudioDelta`, `VResponseDone`, `VDrop`, `VGoToSleep`, `VToolCall`, `VUndoStart` | not fair | the provider |
+| `BuggyApply`, `FocusEndAgain` | not fair | planted bugs (red proofs only) |
 
 ## Simplifications (what the model leaves out)
 
+Each is LOW: it changes no check result.
+
+- After the answer, a current voice tool's capture stays open until `CompleteToolAsync` returns; the model keeps it
+  open too (`st = "Send"`). If an undo card is pending, the tool first sends a decline with `CompleteToolAsync`
+  (`DeclineRealtimeToolDuringUndoAsync`, `Edits.cs:190-210`, called at `:2360` and `:2401`); the model ignores
+  that wait, so its answer step is fair even then.
+- After a voice-originated approval runs, the code awaits `CompletePendingRealtimeToolAsync` (a websocket send)
+  before the card's `finally`; the model closes the card in the same step as the commit.
+- A failed `SendTextAsync` after a successful connect leaves a connected voice session in the code
+  (`MainWindow.xaml.cs:777`, `:797`); the model's `TypedEnd` leaves `voice = "Off"`.
+- A spoken undo's capture has no "no frame" branch; a spoken undo is unfair while current even when no reply is
+  playing (then `InterruptAsync` is skipped and the step is local).
 - The two undo journals are independent in the model; in the code each new kind of edit clears the other
-  (`MainWindow.Edits.cs:244`, `:533`). No check's result depends on it (the field check is reachable through
-  field-only paths, and the file gap's trace has no field edits). Also approximated: a reply that arrives while a
-  card is up keeps the old card (the code replaces it), and a field undo can be planned without a frame (the code
-  refuses).
-- A typed question handed to voice opens a text-only session (`"Text"`): no speech events and no spoken undo can
-  come from it, because the microphone is never opened.
-- A stale approval that is still executing blocks a new card in the model; in the code the new card appears but its
-  Approve stays disabled until the old approval's finally, so nothing can be approved earlier either way. A
-  multi-step undo is one Apply step in the model (the code queues its steps).
-- The hold-to-talk keyboard hook runs on its own thread and posts StartListening to the UI thread
-  (`MainWindow.Talk.cs:89-154`); the model makes TalkDown one atomic step. A Stop that runs between the key going
-  down and the posted start could leave the microphone on with the indicator visible and no hold to release it
-  (code reading, UNVERIFIED; a window of milliseconds). `INV_TALK_1` does not cover that race.
-- Local steps with no provider wait (taking or skipping the screenshot, planning a typed undo, a typed request's
-  finally, which the 45 s HTTP timeout bounds) are fair; the provider is not. The end of a spoken undo is not fair:
-  it may await a network interrupt with no timeout of its own.
-- `LIVE_1_THINKING` allows new user input (Send, Talk button, a new hold) as an escape, like `LIVE_2`, so it can
-  only fail on a silent provider (finding F7), and its "gap now passes" tripwire can fire once F7 is fixed.
-- The Responding moment may expire in the model even while audio deltas keep refreshing it in the code (more
-  permissive, fine for "eventually"). In-flight work becomes stale on StopListening only when a voice session is
-  open; the code also counts a voice client still connecting during a typed Send.
-- Time is steps, not milliseconds: the render loop and the moment timers are fair actions; the user and the AI
-  provider are not fair (they may never act).
-- Request generations are a "still current" flag on each piece of in-flight work. This is exact, because the
-  code only ever asks "is this the current generation?".
-- At most one typed request, one voice tool call, one spoken undo and one focus check at a time, and at most
-  `MaxActive = 2` busy lanes at once (typed request, voice tool, spoken undo, focus check, approval card, voice
-  session, a hold, a live focus session). So every pair of features meets; three at once is not explored.
-  `MaxActive = 3` is about 8 times more states (measured with a script copy of the model: about 130 thousand
-  states at 2, about 1 million at 3).
-- The Talk button's connect step is one step; a failed connect is the later disconnect action.
-- Undo journals keep only the newest entry; refused undo plans (file changed, newer field edit) are a yes/no
-  choice, not file contents.
-- Not modelled: the panel opening (no notch flag changes), the pointer and ring, reduced motion, two typed
-  requests in flight at once.
+  (`MainWindow.Edits.cs:244`, `:533`). A reply that arrives while a card is up keeps the old card (the code replaces
+  it). A multi-step undo is one Apply step.
+- A typed question handed to voice opens a text-only session (`"Text"`): no speech events and no spoken undo.
+- A stale approval that is still executing blocks a new card in the model; in the code the new card appears but
+  its Approve stays disabled until the old approval's `finally`.
+- The hold-to-talk keyboard hook posts StartListening to the UI thread (`MainWindow.Talk.cs:89-154`); the model
+  makes TalkDown one atomic step (a Stop between the key and the posted start is not modelled; UNVERIFIED race).
+- The Responding moment may expire in the model even while audio deltas keep refreshing it in the code.
+- Time is steps, not milliseconds. Request generations are a "still current" flag (exact: the code only asks
+  "is this the current generation?").
+- At most one typed request, one voice tool, one spoken undo and one focus check at a time, and at most
+  `MaxActive` busy lanes at once. The Talk button's connect is one step. Not modelled: the panel opening, the
+  pointer and ring, reduced motion.
+
+## Size and time
+
+Measured with a Python copy of the model (MOCK, not TLC): about 200 thousand states with `MaxActive = 2`. The PR run
+is about 45 TLC runs; most red proofs and witnesses stop at their first counterexample, the main run and the fix
+runs explore everything. The nightly `tlc-wide` job runs only the main cfg with `MaxActive = 3` (about 2 million
+states, 10 times more; same Python copy) and has its own 40 minute limit.
 
 ## Run it locally
 
 Needs Java 11 or newer and `curl`. From the repo root:
 
 ```bash
-bash scripts/ci/run_tlc.sh
+bash scripts/ci/run_tlc.sh          # everything (MaxActive 2)
+bash scripts/ci/run_tlc.sh --wide   # main cfg only, MaxActive 3
 ```
 
-It downloads `tla2tools.jar` (pinned release, SHA-256 checked before use), runs the three cfgs and prints a
-summary. Logs, with the counterexample steps for every gap, land in `artifacts/tlc/`.
+It downloads `tla2tools.jar` (pinned release, SHA-256 checked before use), runs the run table and prints a summary.
+Logs, with the counterexample steps, land in `artifacts/tlc/`.
+
+## Exit bar for reviewers
+
+Review the model against three tables in this file: the **fairness table** (is every fair step really bounded by
+the code line given, and is every unfair one really unbounded?), the **red-proof list** (is each planted bug a
+plausible code mistake, and is it caught?) and the **fix-switch matrix** (does each gap fail today and pass with its
+fix, with its trigger still reached?). A fidelity gap that changes **no check result** is a LOW entry under
+Simplifications, not a FAIL. A FAIL is a check that passes or fails for the wrong reason.
 
 ## Changing things: doc, model and code move together
 
 1. Behaviour changes are agreed in `docs/architecture/notch-lifecycle.md` first.
-2. The same PR updates the matching action here, and the cfg lists plus the two lists at the top of
-   `scripts/ci/run_tlc.sh` (the script refuses a cfg that drops or adds a rule without the script).
+2. The same PR updates the matching action here, the cfg lists, and the lists and run table at the top of
+   `scripts/ci/run_tlc.sh`. The script refuses a cfg that adds or drops a rule, a main rule without a red proof or
+   witness, and a gap without its fix run and fix witness.
 3. A gap that starts passing fails CI on purpose: if the code really fixed it, move the rule from the gaps cfg to
-   the main cfg and update the doc in the same PR.
+   the main cfg (give it a red proof and a witness) and update the doc in the same PR.
 4. From PR 2.4 the C# reducer (`src/Boo.Core/NotchLifecycle*`) follows this model, and from PR 2.7 a conformance
-   test checks they agree. Changes to those files also run this workflow.
+   test checks they agree; that test is the real proof of the structural rules. Changes to those files also run
+   this workflow.

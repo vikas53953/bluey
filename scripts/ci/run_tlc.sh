@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # Checks the TLA+ model of the notch lifecycle (specs/NotchLifecycle.tla) with TLC. Needs Java 11+ and curl.
 #
-#   bash scripts/ci/run_tlc.sh
+#   bash scripts/ci/run_tlc.sh            every run in the table below, with MaxActive = 2 (PRs, pushes, nightly)
+#   bash scripts/ci/run_tlc.sh --wide     only specs/NotchLifecycle.cfg, with MaxActive = 3 (nightly job)
 #
 # What must happen (anything else exits non-zero):
-#   1. specs/NotchLifecycle.cfg            PASSES  (the checks that hold for today's code)
-#   2. specs/NotchLifecycle_plan_gaps.cfg  each listed check FAILS on its own run (the known gaps)
-#   3. specs/NotchLifecycle_redproof.cfg   FAILS on INV_APPLY_1 (planted "Apply without Approve" bug)
+#   main       specs/NotchLifecycle.cfg PASSES (the checks that hold for today's code)
+#   redproof   each main check CATCHES its planted bug (Plant = ...): no main check is vacuous
+#   witness    each main check's trigger is REACHED (an invariant "the trigger never happens" FAILS)
+#   gap        each check in specs/NotchLifecycle_plan_gaps.cfg FAILS with Fix = "none"
+#   fix        each gap PASSES with its own Fix on (else its counterexample has another cause)
+#   fixwitness each gap's trigger is still REACHED with its Fix on (the fix did not just switch the trigger off)
 #
 # tla2tools.jar is a pinned release, checked against its SHA-256 BEFORE it is used; a failed download or a
 # wrong hash stops the run (fail closed). Logs, with the counterexample traces: artifacts/tlc/*.log.
@@ -21,6 +25,62 @@ TLA_SHA256="936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
 # docs/architecture/notch-lifecycle.md (sections 4 and 5) must change together.
 EXPECTED_HOLDS="TypeOK INV_PRIV_1 INV_APPLY_1 INV_APPLY_2_FIELD INV_APPLY_3 INV_TALK_1 INV_FOCUS_AT_MOST_ONE INV_TALK_1_RELEASE LIVE_1_RESPONDING LIVE_2"
 EXPECTED_GAPS="INV_STOP_1 INV_APPLY_2_FILE INV_FOCUS_1_EXACT INV_PRIV_1_DEVICE INV_PRIV_2 LIVE_1_THINKING INV_TALK_1_DEVICE"
+# TypeOK is a model sanity check (every variable stays in its value set), not a behaviour rule: no red proof.
+NO_RED_PROOF="TypeOK"
+
+# The run table: role | Plant | Fix | INVARIANT or PROPERTY | check | which main check or gap it covers.
+# Expectation by role: redproof, witness, gap, fixwitness must FAIL on the named check; fix must PASS.
+RUNS="
+redproof   | PinIgnoresCapture       | none | INVARIANT | INV_PRIV_1            | INV_PRIV_1
+redproof   | ApplyWithoutApprove     | none | INVARIANT | INV_APPLY_1           | INV_APPLY_1
+redproof   | FieldUndoKeepsJournal   | none | INVARIANT | INV_APPLY_2_FIELD     | INV_APPLY_2_FIELD
+redproof   | UndoWithoutJournal      | none | INVARIANT | INV_APPLY_2_FIELD     | INV_APPLY_2_FIELD
+redproof   | CommitIgnoresGeneration | none | INVARIANT | INV_APPLY_3           | INV_APPLY_3
+redproof   | StopKeepsMic            | none | INVARIANT | INV_TALK_1            | INV_TALK_1
+redproof   | ReleaseKeepsIndicator   | none | PROPERTY  | INV_TALK_1_RELEASE    | INV_TALK_1_RELEASE
+redproof   | EndNotGuarded           | none | INVARIANT | INV_FOCUS_AT_MOST_ONE | INV_FOCUS_AT_MOST_ONE
+redproof   | NoRespondingTimer       | none | PROPERTY  | LIVE_1_RESPONDING     | LIVE_1_RESPONDING
+redproof   | NoRetractTimer          | none | PROPERTY  | LIVE_2                | LIVE_2
+witness    | none | none | INVARIANT | W_PRIV_1_MIC        | INV_PRIV_1
+witness    | none | none | INVARIANT | W_PRIV_1_CAPTURE    | INV_PRIV_1
+witness    | none | none | INVARIANT | W_APPLY_1           | INV_APPLY_1
+witness    | none | none | INVARIANT | W_APPLY_2_FIELD     | INV_APPLY_2_FIELD
+witness    | none | none | INVARIANT | W_APPLY_3           | INV_APPLY_3
+witness    | none | none | INVARIANT | W_TALK_1_HOLD       | INV_TALK_1
+witness    | none | none | PROPERTY  | W_TALK_1_STOP       | INV_TALK_1
+witness    | none | none | PROPERTY  | W_TALK_1_RELEASE    | INV_TALK_1_RELEASE
+witness    | none | none | INVARIANT | W_FOCUS_END         | INV_FOCUS_AT_MOST_ONE
+witness    | none | none | INVARIANT | W_LIVE_1_RESPONDING | LIVE_1_RESPONDING
+witness    | none | none | INVARIANT | W_LIVE_2            | LIVE_2
+gap        | none | none | INVARIANT | INV_STOP_1          | INV_STOP_1
+gap        | none | none | PROPERTY  | INV_PRIV_2          | INV_PRIV_2
+gap        | none | none | INVARIANT | INV_APPLY_2_FILE    | INV_APPLY_2_FILE
+gap        | none | none | PROPERTY  | LIVE_1_THINKING     | LIVE_1_THINKING
+gap        | none | none | INVARIANT | INV_FOCUS_1_EXACT   | INV_FOCUS_1_EXACT
+gap        | none | none | INVARIANT | INV_PRIV_1_DEVICE   | INV_PRIV_1_DEVICE
+gap        | none | none | PROPERTY  | INV_TALK_1_DEVICE   | INV_TALK_1_DEVICE
+fix        | none | F4   | INVARIANT | INV_STOP_1          | INV_STOP_1
+fix        | none | F5   | PROPERTY  | INV_PRIV_2          | INV_PRIV_2
+fix        | none | F6   | INVARIANT | INV_APPLY_2_FILE    | INV_APPLY_2_FILE
+fix        | none | F7   | PROPERTY  | LIVE_1_THINKING     | LIVE_1_THINKING
+fix        | none | F9   | INVARIANT | INV_FOCUS_1_EXACT   | INV_FOCUS_1_EXACT
+fix        | none | F10  | INVARIANT | INV_PRIV_1_DEVICE   | INV_PRIV_1_DEVICE
+fix        | none | F10  | PROPERTY  | INV_TALK_1_DEVICE   | INV_TALK_1_DEVICE
+fixwitness | none | F4   | PROPERTY  | W_STOP_1            | INV_STOP_1
+fixwitness | none | F5   | PROPERTY  | W_PRIV_2            | INV_PRIV_2
+fixwitness | none | F6   | INVARIANT | W_APPLY_2_FILE      | INV_APPLY_2_FILE
+fixwitness | none | F7   | INVARIANT | W_THINKING          | LIVE_1_THINKING
+fixwitness | none | F9   | INVARIANT | W_FOCUS_1_EXACT     | INV_FOCUS_1_EXACT
+fixwitness | none | F10  | PROPERTY  | W_DEVICE            | INV_PRIV_1_DEVICE
+fixwitness | none | F10  | PROPERTY  | W_DEVICE            | INV_TALK_1_DEVICE
+"
+
+MODE="all"
+case "${1:-}" in
+  "") ;;
+  --wide) MODE="wide" ;;
+  *) echo "usage: bash scripts/ci/run_tlc.sh [--wide]"; exit 2 ;;
+esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SPECS="$ROOT/specs"
@@ -56,7 +116,7 @@ else
   echo "tla2tools.jar $TLA_VERSION downloaded, SHA-256 matches ($TLA_SHA256)."
 fi
 
-# --- 2. a clean work folder: the spec plus every cfg we run ----------------------------------------------
+# --- 2. the lists must agree before anything runs ------------------------------------------------------
 rm -rf "$OUT"
 WORK="$OUT/work"
 mkdir -p "$WORK"
@@ -70,20 +130,51 @@ cfg_checks() {
        m != "" && $1 ~ /^[A-Za-z_][A-Za-z0-9_]*$/ {print m, $1}' "$1"
 }
 names_of() { cfg_checks "$1" | awk '{print $2}' | sort | tr '\n' ' ' | sed 's/ $//'; }
-sorted() { echo "$1" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//'; }
+sorted() { echo "$1" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ' | sed 's/ $//'; }
+has() { case " $1 " in *" $2 "*) return 0 ;; *) return 1 ;; esac; }
 
 [ "$(names_of "$SPECS/NotchLifecycle.cfg")" = "$(sorted "$EXPECTED_HOLDS")" ] \
   || fail "specs/NotchLifecycle.cfg checks [$(names_of "$SPECS/NotchLifecycle.cfg")], expected [$(sorted "$EXPECTED_HOLDS")]. The doc, the cfg and this script must move together."
 [ "$(names_of "$SPECS/NotchLifecycle_plan_gaps.cfg")" = "$(sorted "$EXPECTED_GAPS")" ] \
   || fail "specs/NotchLifecycle_plan_gaps.cfg lists [$(names_of "$SPECS/NotchLifecycle_plan_gaps.cfg")], expected [$(sorted "$EXPECTED_GAPS")]. The doc, the cfg and this script must move together."
 
-# One cfg per gap: the gaps file's header (everything above its first INVARIANT/PROPERTY block) + one check.
-header="$(awk '/^(INVARIANTS?|PROPERT(Y|IES))([[:space:]]|$)/ {exit} {print}' "$SPECS/NotchLifecycle_plan_gaps.cfg")"
-while read -r kind name; do
-  printf '%s\n\n%s\n    %s\n' "$header" "$kind" "$name" > "$WORK/gap_${name}.cfg"
-done < <(cfg_checks "$SPECS/NotchLifecycle_plan_gaps.cfg")
+# The run table, one run per line: role plant fix kind check covers (pipes and blanks squeezed out).
+TABLE="$(echo "$RUNS" | sed '/^[[:space:]]*$/d' | tr -s ' |' ' ' | sed 's/^ //; s/ $//')"
+rows_for() { echo "$TABLE" | awk -v r="$1" -v c="$2" '$1 == r && $6 == c'; }
+while read -r role plant fix kind check covers; do
+  case "$role" in redproof|witness|gap|fix|fixwitness) ;; *) fail "run table: unknown role '$role'" ;; esac
+  case "$kind" in INVARIANT|PROPERTY) ;; *) fail "run table: '$kind' must be INVARIANT or PROPERTY" ;; esac
+  if [ "$role" = redproof ] && [ "$plant" = none ]; then fail "run table: red proof for $covers has no Plant"; fi
+  if [ "$role" != redproof ] && [ "$plant" != none ]; then fail "run table: only a red proof may set a Plant"; fi
+  if { [ "$role" = fix ] || [ "$role" = fixwitness ]; } && [ "$fix" = none ]; then fail "run table: $role for $covers has no Fix"; fi
+  if { [ "$role" = redproof ] || [ "$role" = witness ] || [ "$role" = gap ]; } && [ "$fix" != none ]; then
+    fail "run table: a $role run must use Fix none"
+  fi
+done <<< "$TABLE"
+for c in $EXPECTED_HOLDS; do
+  if ! has "$NO_RED_PROOF" "$c"; then
+    [ -n "$(rows_for redproof "$c")" ] || fail "main check $c has no red proof in the run table: it could be vacuous."
+    [ -n "$(rows_for witness "$c")" ] || fail "main check $c has no reachability witness in the run table."
+  fi
+done
+for c in $EXPECTED_GAPS; do
+  [ "$(rows_for gap "$c" | wc -l)" -eq 1 ] || fail "gap $c needs exactly one gap row in the run table."
+  [ -n "$(rows_for fix "$c")" ] || fail "gap $c has no fix run: nothing shows its counterexample has the cause we think."
+  [ -n "$(rows_for fixwitness "$c")" ] || fail "gap $c has no witness under its fix: the fix could just switch the trigger off."
+  fixes="$(rows_for fix "$c" | awk '{print $3}' | sort -u)"
+  wfixes="$(rows_for fixwitness "$c" | awk '{print $3}' | sort -u)"
+  [ "$fixes" = "$wfixes" ] || fail "gap $c: its fix run and its fix witness use different Fix switches."
+done
 
 # --- 3. run TLC -----------------------------------------------------------------------------------------
+MAX_ACTIVE=2
+[ "$MODE" = wide ] && MAX_ACTIVE=3
+
+make_cfg() { # $1 file, $2 plant, $3 fix, $4 kind, $5 check
+  printf 'CONSTANTS\n    None = None\n    MaxActive = %s\n    Plant = "%s"\n    Fix = "%s"\n\nSPECIFICATION Spec\n\nCHECK_DEADLOCK FALSE\n\n%s\n    %s\n' \
+    "$MAX_ACTIVE" "$2" "$3" "$4" "$5" > "$WORK/$1"
+}
+
 run_tlc() { # $1 = run name, $2 = cfg file name in $WORK; prints the log, sets RC
   local log="$OUT/$1.log"
   echo
@@ -93,51 +184,96 @@ run_tlc() { # $1 = run name, $2 = cfg file name in $WORK; prints the log, sets R
       -workers auto -cleanup -metadir "$WORK/states_$1" -config "$2" NotchLifecycle.tla < /dev/null) 2>&1 | tee "$log"
   RC=${PIPESTATUS[0]}
   set -e
+  rm -rf "$WORK/states_$1"
+}
+
+# TLC exit codes (tlc2.output.EC.ExitStatus in 1.7.4): 0 success, 12 safety violation, 13 liveness violation.
+passed() { [ "$RC" -eq 0 ] && grep -q "Model checking completed. No error has been found." "$1"; }
+failed_on() { # $1 log, $2 kind, $3 check: TLC reports a counterexample for exactly this check
+  { [ "$RC" -eq 12 ] || [ "$RC" -eq 13 ]; } || return 1
+  if [ "$2" = INVARIANT ]; then
+    grep -Eq "Invariant $3 is violated" "$1"
+  else
+    grep -Eq "Action property $3 is violated|Temporal properties were violated" "$1"
+  fi
 }
 
 SUMMARY=()
 BAD=0
 note() { SUMMARY+=("$1"); }
 
-# TLC exit codes (tlc2.output.EC.ExitStatus in 1.7.4): 0 success, 12 safety violation, 13 liveness violation.
+if [ "$MODE" = wide ]; then
+  sed -i.bak 's/^    MaxActive = 2$/    MaxActive = 3/' "$WORK/NotchLifecycle.cfg"
+  grep -q '^    MaxActive = 3$' "$WORK/NotchLifecycle.cfg" || fail "could not set MaxActive = 3 in the main cfg copy."
+fi
+
 run_tlc main NotchLifecycle.cfg
-if [ "$RC" -eq 0 ] && grep -q "Model checking completed. No error has been found." "$OUT/main.log"; then
-  note "PASS  main: every check that holds today passed ($(sorted "$EXPECTED_HOLDS"))"
+if passed "$OUT/main.log"; then
+  note "PASS  main (MaxActive $MAX_ACTIVE): every check that holds today passed"
 else
-  note "FAIL  main: expected a pass, TLC exit $RC. A check that held is now broken, or the model does not parse. See artifacts/tlc/main.log."
+  note "FAIL  main (MaxActive $MAX_ACTIVE): expected a pass, TLC exit $RC. A check that held is now broken, or the model does not parse. See artifacts/tlc/main.log."
   BAD=1
 fi
 
-while read -r kind name; do
-  run_tlc "gap_$name" "gap_${name}.cfg"
-  log="$OUT/gap_$name.log"
-  if [ "$RC" -eq 0 ]; then
-    note "FAIL  gap $name: it now PASSES. If the code really closed this gap, update docs/architecture/notch-lifecycle.md, move $name from NotchLifecycle_plan_gaps.cfg to NotchLifecycle.cfg and update the lists in this script, all in the same PR: the doc and the cfg must move together."
-    BAD=1
-  elif { [ "$RC" -eq 12 ] || [ "$RC" -eq 13 ]; } \
-       && grep -Eq "(Invariant|Action property) $name is violated|Temporal properties were violated" "$log"; then
-    note "OK    gap $name: fails as expected, counterexample in artifacts/tlc/gap_$name.log"
+if [ "$MODE" = all ]; then
+  run_tlc redproof_file NotchLifecycle_redproof.cfg
+  if failed_on "$OUT/redproof_file.log" INVARIANT INV_APPLY_1; then
+    note "OK    redproof file: NotchLifecycle_redproof.cfg is caught by INV_APPLY_1"
   else
-    note "FAIL  gap $name: TLC exit $RC without the expected counterexample (a parse or model error?). See artifacts/tlc/gap_$name.log."
+    note "FAIL  redproof file: NotchLifecycle_redproof.cfg was not caught by INV_APPLY_1 (TLC exit $RC)."
     BAD=1
   fi
-done < <(cfg_checks "$SPECS/NotchLifecycle_plan_gaps.cfg")
 
-run_tlc redproof NotchLifecycle_redproof.cfg
-if [ "$RC" -eq 12 ] && grep -q "Invariant INV_APPLY_1 is violated" "$OUT/redproof.log"; then
-  note "OK    red proof: the planted 'Apply without Approve' bug is caught by INV_APPLY_1 (trace in artifacts/tlc/redproof.log)"
-else
-  note "FAIL  red proof: expected INV_APPLY_1 to catch the planted bug, TLC exit $RC. The check would miss a real bug."
-  BAD=1
+  n=0
+  while read -r role plant fix kind check covers; do
+    n=$((n + 1))
+    name="$(printf '%02d' "$n")_${role}_${check}_${plant}_${fix}"
+    make_cfg "$name.cfg" "$plant" "$fix" "$kind" "$check"
+    run_tlc "$name" "$name.cfg"
+    log="$OUT/$name.log"
+    if [ "$role" = fix ]; then
+      if passed "$log"; then
+        note "OK    fix        $check passes with Fix $fix"
+      elif failed_on "$log" "$kind" "$check"; then
+        note "FAIL  fix        $check still FAILS with Fix $fix: its counterexample has another cause than the finding says. Read artifacts/tlc/$name.log and update the doc and the Fix."
+        BAD=1
+      else
+        note "FAIL  fix        $check with Fix $fix: TLC exit $RC (a parse or model error?). See artifacts/tlc/$name.log."
+        BAD=1
+      fi
+      continue
+    fi
+    if failed_on "$log" "$kind" "$check"; then
+      case "$role" in
+        redproof)   note "OK    redproof   $covers catches Plant $plant" ;;
+        witness)    note "OK    witness    $covers: its trigger is reached ($check)" ;;
+        gap)        note "OK    gap        $check fails as expected (counterexample in artifacts/tlc/$name.log)" ;;
+        fixwitness) note "OK    fixwitness $covers: its trigger is still reached with Fix $fix ($check)" ;;
+      esac
+    elif passed "$log"; then
+      case "$role" in
+        redproof)   note "FAIL  redproof   $covers MISSED Plant $plant: the check is vacuous or too weak." ;;
+        witness)    note "FAIL  witness    $covers: its trigger is never reached ($check passed), so the check proves nothing." ;;
+        gap)        note "FAIL  gap        $check now PASSES. If the code really closed this gap, update docs/architecture/notch-lifecycle.md, move $check from NotchLifecycle_plan_gaps.cfg to NotchLifecycle.cfg and update the lists in this script, all in the same PR: the doc and the cfg must move together." ;;
+        fixwitness) note "FAIL  fixwitness $covers: with Fix $fix the trigger is never reached, so the fix run passes for nothing." ;;
+      esac
+      BAD=1
+    else
+      note "FAIL  $role $check (Plant $plant, Fix $fix): TLC exit $RC without the expected counterexample (a parse or model error?). See artifacts/tlc/$name.log."
+      BAD=1
+    fi
+  done <<< "$TABLE"
 fi
 
-rm -rf "$WORK"/states_*
-
 echo
-echo "=== TLC summary (tla2tools $TLA_VERSION) ==="
+echo "=== TLC summary (tla2tools $TLA_VERSION, mode $MODE, MaxActive $MAX_ACTIVE) ==="
 for line in "${SUMMARY[@]}"; do echo "  $line"; done
 if [ "$BAD" -ne 0 ]; then
   echo "TLC FAILED: at least one expectation above was not met."
   exit 1
 fi
-echo "TLC OK: main passed, every known gap still fails, the red proof is caught."
+if [ "$MODE" = wide ]; then
+  echo "TLC OK: the main checks pass with MaxActive 3."
+else
+  echo "TLC OK: main passed, every red proof is caught, every trigger is reached, every gap fails today and passes with its fix."
+fi

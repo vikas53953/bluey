@@ -4,7 +4,9 @@ name: formal
 #   - specs/NotchLifecycle.cfg: the checks that hold for today's code must PASS.
 #   - specs/NotchLifecycle_plan_gaps.cfg: the plan's checks that today's code breaks must each FAIL (the known gaps,
 #     docs/architecture/notch-lifecycle.md section 5), so a gap cannot close or open without the doc moving too.
-#   - specs/NotchLifecycle_redproof.cfg: a planted "Apply without Approve" bug must be caught.
+#   - every main check catches its planted bug (red proof) and its trigger is reached (witness); every gap passes
+#     with its own fix switch on. The run table is in scripts/ci/run_tlc.sh.
+#   - nightly only (job tlc-wide): the main cfg again with MaxActive = 3 (more features overlapping at once).
 # Linux only, no secrets, no .NET build. tla2tools.jar is a pinned release checked by SHA-256 before use.
 
 on:
@@ -48,7 +50,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: TLC (main must pass, each plan gap must fail, red proof must fail)
+      - name: TLC (main passes, red proofs caught, triggers reached, gaps fail today and pass with their fix)
         run: bash scripts/ci/run_tlc.sh
 
       - name: Upload TLC output (traces for the gaps and the red proof)
@@ -56,6 +58,34 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tlc-output
+          path: artifacts/tlc/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  tlc-wide:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: TLC nightly (main cfg with MaxActive = 3)
+        run: bash scripts/ci/run_tlc.sh --wide
+
+      - name: Upload TLC output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tlc-output-wide
           path: artifacts/tlc/*.log
           if-no-files-found: ignore
           retention-days: 7
