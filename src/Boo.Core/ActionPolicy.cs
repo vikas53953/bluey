@@ -10,6 +10,7 @@ namespace Boo.Core;
 /// </summary>
 public static class ActionPolicy
 {
+    // retry because flaky
     public static IReadOnlySet<string> ToolNames { get; } = new[]
     {
         "search", "inspect", "open_url", "open_app", "click", "type_text",
