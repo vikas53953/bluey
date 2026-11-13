@@ -6,7 +6,7 @@ from the repository, its pull requests or its Actions runs, with a link. Anythin
 **Keep it true.** Every PR must update the [Current status](#7-current-status) section of this file and add any new
 decision to [docs/DECISIONS.md](docs/DECISIONS.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status last updated: **13 Nov 2026, after PR #25 merged**, with `lane/face` at `40e7828` (PR #25); PR #27 (agent-trust Phase 2 PR 2.1, notch lifecycle statechart) synced on top.
+Status last updated: **13 Nov 2026, PR #29 opened** (agent-trust Phase 2 PR 2.2, TLA+ model), with `lane/face` at `0122ac7` (PR #27 merged).
 
 ---
 
@@ -195,6 +195,7 @@ PRs into `lane/face` must be **up to date** with it to merge, so every merge mak
 | PR | Branch → base | State (13 Nov, after PR #17) | Notes |
 | --- | --- | --- | --- |
 | [#3](https://github.com/vikas53953/bluey/pull/3) | `lane/face` → `main` | **open**, goes last | The integration PR. Needs green checks plus a fresh live smoke on the latest `lane/face` tip, and the wfx-loot audit still CLEAN. `main` also holds its own LICENSE commit (`ecea48b`), so `lane/face` is 1 commit behind `main` (GitHub still shows PR #3 as mergeable). |
+| [#29](https://github.com/vikas53953/bluey/pull/29) | `spec/notch-tla` → `lane/face` | **open** | Agent-trust **Phase 2, PR 2.2**: TLA+ model of today's notch lifecycle (`specs/`), checked by TLC in a **new, non-required** workflow `formal.yml` (path-filtered to specs, the lifecycle doc and the future reducer, plus nightly; kept out of `quality-gates.yml` while PR #28 owns it). Main checks pass; the plan's invariants that today's code breaks each fail with a counterexample; a planted Apply-without-Approve bug is caught. Also folds in #27's 9 review follow-ups and adds finding F10 (known issue 13). QA verdict and run links: in the PR body. |
 | [#27](https://github.com/vikas53953/bluey/pull/27) | `docs/notch-statechart` → `lane/face` | **merged 13 Nov** (`0122ac7`) | Agent-trust **Phase 2, PR 2.1**, docs only: `docs/architecture/notch-lifecycle.md` maps today's notch lifecycle (reveal timeline, face states, hold-to-talk, focus, request generations, approval card, undo, pointer) with a `file:line` cite per transition, each plan invariant marked enforced / partly / not enforced, and 9 findings to settle before the model and reducer PRs. Records Vikas's go for Phases 2 and 3 and the Phase 2 limits ($0 GitHub, $10/month OpenAI). Merged at its QA PASS head `95b00ca` (live [43367289882](https://github.com/vikas53953/bluey/actions/runs/43367289882); 5 fresh reviews, the last PASS). Its 9 minor review follow-ups are folded into PR 2.2. |
 | [#22](https://github.com/vikas53953/bluey/pull/22) | `fix/demo-step4-state-race` → `lane/face` | **merged 13 Nov** (`af241fa`) | Demo Step 4 test race fix: re-read the notch state after the button search; oracle revisions 22–23 (`docs/verification/test-oracle-revision-22.md`). |
 | [#24](https://github.com/vikas53953/bluey/pull/24) | `docs/verify-boo-followups` → `lane/face` | **merged 13 Nov** (`673b38e`) | Docs-only follow-ups from PR #13's reviews: `SKILL.md` screenshot naming (the `.capture.txt` names each `boo-<n>` window; the panel is the title that starts with `Boo companion`), HANDOFF known issues 11–12 wording. No code change; the 45 s OpenAI timeout is untouched. |
@@ -280,6 +281,9 @@ Each PR's latest evidence table and verdict is in its own latest QA comment. Thi
    capture of the display plus the question), so the test's screenshot method cannot cause it; in passing runs the
    marks arrive in about 4 to 6 s (`marksAfterSeconds`: 6.2 s in 43335756258, 4.2 s in 43339557570). Raising the limit
    (longer waits vs fewer timeouts) is a product decision for Vikas; nothing in the code was changed.
+
+13. **The microphone can keep recording while the mic indicator is off** (finding F10 in `docs/architecture/notch-lifecycle.md`; found by the PR #29 model; code reading, UNVERIFIED by any run). Hold Ctrl+Alt+Space, click Talk twice (or Send, then Talk), release the chord: the Talk-button microphone keeps streaming while the notch shows nothing. A privacy bug; fix planned as its own small PR.
+14. **`formal` (TLC) is not a required check.** It is path-filtered, so as a required check it would stay pending on PRs that do not touch its paths. To make it required later, switch to an always-running job that exits early when nothing relevant changed. Like every workflow, a PR can edit `formal.yml` itself (known issue 0).
 
 ### UNVERIFIED (not proven on `lane/face`)
 
