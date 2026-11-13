@@ -32,7 +32,7 @@ PLAIN = {
     'AM2': 'No planted root certificate; real OpenAI certificate validates',
     'S0': 'Launch: only the notch, Ctrl+Alt+B opens the panel',
     'S1': 'Hover wakes the notch, it retracts after',
-    'S2': 'Real OpenAI chat echoes a code made at run time; notch Thinking then Responding',
+    'S2': 'Real OpenAI chat echoes a code made at run time; notch shows Boo working, then Responding',
     'S3': 'Stop while an answer is coming: face clears, no answer lands',
     'S4': 'Focus Start / Pause (notch Paused) / Resume / End',
     'S5': 'Settings saved to file; a new Boo starts with the same choices',
@@ -102,6 +102,8 @@ def build(folder, run_url='', app_sha='', harness_sha='', models=''):
             what = PLAIN.get(sid, name.split('.')[-1])
             if group == 'smoke' and 'voice' in name.lower():
                 what = 'Voice: real OpenAI voice round trip'
+            elif name.endswith('TypedQuestion_GetsAnAnswerFromTheRealProvider'):
+                what = 'Live round trip: typed question + screenshot, real OpenAI answer'
             ok = outcome == 'Passed'
             if not ok:
                 problems.append(f'{what}: {outcome} {message}')

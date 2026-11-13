@@ -53,6 +53,29 @@ public static class QaUi
         return rows;
     }
 
+    /// <summary>
+    /// Opens the panel the way a user does (Ctrl+Alt+B), safely for a Boo that has only just started: Boo registers
+    /// its hotkeys when the notch window is created, so a press before that is lost (run 43425302356: every freshly
+    /// started Boo missed its first press). Waits for the notch, then presses up to 3 times. Use this, never
+    /// <see cref="BooAppFixture.EnsurePanel"/>, everywhere in the suite.
+    /// </summary>
+    public static Window OpenPanel(BooAppFixture boo)
+    {
+        boo.WaitForNotch(UiTimeout);
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            if (boo.FindPanel() is { } open) return open;
+            BooAppFixture.PressOpenShortcut();
+            if (BooAppFixture.WaitUntil(() => boo.FindPanel() is not null, TimeSpan.FromSeconds(8)) && boo.FindPanel() is { } panel)
+                return panel;
+        }
+        throw new TimeoutException("Ctrl+Alt+B did not open Boo's panel after 3 presses, with the notch already up.");
+    }
+
+    /// <summary>True while a typed request is being worked on: Boo shows Capture while it takes its screenshot, which
+    /// outranks Thinking for the whole request, so either face counts as "working".</summary>
+    public static bool IsWorkingFace(string face) => face is "Thinking" or "Capture";
+
     /// <summary>Types a question into Boo's Ask box and presses Send (the same controls a user clicks).</summary>
     public static void Ask(BooAppFixture boo, Window panel, string text)
     {

@@ -34,7 +34,7 @@ public sealed class NoKeyErrorTests(NoKeyFixture boo) : IClassFixture<NoKeyFixtu
     [Fact, Step(0)]
     public void E0_EmptyQuestion_AsksTheUserToTypeFirst()
     {
-        var panel = boo.EnsurePanel();
+        var panel = QaUi.OpenPanel(boo);
         QaUi.Find(boo, panel, "InputBox").AsTextBox().Text = string.Empty;
         QaUi.Find(boo, panel, "SendButton").AsButton().Invoke();
         Expect.Status(boo, panel, "qa-e0-empty-question", [Expect.TypeFirst], TimeSpan.FromSeconds(10));
@@ -43,7 +43,7 @@ public sealed class NoKeyErrorTests(NoKeyFixture boo) : IClassFixture<NoKeyFixtu
     [Fact, Step(1)]
     public void E1_NoKey_SaysAddAKey_AndSendsNothing()
     {
-        var panel = boo.EnsurePanel();
+        var panel = QaUi.OpenPanel(boo);
         QaUi.Ask(boo, panel, "What is two plus three?");
         Expect.Status(boo, panel, "qa-e1-no-key", [Expect.NoKey], TimeSpan.FromSeconds(30));
     }
@@ -57,7 +57,7 @@ public sealed class BadKeyErrorTests(FakeKeyFixture boo) : IClassFixture<FakeKey
     {
         // Prove the rejection comes from the real OpenAI, not a local stand-in.
         var hosts = RealAiHostGuard.EnsureRealProviderHosts();
-        var panel = boo.EnsurePanel();
+        var panel = QaUi.OpenPanel(boo);
         QaUi.Ask(boo, panel, "What is two plus three?");
         Expect.Status(boo, panel, "qa-e2-bad-key", [ProviderFailureClassifier.InvalidCredentialMessage], TimeSpan.FromSeconds(60),
             "\nantiMockGuard=" + string.Join("; ", hosts));
@@ -70,7 +70,7 @@ public sealed class NetworkDownErrorTests(FakeKeyFixture boo, ITestOutputHelper 
     [Fact]
     public void E3_NetworkDown_SaysCheckYourInternet_ThenRecoversWhenItIsBack()
     {
-        var panel = boo.EnsurePanel();
+        var panel = QaUi.OpenPanel(boo);
         var log = new List<string>();
         using (Faults.BlockOutbound(boo.ExePath, s => { log.Add(s); output.WriteLine(s); }))
         {
@@ -91,7 +91,7 @@ public sealed class TimeoutErrorTests(FakeKeyFixture boo, ITestOutputHelper outp
     [Fact]
     public void E4_ProviderNeverAnswers_BooTimesOutHonestly_ThenRecovers()
     {
-        var panel = boo.EnsurePanel();
+        var panel = QaUi.OpenPanel(boo);
         var log = new List<string>();
         var clock = System.Diagnostics.Stopwatch.StartNew();
         using (Faults.SilentProvider(s => { log.Add(s); output.WriteLine(s); }))

@@ -104,7 +104,7 @@ public sealed class QaJourneyTests : IClassFixture<LiveAppFixture>
             // A code made now, at run time: no scripted mock can know it, so only a real model can send it back.
             const string letters = "bcdfghjkmnpqrstvwxz";
             var code = new string(Enumerable.Range(0, 8).Select(_ => letters[RandomNumberGenerator.GetInt32(letters.Length)]).ToArray());
-            var panel = _boo.EnsurePanel();
+            var panel = QaUi.OpenPanel(_boo);
             var before = QaUi.BooRows(panel).Count;
             var faces = new List<string>();
             QaUi.Ask(_boo, panel, $"Reply with only this code written in capital letters, nothing else: {code}");
@@ -135,7 +135,11 @@ public sealed class QaJourneyTests : IClassFixture<LiveAppFixture>
             Assert.True(answered, $"No answer from OpenAI within {AnswerTimeout.TotalSeconds:0}s. Status: '{QaUi.NameOf(panel, "StatusText")}'");
             Assert.False(reply!.StartsWith("QA-", StringComparison.Ordinal), $"The answer came from the QA mock: '{reply}'");
             Assert.Contains(code.ToUpperInvariant(), reply, StringComparison.Ordinal);
-            Assert.True(faces.Contains("Thinking") || s_recorder.HasSeen("Thinking"), $"The notch never showed Thinking during the turn ({string.Join(">", faces)}).");
+            // Boo shows Capture (its screenshot) for the whole typed request, which outranks Thinking (run 43425302356:
+            // Capture>Responding). Either one proves the notch showed Boo working; whether Thinking itself is ever
+            // visible is reported per state (UNVERIFIED if never seen), not assumed here.
+            Assert.True(faces.Any(QaUi.IsWorkingFace) || s_recorder.HasSeen("Thinking") || s_recorder.HasSeen("Capture"),
+                $"The notch never showed Boo working (Thinking or Capture) during the turn ({string.Join(">", faces)}).");
             Assert.True(faces.Contains("Responding") || s_recorder.HasSeen("Responding"), $"The notch never showed Responding after the reply ({string.Join(">", faces)}).");
         });
     }
@@ -145,21 +149,25 @@ public sealed class QaJourneyTests : IClassFixture<LiveAppFixture>
     {
         Evidence("qa-s3-stop", () =>
         {
-            var panel = _boo.EnsurePanel();
+            var panel = QaUi.OpenPanel(_boo);
             var before = QaUi.BooRows(panel).Count;
             QaUi.Ask(_boo, panel, "Write a 400-word story about a lighthouse keeper and a lost cat.");
-            var thinking = BooAppFixture.WaitUntil(() => QaUi.NotchState(_boo) == "Thinking", TimeSpan.FromSeconds(5));
+            // Boo sets this status the moment Send starts a request (before any network call), so Stop lands mid-answer.
+            var thinking = BooAppFixture.WaitUntil(() =>
+                QaUi.NameOf(panel, "StatusText").StartsWith("Thinking about", StringComparison.Ordinal) && QaUi.BooRows(panel).Count == before,
+                TimeSpan.FromSeconds(5));
+            var faceAtStop = QaUi.NotchState(_boo);
             QaUi.Find(_boo, panel, "StopButton").AsButton().Invoke();
             var clock = Stopwatch.StartNew();
-            var cleared = BooAppFixture.WaitUntil(() => QaUi.NotchState(_boo) is { Length: > 0 } s && s != "Thinking", TimeSpan.FromSeconds(5));
+            var cleared = BooAppFixture.WaitUntil(() => QaUi.NotchState(_boo) is { Length: > 0 } s && !QaUi.IsWorkingFace(s), TimeSpan.FromSeconds(5));
             var clearedMs = clock.ElapsedMilliseconds;
             // An answer that was already on its way must not land after Stop.
             var landed = BooAppFixture.WaitUntil(() => QaUi.BooRows(panel).Count > before, TimeSpan.FromSeconds(15));
             _boo.CaptureScreen("qa-s3-after-stop");
             _boo.WriteObservation("qa-s3-stop",
-                $"thinkingBeforeStop={thinking} faceClearedAfterStop={cleared} clearedMs={clearedMs} faceNow='{QaUi.NotchState(_boo)}'\n" +
+                $"requestInFlightAtStop={thinking} faceAtStop='{faceAtStop}' faceClearedAfterStop={cleared} clearedMs={clearedMs} faceNow='{QaUi.NotchState(_boo)}'\n" +
                 $"answerLandedAfterStop={landed}\nstatus='{QaUi.NameOf(panel, "StatusText")}'");
-            Assert.True(thinking, $"TEST SETUP: the notch never showed Thinking after Send, so Stop was not tested mid-answer. Face: '{QaUi.NotchState(_boo)}'");
+            Assert.True(thinking, $"TEST SETUP: no request was in flight after Send, so Stop was not tested mid-answer. Status: '{QaUi.NameOf(panel, "StatusText")}'");
             Assert.True(cleared, $"After Stop the notch still shows '{QaUi.NotchState(_boo)}' after 5 s.");
             Assert.False(landed, $"An answer landed after Stop: '{QaUi.Shorten(QaUi.BooRows(panel).LastOrDefault(), 200)}'");
         });
@@ -170,7 +178,7 @@ public sealed class QaJourneyTests : IClassFixture<LiveAppFixture>
     {
         Evidence("qa-s4-focus", () =>
         {
-            var panel = _boo.EnsurePanel();
+            var panel = QaUi.OpenPanel(_boo);
             SelectFirstDisplay(panel);
             QaUi.Find(_boo, panel, "FocusTaskBox").AsTextBox().Text = "Review the firewall change list";
             QaUi.Find(_boo, panel, "FocusDurationBox").AsTextBox().Text = "25";
@@ -210,7 +218,7 @@ public sealed class QaJourneyTests : IClassFixture<LiveAppFixture>
     {
         Evidence("qa-s5-settings", () =>
         {
-            var panel = _boo.EnsurePanel();
+            var panel = QaUi.OpenPanel(_boo);
             QaUi.Find(_boo, panel, "ReducedMotionBox").AsCheckBox().IsChecked = true;
             QaUi.Find(_boo, panel, "ChirpMute").AsCheckBox().IsChecked = true;
             QaUi.Find(_boo, panel, "SaveSettingsButton").AsButton().Invoke();
@@ -235,7 +243,7 @@ public sealed class QaJourneyTests : IClassFixture<LiveAppFixture>
             s_recorder?.Dispose();
             _boo.App.Kill();
             using var reloaded = new SavedSettingsFixture(json);
-            var reloadPanel = reloaded.EnsurePanel();
+            var reloadPanel = QaUi.OpenPanel(reloaded);
             bool? Checked(string id) => QaUi.Find(reloaded, reloadPanel, id).AsCheckBox().IsChecked;
             var reducedMotion = Checked("ReducedMotionBox");
             var chirpMute = Checked("ChirpMute");

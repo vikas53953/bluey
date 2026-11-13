@@ -412,6 +412,8 @@ jobs:
           Set-Content artifacts/qa-probe/probe-verdict.txt ("probe proved red: $ok; dotnet test exit $rc")
           if (-not $ok) { exit 1 }
           'PROBE OK: with a mock planted the suite went red, for the right reason.'
+          # The planted failure left dotnet test's non-zero code behind; the probe's verdict above is what counts.
+          exit 0
 
       - name: Key scan before upload (probe evidence)
         id: keyscan_artifacts_qa_probe
