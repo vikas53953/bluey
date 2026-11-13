@@ -152,11 +152,12 @@ def tables(rendered_html):
     return out
 
 
-def _letterlike(ch):
-    """A non-ASCII character that reads as a letter or digit: a letter or number in any script, or one whose
-    compatibility form contains A-Z/0-9 (circled, full-width, Roman-numeral look-alikes). Emoji, punctuation, spaces
-    and marks are not."""
-    return unicodedata.category(ch)[0] in 'LN' or bool(re.search(r'[A-Za-z0-9]', unicodedata.normalize('NFKC', ch)))
+# Non-ASCII characters a table may hold: everyday punctuation, arrows, comparison signs and the usual check marks
+# (with the emoji variation selector). Anything else - letters of any script, look-alikes such as circled, squared,
+# full-width or regional-indicator letters, Roman numerals - fails the table, so no look-alike can hide a label.
+TABLE_EXTRA_CHARS = set('\u00a0\u00b7\u00d7\u2010\u2011\u2012\u2013\u2014\u2018\u2019\u201c\u201d\u2022\u2026'
+                        '\u2190\u2191\u2192\u2193\u2194\u21d2\u2212\u2248\u2260\u2264\u2265'
+                        '\u2705\u274c\u2714\u2716\u26a0\u2b50\u23f3\ufe0f\U0001f7e2\U0001f534\U0001f7e1')
 
 
 def label_of(text):
@@ -180,11 +181,12 @@ def check(rendered_html, changed_files, repo):
                             'strikethrough and code in its cells')
             continue
         foreign = [ch for text in header + [x for _, cells in rows for x, _ in cells] for ch in text
-                   if ord(ch) > 127 and _letterlike(ch)]
+                   if ord(ch) > 127 and ch not in TABLE_EXTRA_CHARS]
         if foreign:
-            problems.append(f'table {k} has a letter or digit outside plain A-Z and 0-9 (for example '
+            problems.append(f'table {k} has a character outside plain ASCII and the allowed symbols (for example '
                             f'"{foreign[0]}", U+{ord(foreign[0]):04X}): a look-alike character could hide a label '
-                            'from this check; use plain ASCII letters in tables')
+                            'from this check; use plain ASCII text in tables (dashes, quotes, arrows, check marks '
+                            'and comparison signs are fine)')
             continue
         cols = [c for c, h in enumerate(header) if label_of(h) == 'label'
                 and len([w for w in h.split() if re.search(r'[A-Za-z]', w)]) == 1]
@@ -192,7 +194,7 @@ def check(rendered_html, changed_files, repo):
             evidence.append((k, cols, rows))
             continue
         for n, cells in [(0, [(h, []) for h in header])] + rows:
-            if any(label_of(text) == 'live' for text, _ in cells):
+            if any(label_of(text) == 'live' or re.match(r'^\W*[Il1|]ive\b', text) for text, _ in cells):
                 problems.append(f'table {k}, ' + (f'row {n}' if n else 'header row') + ': a "live" cell in a table '
                                 'without a Label column (is the header misspelled?); put claims in the evidence table')
     if not evidence and problems:
@@ -384,8 +386,17 @@ def self_test():
                != [])
     expect('a live claim in the header row of a table without a Label column fails',
            check(good + table([], ('real AI round trip', 'live (OpenAI)', 'trust me')), ['src/a.cs'], repo) != [])
-    expect('emoji and dashes are not letters: they pass',
-           check(table(rows + [['x \u2014 y', 'mock \u2705', 'z']]), ['src/a.cs'], repo) == [])
+    expect('dashes, arrows, comparison signs and check marks pass',
+           check(table(rows + [['x \u2014 y \u2013 z \u2192 \u2265 1', 'mock \u2705\ufe0f', 'z \u274c']]), ['src/a.cs'],
+                 repo) == [])
+    for name, word in (('negative squared letters', '\U0001f17b\U0001f178\U0001f185\U0001f174'),
+                       ('regional-indicator letters', '\U0001f1f1\u200c\U0001f1ee\u200c\U0001f1fb\u200c\U0001f1ea')):
+        expect(f'{name} fail the table', check(good + table([['rt', word]], ('Claim', 'Status')), ['src/a.cs'], repo)
+               != [])
+    expect('a look-alike letter before a real label in a Label cell fails',
+           check(table(rows + [['rt', '\U0001f17b\U0001f178\U0001f185\U0001f174 review', 'x']]), [], repo) != [])
+    expect('"Iive" (capital I) in a table without a Label column fails',
+           check(good + table([['rt', 'Iive (OpenAI)']], ('Claim', 'Status')), ['src/a.cs'], repo) != [])
     expect('struck-out text is not read: "~~mock~~ live" is a live row and needs a run link',
            check(table([['rt', '<del>mock</del> live', 'trust me']]), [], repo) != [])
     expect('struck-out text is not read in a table without a Label column either',
@@ -499,6 +510,11 @@ RENDER_CASES = (
     ('a live claim as the header row', '| Claim | Label | Proof |\n|---|---|---|\n'
      '| live run | BLOCKED | no runner today |\n\n| real AI round trip | live (OpenAI) | trust me |\n|---|---|---|\n',
      False),
+    ('negative squared LIVE in a Status table', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| live run | BLOCKED | no runner today |\n\n| Claim | Status | Proof |\n|---|---|---|\n'
+     '| real AI round trip | \U0001f17b\U0001f178\U0001f185\U0001f174 (OpenAI) | trust me |\n', False),
+    ('negative squared LIVE before a real label', '| Claim | Label | Proof |\n|---|---|---|\n'
+     '| real AI round trip | \U0001f17b\U0001f178\U0001f185\U0001f174 review | trust me |\n', False),
     ('a struck-out run link', '| Claim | Label | Proof |\n|---|---|---|\n'
      '| rt | live | ~~[run](https://github.com/{repo}/actions/runs/123)~~ |\n', False),
     ('commit and PR autolinks, emoji, code in cells pass', '| Claim | Label | Proof |\n|---|---|---|\n'

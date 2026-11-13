@@ -275,10 +275,12 @@ breaks, fails the check (footnotes and math in a cell fail too). Struck-out text
 reader would not read it: `~~mock~~ live` is a live row. Any cell starting with `live` in a table without a `Label`
 column (header row included; for example a misspelled header) also fails, and so does any table with a letter or digit
 outside plain A-Z and 0-9 (a look-alike such as a Cyrillic `а`, a circled `ⓛ` or a Roman-numeral `ⅼ` could hide a
-label). Emoji and punctuation are fine. Only tables are evidence: a claim written in prose,
+label): a table may hold only plain ASCII plus everyday dashes, quotes, arrows, comparison signs and check marks.
+In a table that has a `Label` column, only that column is judged (a `live` in the Claim or Proof column is just text). Only tables are evidence: a claim written in prose,
 a list or a code block is not checked and does not count. If GitHub cannot render the body, the check fails closed. A self-test first proves every rule on HTML samples, and a render test sends the known tricks through
 GitHub's real renderer. Then the PR's own copy of the checker judges the body, and so does the **base branch's** copy
-(read from git), so a PR cannot loosen the checker script it is judged by.
+(read from git) - and it runs first, before any code from the PR - so a PR cannot loosen the checker script it is
+judged by.
 
 ## BOO-EVID-001
 **A claim without evidence.** The PR body must have a Markdown table with a column headed `Label`, one row per claim:

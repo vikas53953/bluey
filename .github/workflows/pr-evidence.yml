@@ -31,22 +31,9 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Evidence check self-test (every rule fires on a planted sample)
-        run: python -I scripts/quality/pr_evidence.py --self-test
-
-      # Known tricks (a table in an HTML comment or code, a run URL only as hover text, ...) rendered by GitHub itself.
-      - name: Evidence check render test (known tricks, rendered by GitHub)
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: python -I scripts/quality/pr_evidence.py --render-test
-
-      - name: Evidence table in the PR body
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: python -I scripts/quality/pr_evidence.py --event "$GITHUB_EVENT_PATH"
-
       # A PR could loosen its own pr_evidence.py. So the BASE branch's copy (read from git, not from the PR) judges the
-      # body too. Until the base has the file (the PR that adds it), only the PR's own copy runs. (A PR that edits this
+      # body too, and FIRST: before any code from the PR runs (a PR's script could otherwise plant a fake python or git
+      # for later steps through $GITHUB_PATH or $GITHUB_ENV). Until the base has the file (the PR that adds it), only the PR's own copy runs. (A PR that edits this
       # workflow file itself is a gap left to review: docs/quality/RULES.md.)
       - name: Evidence table judged by the base branch's own checker (a PR cannot loosen its checker script)
         env:
@@ -63,3 +50,17 @@ jobs:
           else
             echo "The base branch has no pr_evidence.py yet (this PR adds it); the PR's own copy judged the body above."
           fi
+
+      - name: Evidence check self-test (every rule fires on a planted sample)
+        run: python -I scripts/quality/pr_evidence.py --self-test
+
+      # Known tricks (a table in an HTML comment or code, a run URL only as hover text, ...) rendered by GitHub itself.
+      - name: Evidence check render test (known tricks, rendered by GitHub)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -I scripts/quality/pr_evidence.py --render-test
+
+      - name: Evidence table in the PR body
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -I scripts/quality/pr_evidence.py --event "$GITHUB_EVENT_PATH"
