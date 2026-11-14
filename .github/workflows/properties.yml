@@ -1,0 +1,49 @@
+name: properties
+
+# Phase 2, PR 2.5 of docs/plans/agent-trust-plan.md: FsCheck property tests (tools/Boo.Properties) over the pure notch
+# lifecycle reducer src/Boo.Core/NotchLifecycle.cs. Five properties, each over random event walks with every
+# invariant checked after every step; a failure is shrunk to a short walk and printed in this job's log.
+#   - pull requests that touch the reducer, the project or this file: 200 cases per property.
+#   - nightly schedule and manual dispatch: 20,000 cases per property (a schedule fires only from the default branch).
+# BOO_PROPERTY_CASES sets the count; a value that is not a whole number from 1 to 1,000,000 fails the run.
+# windows-latest only, no secrets, no app run, no uploads: results stay in the job log.
+
+on:
+  pull_request:
+    paths:
+      - 'src/Boo.Core/NotchLifecycle.cs'
+      - 'tools/Boo.Properties/**'
+      - '.github/workflows/properties.yml'
+  schedule:
+    - cron: '41 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  properties:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      BOO_PROPERTY_CASES: ${{ github.event_name == 'pull_request' && '200' || '20000' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Property tests
+        run: |
+          Write-Host "cases per property: $env:BOO_PROPERTY_CASES"
+          dotnet test tools/Boo.Properties -c Release --logger trx --logger "console;verbosity=detailed" --results-directory artifacts/test-results/properties
+
+      - name: Every property ran and passed
+        run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/test-results/properties -SourceDirectory tools/Boo.Properties
