@@ -1,0 +1,58 @@
+name: test-guard
+
+# BOO-TEST-002 (docs/quality/test-guard.md): one pull request may not both change product code (src/, tools/ outside
+# test projects, Directory.Build.*) and weaken existing tests (delete or edit a test file under tests/ or a tools/ test
+# project, drop assertions or test attributes, add a skip, #if or early return, or change the frozen oracle other than
+# a pure --extend) unless the PR body has a "## Test change justification" section naming each weakened test and why,
+# signed "Test change reviewed: <head SHA> by <reviewer>" for the CURRENT head. New tests never fail it. Its own
+# workflow so that editing the PR body re-runs only this short check. Linux, no build, no artifacts. The body is read
+# from the event file, never pasted into a shell.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # A PR could loosen its own test_guard.py. So the BASE branch's copy (read from git, not from the PR) judges the
+      # PR FIRST, before any code from the PR runs. Until the base has the file (the PR that adds it), only the PR's own
+      # copy runs. (A PR that edits this workflow file itself is a gap left to review: docs/quality/test-guard.md.)
+      - name: Test guard judged by the base branch's own checker (a PR cannot loosen its checker script)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "::error::BOO-TEST-002 the base commit is not in the checkout, so the base branch's checker cannot run"
+            exit 1
+          fi
+          if git cat-file -e "$BASE_SHA:scripts/quality/test_guard.py" 2>/dev/null; then
+            git show "$BASE_SHA:scripts/quality/test_guard.py" > "$RUNNER_TEMP/test_guard_base.py"
+            python -I "$RUNNER_TEMP/test_guard_base.py" --event "$GITHUB_EVENT_PATH"
+          else
+            echo "The base branch has no test_guard.py yet (this PR adds it); the PR's own copy judges in the next steps."
+          fi
+
+      - name: Test guard self-test (every rule fires on a planted base/head pair)
+        run: python -I scripts/quality/test_guard.py --self-test
+
+      - name: Test guard on this pull request
+        run: python -I scripts/quality/test_guard.py --event "$GITHUB_EVENT_PATH"
