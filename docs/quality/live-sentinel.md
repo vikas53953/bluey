@@ -29,10 +29,15 @@ Owner's order: Vikas, 14 Nov 2026, 00:09 IST (relayed by the Grok Bot watcher). 
 4. Refuses if `api.openai.com` is redirected (so no mock can answer).
 5. Builds and publishes Boo.exe from the `lane/face` tip.
 6. **Paid call 1:** the existing typed-question test (`tools/Boo.LiveSmoke`, `LiveRoundTripTests`) on `gpt-6-luna`,
-   run with a filter so exactly one test runs; a second step checks that exactly one test ran and passed.
+   run with a filter so exactly one test runs; a second step writes a **receipt** only if exactly one result exists, it
+   is that named test, and it passed.
 7. **Paid call 2:** the existing spoken-question test (`LiveVoiceRoundTripTests`, merged in PR #47) on
-   `gpt-realtime-2.1-mini` with `gpt-4o-mini-transcribe`, also exactly one test. If that test is not on the tip, the run
-   says so with a warning and checks chat only.
+   `gpt-realtime-2.1-mini` with `gpt-4o-mini-transcribe`, also exactly one test, with its own receipt. Voice is
+   **required**: if the test is missing from the tip, nothing runs, no receipt is written and the run fails.
+
+**Green needs both receipts.** The run is green, and may close the issue, only when BOTH required tests (typed and
+voice, listed in `REQUIRED` in the helper) left a receipt. A missing test file, a skipped step, zero tests, two tests
+or a different test fail closed as `required-test-missing`, naming the test. "No failure seen" is never a pass.
 8. Key scan of the evidence folder (BOO-SAFE-002), then uploads screenshots, observations and test results (kept 7 days).
 
 Time limits: the whole job 45 minutes, the typed call 10 minutes, the voice call 5 minutes. One run at a time.
@@ -47,8 +52,9 @@ comment to it if it is already open. It holds:
 - an **error class** from a fixed list (below).
 
 It never holds the key, a raw provider reply or log text: the helper only picks a class word from a fixed list, and every
-value that goes into the issue is checked against a strict pattern. When a later run passes, it comments "Passed again"
-with the run link and **closes** the issue. A cancelled run leaves the issue as it is. Only the `report` job has
+value that goes into the issue is checked against a strict pattern. When a later run is green (both receipts, nothing failed), it
+comments "Passed again" with the run link and **closes** the issue; a run with only one receipt comments as a failure
+and never closes it. A cancelled run leaves the issue as it is. Only the `report` job has
 `issues: write`; the rest of the workflow can only read the repository.
 
 | Error class | What it usually means | What to do |
@@ -59,7 +65,8 @@ with the run link and **closes** the issue. A cancelled run leaves the issue as 
 | `rate-limited` | OpenAI throttled the call | Usually passes the next day; act only if it repeats |
 | `provider-server-error`, `network-error` | OpenAI or the network was down | Usually passes the next day |
 | `timeout-no-answer`, `answer-check-failed` | An answer did not come in time or did not pass the check; this may be an API shape change | Open the run and its evidence |
-| `build-failed`, `test-did-not-run` | The `lane/face` tip does not build, or the test was renamed | Fix on `lane/face` |
+| `build-failed` | The `lane/face` tip does not build | Fix on `lane/face` |
+| `required-test-missing` | A required test (typed or voice, named in the issue) did not run exactly once and pass: missing or renamed on the tip, skipped, zero tests, or another test | Restore the test, or change `REQUIRED` and the workflow filter together in a PR |
 | `key-missing-or-malformed`, `guard-refused`, `ai-host-redirected`, `runner-not-github-hosted` | A safety check refused to run | Fix the secret or the runner |
 | `key-scan-failed` | The key scan found a key-shaped string or could not run, so nothing was uploaded | Open the run: if it found a key, treat it as a leak and rotate the key |
 

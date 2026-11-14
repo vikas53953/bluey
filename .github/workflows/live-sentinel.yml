@@ -47,6 +47,7 @@ jobs:
     timeout-minutes: 45
     outputs:
       failures: ${{ steps.classify.outputs.failures }}
+      receipts: ${{ steps.classify.outputs.receipts }}
       tip_sha: ${{ steps.tip.outputs.sha }}
     env:
       DOTNET_NOLOGO: "1"
@@ -184,26 +185,19 @@ jobs:
           Get-ChildItem artifacts/sentinel-evidence -Filter *.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
           exit $testExit
 
-      - name: Typed round trip ran exactly once and passed
+      # Receipt: written only if exactly one result exists, it is the named typed test, and it passed. Green needs it.
+      - name: Receipt - the typed test ran exactly once and passed
         id: typed_gate
-        if: ${{ !cancelled() && (steps.typed.outcome == 'success' || steps.typed.outcome == 'failure') }}
-        run: |
-          python -I scripts/ci/live_sentinel.py trx artifacts/sentinel-evidence/trx-typed
-
-      - name: Is the voice live test on the tip?
-        id: voice_present
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        shell: pwsh
         run: |
-          $present = Test-Path -LiteralPath 'tip/tools/Boo.LiveSmoke/LiveVoiceRoundTripTests.cs'
-          if (-not $present) { "::warning title=Live sentinel::No voice live test on the lane/face tip, so voice is not checked today." }
-          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "present=$($present.ToString().ToLowerInvariant())"
+          python -I scripts/ci/live_sentinel.py trx artifacts/sentinel-evidence/trx-typed --require typed --receipt sentinel-logs/receipt-typed.txt
 
       # Paid call 2 of 2: one spoken question (checked-in WAV, never a microphone), cheapest realtime model. Runs even if
-      # the typed trip failed, so one run shows both.
+      # the typed trip failed, so one run shows both. REQUIRED: if the test is missing from the tip, zero tests run, no
+      # receipt is written and the run fails as required-test-missing (voice). Never a warning, never a skip.
       - name: Spoken question round trip (real OpenAI voice)
         id: voice
-        if: ${{ !cancelled() && steps.voice_present.outputs.present == 'true' }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 5
         shell: pwsh
         env:
@@ -215,11 +209,11 @@ jobs:
           Get-ChildItem artifacts/sentinel-evidence -Filter live-voice*.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
           exit $testExit
 
-      - name: Voice round trip ran exactly once and passed
+      - name: Receipt - the voice test ran exactly once and passed
         id: voice_gate
-        if: ${{ !cancelled() && (steps.voice.outcome == 'success' || steps.voice.outcome == 'failure') }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
-          python -I scripts/ci/live_sentinel.py trx artifacts/sentinel-evidence/trx-voice
+          python -I scripts/ci/live_sentinel.py trx artifacts/sentinel-evidence/trx-voice --require voice --receipt sentinel-logs/receipt-voice.txt
 
       # BOO-SAFE-002: scan exactly what the next step uploads (generated from scripts/quality/key_scan.py).
       - name: Key scan before upload (sentinel evidence)
@@ -247,15 +241,16 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      # Turns step outcomes into `step:error-class` pairs from fixed lists. The logs are read only to pick a class.
+      # Turns step outcomes into `step:error-class` pairs from fixed lists (the logs are read only to pick a class) and
+      # fails the job unless BOTH required tests left a receipt: green needs positive proof, not "no failure seen".
       - name: Classify the result (fixed words only, never log text)
         id: classify
         if: ${{ always() }}
         shell: pwsh
         run: |
           $py = (Get-Command python -ErrorAction SilentlyContinue)
-          if (-not $py) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'failures=setup:unknown'; exit 0 }
-          python -I scripts/ci/live_sentinel.py classify --job-status "${{ job.status }}" --models-http "${{ steps.models.outputs.http }}" --outcome "runner=${{ steps.runner.outcome }}" --outcome "key=${{ steps.key.outcome }}" --outcome "models=${{ steps.models.outcome }}" --outcome "hosts=${{ steps.hosts.outcome }}" --outcome "build=${{ steps.build.outcome }}" --outcome "typed=${{ steps.typed.outcome }}" --outcome "typed_gate=${{ steps.typed_gate.outcome }}" --outcome "voice=${{ steps.voice.outcome }}" --outcome "voice_gate=${{ steps.voice_gate.outcome }}" --outcome "keyscan=${{ steps.keyscan_artifacts_sentinel_evidence.outcome }}" --outcome "upload=${{ steps.upload.outcome }}" --log typed=sentinel-logs/typed.log --log voice=sentinel-logs/voice.log
+          if (-not $py) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'failures=setup:unknown'; exit 1 }
+          python -I scripts/ci/live_sentinel.py classify --job-status "${{ job.status }}" --models-http "${{ steps.models.outputs.http }}" --outcome "runner=${{ steps.runner.outcome }}" --outcome "key=${{ steps.key.outcome }}" --outcome "models=${{ steps.models.outcome }}" --outcome "hosts=${{ steps.hosts.outcome }}" --outcome "build=${{ steps.build.outcome }}" --outcome "typed=${{ steps.typed.outcome }}" --outcome "voice=${{ steps.voice.outcome }}" --outcome "keyscan=${{ steps.keyscan_artifacts_sentinel_evidence.outcome }}" --outcome "upload=${{ steps.upload.outcome }}" --log typed=sentinel-logs/typed.log --log voice=sentinel-logs/voice.log --receipt-of typed=sentinel-logs/receipt-typed.txt --receipt-of voice=sentinel-logs/receipt-voice.txt
 
   # Opens, updates or closes the one sentinel issue. Needs `issues: write`, and only this job has it.
   report:
@@ -277,9 +272,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RESULT: ${{ needs.sentinel.result }}
           FAILURES: ${{ needs.sentinel.outputs.failures }}
+          RECEIPTS: ${{ needs.sentinel.outputs.receipts }}
           TIP_SHA: ${{ needs.sentinel.outputs.tip_sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPO: ${{ github.repository }}
         run: |
           python3 -I scripts/ci/live_sentinel.py --self-test
-          python3 -I scripts/ci/live_sentinel.py report --result "$RESULT" --failures "$FAILURES" --run-url "$RUN_URL" --sha "$TIP_SHA" --repo "$REPO"
+          python3 -I scripts/ci/live_sentinel.py report --result "$RESULT" --failures "$FAILURES" --receipts "$RECEIPTS" --run-url "$RUN_URL" --sha "$TIP_SHA" --repo "$REPO"

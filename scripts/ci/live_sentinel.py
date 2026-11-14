@@ -1,13 +1,20 @@
 """BOO-LIVE-004 daily live sentinel helper (docs/quality/live-sentinel.md). Never reads or prints a key.
 
   python -I scripts/ci/live_sentinel.py --self-test
-  python -I scripts/ci/live_sentinel.py trx DIR
-      exactly one test ran in DIR's .trx files and it passed (the run is bounded to one real call per step)
+  python -I scripts/ci/live_sentinel.py trx DIR --require ID --receipt FILE
+      DIR's .trx files hold exactly one test result, it is the named required test ID (typed or voice) and it passed;
+      only then is FILE written (the receipt: the test's full name). The run is bounded to one real call per step.
   python -I scripts/ci/live_sentinel.py classify --job-status S [--outcome ID=OUTCOME]... [--models-http CODE]
-                                         [--log ID=FILE]...
-      prints `failures=<id>:<class>;...` (empty when nothing failed); appends it to $GITHUB_OUTPUT when set
-  python -I scripts/ci/live_sentinel.py report --result R --failures F --run-url U --sha SHA --repo OWNER/NAME [--dry-run]
-      on failure: open or update ONE issue titled TITLE; on success after a failure: comment and close it
+                                         [--log ID=FILE]... [--receipt-of ID=FILE]...
+      prints `failures=<id>:<class>;...` and `receipts=<id>,...`, appends both to $GITHUB_OUTPUT when set, and exits 1
+      unless every required test has a valid receipt and nothing failed
+  python -I scripts/ci/live_sentinel.py report --result R --failures F --receipts C --run-url U --sha SHA
+                                       --repo OWNER/NAME [--dry-run]
+      green only with result=success, no failures AND a receipt for every required test: then it comments on and closes
+      the open issue. Anything else (result failure, or success without both receipts) opens or updates ONE issue.
+
+Green needs POSITIVE receipts from every required test (REQUIRED below), never "no failure seen": a missing test file,
+a skipped step, zero tests, two tests or another test all fail closed as `required-test-missing`, naming the test.
 
 What reaches the issue is built only from fixed words in this file (step names, error classes), a run link, a commit SHA
 and a date, each checked against a strict pattern. Log files are read only to pick an error class from a fixed list;
@@ -27,17 +34,22 @@ RULE = 'BOO-LIVE-004'
 TITLE = 'Live sentinel: real OpenAI round trip failing'
 DOC = 'docs/quality/live-sentinel.md'
 
+# Every required live test, by id: the full test name that must run exactly once and pass. The sentinel is green only
+# with a receipt from each of them.
+REQUIRED = {
+    'typed': 'Boo.LiveSmoke.LiveRoundTripTests.TypedQuestion_GetsAnAnswerFromTheRealProvider',
+    'voice': 'Boo.LiveSmoke.LiveVoiceRoundTripTests.SpokenQuestion_GetsASpokenAnswerFromRealOpenAiVoice',
+}
+
 # Step ids, in the order the workflow runs them, with the plain name the issue shows.
 STEPS = {
     'runner': 'Runner check (GitHub-hosted only)',
     'key': 'OpenAI key is present',
-    'build': 'Build and publish Boo.exe from the lane/face tip',
     'models': 'OpenAI models exist (free check, before any paid call)',
     'hosts': 'AI hosts are real (no redirect to a mock)',
-    'typed': 'Typed question round trip (real OpenAI chat)',
-    'typed_gate': 'Typed round trip ran exactly once and passed',
-    'voice': 'Spoken question round trip (real OpenAI voice)',
-    'voice_gate': 'Voice round trip ran exactly once and passed',
+    'build': 'Build and publish Boo.exe from the lane/face tip',
+    'typed': 'Typed question round trip (real OpenAI chat), required test: ' + REQUIRED['typed'],
+    'voice': 'Spoken question round trip (real OpenAI voice), required test: ' + REQUIRED['voice'],
     'keyscan': 'Key scan before upload',
     'upload': 'Upload evidence',
     'setup': 'Job setup (checkout, tools) or a step without an id',
@@ -59,7 +71,8 @@ CLASSES = {
     'guard-refused': 'a live-test guard failed closed (runner, key, proxy or host check)',
     'timeout-no-answer': 'no answer arrived in time',
     'answer-check-failed': 'an answer arrived but did not pass the check, or the failure did not match a known class',
-    'test-did-not-run': 'the round trip did not run exactly one test that passed',
+    'required-test-missing': ('this required test did not run exactly once and pass: missing from the tip, skipped, '
+                              'zero tests, more than one, or a different test'),
     'key-scan-failed': 'the key scan found a key-shaped string in the evidence or could not run, so nothing was uploaded',
     'upload-failed': 'the evidence upload failed',
     'timeout-or-cancelled': 'the step timed out or the run was cancelled',
@@ -67,8 +80,8 @@ CLASSES = {
 }
 
 FIXED_CLASS = {'runner': 'runner-not-github-hosted', 'key': 'key-missing-or-malformed', 'build': 'build-failed',
-               'hosts': 'ai-host-redirected', 'typed_gate': 'test-did-not-run', 'voice_gate': 'test-did-not-run',
-               'keyscan': 'key-scan-failed', 'upload': 'upload-failed', 'setup': 'unknown'}
+               'hosts': 'ai-host-redirected', 'keyscan': 'key-scan-failed', 'upload': 'upload-failed',
+               'setup': 'unknown'}
 
 # Log patterns, checked in this order (specific provider errors before the generic timeout).
 LOG_PATTERNS = [
@@ -88,33 +101,42 @@ SHA = re.compile(r'^[0-9a-f]{40}$')
 FAILURE = re.compile(r'^[a-z_]+:[a-z-]+$')
 
 
-# ---------------------------------------------------------------- trx
+# ---------------------------------------------------------------- trx and receipts
 
-def trx_counts(folder):
-    """(total, executed, passed) summed over every .trx under folder."""
-    total = executed = passed = 0
+def trx_results(folder):
+    """[(testName, outcome)] over every .trx under folder."""
+    out = []
     for f in sorted(pathlib.Path(folder).rglob('*.trx')):
-        root = ET.parse(f).getroot()
-        for c in root.iter():
-            if c.tag.endswith('Counters'):
-                total += int(c.get('total', 0))
-                executed += int(c.get('executed', 0))
-                passed += int(c.get('passed', 0))
-    return total, executed, passed
+        for e in ET.parse(f).getroot().iter():
+            if e.tag.endswith('UnitTestResult'):
+                out.append((e.get('testName', ''), e.get('outcome', '')))
+    return out
 
 
-def trx_check(folder, out=print):
+def trx_check(folder, test_id, receipt, out=print):
+    """Write the receipt only if exactly one result exists, it is REQUIRED[test_id], and it passed."""
+    name = REQUIRED.get(test_id)
+    if name is None:
+        out(f'::error::{RULE} unknown required test id {test_id!r}')
+        return 1
     try:
-        total, executed, passed = trx_counts(folder)
-    except (OSError, ET.ParseError, ValueError) as e:
-        out(f'::error::{RULE} could not read the test results ({type(e).__name__})')
+        results = trx_results(folder) if pathlib.Path(folder).is_dir() else []
+    except (OSError, ET.ParseError) as e:
+        out(f'::error::{RULE} required-test-missing ({test_id}): could not read the test results ({type(e).__name__})')
         return 1
-    if (total, executed, passed) != (1, 1, 1):
-        out(f'::error::{RULE} expected exactly 1 test run and passed; got total={total} executed={executed} '
-            f'passed={passed}')
+    if results != [(name, 'Passed')]:
+        seen = ', '.join(f'{n or "?"}={o or "?"}' for n, o in results[:5]) or 'no test ran'
+        out(f'::error::{RULE} required-test-missing ({test_id}): expected exactly {name}=Passed; got {seen}')
         return 1
-    out(f'{RULE} one test ran and passed')
+    pathlib.Path(receipt).parent.mkdir(parents=True, exist_ok=True)
+    pathlib.Path(receipt).write_text(name, encoding='utf-8')
+    out(f'{RULE} receipt ({test_id}): {name} ran once and passed')
     return 0
+
+
+def valid_receipts(receipt_texts):
+    """{id: text or None} -> ids whose receipt names exactly the required test."""
+    return [t for t in REQUIRED if (receipt_texts.get(t) or '').strip() == REQUIRED[t]]
 
 
 # ---------------------------------------------------------------- classify
@@ -143,22 +165,29 @@ def class_from_log(text):
     return 'answer-check-failed'
 
 
-def classify(outcomes, job_status, models_http='', logs=None):
-    """outcomes: [(id, outcome)] in run order. logs: {id: text}. Returns [(id, class)] for every failed step."""
-    logs = logs or {}
+def classify(outcomes, job_status, models_http='', logs=None, receipts=()):
+    """outcomes: [(id, outcome)] in run order; logs: {id: text}; receipts: ids with a valid receipt.
+    Returns [(id, class)]. Every required test without a receipt is a failure, whatever its step reported."""
+    logs, outcomes, receipts = logs or {}, list(outcomes), set(receipts)
+    state = dict(outcomes)
     failed = []
     for sid, outcome in outcomes:
-        if sid not in STEPS:
+        if sid not in STEPS or sid in REQUIRED:
             continue
         if outcome == 'cancelled':
             failed.append((sid, 'timeout-or-cancelled'))
         elif outcome == 'failure':
-            if sid == 'models':
-                failed.append((sid, class_from_http(models_http)))
-            elif sid in ('typed', 'voice'):
-                failed.append((sid, class_from_log(logs.get(sid, ''))))
-            else:
-                failed.append((sid, FIXED_CLASS[sid]))
+            failed.append((sid, class_from_http(models_http) if sid == 'models' else FIXED_CLASS[sid]))
+    for tid in REQUIRED:
+        if tid in receipts:
+            continue
+        outcome = state.get(tid, '')
+        if outcome == 'failure':
+            failed.append((tid, class_from_log(logs.get(tid, ''))))
+        elif outcome == 'cancelled':
+            failed.append((tid, 'timeout-or-cancelled'))
+        else:                                   # success without a receipt, skipped, or never reached
+            failed.append((tid, 'required-test-missing'))
     if not failed and job_status not in ('success', ''):
         failed.append(('setup', 'timeout-or-cancelled' if job_status == 'cancelled' else 'unknown'))
     return failed
@@ -184,6 +213,10 @@ def parse_failures(text):
     return out
 
 
+def parse_receipts(text):
+    return [t for t in REQUIRED if t in {p.strip() for p in (text or '').split(',')}]
+
+
 # ---------------------------------------------------------------- issue text
 
 def failure_body(failed, run_url, sha, date):
@@ -197,18 +230,31 @@ def failure_body(failed, run_url, sha, date):
 
 
 def success_comment(run_url, sha, date):
-    return (f'Passed again on {date} (UTC): {run_url} (commit {sha}). The real OpenAI round trip works on the '
-            f'`lane/face` tip, so the sentinel closes this issue.')
+    return (f'Passed again on {date} (UTC): {run_url} (commit {sha}). Every required live test ran once and passed on '
+            f'the `lane/face` tip ({", ".join(REQUIRED)}), so the sentinel closes this issue.')
 
 
-def plan(result, open_issues, failed, run_url, sha, date):
+def verdict(result, failed, receipts):
+    """('green', []) only with result success, no failures and a receipt from every required test; ('red', failures)
+    when the run finished otherwise; ('none', []) for a cancelled or skipped run (the issue is left as it is)."""
+    if result not in ('success', 'failure'):
+        return 'none', []
+    missing = [(t, 'required-test-missing') for t in REQUIRED
+               if t not in receipts and not any(s == t for s, _ in failed)]
+    if result == 'success' and not failed and not missing:
+        return 'green', []
+    return 'red', failed + missing
+
+
+def plan(result, open_issues, failed, receipts, run_url, sha, date):
     """The issue actions for one run. open_issues: [number] with the exact TITLE, oldest first.
     Returns [(action, number_or_None, text)] with action in create / comment / close."""
+    kind, failures = verdict(result, failed, receipts)
     target = open_issues[0] if open_issues else None
-    if result == 'failure':
-        body = failure_body(failed, run_url, sha, date)
+    if kind == 'red':
+        body = failure_body(failures, run_url, sha, date)
         return [('comment', target, body)] if target else [('create', None, body)]
-    if result == 'success' and target:
+    if kind == 'green' and target:
         return [('comment', target, success_comment(run_url, sha, date)), ('close', target, '')]
     return []
 
@@ -223,20 +269,25 @@ def open_issue_numbers(repo):
     return sorted(i['number'] for i in data if i.get('title') == TITLE)
 
 
-def report(args, out=print):
+def report(args, out=print, existing=None):
     result = args.get('--result', '')
     run_url, sha, repo = args.get('--run-url', ''), args.get('--sha', ''), args.get('--repo', '')
     if not RUN_URL.match(run_url) or not REPO.match(repo):
         out(f'::error::{RULE} report: bad run link or repository name')
         return 2
     sha = sha if SHA.match(sha) else 'unknown'
-    if result not in ('success', 'failure'):
-        out(f'{RULE} report: job result is {result!r}; the issue is left as it is')
+    failed = parse_failures(args.get('--failures', ''))
+    receipts = parse_receipts(args.get('--receipts', ''))
+    kind, _ = verdict(result, failed, receipts)
+    out(f'{RULE} verdict: {kind} (job result {result!r}; receipts: {", ".join(receipts) or "none"})')
+    if kind == 'none':
+        out(f'{RULE} report: the issue is left as it is')
         return 0
     date = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
-    failed = parse_failures(args.get('--failures', ''))
-    existing = [] if '--dry-run' in args else open_issue_numbers(repo)
-    for action, number, text in plan(result, existing, failed, run_url, sha, date):
+    if existing is None:
+        existing = [] if '--dry-run' in args else open_issue_numbers(repo)
+    actions = plan(result, existing, failed, receipts, run_url, sha, date)
+    for action, number, text in actions:
         out(f'{RULE} issue action: {action} {number or ""}'.rstrip())
         if '--dry-run' in args:
             out(text)
@@ -253,7 +304,7 @@ def report(args, out=print):
                 gh('issue', 'close', str(number), '--repo', repo)
         finally:
             os.unlink(path)
-    return 0
+    return 1 if kind == 'red' else 0
 
 
 # ---------------------------------------------------------------- self-test
@@ -281,65 +332,116 @@ def self_test(out=print):
     check('http 503', class_from_http('503') == 'provider-server-error')
     check('http 401', class_from_http('401') == 'auth-rejected')
 
-    ok = classify([('runner', 'success'), ('key', 'success'), ('models', 'success'), ('typed', 'success')], 'success')
-    check('all green -> no failures', ok == [])
-    red = classify([('models', 'failure'), ('typed', 'skipped')], 'failure', models_http='404')
-    check('forced bad model -> models:model-unavailable', red == [('models', 'model-unavailable')])
-    both = classify([('typed', 'failure'), ('typed_gate', 'failure'), ('voice', 'failure')], 'failure',
-                    logs={'typed': raw, 'voice': 'insufficient_quota'})
-    check('typed + voice classes', both == [('typed', 'auth-rejected'), ('typed_gate', 'test-did-not-run'),
-                                            ('voice', 'quota-or-billing')])
-    check('cancelled', classify([('typed', 'cancelled')], 'cancelled') == [('typed', 'timeout-or-cancelled')])
-    check('setup failure', classify([('runner', 'success')], 'failure') == [('setup', 'unknown')])
-    check('unknown step ignored', classify([('evil', 'failure')], 'success') == [])
+    both = ('typed', 'voice')
+    green_steps = [('runner', 'success'), ('key', 'success'), ('models', 'success'), ('build', 'success'),
+                   ('typed', 'success'), ('voice', 'success')]
+    check('all green + both receipts -> no failures', classify(green_steps, 'success', receipts=both) == [])
+    check('voice receipt missing, typed passed -> voice:required-test-missing',
+          classify(green_steps, 'success', receipts=('typed',)) == [('voice', 'required-test-missing')])
+    voice_skipped = green_steps[:-1] + [('voice', 'skipped')]
+    check('voice skipped -> voice:required-test-missing',
+          classify(voice_skipped, 'success', receipts=('typed',)) == [('voice', 'required-test-missing')])
+    check('typed missing -> typed:required-test-missing',
+          classify(green_steps, 'success', receipts=('voice',)) == [('typed', 'required-test-missing')])
+    skipped = green_steps[:4] + [('typed', 'skipped'), ('voice', 'skipped')]
+    check('both skipped -> both required-test-missing', classify(skipped, 'success') ==
+          [('typed', 'required-test-missing'), ('voice', 'required-test-missing')])
+    check('no outcomes at all -> both missing', classify([], 'success') ==
+          [('typed', 'required-test-missing'), ('voice', 'required-test-missing')])
+    red = classify([('models', 'failure'), ('typed', 'skipped'), ('voice', 'skipped')], 'failure', models_http='404')
+    check('forced bad model -> models:model-unavailable + both missing', red ==
+          [('models', 'model-unavailable'), ('typed', 'required-test-missing'), ('voice', 'required-test-missing')])
+    mixed = classify([('typed', 'failure'), ('voice', 'failure')], 'failure',
+                     logs={'typed': raw, 'voice': 'insufficient_quota'})
+    check('typed + voice classes from logs', mixed == [('typed', 'auth-rejected'), ('voice', 'quota-or-billing')])
+    check('cancelled', classify([('typed', 'cancelled')], 'cancelled', receipts=('voice',)) ==
+          [('typed', 'timeout-or-cancelled')])
+    check('setup failure', classify([('runner', 'success')], 'failure', receipts=both) == [('setup', 'unknown')])
+    check('unknown step ignored', classify([('evil', 'failure')], 'success', receipts=both) == [])
+    check('receipt text must name the exact test', valid_receipts({'typed': REQUIRED['typed'], 'voice': 'Other.Test'})
+          == ['typed'])
+    check('receipt list keeps only known ids', parse_receipts(f'typed, voice,{key},x') == ['typed', 'voice'])
 
     # Round trip through the job output, and planted junk in it.
-    text = format_failures(both)
-    check('round trip', parse_failures(text) == both)
+    text = format_failures(mixed)
+    check('round trip', parse_failures(text) == mixed)
     planted = parse_failures(f'typed:{key};voice:quota-or-billing;x:y;typed:not-a-class;[link](http://e)')
     check('junk -> setup:unknown, key never kept', planted[1] == ('voice', 'quota-or-billing') and
           all(p == ('setup', 'unknown') for i, p in enumerate(planted) if i != 1) and key not in str(planted))
 
     run = 'https://github.com/o/r/actions/runs/123'
     sha = 'a' * 40
-    body = failure_body(both, run, sha, '2026-11-14')
+    body = failure_body(mixed, run, sha, '2026-11-14')
     check('body has run, date, step names, classes', all(s in body for s in (run, '2026-11-14', sha,
                                                                              STEPS['typed'], 'quota-or-billing')))
     check('body never carries the key or raw text', key not in body and 'Incorrect API key' not in body)
-    check('failure, no issue -> create', [a for a, _, _ in plan('failure', [], both, run, sha, 'd')] == ['create'])
-    check('failure, issue open -> comment on oldest', [(a, n) for a, n, _ in plan('failure', [7, 9], both, run, sha,
-                                                                                   'd')] == [('comment', 7)])
-    check('success after failure -> comment + close', [(a, n) for a, n, _ in plan('success', [7], [], run, sha, 'd')]
-          == [('comment', 7), ('close', 7)])
-    check('success, nothing open -> nothing', plan('success', [], [], run, sha, 'd') == [])
-    check('cancelled -> nothing', plan('cancelled', [7], [], run, sha, 'd') == [])
+
+    def acts(result, issues, failed, receipts):
+        return [(a, n) for a, n, _ in plan(result, issues, failed, receipts, run, sha, 'd')]
+
+    check('failure, no issue -> create', acts('failure', [], mixed, ()) == [('create', None)])
+    check('failure, issue open -> comment on oldest', acts('failure', [7, 9], mixed, ()) == [('comment', 7)])
+    check('both pass -> comment + close', acts('success', [7], [], both) == [('comment', 7), ('close', 7)])
+    check('voice missing + typed pass -> red, comment, NOT close', acts('success', [7], [], ('typed',)) ==
+          [('comment', 7)])
+    check('voice missing + typed pass, nothing open -> create', acts('success', [], [], ('typed',)) ==
+          [('create', None)])
+    check('typed missing -> red, not close', acts('success', [7], [], ('voice',)) == [('comment', 7)])
+    check('both skipped (no receipts) -> red, not close', acts('success', [7], [], ()) == [('comment', 7)])
+    check('job success but a failure listed -> red', acts('success', [7], [('upload', 'upload-failed')], both) ==
+          [('comment', 7)])
+    check('voice-missing body names voice', 'required-test-missing' in
+          plan('success', [7], [], ('typed',), run, sha, 'd')[0][2] and REQUIRED['voice'] in
+          plan('success', [7], [], ('typed',), run, sha, 'd')[0][2])
+    check('success, nothing open, both receipts -> nothing', acts('success', [], [], both) == [])
+    check('cancelled -> nothing', acts('cancelled', [7], [], both) == [])
 
     lines = []
     check('report refuses a bad run link', report({'--result': 'failure', '--run-url': 'https://evil.example/x',
                                                    '--repo': 'o/r', '--dry-run': ''}, out=lines.append) == 2)
     lines = []
-    report({'--result': 'failure', '--run-url': run, '--repo': 'o/r', '--sha': key,
-            '--failures': f'typed:{key}', '--dry-run': ''}, out=lines.append)
+    rc = report({'--result': 'failure', '--run-url': run, '--repo': 'o/r', '--sha': key,
+                 '--failures': f'typed:{key}', '--dry-run': ''}, out=lines.append)
     check('dry-run report: planted key in sha and failures never printed', key not in '\n'.join(lines) and
-          'issue action: create' in '\n'.join(lines))
+          'issue action: create' in '\n'.join(lines) and rc == 1)
+    lines = []
+    rc = report({'--result': 'success', '--run-url': run, '--repo': 'o/r', '--sha': sha, '--failures': '',
+                 '--receipts': 'typed', '--dry-run': ''}, out=lines.append, existing=[5])
+    check('report: typed-only success comments, never closes, exits 1', rc == 1 and
+          'issue action: comment 5' in '\n'.join(lines) and 'issue action: close' not in '\n'.join(lines))
+    lines = []
+    rc = report({'--result': 'success', '--run-url': run, '--repo': 'o/r', '--sha': sha, '--failures': '',
+                 '--receipts': 'typed,voice', '--dry-run': ''}, out=lines.append, existing=[5])
+    check('report: both receipts close the issue', rc == 0 and 'issue action: close 5' in '\n'.join(lines))
 
     with tempfile.TemporaryDirectory() as d:
-        def trx(name, total, executed, passed):
+        receipt = pathlib.Path(d, 'r', 'receipt.txt')
+
+        def trx(name, results):
+            rows = ''.join(f'<UnitTestResult testName="{n}" outcome="{o}"/>' for n, o in results)
             pathlib.Path(d, name).write_text(
-                '<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><ResultSummary>'
-                f'<Counters total="{total}" executed="{executed}" passed="{passed}" failed="0"/></ResultSummary>'
-                '</TestRun>', encoding='utf-8')
+                '<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Results>'
+                f'{rows}</Results></TestRun>', encoding='utf-8')
         quiet = []
-        check('no trx -> fail', trx_check(d, out=quiet.append) == 1)
-        trx('a.trx', 1, 1, 1)
-        check('one passed -> ok', trx_check(d, out=quiet.append) == 0)
-        trx('b.trx', 1, 1, 0)
-        check('two runs -> fail', trx_check(d, out=quiet.append) == 1)
+        check('no trx -> fail', trx_check(d, 'typed', receipt, out=quiet.append) == 1 and not receipt.exists())
+        check('missing folder -> fail', trx_check(pathlib.Path(d, 'nope'), 'voice', receipt, out=quiet.append) == 1)
+        trx('a.trx', [])
+        check('zero tests -> fail', trx_check(d, 'typed', receipt, out=quiet.append) == 1 and not receipt.exists())
+        trx('a.trx', [(REQUIRED['typed'], 'Passed')])
+        check('wrong id for the result -> fail', trx_check(d, 'voice', receipt, out=quiet.append) == 1)
+        check('unknown id -> fail', trx_check(d, 'other', receipt, out=quiet.append) == 1)
+        check('the named test passed -> receipt', trx_check(d, 'typed', receipt, out=quiet.append) == 0 and
+              receipt.read_text(encoding='utf-8') == REQUIRED['typed'])
+        receipt.unlink()
+        trx('b.trx', [(REQUIRED['typed'], 'Passed')])
+        check('two runs -> fail', trx_check(d, 'typed', receipt, out=quiet.append) == 1 and not receipt.exists())
         pathlib.Path(d, 'b.trx').unlink()
-        trx('a.trx', 1, 0, 0)
-        check('not executed -> fail', trx_check(d, out=quiet.append) == 1)
+        trx('a.trx', [(REQUIRED['typed'], 'Failed')])
+        check('failed -> fail', trx_check(d, 'typed', receipt, out=quiet.append) == 1)
+        trx('a.trx', [('Boo.LiveSmoke.Other.Test', 'Passed')])
+        check('a different test -> fail', trx_check(d, 'typed', receipt, out=quiet.append) == 1)
         pathlib.Path(d, 'a.trx').write_text('<not xml', encoding='utf-8')
-        check('broken trx -> fail', trx_check(d, out=quiet.append) == 1)
+        check('broken trx -> fail', trx_check(d, 'typed', receipt, out=quiet.append) == 1 and not receipt.exists())
 
     for b in bad:
         out(f'SELF_TEST_FAILED: {b}')
@@ -351,7 +453,7 @@ def self_test(out=print):
 
 def parse_args(argv):
     """--name value pairs (repeatable ones collected in lists) and bare flags."""
-    args, multi, i = {}, {'--outcome': [], '--log': []}, 0
+    args, multi, i = {}, {'--outcome': [], '--log': [], '--receipt-of': []}, 0
     while i < len(argv):
         a = argv[i]
         if a in ('--dry-run',):
@@ -369,27 +471,39 @@ def parse_args(argv):
     return args
 
 
+def _read_pairs(items):
+    out = {}
+    for item in items:
+        sid, _, path = item.partition('=')
+        try:
+            out[sid] = pathlib.Path(path).read_text(encoding='utf-8', errors='replace')
+        except OSError:
+            out[sid] = None
+    return out
+
+
 def main(argv):
     if argv == ['--self-test']:
         return self_test()
-    if len(argv) == 2 and argv[0] == 'trx':
-        return trx_check(argv[1])
+    if argv and argv[0] == 'trx' and len(argv) == 6:
+        args = parse_args(argv[2:])
+        if '--require' in args and '--receipt' in args:
+            return trx_check(argv[1], args['--require'], args['--receipt'])
     if argv and argv[0] == 'classify':
         args = parse_args(argv[1:])
         outcomes = [tuple(o.split('=', 1)) for o in args['--outcome'] if '=' in o]
-        logs = {}
-        for item in args['--log']:
-            sid, _, path = item.partition('=')
-            try:
-                logs[sid] = pathlib.Path(path).read_text(encoding='utf-8', errors='replace')
-            except OSError:
-                logs[sid] = ''
-        failed = classify(outcomes, args.get('--job-status', ''), args.get('--models-http', ''), logs)
-        line = 'failures=' + format_failures(failed)
-        print(line)
+        logs = {k: v or '' for k, v in _read_pairs(args['--log']).items()}
+        receipts = valid_receipts(_read_pairs(args['--receipt-of']))
+        failed = classify(outcomes, args.get('--job-status', ''), args.get('--models-http', ''), logs, receipts)
+        lines = ['failures=' + format_failures(failed), 'receipts=' + ','.join(receipts)]
+        print('\n'.join(lines))
         if os.environ.get('GITHUB_OUTPUT'):
             with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
-                f.write(line + '\n')
+                f.write('\n'.join(lines) + '\n')
+        if failed:
+            for sid, cls in failed:
+                print(f'::error::{RULE} {cls} ({sid}): {CLASSES[cls]}')
+            return 1
         return 0
     if argv and argv[0] == 'report':
         return report(parse_args(argv[1:]))
