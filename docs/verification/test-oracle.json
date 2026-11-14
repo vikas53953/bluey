@@ -1,5 +1,5 @@
 {
-  "revision": 30,
+  "revision": 31,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -98,6 +98,7 @@
     "tests/Boo.Demo.Tests/DemoTests.cs": "dcb58a575f973cd6d58f97af7612b97f6b1c4b0ab7c22f0c1b32f37e04611dac",
     "tests/Boo.Demo.Tests/OrderedSteps.cs": "306e9963f703f5d3110060f5a03f66272dfda4959eba07c238be328da40776e2",
     "tests/Boo.Demo.Tests/UnobservedScreenActionDemoTests.cs": "b40a250d08fb9ae7c6837884a5c5cfdf0aabe45d884dfd5529fedc0f42cdaa61",
+    "tests/Boo.Demo.Tests/UnobservedScreenActionVoiceDemoTests.cs": "ededc0bf9ca1162ea6c8841443414d58b9e37c9cb166bb42f69f37eaf7a14656",
     "tests/Boo.Demo.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Integration.Tests/AppearanceReadFailureTests.cs": "71a6aa267746f1f5124cde57204258a4d6c62351d620e963b30eeec95c585a70",
     "tests/Boo.Integration.Tests/AppearanceStoreTests.cs": "fcbcc2bb697287d820e079df304ef34deffe37d4b0446d4fd548d55823871aab",
@@ -157,13 +158,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-29.json",
-  "previousManifestSha256": "472061dee91bcf99ab6816a08ef9dd455f9fae5826d3cdcc53890f4967ff471a",
-  "revisionReason": "PR #93: RealtimeToolResult decides the voice function-call result on the offered action (Codex P2, a953fdc review)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-30.json",
+  "previousManifestSha256": "a9870bb9485a82867df8505c2fdb2cd790a8e847f35925fbdf8f584f8b6c065e",
+  "revisionReason": "Voice completion of the fail-closed guard: tests/Boo.Demo.Tests/UnobservedScreenActionVoiceDemoTests.cs drives MainWindow.CompleteRealtimeToolAsync through the mock realtime socket (kills Codex mutant M6 at 8f2c18f)",
   "addedFiles": [
-    "tests/Boo.Core.Tests/RealtimeToolResultTests.cs"
+    "tests/Boo.Demo.Tests/UnobservedScreenActionVoiceDemoTests.cs"
   ],
-  "revisionCommit": "6f9a2cf072cda1e275e0898d29e9e441bdaf1fa9",
+  "revisionCommit": "4c60da85cb9e3341bdd07925ca920da083ce4974",
   "changedFiles": [],
   "removedFiles": []
 }
