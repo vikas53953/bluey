@@ -205,6 +205,15 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
             var point = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
             Mouse.Position = point;
             var hit = _boo.Automation.FromPoint(point);
+            try
+            {
+                Record($"pre-right-click selectedRuntimeId={string.Join(",", iconIdentity)} currentRuntimeId={string.Join(",", icon.Properties.RuntimeId.Value)} selectedName={icon.Properties.Name.Value} selectedBounds={bounds} point={point.X},{point.Y}; hitRuntimeId={string.Join(",", hit.Properties.RuntimeId.Value)} hitName={hit.Properties.Name.Value} hitType={hit.Properties.ControlType.Value} hitPid={hit.Properties.ProcessId.Value} hitBounds={hit.BoundingRectangle}");
+                _boo.CaptureRectangle("qa-j12f-pre-right-click-area", area.BoundingRectangle);
+            }
+            catch (Exception diagnosticError)
+            {
+                Record("secondary pre-right-click diagnostic error=" + diagnosticError);
+            }
             Assert.True(ExplorerAncestry(hit));
             Assert.Equal(iconIdentity, hit.Properties.RuntimeId.Value);
             Assert.Equal("Boo companion", hit.Properties.Name.Value);

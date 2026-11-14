@@ -225,3 +225,6 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 
 
 | 14 Nov 2026 | Evaluate exact shell candidate name/type before strict visibility in Q12F discovery. | IsOffscreen is unsupported on an unrelated descendant in run43586772539; ordering excludes irrelevant nodes without treating unavailable visibility as visible. Required matching controls keep strict reads and all identity/action/state checks. | PR54; inspected b0117b5 identity/TRX/log/screenshot; local compile0warnings/0errors | proposed; native Q12F UNVERIFIED |
+
+
+| 14 Nov 2026 | Retain Q12F exact physical-hit identity failure; collect selected/hit name/type/PID/bounds/RuntimeId and hosted overflow image before assertions. | Run43587856610 proves overflow discovery but mismatched hit identity after Start. Existing evidence cannot attribute that mismatch; do not relax equality or substitute another Stop path. | b057d58 identity/TRX/log/screenshot inspected; verifier correctly rejects absent current-head QA PASS | proposed; Q12F/full-app RED |
