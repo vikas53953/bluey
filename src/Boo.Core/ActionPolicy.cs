@@ -99,12 +99,12 @@ public static class ActionPolicy
 
     /// <summary>
     /// Control characters, every Unicode whitespace (U+2028 line separator, U+00A0, ...) and invisible format
-    /// characters (U+200B zero width space, U+FEFF, bidi overrides) are never part of a URL Boo offers to open:
+    /// characters (U+200B zero width space, U+FEFF, bidi overrides; the shared <see cref="InvisibleCharacters"/> policy)
+    /// are never part of a URL Boo offers to open:
     /// Uri accepts some of them, and each can make the approval card show a different address than it opens.
     /// </summary>
     internal static bool IsUnsafeUrlCharacter(char character) =>
-        char.IsControl(character) || char.IsWhiteSpace(character) || char.IsSurrogate(character) ||
-        char.GetUnicodeCategory(character) == System.Globalization.UnicodeCategory.Format;
+        char.IsWhiteSpace(character) || char.IsSurrogate(character) || InvisibleCharacters.IsHidden(character);
 
     internal static string ComputeDigest(ToolRequest request)
     {
