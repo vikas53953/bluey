@@ -261,13 +261,32 @@ already press Ctrl+Alt+F12 and Ctrl+Alt+S on a running session; they do not read
 | Evidence | card titles read; file existence and field value read back after each step |
 | Live / mock | live; mock-capable (demo-ci step 2 covers the field undo once) |
 
-**U4 refusal coverage (manual, UNVERIFIED):** On a fresh field edit for each case: (1) after Boo's approved fill,
-change the field yourself before asking Undo; (2) use a target exposing ambiguous Undo controls; (3) use a field
-whose original value was empty and whose safe native Undo control is unavailable. Ask Undo in each case and require
-an explanatory refusal, no approval card and an unchanged target value. Record the original/current field values,
-raw target controls and refusal text plus screenshots. Cases (2) and (3) need an appropriate target fixture, absent
-from this journey's current demo setup; they are **not automated coverage**. Successful undo or "nothing recorded"
-after journal clearance proves none of these refusal branches.
+**U3 refusal coverage (manual, UNVERIFIED):** Use a fresh verified file transaction for each case. After Boo creates
+or overwrites a file, externally replace its contents (also test removal), then ask Undo before any further Boo edit.
+After a verified Boo delete, externally recreate the file before asking Undo. Require the changed-since-edit refusal,
+no approval card and byte-for-byte preservation of the external contents (or continued absence). Record original,
+Boo-written and external bytes/existence, the refusal and panel screenshot. Separately, restoring a deleted/overwritten
+file whose prior bytes were non-UTF-8 or exceeded the journal's size limit requires a dedicated fixture and is an
+**UNVERIFIED gap**; require the cannot-restore refusal without changing the file. Successful reversal alone covers
+neither refusal branch (`FileUndoJournal.Plan`).
+
+**U4 refusal coverage (manual, UNVERIFIED):** Start a fresh verified transaction for each case and keep unrelated
+controls and values unchanged so an earlier guard does not mask the intended branch (`UndoJournal.Plan`):
+
+| Case | Prerequisite and action before asking Undo | Required result |
+| --- | --- | --- |
+| Newer field value / missing edited field | After Boo's approved and read-back fill, change that field yourself (separate case: remove its control). | Conflict refusal; external value/state preserved. |
+| Ambiguous native Undo | Have Boo perform a **successful Apply with observed control changes**, not just fill a field. Keep the edited values and observed Apply changes unchanged, then expose two invokable controls named Undo (or whose automation IDs contain undo). | More-than-one-Undo refusal; neither control invoked. `_applyId` is required for this branch. |
+| Empty prior value | Fill an initially empty field, verify the edit, and provide no eligible native Undo path (an edit-only transaction suffices). | Cannot-restore-empty-value refusal; filled value preserved. |
+| Different target window | After the verified transaction, target another window when requesting Undo. | Different-window refusal; original and new windows unchanged. |
+| Changed Apply result | After a successful Apply with observed changes, externally change one of those recorded properties while leaving edited field values unchanged. | Conflict refusal; external property preserved. |
+| Missing Apply control | After successful Apply with observed changes, keep field/property values unchanged, remove the recorded Apply control and provide no invokable native Undo. | Cannot-re-apply refusal; no field restoration begins. |
+
+For each refusal require no approval card and no target mutation; keep original/current values, raw controls,
+observed Apply readbacks where required, refusal text and screenshots. Target fixtures for these branches are not
+provided by this checklist: **no automated or executed coverage is claimed**. A fixture that cannot establish the
+prerequisite leaves that case UNVERIFIED. Successful undo or "nothing recorded" after journal clearance proves none
+of these refusal branches.
 
 #### j17 — Voice ends itself and voice drives focus
 
@@ -390,9 +409,10 @@ needs a device change the runner cannot make); **not drivable yet** = no user ac
 | G5 | **not drivable yet** | the commit-under-lock ordering is internal; no user action can show Stop and a commit interleaving; reducer/unit tests only |
 | A1, A2, A3, A5, A6, A7, A8 | j5, j12e, j15, j16 | A7 depends on the AI proposing two steps |
 | A4 (expired / policy denies / target window changed) | **manual** (the "policy denies" part may be drivable by asking for a write outside Boo's file folder; UNVERIFIED) | Stop clears the card first (A3), so "expired" is not reachable by a click; a changed target window needs a second app moved in between; not scripted yet |
-| U1, U3 | j5, j16 | |
+| U1 | j5, j16 | |
+| U3 | j5, j16 (successful reversal); j16 manual refusal checklist | Changed/removed/recreated file and non-restorable prior-content cases remain manual/UNVERIFIED; successful reversal does not prove refusal. |
 | U2, U5, U6 | j16 | |
-| U4 | **manual / UNVERIFIED** | j16's separate refusal checklist: newer field change, ambiguous Undo controls, empty prior value; the latter two need additional target fixtures. Successful/repeated undo is not refusal coverage. |
+| U4 | **manual / UNVERIFIED** | j16's separate refusal checklist records transaction prerequisites and target-fixture gaps. Ambiguous native Undo requires observed Apply; successful/repeated undo is not refusal coverage. |
 | P1, P2 | **not drivable through the current UI / UNVERIFIED** | P1 needs an older/equal generation passed to PointerGuidance.Begin; P2 needs Begin while an annotation already exists. App BeginRequest clears annotations first (MainWindow.xaml.cs:1986); j18 cannot prove either core branch. Require targeted Core tests as component evidence, not E2E proof. |
 | P3 | j3, j14 | the phase walk itself is not published (only the drawn result) |
 | P4 (Stop, new request) | j12h, j18 | |
