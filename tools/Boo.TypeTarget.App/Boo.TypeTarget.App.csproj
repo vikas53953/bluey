@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    TYPE-TARGET (issue #125): a tiny two-field window that tools/Boo.TypeTarget aims Boo's real DesktopTools at.
+    Field A (automationId "FieldA") is the field the user approved; field B ("FieldB") has keyboard focus. The mode
+    argument decides what happens to A before Boo types: present (editable), missing, readonly, or nonvalue (a label,
+    which has no value to set). Built and run only by .github/workflows/type-target.yml on GitHub's windows-latest.
+    Not in Boo.sln; not part of Boo.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Boo.TypeTarget.App</AssemblyName>
+  </PropertyGroup>
+</Project>
