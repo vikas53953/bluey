@@ -37,6 +37,13 @@ public static class SpokenAudio
     }
 
     /// <summary>
+    /// The live voice test's acceptance rule, kept here so it is tested offline (SpokenAudioTests): the answer counts as
+    /// spoken only when it holds at least <see cref="MinimumSpeechSeconds"/> of speech.
+    /// </summary>
+    public static bool IsSpokenAnswer(ReadOnlySpan<byte> pcm16Mono, int sampleRate) =>
+        SpeechSeconds(pcm16Mono, sampleRate) >= MinimumSpeechSeconds;
+
+    /// <summary>
     /// Proves the measure itself before a live result is trusted (fails closed): one second of silence must hold no
     /// speech (the old length rule accepted it), and 0.3 s of a clearly audible tone must count as speech.
     /// Returns null when both hold, or the reason it does not.
