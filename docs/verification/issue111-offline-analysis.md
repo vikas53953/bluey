@@ -48,3 +48,24 @@ One reviewed no-key hosted Q13H attempt with these receipts could distinguish or
 A separate Q13H fixture seeds only `qa-face-timing.enabled` when explicitly selected by the focused workflow. Outside the measured interval, it writes an atomic nonce request and waits at most3seconds for an atomic drain receipt. The receipt freezes an issued-record cutoff and reports committed count, drops, write failures, pending tail and future events outside coverage. Failure to obtain complete cutoff evidence is retained separately without masking the original assertion. Trace copying is attempted even if receipt collection fails.
 
 Compilation/runtime remain UNVERIFIED until CI. One no-key GitHub-hosted diagnostic attempt is planned after this review. Instrumentation overhead and events after cutoff remain limits; a diagnostic pass is not uninstrumented acceptance.
+
+## Single producer diagnostic result
+
+**Diagnostic evidence, not acceptance:** [run43577334463](https://github.com/vikas53953/bluey/actions/runs/43577334463) app/harness/workflow `7b0f4ed455672616fe763e45638e64802393123e`. Exact Q13H1/1 passed with assertions unchanged. TRX, identity, direct-read log, producer records, drain receipt and Happy screenshot inspected. Header confirms `broad=False producer=True`, QPCfrequency10MHz.
+
+The acknowledged cutoff is38, written38, dropped0, writeFailures0, pending0, completeThroughCutofftrue, incompleteTailfalse. Future events are explicitly not covered. There is one Happy hold (generation1), one timed arm3 and no replacement Happy hold in this captured interval; arm4 stops with no remaining due moment after expiry.
+
+| Producer phase | QPC interval | TickCount64 / value |
+| --- | --- | --- |
+| Hold origin clock anchor | 3543941200?3543941204 | now354359ms |
+| Hold | 3543941208?3543941327 | deadline356859ms; Happy mask4 |
+| Timer Start, arm3 | 3543941378?3543941457 | interval25000000 TimeSpan ticks =2500ms |
+| Happy ItemStatus assignment | 3543941759?3543941879 | previousPaused8 ? Happy9 |
+| Tick entry anchor | 3568939812?3568939831 | now356859ms |
+| Expire | 3568939839?3568940152 | now356859ms; expiredHappy4 |
+| Idle ItemStatus assignment | 3568940932?3568941144 | Happy9 ? Idle2 |
+| Hidden ItemStatus assignment | 3579814578?3579814771 | Idle2 ? Hidden0; retained causal generation1 |
+
+In this instrumented attempt, sampled expiry TickCount64 equals the stored deadline. Happy-to-Idle assignment duration bounds are2499.9053?2499.9385ms using the separate QPC clock. They measure publication, not rendering. Do not interpret coarse TickCount64 anchors as exact continuous time.
+
+Observer entry[1337,1409], exit[3908,3949], duration[2499,2612]ms contains2500 and passes the unchanged compatibility gate. Deduplicated reads and events have the required forward order; the same durable session ends. Instrumentation changes the observed workload, and this is a different VM from the failing9feda80 attempt. No exclusive cause for that earlier2545?2674ms interval is established. No product repair, broader tolerance, uninstrumented acceptance, new capture or automatic retry follows. Issue111 stays open; attribution remains inconclusive for the original failure.
