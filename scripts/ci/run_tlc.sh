@@ -2,7 +2,7 @@
 # Checks the TLA+ model of the notch lifecycle (specs/NotchLifecycle.tla) with TLC. Needs Java 11+ and curl.
 #
 #   bash scripts/ci/run_tlc.sh            every run in the table below, with MaxActive = 2 (PRs, pushes, nightly)
-#   bash scripts/ci/run_tlc.sh --wide     only specs/NotchLifecycle.cfg, with MaxActive = 3 (nightly job)
+#   bash scripts/ci/run_tlc.sh --wide     only specs/NotchLifecycle.cfg, with MaxActive = 3 (job tlc-wide: PRs that touch the model, pushes, nightly)
 #
 # What must happen (anything else exits non-zero):
 #   main       specs/NotchLifecycle.cfg PASSES (the checks that hold for today's code)
