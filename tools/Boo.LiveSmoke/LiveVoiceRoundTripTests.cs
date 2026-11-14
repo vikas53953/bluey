@@ -42,7 +42,7 @@ public sealed class LiveVoiceRoundTripTests
     /// (issue #129: the smoke must spend at most one paid voice response).
     /// </summary>
     public static RealtimeClient CreateClient(Func<string?> credential, ProviderSettings settings, string transcriptionModel) =>
-        new(credential, settings, pushToTalk: true, transcriptionModel: transcriptionModel);
+        new(credential, settings, pushToTalk: true, transcriptionModel: transcriptionModel, maxOutputTokens: MaxOutputTokens);
 
     private const int SampleRate = 24000;                  // Boo's session: audio/pcm, rate 24000, 16-bit mono
     private const int BytesPerSecond = SampleRate * 2;
@@ -228,6 +228,7 @@ public sealed class LiveVoiceRoundTripTests
         }.Concat(accepted).Concat(new[]
         {
             string.Create(CultureInfo.InvariantCulture, $"realtimeModel={realtimeModel} transcribeModel={transcribeModel}"),
+            string.Create(CultureInfo.InvariantCulture, $"voice spend bound: one response request at most, max_output_tokens={MaxOutputTokens}, tool_choice=none (bounded session, issue #129)"),
             string.Create(CultureInfo.InvariantCulture, $"question audio={questionSeconds:0.0}s answer audio={answerSeconds:0.0}s turn took={seconds:0.0}s"),
             $"heard (OpenAI speech-to-text of the synthetic question)='{heard}'",
             $"answer (transcript of Boo's spoken reply)='{answer}'",
