@@ -108,6 +108,7 @@ public partial class NotchWindow : Window
     private string? _flashStatus;
     private DispatcherTimer? _flashTimer;
     private IntPtr _handle;
+    private volatile string _renderModeName = string.Empty;
     private IntPtr _lastExternalHandle;
     private int _lastExternalProcess;
     private bool _positioning;
@@ -143,9 +144,11 @@ public partial class NotchWindow : Window
     /// <summary>True while CompositionTarget.Rendering is subscribed, i.e. the notch is visible or animating.</summary>
     internal bool IsRenderLoopActive => _rendering;
 
-    /// <summary>How Windows draws the notch, as the running window reports it (perf diagnostics; must be SoftwareOnly).</summary>
-    internal string RenderModeName =>
-        _handle != IntPtr.Zero && HwndSource.FromHwnd(_handle)?.CompositionTarget is { } target ? target.RenderMode.ToString() : string.Empty;
+    /// <summary>
+    /// How Windows draws the notch, as the window reported it when its handle was created (perf diagnostics; must be
+    /// SoftwareOnly). Cached on the UI thread so the probe can read it from its own timer thread; empty until then.
+    /// </summary>
+    internal string RenderModeName => _renderModeName;
 
     /// <summary>Frames the pacer dropped on high-refresh displays (perf diagnostics).</summary>
     internal long PacerSkippedFrames => _pacer.Skipped;
@@ -1442,6 +1445,7 @@ public partial class NotchWindow : Window
         if (source?.CompositionTarget is { } target)
         {
             target.RenderMode = RenderMode.SoftwareOnly;
+            _renderModeName = target.RenderMode.ToString();
         }
         RegisterMissingHotkeys();
         // One combined, truthful hint (two separate SetStatus calls used to overwrite each other); App refines it with the hold-to-talk result.

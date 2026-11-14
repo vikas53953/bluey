@@ -235,3 +235,7 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 
 
 | 14 Nov 2026 | Q12F targets exposed padding of the same Boo tray button, retaining exact pointer-hit RuntimeId equality. | Run43589938562 proves the centre hit is a decorative Image whose immediate parent is the selected Button; change input geometry, not acceptance. One bounds-contained point, no fallback or repeated click. | Exact2e79292 identity/log/TRX/overflow screenshot inspected; local compile0warnings/0errors | proposed; native Q12F UNVERIFIED |
+
+PR #65 QA decision: sync onto bfc72880f649bea1414b720288432fae99654e4f by merge; retain >=20fps floor, frozen tests and current oracle unchanged. Record every failure, no hidden retries. Baseline green-tip streak is separate from post-merge effectiveness; historical 8.5fps remains UNEXPLAINED.
+
+Owner requested PR65 resync onto50625744a54456246a7ad51b55634fb9b59e0abf by merge, no rewrite. Retain frozen tests/oracle/budgets. Perf item4 closed; historical8.5fps remains UNEXPLAINED. Replay hosted native positive/red on synced head, no local desktop/audio.
