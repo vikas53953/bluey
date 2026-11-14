@@ -63,6 +63,7 @@
     "tests/Boo.Core.Tests/NotchLayoutTests.cs": "08b9fb2bd60bac708093c203b0fe7b28e0b0da57062601fbacf2bb7391915c0c",
     "tests/Boo.Core.Tests/NotchLifecycleTests.cs": "3a77b006324dbe6e8bdbf151419df161253493fbb487b2e34495b4614bb62cc3",
     "tests/Boo.Core.Tests/OcrNudgeTargetMatcherTests.cs": "16fda5c38efedac9b863cb0b45ef1dd68115ead6ce3be5230e2e92bcf1974236",
+    "tests/Boo.Core.Tests/OpenUrlInvisibleCharacterTests.cs": "adab134f36113c2759f0d5ec72ef3b086339c1b80836f04647c9ef97b8cfa942",
     "tests/Boo.Core.Tests/ParityMotionTests.cs": "a25acc807a997524b2b37310a0aab58567de114b484b7c829e3e2356f5dcf745",
     "tests/Boo.Core.Tests/PauseAllShortcutTests.cs": "65696aecc08b8d3b044f60c1bf34c5fc4bed2022ce5b9cdc4de31bcba4bd1f40",
     "tests/Boo.Core.Tests/PerfBudgetTests.cs": "ec87531510aa5563bc8aabd155f9a9558fc2005f2110057f6459f8002d813795",
@@ -84,7 +85,6 @@
     "tests/Boo.Core.Tests/StartupRegistrationTests.cs": "dcd5b440b8191dd0adfb49e700e5c53ca45a42aa8e5814d809de997e86ebf64a",
     "tests/Boo.Core.Tests/TestThreadPool.cs": "9aee9db37060b844fc341d9a202b11c064a61e95a17dbd6f94cf961ddbc4f52f",
     "tests/Boo.Core.Tests/UndoJournalTests.cs": "5f73cbb8de8b9a65d7d00bb3cb630fb66cf320437aa452936fa11762945b58c8",
-    "tests/Boo.Core.Tests/UnobservedScreenActionTests.cs": "087a2865b9217aab18ac7a1b7e755f5a2af69c13831a35e33fa72f9547e4544b",
     "tests/Boo.Core.Tests/UntrustedInputFuzzTests.cs": "1260bcb26bcac3b60d43693874fef10d7abf073caf53c93d9388403a6d20c78c",
     "tests/Boo.Core.Tests/UpdatePolicyTests.cs": "6f58aa70493669d9fa81b946694f3d545eb50842f3478bba9ebaa8f6a4e2c987",
     "tests/Boo.Core.Tests/UpdateStatusTextTests.cs": "7a50ed32cbfcd8b1d6c2c721fdb99c03ae9e51a6f23cd451fbd69e933fd3ed9e",
@@ -155,11 +155,11 @@
   },
   "previousManifest": "docs/verification/test-oracle-history/revision-27.json",
   "previousManifestSha256": "23c588f1cc8433d787f996dd4cee61508de75a043a2bb9d5f0a55a4eb15ef0be",
-  "revisionReason": "Regression for PR #3 review block f3039ff: no screen observation means no click/type_text offered; re-extended on lane/face 14eaa1e after #43 took revision 27",
+  "revisionReason": "Kill mutant M1: open_url invisible-character guard (PR #3 mutation review 13 Nov); re-extended on lane/face 14eaa1e after #43 took revision 27",
   "addedFiles": [
-    "tests/Boo.Core.Tests/UnobservedScreenActionTests.cs"
+    "tests/Boo.Core.Tests/OpenUrlInvisibleCharacterTests.cs"
   ],
-  "revisionCommit": "d8b35b19471e1793e349c0e29413aed1f974918f",
+  "revisionCommit": "7702c1408c7689d3997aa1e6a24660015c15ca63",
   "changedFiles": [],
   "removedFiles": []
 }
