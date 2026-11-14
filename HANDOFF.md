@@ -524,3 +524,7 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 xUnit2031 correction and local compile loop (14 Nov 2026)
 
 **manual:** gate43579562469 stopped at Q12F Assert.Single(Where(...)), xUnit2031. Equivalent predicate overload preserves uniqueness. Installed repository-pinned SDK10.0.403 under ignored artifacts after verifying the official release archive SHA512; compilation uses workspace CLI/package caches and public NuGet only. QaSuite, LiveSmoke and VerifyLive all build Release with0warnings/0errors; no tests/Boo.exe/Desktop run locally. Lesson: use this pinned compiler/analyzer inner loop before future harness pushes, alongside required hosted compile gate. Native tray behavior remains **UNVERIFIED** pending corrected hosted attempt; full-app NOT PASSED.
+
+### PR #54 Q12F startup readiness (14 Nov 2026)
+
+**manual:** exact eeed04f Q12F run43580312381 failed at initial panel open, before tray discovery. Receipt shows one Ctrl+Alt+B at99ms after fixture launch; constructor launches Boo without waiting for notch. Failure screenshot contains only hidden notch. Added strict OpenPanelOnceReady helper for Q12F: wait for notch UIA and read its status before exactly one shortcut; post-action8second limit unchanged, no UIA suppression or retries. Local pinned-SDK Release compile0warnings/0errors and contract selftests pass. Native tray path remains **UNVERIFIED** until corrected run. Lesson: readiness polling belongs before a single action, not repeated actions after an unready launch.

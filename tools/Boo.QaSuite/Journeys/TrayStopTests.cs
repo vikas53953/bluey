@@ -30,13 +30,7 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
         bool Visible(AutomationElement e) => !e.IsOffscreen && e.BoundingRectangle.Width > 0 && e.BoundingRectangle.Height > 0;
         try
         {
-            Window? Panel() => _boo.App.GetAllTopLevelWindows(_boo.Automation)
-                .SingleOrDefault(w => w.Properties.Name.Value.StartsWith(BooAppFixture.PanelTitlePrefix, StringComparison.Ordinal));
-            Assert.Null(Panel());
-            Record("one Ctrl+Alt+B open press");
-            BooAppFixture.PressOpenShortcut();
-            Window? panel = null;
-            Assert.True(BooAppFixture.WaitUntil(() => (panel = Panel()) is not null, TimeSpan.FromSeconds(8)));
+            var panel = QaUi.OpenPanelOnceReady(_boo, Record);
             AutomationElement Find(string id) => panel!.FindFirstDescendant(cf => cf.ByAutomationId(id))
                 ?? throw new InvalidOperationException("Missing required element: " + id);
             void Press(string id) => Find(id).AsButton().Invoke();

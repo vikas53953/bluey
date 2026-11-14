@@ -15,6 +15,28 @@ public static class QaUi
 {
     public static readonly TimeSpan UiTimeout = TimeSpan.FromSeconds(60);
 
+    /// <summary>Waits for native notch readiness before exactly one open action; UIA errors propagate.</summary>
+    public static Window OpenPanelOnceReady(BooAppFixture boo, Action<string> record)
+    {
+        Window? ready = null;
+        Assert.True(BooAppFixture.WaitUntil(() => (ready = boo.App.GetAllTopLevelWindows(boo.Automation)
+            .SingleOrDefault(w => w.Properties.Name.Value is BooAppFixture.NotchName or BooAppFixture.NotchTitle)) is not null,
+            UiTimeout), "SETUP: notch UIA window did not become ready.");
+        var state = ready!.Properties.ItemStatus.Value;
+        Assert.NotEmpty(state);
+        record($"notch ready: face={state}; HelpText={ready.Properties.HelpText.Value}");
+        Window? Panel() => boo.App.GetAllTopLevelWindows(boo.Automation)
+            .SingleOrDefault(w => w.Properties.Name.Value.StartsWith(BooAppFixture.PanelTitlePrefix, StringComparison.Ordinal));
+        Assert.Null(Panel());
+        record("one Ctrl+Alt+B open press after notch readiness");
+        BooAppFixture.PressOpenShortcut();
+        Window? panel = null;
+        Assert.True(BooAppFixture.WaitUntil(() => (panel = Panel()) is not null, TimeSpan.FromSeconds(8)),
+            "One open press did not open the panel; no retry was attempted.");
+        return panel!;
+    }
+
+
     public static AutomationElement? TryFind(Window window, string automationId)
     {
         try
