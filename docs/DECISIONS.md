@@ -134,3 +134,5 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 | 13 Nov 2026 | The native voice wait requires input transcription, completed UI reply and consumed audio together within the existing45s deadline; keep the post-wait question assertion. | OpenAI input transcription can arrive after the audio response. Run43468001613 exposed an observer race, not proof of missing capture. Preserve the failure and fix the wait without retries or longer timeouts. | PR #68 independent Codex finding at396a29f; tools/Boo.NativeVoice | proposed |
 
 PR #65 QA decision: sync onto bfc72880f649bea1414b720288432fae99654e4f by merge; retain >=20fps floor, frozen tests and current oracle unchanged. Record every failure, no hidden retries. Baseline green-tip streak is separate from post-merge effectiveness; historical 8.5fps remains UNEXPLAINED.
+
+Owner requested PR65 resync onto50625744a54456246a7ad51b55634fb9b59e0abf by merge, no rewrite. Retain frozen tests/oracle/budgets. Perf item4 closed; historical8.5fps remains UNEXPLAINED. Replay hosted native positive/red on synced head, no local desktop/audio.
