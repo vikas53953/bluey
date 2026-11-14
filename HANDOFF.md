@@ -454,3 +454,7 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 bounded j12g addition (14 Nov 2026)
 
 **manual:** Q12G checks one Ctrl+Alt+F12 while already Paused: identical session ID/status and panel status, Stopped acknowledgment, three-second pinned retention, action-local healthy observations and known pre/post UIA event delivery. Corrected independent-review findings (missing extension namespace; reject transient Happy before explicit End). Contract version2 maps the new method; feature row F15 is **UNVERIFIED**. Full j12 stays required and incomplete. Existing pinned full-app run43565296906 predates this addition; it cannot prove Q12G. Compilation/native behavior pending GitHub CI.
+
+### PR #54 j12e regression before repair (14 Nov 2026)
+
+**manual:** Q12E requires a real actionable proposal and verifies the physical right-click hit on the visible pocket button (Boo process/name/type), never the oversized window centre. Strict UIA reads, exact saved task folder/destination, enabled Approve and no file effects; one cheap model request, one click, no retries. Contract3 adds Q12E; F16 remains **UNVERIFIED**. Existing focused workflow takes an explicit manual approval_stop input; default PR run stays no-key Q12G. Product handler is unchanged to obtain a native regression before the suspected missing acknowledgment repair. No bug or PASS claimed before live receipt inspection.

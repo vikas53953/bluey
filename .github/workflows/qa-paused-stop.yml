@@ -6,6 +6,11 @@ on:
       - tools/Boo.QaSuite/Journeys/PausedStopTests.cs
       - .github/workflows/qa-paused-stop.yml
   workflow_dispatch:
+    inputs:
+      approval_stop:
+        description: Run Q12E with one real cheap OpenAI request instead of no-key Q12G
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -36,20 +41,26 @@ jobs:
           New-Item -ItemType Directory -Force artifacts/paused-stop | Out-Null
           "app=$(git rev-parse HEAD)`nharness=$(git rev-parse HEAD)`nworkflow=$(git rev-parse HEAD)" | Set-Content artifacts/paused-stop/identity.txt
           Get-FileHash artifacts/paused-stop-app/Boo.exe | Format-List | Out-File artifacts/paused-stop/exe-hash.txt
-      - name: One paused Stop journey (no key, no provider calls)
+      - name: One selected Stop journey (no retries)
         shell: pwsh
         env:
           BOO_UI_EXE: ${{ github.workspace }}\artifacts\paused-stop-app\Boo.exe
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\paused-stop
           BOO_CAPTURE_SCOPE: boo-windows
+          BOO_LIVE_TEXT_PROVIDER: openai
+          BOO_LIVE_MODEL: gpt-6-luna
+          BOO_LIVE_OPENAI_KEY: ${{ inputs.approval_stop && secrets.BOO_LIVE_OPENAI_KEY || '' }}
+          APPROVAL_STOP: ${{ inputs.approval_stop || false }}
         run: |
-          dotnet test tools/Boo.QaSuite -c Release --no-build --filter FullyQualifiedName=Boo.QaSuite.Journeys.PausedStopTests.Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace --logger trx --results-directory artifacts/paused-stop/trx
+          $test = 'Boo.QaSuite.Journeys.PausedStopTests.Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace'
+          if ($env:APPROVAL_STOP -eq 'true') { $test = 'Boo.QaSuite.Journeys.ApprovalStopTests.Q12E_NotchRightClick_ClearsPendingProposalAndAcknowledgesStop' }
+          dotnet test tools/Boo.QaSuite -c Release --no-build --filter "FullyQualifiedName=$test" --logger trx --results-directory artifacts/paused-stop/trx
           $testExit = $LASTEXITCODE
           $results = @(Get-ChildItem artifacts/paused-stop/trx -Filter *.trx)
           if ($results.Count -ne 1) { throw 'Expected one TRX receipt' }
           [xml]$trx = Get-Content $results[0].FullName -Raw
           $rows = @($trx.TestRun.Results.UnitTestResult)
-          if ($rows.Count -ne 1 -or $rows[0].outcome -ne 'Passed' -or $rows[0].testName -ne 'Boo.QaSuite.Journeys.PausedStopTests.Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace') { throw 'Exact Q12G result did not pass' }
+          if ($rows.Count -ne 1 -or $rows[0].outcome -ne 'Passed' -or $rows[0].testName -ne $test) { throw 'Exact selected journey did not pass' }
           exit $testExit
       - name: Prepare evidence scanner
         if: ${{ always() }}

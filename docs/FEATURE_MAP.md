@@ -153,3 +153,5 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | E78 | Issue78 single cold Q10 ETW profiling attempt, no key, pinned app/harness; not acceptance | UNVERIFIED | `scripts/ci/Profile-EyeTap.ps1`; `.github/workflows/eye-tap-profile.yml` |
 
 | F15 | j12g Stop while already Paused preserves session and pinned face; other j12 branches pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/PausedStopTests.cs::Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace` |
+
+| F16 | j12e physical notch right-click cancels pending approval and acknowledges Stop | UNVERIFIED | `tools/Boo.QaSuite/Journeys/ApprovalStopTests.cs::Q12E_NotchRightClick_ClearsPendingProposalAndAcknowledgesStop` |

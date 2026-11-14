@@ -168,3 +168,5 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 | 14 Nov 2026 | Run full-app QA from the #54 head synced to lane/face `c74d0fc`. | Grok Bot requests integrated FlaUI evidence; existing assertions and cheap defaults retained. | Grok Bot instruction; PR #54 | proposed; result UNVERIFIED |
 
 | 14 Nov 2026 | Add only j12g paused Stop as Q12G, increment acceptance contract to version2. | Close missing coverage one substep at a time, preserving full j12 required RED until its other branches are driven. Independent review corrections applied; native behavior UNVERIFIED. | PR #54; tools/Boo.QaSuite/Journeys/PausedStopTests.cs | proposed (PR #54) |
+
+| 14 Nov 2026 | Add j12e/Q12E regression before changing right-click Stop acknowledgment; contract version3. | Avoid falsely blaming Stop for a click outside the visible pocket. Verify hit, proposal authorization and strict card/file readbacks. | PR #54; independent reviewer findings; native result UNVERIFIED | proposed |
