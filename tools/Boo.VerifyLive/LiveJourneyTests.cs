@@ -543,6 +543,8 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
     {
         try
         {
+            if (Environment.GetEnvironmentVariable("BOO_SCRIPTED_BUDGET") == "4")
+                Boo.Explorer.ExplorerLedger.Begin(_boo.App.ProcessId, step);
             body();
         }
         catch (Exception ex)
