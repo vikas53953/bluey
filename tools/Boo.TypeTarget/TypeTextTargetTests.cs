@@ -84,10 +84,47 @@ public sealed class TypeTextTargetTests
         Assert.Contains("Nothing was typed", run.Outcome.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Review of PR #132 (P1): an approval that names no field (no automationId, or a blank one) must not type at all,
+    /// not even into the focused field of the approved window. B has focus; nothing may reach A or B.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData(" ")]
+    public async Task NoFieldNamed_TypesNowhere_AndSaysSo(string? approvedId)
+    {
+        var run = await RunAsync("present", approvedId: approvedId, label: approvedId is null ? "nofield-absent" : "nofield-blank");
+
+        Assert.True(run.FieldB.Length == 0, $"text with no named field landed in the focused FieldB: '{run.FieldB}'. {run.Summary}");
+        Assert.True(run.FieldA == "", $"FieldA changed: '{run.FieldA}'. {run.Summary}");
+        Assert.False(run.Outcome.Success, run.Summary);
+        Assert.False(run.Outcome.Committed, run.Summary);
+        Assert.Contains("names no field", run.Outcome.Message, StringComparison.Ordinal);
+        Assert.Contains("Nothing was typed", run.Outcome.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Review of PR #132 (P2): FieldA accepts the write and is removed from the window at once, so it cannot be read
+    /// back. The text really was written, so Boo must report a committed, unverified write, never "Nothing was typed",
+    /// and must not type anywhere else.
+    /// </summary>
+    [Fact]
+    public async Task FieldRemovedAfterWrite_ReportsCommittedUnverified_NotNothingTyped()
+    {
+        var run = await RunAsync("removeonwrite");
+
+        Assert.True(run.FieldB.Length == 0, $"FieldB changed: '{run.FieldB}'. {run.Summary}");
+        Assert.True(run.Outcome.Committed, $"a real write must be reported as committed. {run.Summary}");
+        Assert.False(run.Outcome.Success, run.Summary);
+        Assert.StartsWith("partial/unverified", run.Outcome.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Nothing was typed", run.Outcome.Message, StringComparison.Ordinal);
+    }
+
     private sealed record Run(ToolOutcome Outcome, string? FieldA, string FieldB, string? Decoy, string Summary);
 
-    private async Task<Run> RunAsync(string mode, string? decoyId = null)
+    private async Task<Run> RunAsync(string mode, string? decoyId = null, string? approvedId = "FieldA", string? label = null)
     {
+        label ??= mode;
         var exe = Environment.GetEnvironmentVariable("BOO_TYPE_TARGET_EXE");
         Assert.False(string.IsNullOrWhiteSpace(exe), "BOO_TYPE_TARGET_EXE must name tools/Boo.TypeTarget.App's exe");
         Assert.True(File.Exists(exe), $"target app not found: {exe}");
@@ -111,11 +148,12 @@ public sealed class TypeTextTargetTests
 
             using var coordinator = new RequestCoordinator();
             var lease = coordinator.Begin();
-            var request = new ToolRequest("type_text", Title, new Dictionary<string, string>
+            var arguments = new Dictionary<string, string> { ["text"] = Text };
+            if (approvedId is not null)
             {
-                ["text"] = Text,
-                ["automationId"] = "FieldA",
-            }, lease.Generation);
+                arguments["automationId"] = approvedId;
+            }
+            var request = new ToolRequest("type_text", Title, arguments, lease.Generation);
             var authority = new TaskAuthority(lease.Generation, true, new HashSet<string> { "type_text" });
             var approval = ActionPolicy.Approve(request);
 
@@ -125,11 +163,11 @@ public sealed class TypeTextTargetTests
             var fieldA = ReadValue(Find(root, "FieldA"));
             var fieldBValue = ReadValue(fieldB) ?? "";
             var decoy = decoyId is null ? null : ReadValue(Find(root, decoyId)) ?? throw new InvalidOperationException($"decoy '{decoyId}' not found");
-            var summary = $"mode={mode} outcome=(success={outcome.Success}, committed={outcome.Committed}, message='{outcome.Message}') " +
+            var summary = $"mode={label} outcome=(success={outcome.Success}, committed={outcome.Committed}, message='{outcome.Message}') " +
                           $"FieldA='{fieldA ?? "(no value field)"}' FieldB='{fieldBValue}'" +
                           (decoyId is null ? "" : $" {decoyId}='{decoy}'");
             _output.WriteLine(summary);
-            Evidence(mode, summary, hwnd);
+            Evidence(label, summary, hwnd);
             return new Run(outcome, fieldA, fieldBValue, decoy, summary);
         }
         finally
