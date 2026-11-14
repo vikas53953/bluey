@@ -113,6 +113,45 @@ def trx_results(folder):
     return out
 
 
+# Counters that must be zero in a clean run (issue #128): any of them means the run did not simply execute and pass.
+BAD_COUNTERS = ('failed', 'error', 'timeout', 'aborted', 'inconclusive', 'passedButRunAborted', 'notRunnable',
+                'notExecuted', 'disconnected', 'inProgress', 'pending')
+
+
+def trx_run_problems(folder):
+    """Reasons the .trx run summaries are not one clean run of exactly one passed test ([] when clean).
+
+    A passed UnitTestResult is not enough: the run itself must have completed (issue #128)."""
+    problems = []
+    files = sorted(pathlib.Path(folder).rglob('*.trx'))
+    for f in files:
+        summaries = [e for e in ET.parse(f).getroot().iter() if e.tag.endswith('ResultSummary')]
+        if len(summaries) != 1:
+            problems.append(f'{f.name}: {len(summaries)} run summaries (expected exactly 1)')
+            continue
+        outcome = summaries[0].get('outcome', '')
+        if outcome != 'Completed':
+            problems.append(f'{f.name}: run outcome {outcome or "?"} (expected Completed)')
+        counters = [e for e in summaries[0].iter() if e.tag.endswith('Counters')]
+        if len(counters) != 1:
+            problems.append(f'{f.name}: {len(counters)} counter blocks (expected exactly 1)')
+            continue
+        c = counters[0]
+
+        def num(name):
+            try:
+                return int(c.get(name, '0') or '0')
+            except ValueError:
+                return -1
+        for name in ('total', 'executed', 'passed'):
+            if num(name) != 1:
+                problems.append(f'{f.name}: {name}={c.get(name, "missing")} (expected 1)')
+        for name in BAD_COUNTERS:
+            if num(name) != 0:
+                problems.append(f'{f.name}: {name}={c.get(name)} (expected 0)')
+    return problems
+
+
 def trx_check(folder, test_id, receipt, out=print):
     """Write the receipt only if exactly one result exists, it is REQUIRED[test_id], and it passed."""
     name = REQUIRED.get(test_id)
@@ -127,6 +166,15 @@ def trx_check(folder, test_id, receipt, out=print):
     if results != [(name, 'Passed')]:
         seen = ', '.join(f'{n or "?"}={o or "?"}' for n, o in results[:5]) or 'no test ran'
         out(f'::error::{RULE} required-test-missing ({test_id}): expected exactly {name}=Passed; got {seen}')
+        return 1
+    try:
+        run_problems = trx_run_problems(folder)
+    except (OSError, ET.ParseError) as e:
+        out(f'::error::{RULE} required-test-missing ({test_id}): could not read the run summary ({type(e).__name__})')
+        return 1
+    if run_problems:
+        out(f'::error::{RULE} required-test-missing ({test_id}): {name} passed, but the test run was not one clean '
+            f'completed run: ' + '; '.join(run_problems[:5]))
         return 1
     pathlib.Path(receipt).parent.mkdir(parents=True, exist_ok=True)
     pathlib.Path(receipt).write_text(name, encoding='utf-8')
