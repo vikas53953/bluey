@@ -2,20 +2,27 @@ name: qa-contract-gate
 on:
   workflow_dispatch:
     inputs:
+      plant_compile_failure:
+        description: Plant a compile error on the throwaway VM to prove the harness build gate turns red
+        type: boolean
+        default: false
       plant_failure:
         type: boolean
         default: false
   pull_request:
     paths:
-      - tools/Boo.QaSuite/qa_gate.py
-      - tools/Boo.QaSuite/qa_contract.json
-      - tools/Boo.QaSuite/qa_report.schema.json
+      - tools/Boo.QaSuite/**
+      - tools/Boo.LiveSmoke/**
+      - tools/Boo.VerifyLive/**
+      - global.json
+      - Directory.Build.*
       - .github/workflows/qa-contract-gate.yml
 permissions:
   contents: read
 jobs:
   gate:
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - name: Refuse unless GitHub's own VM
         shell: pwsh
@@ -25,6 +32,20 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Plant harness compile failure (red proof only)
+        if: inputs.plant_compile_failure
+        shell: pwsh
+        run: Set-Content -LiteralPath tools/Boo.QaSuite/QaCompileRedProof.cs -Value '#error QA_COMPILE_RED_PROOF'
+      - name: Compile all acceptance harnesses and enforce analyzers (no app or provider)
+        shell: pwsh
+        run: |
+          foreach ($project in 'tools/Boo.QaSuite', 'tools/Boo.LiveSmoke', 'tools/Boo.VerifyLive') {
+            dotnet build $project -c Release
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

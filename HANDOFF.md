@@ -490,3 +490,7 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 Q13H analyzer correction (14 Nov 2026)
 
 **manual:** d41ffad focused build43574976997 and explicit Q13H43575002856 stopped at xUnit2009 before native execution. Use equivalent Assert.StartsWith for Ended status; timing, sequence and observation checks unchanged. No native Q13H result established. New hosted run required; full-app NOT PASSED.
+
+### PR #54 lesson: compile acceptance harnesses inside the contract gate (14 Nov 2026)
+
+**manual:** read pipeline principles from PR108/docs-pipeline-principles. Repeated Q12E xUnit2010 and Q13H xUnit2009 failures occurred before native execution; the contract gate now builds all three acceptance harnesses with pinned SDK/analyzers and no app/provider access. Relevant source paths trigger it. Optional throwaway-VM compile-error input provides a distinct red proof; normal tests/contract remain unchanged. No native PASS inferred. Current branch already includes lane/face14426975; no redundant sync or paid run. New gate execution remains **UNVERIFIED** until CI.
