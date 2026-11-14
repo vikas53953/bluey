@@ -33,7 +33,8 @@ public static class RealtimeProtocol
     /// input_audio_buffer.commit + response.create when the user releases hold-to-talk.
     /// </param>
     /// <param name="transcriptionModel">Speech-to-text model for the user's words; null = <see cref="DefaultTranscriptionModel"/>.</param>
-    public static string SessionUpdate(ProviderSettings settings, bool pushToTalk = false, string? transcriptionModel = null, int? maxOutputTokens = null)
+    /// <param name="toolTurn">Bounded sessions only: force one screen_help call instead of disabling tools (the client then allows exactly two response requests).</param>
+    public static string SessionUpdate(ProviderSettings settings, bool pushToTalk = false, string? transcriptionModel = null, int? maxOutputTokens = null, bool toolTurn = false)
     {
         ArgumentNullException.ThrowIfNull(settings);
         object? turnDetection = pushToTalk ? null : new { type = "server_vad" };
@@ -110,7 +111,9 @@ public static class RealtimeProtocol
         if (maxOutputTokens is < 1 or > 256) throw new ArgumentOutOfRangeException(nameof(maxOutputTokens));
         var bounded = System.Text.Json.Nodes.JsonNode.Parse(json)!;
         bounded["session"]!["max_output_tokens"] = maxOutputTokens.Value;
-        bounded["session"]!["tool_choice"] = "none";
+        bounded["session"]!["tool_choice"] = toolTurn
+            ? new System.Text.Json.Nodes.JsonObject { ["type"] = "function", ["name"] = "screen_help" }
+            : "none";
         return bounded.ToJsonString();
     }
 
@@ -292,6 +295,7 @@ public sealed class RealtimeClient : IAsyncDisposable
     private readonly bool _pushToTalk;
     private readonly string? _transcriptionModel;
     private readonly int? _maxOutputTokens;
+    private readonly bool _toolTurn;
     private int _responseRequests;
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
@@ -308,11 +312,13 @@ public sealed class RealtimeClient : IAsyncDisposable
     public static readonly TimeSpan KeepAliveTimeout = TimeSpan.FromSeconds(10);
 
     /// <param name="transcriptionModel">Speech-to-text model for the user's words; null = Boo's default.</param>
-    public RealtimeClient(Func<string?> credential, ProviderSettings settings, bool pushToTalk = false, string? transcriptionModel = null, int? maxOutputTokens = null)
+    /// <param name="toolTurn">With a token bound: one forced screen_help call and one spoken follow-up (exactly two response requests).</param>
+    public RealtimeClient(Func<string?> credential, ProviderSettings settings, bool pushToTalk = false, string? transcriptionModel = null, int? maxOutputTokens = null, bool toolTurn = false)
     {
         _pushToTalk = pushToTalk;
         _transcriptionModel = transcriptionModel;
         _maxOutputTokens = maxOutputTokens;
+        _toolTurn = toolTurn && maxOutputTokens is not null;
         _credential = credential ?? throw new ArgumentNullException(nameof(credential));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
     }
@@ -320,10 +326,10 @@ public sealed class RealtimeClient : IAsyncDisposable
     /// <summary>Compose a native voice client; hosted device options bound the real session, without replacing its provider.</summary>
     public static RealtimeClient ForNativeVoice(Func<string?> credential, ProviderSettings settings, bool pushToTalk,
         HostedVoiceOptions? qaVoice) => new(credential, settings, pushToTalk, qaVoice?.TranscriptionModel,
-            maxOutputTokens: qaVoice is null ? null : 128);
+            maxOutputTokens: qaVoice is null ? null : 128, toolTurn: qaVoice?.ToolTurn ?? false);
 
     /// <summary>The exact session.update payload sent by ConnectAsync.</summary>
-    public string CreateSessionUpdate() => RealtimeProtocol.SessionUpdate(_settings, _pushToTalk, _transcriptionModel, _maxOutputTokens);
+    public string CreateSessionUpdate() => RealtimeProtocol.SessionUpdate(_settings, _pushToTalk, _transcriptionModel, _maxOutputTokens, _toolTurn);
 
     /// <summary>
     /// Diagnostics only (the live voice test): sees every server message exactly as received, before parsing, so a
@@ -491,8 +497,16 @@ public sealed class RealtimeClient : IAsyncDisposable
 
     private Task RequestResponseAsync(CancellationToken cancellationToken)
     {
-        if (_maxOutputTokens is not null && Interlocked.Increment(ref _responseRequests) != 1)
-            throw new InvalidOperationException("Bounded voice session permits exactly one response request.");
+        if (_maxOutputTokens is not null)
+        {
+            var request = Interlocked.Increment(ref _responseRequests);
+            if (_toolTurn && request == 2)
+                return SendJsonAsync("{\"type\":\"response.create\",\"response\":{\"tool_choice\":\"none\"}}", cancellationToken);
+            if (request != 1)
+                throw new InvalidOperationException(_toolTurn
+                    ? "Bounded voice tool turn permits exactly two response requests."
+                    : "Bounded voice session permits exactly one response request.");
+        }
         return SendJsonAsync("{\"type\":\"response.create\"}", cancellationToken);
     }
 

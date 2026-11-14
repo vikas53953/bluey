@@ -25,6 +25,8 @@ public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoice
     private const string NothingOfferedStatus = "Boo proposed a screen action, but no screen observation backs it. Nothing was offered.";
     private const string NoActionStatus = "Reply complete. No action was committed.";
     private const string HandedToVoiceStatus = "Sent to the voice conversation; waiting for the response…";
+    /// <summary>The bounded 128-token follow-up may be cut by the cap; the turn has still ended.</summary>
+    private const string IncompleteStatus = "Realtime response incomplete.";
     private static readonly TimeSpan TurnTimeout = TimeSpan.FromSeconds(120);
 
     private readonly FailedCaptureVoiceFixture _boo;
@@ -63,7 +65,7 @@ public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoice
                     }
                 }
                 var toolReached = ToolReached(statuses, panel);
-                if (toolReached && statuses.Count > 0 && statuses[^1].StartsWith("Reply complete.", StringComparison.Ordinal)
+                if (toolReached && statuses.Count > 0 && TurnEnded(statuses[^1])
                     && Spoken(out _, out _) && VisiblePreviewText(panel) is null)
                 {
                     sawReplyComplete = true;
@@ -102,6 +104,9 @@ public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoice
             throw;
         }
     }
+
+    private static bool TurnEnded(string status) =>
+        status.StartsWith("Reply complete.", StringComparison.Ordinal) || status == IncompleteStatus;
 
     /// <summary>
     /// The guard ran only if RenderReply ran on the tool's structured reply: its status line (nothing offered / no action)

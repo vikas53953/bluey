@@ -96,4 +96,48 @@ public sealed class AudioBoundaryTests
         Assert.False(normal.RootElement.GetProperty("session").TryGetProperty("max_output_tokens", out _));
         Assert.Equal("auto", normal.RootElement.GetProperty("session").GetProperty("tool_choice").GetString());
     }
+    [Fact]
+    public void ToolTurnOptIn_ReadsExactlyOne_AndDefaultsOff()
+    {
+        string? Read(string key, string? toolTurn) => key switch
+        {
+            "BOO_QA_VOICE_INPUT" => "input.wav",
+            "GITHUB_ACTIONS" => "true",
+            "RUNNER_ENVIRONMENT" => "github-hosted",
+            "BOO_QA_VOICE_EVIDENCE" => "receipt",
+            HostedVoiceOptions.ToolTurnVariable => toolTurn,
+            _ => null
+        };
+        Assert.False(HostedVoiceOptions.Read(k => Read(k, null), true)!.ToolTurn);
+        Assert.False(HostedVoiceOptions.Read(k => Read(k, "true"), true)!.ToolTurn);
+        Assert.True(HostedVoiceOptions.Read(k => Read(k, "1"), true)!.ToolTurn);
+    }
+    [Fact]
+    public async Task ToolTurnSession_ForcesScreenHelp_KeepsTokenCap_ProductionUnchanged()
+    {
+        await using var client = RealtimeClient.ForNativeVoice(() => null, new ProviderSettings(), false,
+            new HostedVoiceOptions("input.wav", "receipt", "gpt-4o-mini-transcribe", ToolTurn: true));
+        using var json = JsonDocument.Parse(client.CreateSessionUpdate());
+        var session = json.RootElement.GetProperty("session");
+        Assert.Equal(128, session.GetProperty("max_output_tokens").GetInt32());
+        Assert.Equal("function", session.GetProperty("tool_choice").GetProperty("type").GetString());
+        Assert.Equal("screen_help", session.GetProperty("tool_choice").GetProperty("name").GetString());
+        using var normal = JsonDocument.Parse(RealtimeProtocol.SessionUpdate(new ProviderSettings(), toolTurn: true));
+        Assert.False(normal.RootElement.GetProperty("session").TryGetProperty("max_output_tokens", out _));
+        Assert.Equal("auto", normal.RootElement.GetProperty("session").GetProperty("tool_choice").GetString());
+    }
+    [Fact]
+    public async Task ToolTurnClientPermitsExactlyTwoResponses_WithoutOpeningSocket()
+    {
+        var client = new RealtimeClient(() => null, new ProviderSettings(), false, maxOutputTokens: 128, toolTurn: true);
+        var request = typeof(RealtimeClient).GetMethod("RequestResponseAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        for (var i = 0; i < 2; i++)
+        {
+            var closed = await Assert.ThrowsAsync<InvalidOperationException>(async () => await (Task)request.Invoke(client, new object[] { CancellationToken.None })!);
+            Assert.Equal("Realtime connection is not open.", closed.Message);
+        }
+        var third = Assert.Throws<System.Reflection.TargetInvocationException>(() => request.Invoke(client, new object[] { CancellationToken.None }));
+        Assert.Contains("exactly two response", third.InnerException!.Message);
+        await client.DisposeAsync();
+    }
 }

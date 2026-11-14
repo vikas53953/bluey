@@ -32,9 +32,11 @@ public sealed class FailedCaptureVoiceFixture : BooAppFixture
     {
         NativeVoiceSeed.Apply(data, "audio-device-fail-closed.jsonl");
         Environment.SetEnvironmentVariable(Variable, "1");
+        Environment.SetEnvironmentVariable(HostedVoiceOptions.ToolTurnVariable, "1");
     })
     {
         Environment.SetEnvironmentVariable(Variable, null);
+        Environment.SetEnvironmentVariable(HostedVoiceOptions.ToolTurnVariable, null);
     }
 }
 
