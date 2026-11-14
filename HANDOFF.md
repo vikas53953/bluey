@@ -468,3 +468,7 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 issue #103 native regression and narrow repair (14 Nov 2026)
 
 **live failure:** [Q12E red run43569476826](https://github.com/vikas53953/bluey/actions/runs/43569476826) at982434d: verified pocket hit, actionable write card dismissed, file absent throughout, but Stopped acknowledgment missing. Pending/dismissed screenshots, logs and TRX inspected. Filed [issue103](https://github.com/vikas53953/bluey/issues/103). **manual:** add ShowStoppedBriefly after the right-click handler Stop callback, matching the hotkey acknowledgment. Regression unchanged. Repair remains **UNVERIFIED** until a new native run passes; full-app NOT PASSED.
+
+### PR #54 bounded focus Pause/Resume (14 Nov 2026)
+
+**manual:** Q13R adds only j13 Pause/Resume: unique stored session, explicit Pause, pinned face, single Resume and ordered Idle/Hidden event timestamps within three seconds of invocation. Complete observation rejects Capture and retains 100ms recorder health. Second Pause is the documented persistence checkpoint; immediate Resume persistence remains **UNVERIFIED**. Contract5 requires Q13R; F17 UNVERIFIED. Reviewer corrections applied; native run pending. Q13/Q12G unchanged; full j13 stays required incomplete. Focused workflow selects Q13R explicitly without a provider key; paid Q12E remains manual-only.

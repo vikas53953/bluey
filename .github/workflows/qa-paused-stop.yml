@@ -11,6 +11,10 @@ on:
         description: Run Q12E with one real cheap OpenAI request instead of no-key Q12G
         type: boolean
         default: false
+      focus_resume:
+        description: Run no-key Q13R Pause/Resume instead of Q12G
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -50,9 +54,12 @@ jobs:
           BOO_LIVE_TEXT_PROVIDER: openai
           BOO_LIVE_MODEL: gpt-6-luna
           BOO_LIVE_OPENAI_KEY: ${{ inputs.approval_stop && secrets.BOO_LIVE_OPENAI_KEY || '' }}
+          FOCUS_RESUME: ${{ inputs.focus_resume || false }}
           APPROVAL_STOP: ${{ inputs.approval_stop || false }}
         run: |
           $test = 'Boo.QaSuite.Journeys.PausedStopTests.Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace'
+          if ($env:APPROVAL_STOP -eq 'true' -and $env:FOCUS_RESUME -eq 'true') { throw 'Choose one focused journey' }
+          if ($env:FOCUS_RESUME -eq 'true') { $test = 'Boo.QaSuite.Journeys.FocusResumeTests.Q13R_PauseResume_OrdersFacesAndRetainsSessionAtPauseCheckpoint' }
           if ($env:APPROVAL_STOP -eq 'true') { $test = 'Boo.QaSuite.Journeys.ApprovalStopTests.Q12E_NotchRightClick_ClearsPendingProposalAndAcknowledgesStop' }
           dotnet test tools/Boo.QaSuite -c Release --no-build --filter "FullyQualifiedName=$test" --logger trx --results-directory artifacts/paused-stop/trx
           $testExit = $LASTEXITCODE

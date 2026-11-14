@@ -175,3 +175,5 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 | 14 Nov 2026 | Retain fail-closed method bijection after #48 adds five offline smoke tests; contract version4 adds ST0-ST4. | Synthetic PR merge exposed genuine missing contract coverage. Offline tests must be required and reported mock; Q12E assertion corrected for xUnit2010 without weakening equality. | PR #54; failed runs43569050438/43569050435/43569075341 | proposed; native Q12E UNVERIFIED |
 
 | 14 Nov 2026 | Add Stopped acknowledgment locally to notch right-click after Stop callback. | Issue103 reproduced by unchanged native Q12E: authorized proposal dismissed without file effect, missing acknowledgment. No broader Stop refactor. | Issue103; Actions43569476826 at982434d; PR #54 | proposed; repair UNVERIFIED pending native run |
+
+| 14 Nov 2026 | Add Q13R bounded Pause/Resume coverage with contract version5. | Require ordered action-timed faces before scheduled capture; use second Pause for durable session readback, without inventing immediate Resume persistence. Full j13 remains incomplete. | PR #54; independent source review; native result UNVERIFIED | proposed |

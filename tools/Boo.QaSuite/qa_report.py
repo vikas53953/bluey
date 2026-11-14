@@ -49,6 +49,7 @@ PLAIN = {
     'Q15': 'Approval Cancel / Escape / replacement (partial j15 a-c)',
     'Q12E': 'Right-click Stop dismisses pending approval and acknowledges Stopped (j12e only)',
     'Q12G': 'Stop while focus already paused: pinned face and unchanged session (j12g only)',
+    'Q13R': 'Focus Pause/Resume ordered faces; persistence only at second Pause (partial j13)',
     'Q13': 'Focus edges: End from Paused and replace Running (no AI key; partial j13)',
     'E0': 'Empty question: "Type a question first."',
     'E1': 'No key: "No OpenAI key yet..."',
