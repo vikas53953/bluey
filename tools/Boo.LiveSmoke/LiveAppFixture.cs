@@ -12,10 +12,15 @@ namespace Boo.LiveSmoke;
 /// What the live run needs, read from the environment the workflow sets. Fails closed: a missing or malformed key
 /// throws with a plain message (never the key itself), so the run goes red instead of skipping as green.
 /// </summary>
-public sealed record LiveConfig(AiProvider TextProvider, string Key, string? Model)
+/// <param name="Model">Chat model (screen help, research, nudges) for the text provider; null = Boo's default.</param>
+/// <param name="FocusModel">Focus-check model for the text provider; null = Boo's default.</param>
+/// <param name="RealtimeModel">OpenAI Realtime (voice) model; voice is always OpenAI. null = Boo's default.</param>
+public sealed record LiveConfig(AiProvider TextProvider, string Key, string? Model, string? FocusModel = null, string? RealtimeModel = null)
 {
     public const string ProviderVariable = "BOO_LIVE_TEXT_PROVIDER";
     public const string ModelVariable = "BOO_LIVE_MODEL";
+    public const string FocusModelVariable = "BOO_LIVE_FOCUS_MODEL";
+    public const string RealtimeModelVariable = "BOO_LIVE_REALTIME_MODEL";
 
     public static string KeyVariable(AiProvider provider) => provider switch
     {
@@ -53,31 +58,65 @@ public sealed record LiveConfig(AiProvider TextProvider, string Key, string? Mod
                 $"LIVE SMOKE FAILED CLOSED: the {KeyVariable(provider)} secret is not a usable key: {reason}");
         }
 
-        var model = Environment.GetEnvironmentVariable(ModelVariable)?.Trim();
-        if (string.IsNullOrEmpty(model))
-        {
-            model = null;
-        }
-        else if (!AiProviders.IsValidModelId(model))
-        {
-            throw new InvalidOperationException($"LIVE SMOKE FAILED CLOSED: {ModelVariable} '{model}' is not a valid model id.");
-        }
-
-        return new LiveConfig(provider, value.Trim(), model);
+        // Every model Boo uses is chosen by the workflow (cheapest by default), never hard-coded here: empty = Boo's default.
+        return new LiveConfig(provider, value.Trim(),
+            ModelFromEnvironment(ModelVariable), ModelFromEnvironment(FocusModelVariable), ModelFromEnvironment(RealtimeModelVariable));
     }
 
-    /// <summary>The settings Boo starts with: the chosen text provider, and the model override for it if one was given.</summary>
+    private static string? ModelFromEnvironment(string variable)
+    {
+        var model = Environment.GetEnvironmentVariable(variable)?.Trim();
+        if (string.IsNullOrEmpty(model)) return null;
+        if (!AiProviders.IsValidModelId(model))
+        {
+            throw new InvalidOperationException($"LIVE SMOKE FAILED CLOSED: {variable} '{model}' is not a valid model id.");
+        }
+        return model;
+    }
+
+    /// <summary>
+    /// The settings Boo starts with: the chosen text provider, and each model override that was given. The chat and
+    /// focus models go to the text provider's own fields; the realtime model is OpenAI's (Boo's voice is always OpenAI).
+    /// </summary>
     public ProviderSettings ProviderSettings()
     {
         var settings = new ProviderSettings(TextProvider: TextProvider);
-        if (Model is null) return settings;
-        return TextProvider switch
+        if (Model is not null)
         {
-            AiProvider.OpenAI => settings with { ReasoningModel = Model },
-            AiProvider.Anthropic => settings with { AnthropicModel = Model },
-            AiProvider.Gemini => settings with { GeminiModel = Model },
-            _ => settings,
-        };
+            settings = TextProvider switch
+            {
+                AiProvider.OpenAI => settings with { ReasoningModel = Model },
+                AiProvider.Anthropic => settings with { AnthropicModel = Model },
+                AiProvider.Gemini => settings with { GeminiModel = Model },
+                _ => settings,
+            };
+        }
+        if (FocusModel is not null)
+        {
+            settings = TextProvider switch
+            {
+                AiProvider.OpenAI => settings with { FocusModel = FocusModel },
+                AiProvider.Anthropic => settings with { AnthropicFocusModel = FocusModel },
+                AiProvider.Gemini => settings with { GeminiFocusModel = FocusModel },
+                _ => settings,
+            };
+        }
+        if (RealtimeModel is not null)
+        {
+            settings = settings with { RealtimeModel = RealtimeModel };
+        }
+        return settings;
+    }
+
+    /// <summary>Evidence lines: which model ids Boo was seeded with and where each came from. Model ids only, never a key.</summary>
+    public IEnumerable<string> ModelEvidence()
+    {
+        var seeded = ProviderSettings();
+        static string Source(string variable, string? value) => value is null ? $"Boo default ({variable} empty)" : $"from {variable}";
+        yield return $"text provider: {AiProviders.DisplayName(TextProvider)}";
+        yield return $"chat model: {AiProviders.ReasoningModel(seeded, TextProvider)} ({Source(ModelVariable, Model)})";
+        yield return $"focus model: {AiProviders.FocusModel(seeded, TextProvider)} ({Source(FocusModelVariable, FocusModel)})";
+        yield return $"realtime (voice) model: {seeded.RealtimeModel} ({Source(RealtimeModelVariable, RealtimeModel)}; unused while speech is off)";
     }
 }
 
@@ -116,6 +155,8 @@ public sealed class LiveAppFixture : BooAppFixture
             Directory.CreateDirectory(evidence);
             File.WriteAllLines(Path.Combine(evidence, "live-00-anti-mock-guard.txt"),
                 new[] { "anti-mock guard ran before Boo started: no proxy, every AI host public" }.Concat(accepted));
+            File.WriteAllLines(Path.Combine(evidence, "live-00-models.txt"),
+                new[] { "models seeded into Boo's settings.json before it started (ids only, never a key)" }.Concat(Config.ModelEvidence()));
         }
 
         new CredentialStore(Path.Combine(dataDirectory, AiProviders.CredentialFileName(Config.TextProvider))).Save(Config.Key);
