@@ -494,3 +494,7 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 lesson: compile acceptance harnesses inside the contract gate (14 Nov 2026)
 
 **manual:** read pipeline principles from PR108/docs-pipeline-principles. Repeated Q12E xUnit2010 and Q13H xUnit2009 failures occurred before native execution; the contract gate now builds all three acceptance harnesses with pinned SDK/analyzers and no app/provider access. Relevant source paths trigger it. Optional throwaway-VM compile-error input provides a distinct red proof; normal tests/contract remain unchanged. No native PASS inferred. Current branch already includes lane/face14426975; no redundant sync or paid run. New gate execution remains **UNVERIFIED** until CI.
+
+### PR #54 Q13H strict timing discrepancy and compile proof (14 Nov 2026)
+
+**live failure:** [Q13H43575488622](https://github.com/vikas53953/bluey/actions/runs/43575488622) at9feda80 reached native execution: healthy observations, entry bracket1697-1784ms/exit4329-4371ms, duration2545-2674ms excludes nominal2500. Identity/log/Happy screenshot inspected. Filed [investigation111](https://github.com/vikas53953/bluey/issues/111); dispatcher delay vs measurement contribution UNVERIFIED. No widened allowance or blind retry. **mock gate proof:** [compile negative43575696503](https://github.com/vikas53953/bluey/actions/runs/43575696503) atf2e67c2 failed exactly CS1029 QA_COMPILE_RED_PROOF; log inspected. Compiling harnesses belongs in the inner gate before native attempts. Full-app remains NOT PASSED.

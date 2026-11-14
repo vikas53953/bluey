@@ -189,3 +189,5 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 | 14 Nov 2026 | Use Assert.StartsWith for Q13H Ended status check. | xUnit2009 build failure preceded native execution; equivalent assertion preserves contract without suppressing analyzer. | PR #54; runs43574976997/43575002856 | proposed; native Q13H UNVERIFIED |
 
 | 14 Nov 2026 | Compile QaSuite/LiveSmoke/VerifyLive in the acceptance-contract gate before fixtures; plantable compile-error red proof on GitHub VM. | Two analyzer mistakes consumed native-run attempts. Pipeline principles require repeated lessons encoded as checks, without suppressions or fake greens. | PR108 pipeline principles; PR54 loops xUnit2010/xUnit2009 | proposed; CI proof pending |
+
+| 14 Nov 2026 | Keep Q13H strict timing red and investigate measured2545-2674ms, issue111; no invented timer tolerance. | Native receipt excludes nominal2500 even with bounded healthy reads. Missing producer scheduling evidence cannot establish exclusive cause. Compile gate negative separately fails intended CS1029. | Actions43575488622/43575696503; issue111; PR54 | proposed; full-app NOT PASSED |
