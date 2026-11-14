@@ -95,7 +95,7 @@ public sealed class SpokenAudioTests
     [Fact]
     public void A_silent_answer_from_OpenAI_fails_even_when_long_and_with_a_transcript()
     {
-        // live-sentinel run 43576162645: OpenAI sent 1.55 s of answer audio whose transcript said "5", but the audio is a
+        // live-sentinel run 43576162645: the decoded answer audio was 1.55 s, its transcript said "5", and the audio is a
         // flat noise floor (loudest sample 335 of 32767, RMS 20 to 30): no speech at all. The old 0.5 s length rule passed
         // such an answer; this rule must reject it, and so must pure digital silence of the same length.
         var pcm = Fixture("answer-silent-from-provider.wav");

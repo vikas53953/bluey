@@ -84,7 +84,7 @@ public sealed class AnswerAudioFramesTests
     [Fact]
     public void A_silent_answer_decodes_cleanly_and_is_still_not_spoken()
     {
-        // The sentinel's real silent answer: nothing is lost in decoding, the audio itself holds no speech.
+        // The sentinel's saved (decoded) silent answer, cut into messages here: it decodes cleanly and holds no speech.
         var silent = Fixture("answer-silent-from-provider.wav");
         var report = AnswerAudioFrames.Assemble(PerMessage(silent, 4800, 9600, 19200));
         Assert.Empty(report.Problems);
