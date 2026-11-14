@@ -3,17 +3,22 @@
   Visual acceptance for demo-ci: fails when a full-screen demo screenshot or the demo video shows a blank window.
 
 .DESCRIPTION
-  A "blank window" is one big flat rectangle: a window whose inside was never drawn (Codex review P2 on PR #39: Boo's
-  companion window stood maximised and all white for about 20 s of the focus demo). The check needs no window list
-  and no knowledge of Boo's layout, so it covers every demo and every window, not just the one that went wrong:
+  A "blank window" is a big area of one flat colour: a window whose inside was never drawn (Codex review P2 on PR #39:
+  a maximised all-white "Boo companion" window for about 20 s of the focus demo). The check needs no window list and
+  no knowledge of Boo's layout, so it covers every demo and every window, not just the one that went wrong:
 
     1. Each image is cut into small tiles (about 80 across). A tile is "flat" when every pixel in it is within a few
        colour steps of the others.
-    2. It finds the largest rectangle made only of flat tiles of the same colour.
-    3. If that rectangle covers 40 % or more of the screen, the image shows a blank window.
+    2. For each flat colour it measures (a) the largest rectangle made only of flat tiles of that colour and (b) how
+       much of the screen that colour's flat tiles cover in any shape.
+    3. Blank when (a) reaches 40 % of the screen OR (b) reaches 70 %. (b) catches a blank window with something on
+       top of it (the notch, or a Windows pop-up in the middle, which split the rectangle in run 43499354528).
 
-  Measured on demo-ci run 43491427190: every good full-screen demo frame scored 0.20 or less (the largest is Boo's own
-  dark panel with its empty chat area); the blank white window scored 0.73 to 0.90.
+  Measured on demo-ci runs 43491427190, 43496633458, 43498525331 and 43499354528: good full-screen demo frames reach at
+  most 21 % (a) and 50 % (b) (Boo's own dark panel with its empty chat area); the blank white window reaches 73-93 %
+  (a) or, with a pop-up on it, 78-87 % (b).
+  Declared test fixtures (-FixtureColours) are not windows and are ignored: the capture-privacy proof's full-screen
+  magenta decoy (255, 0, 255).
 
   What it checks:
     - every full-desktop screenshot in -EvidenceDir (the PNGs with the largest size there; window-only renders
@@ -25,7 +30,8 @@
   The result is written to visual-check.txt in the evidence folder (uploaded with it) and to the job summary.
 
   -SelfTest proves the check on synthetic pictures (no screen capture): a desktop with a drawn panel and a small
-  white tooltip must pass; a desktop with a maximised white blank window, or a black one, must fail; a frame sequence
+  white tooltip and the magenta decoy must pass; a maximised white blank window, a black one, a white one with a
+  pop-up in the middle, and a flat pink screen close to (but not) the decoy colour must fail; a frame sequence
   with a one-frame flash must pass and one with a 2 s blank must fail. With -FfmpegPath it also encodes those
   sequences to MP4 and runs the real video path.
 
@@ -41,6 +47,10 @@ param(
   [string] $FfmpegPath,
   [switch] $SelfTest,
   [double] $MaxBlankFraction = 0.40,
+  [double] $MaxColourShare = 0.70,
+  # Flat colours that are test fixtures on purpose, never a window: tools/Boo.CaptureProof fills the whole screen with a
+  # magenta decoy (255, 0, 255) to prove Boo's screenshots leave it out. Only exact declared fixture colours belong here.
+  [string[]] $FixtureColours = @('#FF00FF'),
   [double] $MaxBlankSeconds = 1.0,
   [string] $ReportFile
 )
@@ -52,6 +62,7 @@ if (-not $FfmpegPath -and $env:RUNNER_TEMP) {
 }
 
 $VideoFps = 2
+$FixtureRgb = [int[]]@($FixtureColours | ForEach-Object { [Convert]::ToInt32($_.TrimStart('#'), 16) })
 
 Add-Type -AssemblyName System.Drawing
 if (-not ('BooBlankScan' -as [type])) {
@@ -65,8 +76,9 @@ public static class BooBlankScan
 {
     // px: 24-bit pixels (B, G, R), rows "stride" bytes apart. Returns the share (0..1) of the image covered by the
     // largest rectangle of flat, same-coloured tiles, and that rectangle in pixels plus its colour as text.
-    public static double LargestFlatRectangle(byte[] px, int width, int height, int stride, out string where)
+    public static double LargestFlatRectangle(byte[] px, int width, int height, int stride, out string where, out double colourShare, int[] ignoredColours)
     {
+        colourShare = 0;
         int tile = Math.Max(4, (int)Math.Round(width / 80.0));
         int cols = width / tile, rows = height / tile;
         where = "";
@@ -116,7 +128,15 @@ public static class BooBlankScan
         {
             if (pair.Value * 20 < total) continue; // colours under 5 % of the screen cannot reach the limit
             int kr = (pair.Key >> 10) & 31, kg = (pair.Key >> 5) & 31, kb = pair.Key & 31;
+            bool ignored = false;
+            foreach (var rgb in ignoredColours)
+            {
+                if (Math.Abs(((rgb >> 16) & 255) / 8 - kr) <= 1 && Math.Abs(((rgb >> 8) & 255) / 8 - kg) <= 1
+                    && Math.Abs((rgb & 255) / 8 - kb) <= 1) ignored = true;
+            }
+            if (ignored) continue; // a declared test fixture, not a window
             var heights = new int[cols];
+            int matched = 0;
             for (int ty = 0; ty < rows; ty++)
             {
                 for (int tx = 0; tx < cols; tx++)
@@ -124,6 +144,7 @@ public static class BooBlankScan
                     bool match = flat[ty, tx] && Math.Abs(key[ty, tx, 0] - kr) <= 1
                         && Math.Abs(key[ty, tx, 1] - kg) <= 1 && Math.Abs(key[ty, tx, 2] - kb) <= 1;
                     heights[tx] = match ? heights[tx] + 1 : 0;
+                    if (match) matched++;
                 }
                 // Largest rectangle under the histogram "heights" (classic stack method).
                 var starts = new Stack<int>();
@@ -146,6 +167,7 @@ public static class BooBlankScan
                     hs.Push(h);
                 }
             }
+            colourShare = Math.Max(colourShare, (double)matched / total);
         }
         if (bestArea == 0) return 0;
         where = string.Format("{0},{1} {2}x{3} px, colour #{4:X2}{5:X2}{6:X2}", bx * tile, by * tile, bw * tile, bh * tile,
@@ -191,11 +213,17 @@ function Read-Pixels([string] $Path) {
   } finally { $src.Dispose() }
 }
 
+# Score 1.0 or more = blank: the largest flat rectangle reaches -MaxBlankFraction of the screen, OR one flat colour
+# covers -MaxColourShare of it in any shape (a blank window with a dialog or the notch on top of it is split into
+# smaller rectangles, but its colour still fills most of the screen).
 function Measure-Image([string] $Path) {
   $where = ''
+  $share = 0.0
   $p = Read-Pixels $Path
-  $fraction = [BooBlankScan]::LargestFlatRectangle($p.Bytes, $p.Width, $p.Height, $p.Stride, [ref] $where)
-  [pscustomobject]@{ Fraction = $fraction; Where = $where }
+  $fraction = [BooBlankScan]::LargestFlatRectangle($p.Bytes, $p.Width, $p.Height, $p.Stride, [ref] $where, [ref] $share, $FixtureRgb)
+  $score = [math]::Max($fraction / $MaxBlankFraction, $share / $MaxColourShare)
+  [pscustomobject]@{ Fraction = $fraction; Share = $share; Score = $score; Blank = ($score -ge 1.0); Where = $where
+                     Text = ('largest flat rectangle {0:P0}, one flat colour {1:P0} of the screen [{2}]' -f $fraction, $share, $where) }
 }
 
 # Full-desktop screenshots: every top-level PNG with the largest pixel size, except window-only renders (*.boo-N.png).
@@ -218,22 +246,23 @@ function Test-Screenshots([string] $Dir) {
   if ($shots.Count -eq 0) { $errors.Add("no full-desktop screenshots found in $Dir, so the demos cannot be checked"); return @{ Lines = $lines; Errors = $errors } }
   foreach ($s in $shots) {
     $m = Measure-Image $s.File.FullName
-    $blank = $m.Fraction -ge $MaxBlankFraction
-    $lines.Add(('{0}  {1} ({2}): largest flat area {3:P0} of the screen [{4}]' -f $(if ($blank) { 'BLANK' } else { 'ok   ' }), $s.File.Name, $s.Size, $m.Fraction, $m.Where))
+    $blank = $m.Blank
+    $lines.Add(('{0}  {1} ({2}): {3}' -f $(if ($blank) { 'BLANK' } else { 'ok   ' }), $s.File.Name, $s.Size, $m.Text))
     if ($blank) {
-      $errors.Add(('{0} in {1} shows a blank window: one flat rectangle covers {2:P0} of the screen ({3}); the limit is {4:P0}.' -f
-                   $s.File.Name, (Get-DemoName $s.File.Name), $m.Fraction, $m.Where, $MaxBlankFraction))
+      $errors.Add(('{0} in {1} shows a blank window: {2}; the limits are {3:P0} for one rectangle and {4:P0} for one colour.' -f
+                   $s.File.Name, (Get-DemoName $s.File.Name), $m.Text, $MaxBlankFraction, $MaxColourShare))
     }
   }
   return @{ Lines = $lines; Errors = $errors }
 }
 
 # Runs of blank frames (two frames a second). Returns @{ Start; End; Frames; Peak } per run longer than the limit.
+# Scores are Measure-Image scores (1.0 or more = blank).
 function Find-BlankRuns([double[]] $Fractions, [double] $Fps) {
   $runs = @()
   $start = -1
   for ($i = 0; $i -le $Fractions.Count; $i++) {
-    $isBlank = $i -lt $Fractions.Count -and $Fractions[$i] -ge $MaxBlankFraction
+    $isBlank = $i -lt $Fractions.Count -and $Fractions[$i] -ge 1.0
     if ($isBlank -and $start -lt 0) { $start = $i }
     if (-not $isBlank -and $start -ge 0) {
       $count = $i - $start
@@ -277,13 +306,14 @@ function Test-Video([string] $Video, [object[]] $Shots, [string] $WorkDir) {
   if (-not (Test-Path -LiteralPath $Video)) { $errors.Add("the demo video $Video is missing, so it cannot be checked"); return @{ Lines = $lines; Errors = $errors } }
   try { $frames = Get-VideoFrames $Video $WorkDir } catch { $errors.Add("$_"); return @{ Lines = $lines; Errors = $errors } }
   if ($frames.Count -eq 0) { $errors.Add('the demo video has no frames to check'); return @{ Lines = $lines; Errors = $errors } }
-  $fractions = [double[]]@($frames | ForEach-Object { (Measure-Image $_.FullName).Fraction })
+  $measured = @($frames | ForEach-Object { Measure-Image $_.FullName })
+  $fractions = [double[]]@($measured | ForEach-Object { $_.Score })
   $duration = $frames.Count / $VideoFps
-  $blankFrames = @($fractions | Where-Object { $_ -ge $MaxBlankFraction }).Count
-  $lines.Add(('video {0}: {1} frames checked ({2} a second, {3:N1} s); {4} blank; worst {5:P0}' -f (Split-Path -Leaf $Video), $frames.Count, $VideoFps, $duration, $blankFrames, ($fractions | Measure-Object -Maximum).Maximum))
+  $blankFrames = @($measured | Where-Object { $_.Blank }).Count
+  $lines.Add(('video {0}: {1} frames checked ({2} a second, {3:N1} s); {4} blank; worst rectangle {5:P0}, worst colour {6:P0}' -f (Split-Path -Leaf $Video), $frames.Count, $VideoFps, $duration, $blankFrames, ($measured | Measure-Object -Property Fraction -Maximum).Maximum, ($measured | Measure-Object -Property Share -Maximum).Maximum))
   foreach ($r in Find-BlankRuns $fractions $VideoFps) {
-    $errors.Add(('the demo video shows a blank window from {0:N1} s to {1:N1} s ({2:N1} s, {3}): one flat rectangle covers up to {4:P0} of the screen; the limit is {5:P0} for more than {6:N1} s.' -f
-                 $r.Start, $r.End, ($r.End - $r.Start), (Get-DemoAt $r.Start $Video $duration $Shots), $r.Peak, $MaxBlankFraction, $MaxBlankSeconds))
+    $errors.Add(('the demo video shows a blank window from {0:N1} s to {1:N1} s ({2:N1} s, {3}): up to {4:N1} times the blank limit (one flat rectangle {5:P0} or one flat colour {6:P0} of the screen) for more than {7:N1} s.' -f
+                 $r.Start, $r.End, ($r.End - $r.Start), (Get-DemoAt $r.Start $Video $duration $Shots), $r.Peak, $MaxBlankFraction, $MaxColourShare, $MaxBlankSeconds))
   }
   Remove-Item -LiteralPath $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
   return @{ Lines = $lines; Errors = $errors }
@@ -341,6 +371,22 @@ function Invoke-SelfTest {
   $white = New-Desktop $W $H 3; Add-Window $white ([System.Drawing.Color]::White) $false 0 0 $W ($H - 48)
   $g = [System.Drawing.Graphics]::FromImage($white); $g.FillEllipse([System.Drawing.Brushes]::Black, 340, -60, 350, 210); $g.Dispose() # the notch on top
   $whitePath = Save-Bmp $white (Join-Path $root 'blank-white.png')
+  # The case that slipped past a rectangle-only rule (run 43499354528): Windows' own "System Properties" pop-up in
+  # the middle of the blank window splits it into smaller rectangles.
+  $split = New-Desktop $W $H 5; Add-Window $split ([System.Drawing.Color]::White) $false 0 0 $W ($H - 48)
+  $g = [System.Drawing.Graphics]::FromImage($split)
+  $g.FillEllipse([System.Drawing.Brushes]::Black, 410, -60, 210, 120)
+  $g.FillRectangle((New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(240, 240, 240))), 318, 320, 406, 183)
+  $g.DrawRectangle([System.Drawing.Pens]::Gray, 318, 320, 406, 183)
+  $g.DrawString('Windows created a temporary paging file on your computer', (New-Object System.Drawing.Font 'Arial', 9), [System.Drawing.Brushes]::Black, 380, 375)
+  $g.Dispose()
+  $splitPath = Save-Bmp $split (Join-Path $root 'blank-white-with-dialog.png')
+  $decoy = New-Object System.Drawing.Bitmap $W, $H
+  $g = [System.Drawing.Graphics]::FromImage($decoy); $g.Clear([System.Drawing.Color]::FromArgb(255, 0, 255)); $g.Dispose()
+  $decoyPath = Save-Bmp $decoy (Join-Path $root 'capture-proof-decoy.png')
+  $pink = New-Object System.Drawing.Bitmap $W, $H
+  $g = [System.Drawing.Graphics]::FromImage($pink); $g.Clear([System.Drawing.Color]::FromArgb(255, 120, 255)); $g.Dispose()
+  $pinkPath = Save-Bmp $pink (Join-Path $root 'near-decoy-pink.png')
   $black = New-Desktop $W $H 4; Add-Window $black ([System.Drawing.Color]::Black) $false 100 60 800 600
   $blackPath = Save-Bmp $black (Join-Path $root 'blank-black.png')
 
@@ -350,14 +396,17 @@ function Invoke-SelfTest {
     @{ Name = 'desktop with a small white tooltip';       Path = $tipPath;   Blank = $false }
     @{ Name = 'maximised white blank window under notch'; Path = $whitePath; Blank = $true }
     @{ Name = 'black blank window (any colour counts)';   Path = $blackPath; Blank = $true }
+    @{ Name = 'white blank window with a pop-up in the middle'; Path = $splitPath; Blank = $true }
+    @{ Name = 'capture-proof magenta decoy (declared fixture)';  Path = $decoyPath; Blank = $false }
+    @{ Name = 'flat pink, close to but not the decoy colour';    Path = $pinkPath;  Blank = $true }
   )
   foreach ($c in $cases) {
     $m = Measure-Image $c.Path
-    $isBlank = $m.Fraction -ge $MaxBlankFraction
+    $isBlank = $m.Blank
     $pass = $isBlank -eq $c.Blank
     if (-not $pass) { $failed++ }
-    Write-Host ('{0}  {1}: expected {2}, got {3} ({4:P0} flat; {5})' -f $(if ($pass) { 'PASS' } else { 'FAIL' }), $c.Name,
-                $(if ($c.Blank) { 'blank' } else { 'ok' }), $(if ($isBlank) { 'blank' } else { 'ok' }), $m.Fraction, $m.Where)
+    Write-Host ('{0}  {1}: expected {2}, got {3} ({4})' -f $(if ($pass) { 'PASS' } else { 'FAIL' }), $c.Name,
+                $(if ($c.Blank) { 'blank' } else { 'ok' }), $(if ($isBlank) { 'blank' } else { 'ok' }), $m.Text)
   }
 
   # The screenshot pass end to end: a folder with one blank desktop shot must name that file and its demo.
@@ -374,8 +423,8 @@ function Invoke-SelfTest {
   Write-Host ('{0}  a blank desktop screenshot fails and is named with its demo (crops skipped): {1}' -f $(if ($named) { 'PASS' } else { 'FAIL' }), ($r.Errors -join ' | '))
 
   # Video rule on frame sequences (two a second): a one-frame flash passes, a 2 s blank fails with its times.
-  $flash = Find-BlankRuns ([double[]](0.1, 0.1, 0.9, 0.1, 0.1)) 2
-  $long = Find-BlankRuns ([double[]](0.1, 0.1, 0.9, 0.9, 0.9, 0.9, 0.1)) 2
+  $flash = Find-BlankRuns ([double[]](0.3, 0.3, 2.0, 0.3, 0.3)) 2
+  $long = Find-BlankRuns ([double[]](0.3, 0.3, 2.0, 2.0, 2.0, 2.0, 0.3)) 2
   $seqOk = (@($flash).Count -eq 0) -and (@($long).Count -eq 1) -and ($long[0].Start -eq 1.0) -and ($long[0].End -eq 3.0)
   if (-not $seqOk) { $failed++ }
   Write-Host ('{0}  video rule: a one-frame first-paint flash passes; 2 s of blank fails (1.0 s to 3.0 s)' -f $(if ($seqOk) { 'PASS' } else { 'FAIL' }))
@@ -429,7 +478,7 @@ if (-not $ReportFile) { $ReportFile = Join-Path $EvidenceDir 'visual-check.txt' 
 
 $lines = [System.Collections.Generic.List[string]]::new()
 $errors = [System.Collections.Generic.List[string]]::new()
-$lines.Add("Visual acceptance (scripts/ci/Test-DemoVisual.ps1): a blank window = one flat rectangle covering $([math]::Round($MaxBlankFraction * 100)) % or more of the screen.")
+$lines.Add("Visual acceptance (scripts/ci/Test-DemoVisual.ps1): a blank window = one flat rectangle covering $([math]::Round($MaxBlankFraction * 100)) % or more of the screen, or one flat colour covering $([math]::Round($MaxColourShare * 100)) % or more.")
 $shotResult = Test-Screenshots $EvidenceDir
 $lines.AddRange([string[]]$shotResult.Lines); $errors.AddRange([string[]]$shotResult.Errors)
 if ($VideoFile) {

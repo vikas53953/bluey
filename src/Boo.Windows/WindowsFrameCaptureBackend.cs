@@ -9,7 +9,7 @@ namespace Boo.Windows;
 
 internal sealed class WindowsFrameCaptureBackend : IFrameCaptureBackend, IDisposable
 {
-    private const uint WdaExcludeFromCapture = 0x11;
+    private const uint WdaExcludeFromCapture = CaptureExclusionPolicy.ExcludeFromCapture;
 
     // One Direct3D device for the life of the backend. Creating a device (adapter enumeration, driver load,
     // WinRT bridge) costs tens of milliseconds and megabytes per call, and a focus session captures every
@@ -217,6 +217,13 @@ internal sealed class WindowsFrameCaptureBackend : IFrameCaptureBackend, IDispos
                     $"Boo could not inspect display-capture exclusion for owned window {rawHandle}.");
             }
 
+            // Hidden windows are never in the frame, and already-excluded ones need no change: touching either
+            // is skipped (see CaptureExclusionPolicy for the blank-window bug this avoids).
+            if (!CaptureExclusionPolicy.NeedsTemporaryExclusion(IsWindowVisible(hwnd), prior))
+            {
+                continue;
+            }
+
             affinity.Add(new WindowAffinity(hwnd, prior));
             if (!SetWindowDisplayAffinity(hwnd, WdaExcludeFromCapture))
             {
@@ -306,6 +313,10 @@ internal sealed class WindowsFrameCaptureBackend : IFrameCaptureBackend, IDispos
     private static extern bool GetMonitorInfo(
         IntPtr monitor,
         ref NativeMonitorInfo info);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(IntPtr hwnd);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

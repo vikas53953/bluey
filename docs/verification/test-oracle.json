@@ -1,5 +1,5 @@
 {
-  "revision": 26,
+  "revision": 27,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -99,6 +99,7 @@
     "tests/Boo.Integration.Tests/AudioUploadLifecycleTests.cs": "38e02ba8a87bfc7412494ba8ba90934822e664e3634c8445b8f96d48e97d6b73",
     "tests/Boo.Integration.Tests/Boo.Integration.Tests.csproj": "53c5b410a615c6961cf43bbde0de03044da994723bc9c1a2794c1b7e5d8708f1",
     "tests/Boo.Integration.Tests/CaptureDeadlineTests.cs": "149b33d1974d734c763f605d1eca2a59232ba23474f52b5f7520abf48ed5722f",
+    "tests/Boo.Integration.Tests/CaptureExclusionPolicyTests.cs": "d6f7a6c071758ab24aa0de2f15945a1a453e37973ed61fa7d4cf622938e86065",
     "tests/Boo.Integration.Tests/CaptureLifecycleValidationTests.cs": "1b8f681178fc7aa08ab9521fa29b4384d481e0eb7f4be63d88447c39a79a01a9",
     "tests/Boo.Integration.Tests/ControlObservationProviderTests.cs": "f8ab10920135580ed095fae251a449e7ed88bfb5f930b1fc775f287a69a45bb2",
     "tests/Boo.Integration.Tests/CrashLogStoreTests.cs": "b2aab96532a841238640d223a9c33619f94d6c650935d5ebe7e0d9533d9b85f6",
@@ -151,13 +152,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-25.json",
-  "previousManifestSha256": "e6347b90077bb84eb87fd4325673ed4694a7a0acb298dfe06c5f47dfb496fb75",
-  "revisionReason": "PR #47: additive oracle extension for mutation-driven tests, per Vikas's 13 Nov order; only RealtimeVoiceConfigurationTests.cs added, every existing hash unchanged, no rebaseline",
+  "previousManifest": "docs/verification/test-oracle-history/revision-26.json",
+  "previousManifestSha256": "69154fcbea6b8fc535687ebb386d66ff494f4c999ae4b5b2958871a6217ba0be",
+  "revisionReason": "CaptureExclusionPolicyTests: hidden or already-excluded windows are never switched for a capture (demo blank-window fix)",
   "addedFiles": [
-    "tests/Boo.Integration.Tests/RealtimeVoiceConfigurationTests.cs"
+    "tests/Boo.Integration.Tests/CaptureExclusionPolicyTests.cs"
   ],
-  "revisionCommit": "ff1269514cd1112861d7f3ddfcdb9ed402dc3f51",
+  "revisionCommit": "bdcc02f7d5b2d1f133a8f3c404184fe860feea11",
   "changedFiles": [],
   "removedFiles": []
 }
