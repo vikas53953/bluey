@@ -25,8 +25,16 @@ public sealed class VoiceSmokeBoundTests
         var session = json.RootElement.GetProperty("session");
         Assert.True(session.TryGetProperty("max_output_tokens", out var cap),
             "the voice smoke session must cap its output (max_output_tokens); without it one turn has no spend bound");
-        Assert.Equal(LiveVoiceRoundTripTests.MaxOutputTokens, cap.GetInt32());
+        // The agreed policy is pinned literally (Codex mutation on #136: comparing with the constant let 256 or 1 pass).
+        Assert.Equal(128, LiveVoiceRoundTripTests.MaxOutputTokens);
+        Assert.Equal(128, cap.GetInt32());
         Assert.Equal("none", session.GetProperty("tool_choice").GetString());
+        // Only the test's own commit asks for an answer: push-to-talk mode, so the server never starts a response on
+        // detected speech (with pushToTalk false the session would send server_vad turn detection).
+        Assert.True(client.PushToTalk, "the voice smoke client must be in push-to-talk mode");
+        var turnDetection = session.GetProperty("audio").GetProperty("input").GetProperty("turn_detection");
+        Assert.True(turnDetection.ValueKind == JsonValueKind.Null,
+            $"server turn detection must be off (JSON null) so no response starts on its own, but it is {turnDetection.GetRawText()}");
     }
 
     [Fact]
