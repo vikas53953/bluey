@@ -37,8 +37,34 @@ public sealed class VoiceSmokeBoundTests
         var first = await Assert.ThrowsAsync<InvalidOperationException>(
             async () => await (Task)request.Invoke(client, new object[] { CancellationToken.None })!);
         Assert.Equal("Realtime connection is not open.", first.Message);
-        var second = Assert.Throws<TargetInvocationException>(() => request.Invoke(client, new object[] { CancellationToken.None }));
-        Assert.Contains("exactly one response", second.InnerException!.Message);
+        var second = await SecondRequestFailure(request, client);
+        Assert.True(second is not null && second.Message.Contains("exactly one response", StringComparison.Ordinal),
+            "a second response request must be refused as \"exactly one response\" before anything is sent, but it " +
+            $"{(second is null ? "succeeded" : "failed only with: " + second.Message)}");
         await client.DisposeAsync();
+    }
+
+    /// <summary>The error a request raises, whether thrown at once (refused) or from its task (it tried to send).</summary>
+    private static async Task<Exception?> SecondRequestFailure(MethodInfo request, RealtimeClient client)
+    {
+        object? result;
+        try
+        {
+            result = request.Invoke(client, new object[] { CancellationToken.None });
+        }
+        catch (TargetInvocationException e)
+        {
+            return e.InnerException;
+        }
+        if (result is not Task task) return null;
+        try
+        {
+            await task;
+            return null;
+        }
+        catch (Exception e)
+        {
+            return e;
+        }
     }
 }
