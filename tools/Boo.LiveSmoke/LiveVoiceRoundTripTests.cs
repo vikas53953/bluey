@@ -34,6 +34,16 @@ public sealed class LiveVoiceRoundTripTests
     public const string QuestionFile = "Voice/what-is-two-plus-three.wav";
     public const string ThrowawayVmVariable = "BOO_THROWAWAY_VM";
 
+    /// <summary>Output cap of the one paid voice response (Boo's bounded realtime mode, as native voice QA uses).</summary>
+    public const int MaxOutputTokens = 128;
+
+    /// <summary>
+    /// The realtime client the live voice smoke and the daily sentinel use. Checked offline by VoiceSmokeBoundTests
+    /// (issue #129: the smoke must spend at most one paid voice response).
+    /// </summary>
+    public static RealtimeClient CreateClient(Func<string?> credential, ProviderSettings settings, string transcriptionModel) =>
+        new(credential, settings, pushToTalk: true, transcriptionModel: transcriptionModel);
+
     private const int SampleRate = 24000;                  // Boo's session: audio/pcm, rate 24000, 16-bit mono
     private const int BytesPerSecond = SampleRate * 2;
     private static readonly TimeSpan TurnTimeout = TimeSpan.FromSeconds(90);
@@ -78,7 +88,7 @@ public sealed class LiveVoiceRoundTripTests
         var pcm = ReadPcm24kMono16(Path.Combine(AppContext.BaseDirectory, QuestionFile));
         var events = new ConcurrentQueue<RealtimeEvent>();
         var settings = new ProviderSettings(TextProvider: AiProvider.OpenAI) with { RealtimeModel = realtimeModel };
-        await using var client = new RealtimeClient(() => key.Trim(), settings, pushToTalk: true, transcriptionModel: transcribeModel);
+        await using var client = CreateClient(() => key.Trim(), settings, transcribeModel);
         client.Received += events.Enqueue;
         var rawMessages = new ConcurrentQueue<string>();
         client.RawFrameObserver = rawMessages.Enqueue;
