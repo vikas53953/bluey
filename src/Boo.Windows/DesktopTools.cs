@@ -284,6 +284,8 @@ public sealed class DesktopTools
         var targetWindow = target!;
         var observedValue = false;
         var accessibleAttempted = false;
+        var namedField = NamedField(request.Arguments);
+        string? namedFieldRefusal = null;
         var valueCommit = _coordinator.TryCommit(request.Generation, () =>
         {
             if (cancellationToken.IsCancellationRequested || !IsStillAuthorized(request, authority, approval) || !TryVerifyTarget(targetWindow, out _))
@@ -291,10 +293,18 @@ public sealed class DesktopTools
                 return;
             }
 
-            if (TrySetAccessibleValue(targetWindow, request.Arguments, text, out var readBackMatches))
+            switch (TrySetAccessibleValue(targetWindow, namedField, text, out var readBackMatches))
             {
-                accessibleAttempted = true;
-                observedValue = readBackMatches;
+                case AccessibleValueResult.Set:
+                    accessibleAttempted = true;
+                    observedValue = readBackMatches;
+                    break;
+                case AccessibleValueResult.NotFound:
+                    namedFieldRefusal = $"Typing refused: the approved field '{namedField}' is no longer in the target window. Nothing was typed.";
+                    break;
+                case AccessibleValueResult.NotSettable:
+                    namedFieldRefusal = $"Typing refused: the approved field '{namedField}' cannot be set safely (read-only or not a text field). Nothing was typed.";
+                    break;
             }
         });
 
@@ -313,6 +323,16 @@ public sealed class DesktopTools
         if (!valueCommit)
         {
             return Cancelled();
+        }
+
+        if (namedFieldRefusal is not null)
+        {
+            return new ToolOutcome(false, false, namedFieldRefusal);
+        }
+
+        if (namedField is not null)
+        {
+            return new ToolOutcome(false, false, $"Typing refused: the approved field '{namedField}' could not be confirmed. Nothing was typed.");
         }
 
         // Keep each Unicode unit behind its own serialized generation check so
@@ -710,39 +730,65 @@ public sealed class DesktopTools
         }
     }
 
-    private static bool TrySetAccessibleValue(WindowIdentity target, IReadOnlyDictionary<string, string> arguments, string value, out bool readBackMatches)
+    /// <summary>
+    /// What happened to the field a type_text request named. <see cref="NotNamed"/> covers requests without an
+    /// automationId whose window itself has no settable value (the keystroke path for the focused field). A named
+    /// field that is <see cref="NotFound"/> or <see cref="NotSettable"/> is a refusal, never a keystroke fallback.
+    /// </summary>
+    private enum AccessibleValueResult
+    {
+        NotNamed,
+        NotFound,
+        NotSettable,
+        Set,
+    }
+
+    private static string? NamedField(IReadOnlyDictionary<string, string> arguments) =>
+        arguments.TryGetValue("automationId", out var automationId) && !string.IsNullOrWhiteSpace(automationId)
+            ? automationId
+            : null;
+
+    private static AccessibleValueResult TrySetAccessibleValue(WindowIdentity target, string? namedField, string value, out bool readBackMatches)
     {
         readBackMatches = false;
+        var unusable = namedField is null ? AccessibleValueResult.NotNamed : AccessibleValueResult.NotSettable;
         try
         {
             var root = AutomationElement.FromHandle(new nint(target.Handle));
-            var element = FindElement(root, arguments);
-            if (element is null || !element.TryGetCurrentPattern(ValuePattern.Pattern, out var pattern))
+            var element = namedField is null
+                ? root
+                : root.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, namedField));
+            if (element is null)
             {
-                return false;
+                return namedField is null ? AccessibleValueResult.NotNamed : AccessibleValueResult.NotFound;
+            }
+
+            if (!element.TryGetCurrentPattern(ValuePattern.Pattern, out var pattern))
+            {
+                return unusable;
             }
 
             var valuePattern = (ValuePattern)pattern;
             if (valuePattern.Current.IsReadOnly)
             {
-                return false;
+                return unusable;
             }
 
             valuePattern.SetValue(value);
             readBackMatches = string.Equals(valuePattern.Current.Value, value, StringComparison.Ordinal);
-            return true;
+            return AccessibleValueResult.Set;
         }
         catch (ElementNotAvailableException)
         {
-            return false;
+            return namedField is null ? AccessibleValueResult.NotNamed : AccessibleValueResult.NotFound;
         }
         catch (InvalidOperationException)
         {
-            return false;
+            return unusable;
         }
         catch (COMException)
         {
-            return false;
+            return unusable;
         }
     }
 
