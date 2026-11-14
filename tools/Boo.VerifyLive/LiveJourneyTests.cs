@@ -76,6 +76,8 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
     {
         Evidence("j1-hover", () =>
         {
+            // Recorder only (evidence, no new assertion): every face the notch shows during this step, about every 25 ms.
+            using var faces = FaceTimeline.Start(_boo, "j1-hover");
             // The open panel keeps the face awake; hide it so the notch can rest.
             if (_boo.FindPanel() is { } panel)
             {
@@ -90,6 +92,7 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             Assert.True(BooAppFixture.WaitUntil(() => NotchState() == "Hidden", RestTimeout),
                 $"The notch did not rest in 'Hidden' before hovering. ItemStatus: '{NotchState()}'.");
 
+            faces.Mark("mouse moved onto the hover strip");
             Mouse.MoveTo(hover);
             var clock = Stopwatch.StartNew();
             var revealed = BooAppFixture.WaitUntil(() => NotchState() is { Length: > 0 } s && s != "Hidden", RevealTimeout);
@@ -97,10 +100,12 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             var state = NotchState();
             _boo.CaptureScreen("j1-hover-revealed");
 
+            faces.Mark("mouse moved away");
             Mouse.MoveTo(away);
             clock.Restart();
             var retracted = BooAppFixture.WaitUntil(() => NotchState() == "Hidden", RetractTimeout);
-            _boo.WriteObservation("j1-hover", $"notch={rect} hover={hover} revealed={revealed} state='{state}' revealMs={revealMs} retracted={retracted} retractMs={clock.ElapsedMilliseconds}");
+            _boo.WriteObservation("j1-hover", $"notch={rect} hover={hover} revealed={revealed} state='{state}' revealMs={revealMs} retracted={retracted} retractMs={clock.ElapsedMilliseconds}\n" +
+                $"timelineFaces={string.Join(">", faces.FacesSeen())} (j1-hover-face-timeline.txt)");
             Assert.True(revealed, $"Hovering {hover} did not wake the notch within {RevealTimeout.TotalSeconds}s. ItemStatus: '{state}'.");
             Assert.True(retracted, $"The notch did not retract within {RetractTimeout.TotalSeconds}s. ItemStatus: '{NotchState()}'.");
         });
@@ -114,10 +119,18 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             var panel = _boo.EnsurePanel();
             EnsureDisplaySelected(panel);
             var before = BooRows(panel).Count;
+            // Recorder only (evidence, no new assertion): the faces of the chat turn (Thinking, Responding, Capture, ...).
+            using var faces = FaceTimeline.Start(_boo, "j2-chat");
+            var sentAt = faces.NowMs;
+            faces.Mark("question sent");
             Ask(panel, "What is the capital of France? Answer with just the city name.");
             var reply = WaitForNewBooRow(panel, before);
+            faces.Mark("answer row seen");
             _boo.CaptureScreen("j2-chat-answer");
-            _boo.WriteObservation("j2-chat", $"provider={AiProviders.DisplayName(LiveAppFixture.Config.TextProvider)} reply='{Shorten(reply, 400)}' status='{StatusText(panel)}'");
+            var turnFaces = faces.FacesSeen(sentAt);
+            _boo.WriteObservation("j2-chat", $"provider={AiProviders.DisplayName(LiveAppFixture.Config.TextProvider)} reply='{Shorten(reply, 400)}' status='{StatusText(panel)}'\n" +
+                $"facesDuringTurn={string.Join(">", turnFaces)} (j2-chat-face-timeline.txt)");
+            _output.WriteLine($"j2 faces during the chat turn: {string.Join(" > ", turnFaces)}");
             Assert.False(reply.StartsWith("QA-", StringComparison.Ordinal), $"The answer came from the QA mock: '{reply}'");
             Assert.Contains("Paris", reply, StringComparison.OrdinalIgnoreCase);
         });
@@ -307,6 +320,8 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
     {
         Evidence("j6-focus", () =>
         {
+            // Recorder only (evidence, no new assertion): every face over the whole session, about every 25 ms.
+            using var faces = FaceTimeline.Start(_boo, "j6-focus");
             try
             {
                 var panel = _boo.EnsurePanel();
@@ -320,6 +335,7 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
                 SetText(panel, "FocusTaskBox", FocusTask);
                 SetText(panel, "FocusDurationBox", FocusMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 var clock = Stopwatch.StartNew();
+                faces.Mark("focus session started");
                 Find(panel, "FocusStartButton").AsButton().Invoke();
                 Assert.True(BooAppFixture.WaitUntil(() => NameOfId(panel, "FocusStatus").StartsWith("Running", StringComparison.Ordinal), UiTimeout),
                     $"Focus did not start: '{NameOfId(panel, "FocusStatus")}'");
@@ -363,6 +379,7 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
                     return state == "Happy";
                 }, TimeSpan.FromMinutes(9));
                 var realSeconds = clock.Elapsed.TotalSeconds;
+                faces.Mark(sawHappy ? "happy face seen by the test" : "test stopped waiting for the happy face");
                 _boo.CaptureScreen("j6-focus-happy");
 
                 // The session is over: close the target so the final screenshot shows Boo's status and history row.
