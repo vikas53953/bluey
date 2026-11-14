@@ -21,6 +21,8 @@ name: live-sentinel
 on:
   schedule:
     - cron: '17 21 * * *'
+  pull_request:
+    branches: [quality/live-sentinel]
   workflow_dispatch:
     inputs:
       model:
@@ -204,7 +206,7 @@ jobs:
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\sentinel-evidence
           BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
         run: |
-          & dotnet test tip/tools/Boo.LiveSmoke -c Release --no-build --filter "FullyQualifiedName=Boo.LiveSmoke.LiveVoiceRoundTripTests.SpokenQuestion_GetsASpokenAnswerFromRealOpenAiVoice" --logger trx --logger "console;verbosity=normal" --results-directory artifacts/sentinel-evidence/trx-voice 2>&1 | Tee-Object -FilePath sentinel-logs/voice.log
+          & dotnet test tip/tools/Boo.LiveSmoke -c Release --no-build --filter "FullyQualifiedName=Boo.LiveSmoke.LiveVoiceRoundTripTests.SpokenQuestion_NotOnThisTip" --logger trx --logger "console;verbosity=normal" --results-directory artifacts/sentinel-evidence/trx-voice 2>&1 | Tee-Object -FilePath sentinel-logs/voice.log
           $testExit = $LASTEXITCODE
           Get-ChildItem artifacts/sentinel-evidence -Filter live-voice*.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
           exit $testExit
