@@ -267,56 +267,6 @@ public partial class MainWindow : Window
         }
     }
 
-    public void StopAll()
-    {
-        StopHoldToTalk();
-        _generation++;
-        _coordinator.Stop();
-
-        _requestCancellation.Cancel();
-        _requestCancellation.Dispose();
-        _requestCancellation = new CancellationTokenSource();
-        _requestLease = null;
-
-        StopAudioUploads();
-
-        try
-        {
-            _audio?.Stop();
-        }
-        catch (Exception ex) when (ex is InvalidOperationException)
-        {
-            StatusText.Text = SanitizedError(ex, "Audio stopped");
-        }
-
-        var realtimeToStop = _realtime;
-        _realtime = null;
-        if (realtimeToStop is not null)
-        {
-            _ = InterruptRealtimeAsync(realtimeToStop);
-        }
-
-        _listening = false;
-        _realtimeConnected = false;
-        _voiceTaskAuthorized = false;
-        _onMicrophoneActivity(false);
-        TalkButton.Content = "Talk";
-        ListeningStatus.Text = "Microphone stopped. Screen activity is shown in the sharing indicator.";
-        ClearAnnotations();
-        ClearActionPreview();
-        _ = CompletePendingRealtimeToolAsync("Action stopped before approval or commit.");
-        if (_focus is { Snapshot.Status: Boo.Core.FocusStatus.Running })
-        {
-            _focus.Pause("Stopped");
-            StopFocusMonitoring();
-            SaveFocusSnapshot();
-            _focusTimer.Stop();
-            FocusStatus.Text = "Paused by Stop; Resume is explicit.";
-        }
-        UpdateCaptureIndicator();
-        SetFace(new FaceInputs(FocusPaused: _focus is { Snapshot.Status: Boo.Core.FocusStatus.Paused }));
-    }
-
     public void DisposeShell()
     {
         _closingForExit = true;
@@ -748,7 +698,7 @@ public partial class MainWindow : Window
         SetFace(_faceInputs with { Thinking = true, Responding = false, Caption = null });
         AppendTranscript("You", text);
         InputBox.Clear();
-        StatusText.Text = "Thinking about the selected context…";
+        ShowBusyStatus("Thinking about the selected context…", lease.Generation);
         var activity = _captureActivities.CreateOperation();
         var handedToRealtime = false;
         try
@@ -800,7 +750,7 @@ public partial class MainWindow : Window
             {
                 _voiceTaskAuthorized = intent == RequestKind.Task;
                 await _realtime.SendTextAsync(text, lease.Token);
-                StatusText.Text = "Sent to the voice conversation; waiting for the response…";
+                ShowBusyStatus("Sent to the voice conversation; waiting for the response…", lease.Generation);
                 // The realtime reply (audio delta / response.done / error) clears Thinking.
                 handedToRealtime = IsCurrent(lease.Generation);
                 return;
