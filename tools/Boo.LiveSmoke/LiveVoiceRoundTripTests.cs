@@ -54,6 +54,12 @@ public sealed class LiveVoiceRoundTripTests
                 "(RUNNER_ENVIRONMENT=github-hosted) or a throwaway VM (verify-boo -ThrowawayVm), never on a personal PC.");
         }
         var accepted = RealAiHostGuard.EnsureRealProviderHosts();
+        // Prove the speech measure before any paid call: a broken measure fails here, not after the round trip.
+        if (SpokenAudio.SelfCheck(SampleRate) is { } measureBroken)
+        {
+            throw new InvalidOperationException(
+                $"LIVE VOICE FAILED CLOSED: the speech measure failed its own check ({measureBroken}); no live call was made.");
+        }
 
         var key = Environment.GetEnvironmentVariable(LiveConfig.KeyVariable(AiProvider.OpenAI));
         if (string.IsNullOrWhiteSpace(key))
@@ -121,8 +127,14 @@ public sealed class LiveVoiceRoundTripTests
         Assert.True(HeardQuestion.IsMatch(heard),
             $"OpenAI's transcript of the spoken question should say 'two plus three' but was '{heard}' " +
             "(bad or silent audio, or speech-to-text failed).");
-        Assert.True(answerAudio.Length >= BytesPerSecond / 2,
-            $"The answer should be spoken (at least 0.5 s of audio) but only {answerSeconds:0.00} s of audio arrived.");
+        // "Spoken" means real speech, not a length: a correct one-word answer carries about 0.25 s of speech whatever
+        // trailing silence follows it (run 43556992022: 0.45 s long, 0.26 s of speech), and silence must never pass.
+        // The rule is SpokenAudio.IsSpokenAnswer, tested offline in SpokenAudioTests.
+        var speechSeconds = SpokenAudio.SpeechSeconds(answerAudio, SampleRate);
+        _output.WriteLine($"voice: answer speech={speechSeconds:0.00}s of {answerSeconds:0.00}s audio (minimum {SpokenAudio.MinimumSpeechSeconds:0.00}s)");
+        Assert.True(SpokenAudio.IsSpokenAnswer(answerAudio, SampleRate),
+            $"The answer should be spoken (at least {SpokenAudio.MinimumSpeechSeconds:0.00} s of speech above the quiet " +
+            $"floor) but its {answerSeconds:0.00} s of audio held only {speechSeconds:0.00} s of speech.");
         Assert.True(SaidAnswer.IsMatch(answer), $"The spoken answer should say 'five' but its transcript was '{answer}'.");
     }
 
