@@ -22,6 +22,11 @@ behind them. When a rule and this page seem to disagree, ask; never pick the loo
 9. **Never print keys** (names only), and never touch or capture Vikas's real screen or desktop.
 10. **The pipeline learns.** Each loop's lessons go into `docs/DECISIONS.md` or `HANDOFF.md`.
 
+11. **Act inside the rules; escalate only what is Vikas's.** No agent waits for a go on work the rules already allow.
+    Escalate and wait only for: release, tags, installer, signing or #3; spend that would cross a cap; loosening a
+    gate or test; a product decision with no rule. When unsure, take the safer reversible option and record it in
+    `docs/DECISIONS.md`.
+
 ## Limits
 
 - OpenAI live-test spend: at most $10 a month, cheapest models. Near the cap: pause live tests and escalate.
