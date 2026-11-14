@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Property tests (FsCheck) for the pure notch lifecycle reducer src/Boo.Core/NotchLifecycle.cs: agent-trust plan
+    Phase 2, PR 2.5 (docs/plans/agent-trust-plan.md). Random event sequences, every invariant checked after every
+    step, failures shrunk to a short counterexample printed in the log.
+
+    Run by .github/workflows/properties.yml: 200 cases per property on pull requests, 20,000 nightly and on dispatch.
+    The case count comes from BOO_PROPERTY_CASES (unset = 200; anything that is not a whole number from 1 to
+    1,000,000 fails the run).
+
+    Lives in tools/, not tests/: tests/** is the frozen test oracle. Not part of Boo.sln. No secrets, no UI, no AI.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
+    <PackageReference Include="FsCheck" Version="3.3.2" />
+    <PackageReference Include="FsCheck.Xunit" Version="3.3.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Boo.Core/Boo.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>
