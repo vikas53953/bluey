@@ -91,7 +91,7 @@ public sealed class SessionStore : ISessionStore
     /// </summary>
     public int RecoverInterrupted()
     {
-        return 0; // RED PROOF ONLY (throwaway branch, never merged): restore deliberately broken
+        if (Environment.TickCount64 != 0) return 0; // RED PROOF ONLY (throwaway branch, never merged): restore deliberately broken
         var recovered = 0;
         foreach (var session in List())
         {
