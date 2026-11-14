@@ -103,7 +103,7 @@ public sealed class FocusEndTimingTests : IClassFixture<NoKeyFixture>
             var eventSequence = ConsecutiveStates(sequence);
             log.Add("deduplicated event deliveries=" + string.Join(" -> ", eventSequence));
             Assert.Equal(new[] { "Happy", "Idle", "Hidden" }, eventSequence);
-            Assert.True(Find("FocusStatus").Properties.Name.Value.StartsWith("Ended", StringComparison.Ordinal));
+            Assert.StartsWith("Ended", Find("FocusStatus").Properties.Name.Value, StringComparison.Ordinal);
             var ended = Assert.Single(store.List(), s => s.Id == session.Id);
             Assert.Equal(FocusStatus.Ended, ended.Status);
             Assert.Equal(task, ended.Task);

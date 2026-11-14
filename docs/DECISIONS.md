@@ -185,3 +185,5 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 | 14 Nov 2026 | Add Q13H End-from-Paused timing with contract6; nominal compatibility uses bounded direct-read brackets, not callback timestamps. | No invented dispatcher-delay allowance; interrupted/backward state sequences fail. Full j13 stays required incomplete. | PR #54; independent source-review corrections; native result UNVERIFIED | proposed |
 
 | 14 Nov 2026 | Require both #82 native focus regression methods as FR0/FR1; acceptance contract6 to7. | Exact method bijection correctly rejected missing IDs on the synthetic integration. Import upstream focus fix unchanged; no gate relaxation. | PR #54; failed gate43574977003; lane/face1442697 | proposed; native integration UNVERIFIED |
+
+| 14 Nov 2026 | Use Assert.StartsWith for Q13H Ended status check. | xUnit2009 build failure preceded native execution; equivalent assertion preserves contract without suppressing analyzer. | PR #54; runs43574976997/43575002856 | proposed; native Q13H UNVERIFIED |

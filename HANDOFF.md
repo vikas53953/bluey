@@ -486,3 +486,7 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 contract sync after #82 (14 Nov 2026)
 
 **manual:** d41ffad gate failed correctly on two newly integrated VerifyLive focus methods from #82. Synced lane/face1442697, contract version7 requires FR0/FR1 for both methods. No method-map bypass or removed requirement. Existing Q13H run43575002856 retains its older pinned head; new integration native behavior remains **UNVERIFIED**. Full-app NOT PASSED.
+
+### PR #54 Q13H analyzer correction (14 Nov 2026)
+
+**manual:** d41ffad focused build43574976997 and explicit Q13H43575002856 stopped at xUnit2009 before native execution. Use equivalent Assert.StartsWith for Ended status; timing, sequence and observation checks unchanged. No native Q13H result established. New hosted run required; full-app NOT PASSED.
