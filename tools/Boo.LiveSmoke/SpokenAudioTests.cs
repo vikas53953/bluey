@@ -105,4 +105,29 @@ public sealed class SpokenAudioTests
         Assert.False(SpokenAudio.IsSpokenAnswer(pcm, Rate));
         Assert.False(SpokenAudio.IsSpokenAnswer(new byte[pcm.Length], Rate));
     }
+
+    /// <summary>Little-endian 16-bit PCM of exactly these samples.</summary>
+    private static byte[] Samples(params short[] values)
+    {
+        var pcm = new byte[values.Length * 2];
+        for (var i = 0; i < values.Length; i++)
+        {
+            pcm[2 * i] = (byte)(values[i] & 0xFF);
+            pcm[2 * i + 1] = (byte)((values[i] >> 8) & 0xFF);
+        }
+        return pcm;
+    }
+
+    [Fact]
+    public void The_peak_level_counts_negative_samples_by_their_size()
+    {
+        // Codex mutation M6 on PR #118: a peak that ignores the sign reports quiet for loud negative swings.
+        Assert.Equal(32768, SpokenAudio.PeakLevel(Samples(-32768)));
+        Assert.Equal(12345, SpokenAudio.PeakLevel(Samples(-12345)));
+        Assert.Equal(12345, SpokenAudio.PeakLevel(Samples(12345)));
+        Assert.Equal(32768, SpokenAudio.PeakLevel(Samples(-32768, 1)));
+        Assert.Equal(0, SpokenAudio.PeakLevel(Array.Empty<byte>()));
+        Assert.Equal(0, SpokenAudio.PeakLevel(new byte[480]));
+        Assert.Equal(7, SpokenAudio.PeakLevel(new byte[] { 0x07, 0x00, 0xFF }));
+    }
 }

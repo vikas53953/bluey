@@ -332,6 +332,13 @@ public sealed class RealtimeClient : IAsyncDisposable
     /// </summary>
     public Action<string>? RawFrameObserver { get; set; }
 
+    /// <summary>
+    /// Test seam: runs the real receive loop over an already-open socket, so offline tests can feed it scripted server
+    /// messages (tools/Boo.LiveSmoke RealtimeReceiveLoopTests). The app always connects through ConnectAsync.
+    /// </summary>
+    internal Task ReceiveForTestAsync(WebSocket socket, CancellationToken cancellationToken) =>
+        ReceiveLoopAsync(socket, cancellationToken, new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously));
+
     public event Action<RealtimeEvent>? Received
     {
         add => _received += value;
@@ -543,7 +550,7 @@ public sealed class RealtimeClient : IAsyncDisposable
         }
     }
 
-    private async Task ReceiveLoopAsync(ClientWebSocket socket, CancellationToken cancellationToken, TaskCompletionSource<bool> readiness)
+    private async Task ReceiveLoopAsync(WebSocket socket, CancellationToken cancellationToken, TaskCompletionSource<bool> readiness)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(16 * 1024);
         var pendingVoiceOutputs = new List<(string CallId, string Output)>();

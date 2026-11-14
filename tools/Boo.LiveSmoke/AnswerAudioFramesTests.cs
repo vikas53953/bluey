@@ -99,4 +99,19 @@ public sealed class AnswerAudioFramesTests
         var report = AnswerAudioFrames.Assemble(new[] { updated });
         Assert.Contains(report.Lines, l => l.Contains("\"rate\":24000", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void Audio_the_parser_drops_is_reported_both_as_dropped_and_as_a_joined_decode_mismatch()
+    {
+        // Codex mutation M5 on PR #118: valid base64 "AQI=" (bytes 1, 2) with a negative content index. Boo's parser drops
+        // it, so the per-message audio is empty while the joined text decodes to [1, 2]: both problems must be reported.
+        var report = AnswerAudioFrames.Assemble(new[] { Message(AnswerAudioFrames.AudioDelta, "AQI=", contentIndex: -1) });
+        Assert.Empty(report.Pcm);
+        Assert.Contains(report.Problems, p => p.Contains("DROPPED", StringComparison.Ordinal));
+        Assert.Contains(report.Problems, p => p.Contains("joined base64", StringComparison.Ordinal));
+
+        var control = AnswerAudioFrames.Assemble(new[] { Message(AnswerAudioFrames.AudioDelta, "AQI=") });
+        Assert.Empty(control.Problems);
+        Assert.Equal(new byte[] { 1, 2 }, control.Pcm);
+    }
 }
