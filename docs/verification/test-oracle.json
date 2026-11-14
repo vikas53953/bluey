@@ -1,5 +1,5 @@
 {
-  "revision": 29,
+  "revision": 30,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -29,6 +29,7 @@
     "tests/Boo.Core.Tests/CaptionStreamTests.cs": "cbd6370bf3c1aa4ced1ac2fb7892fe19ce759da96438da83704aa6ad603264d4",
     "tests/Boo.Core.Tests/CaptureActivityTests.cs": "2e2f5e08d7d0119afc2e8f33f89af0bf2dbcda00cfbfc350fd8bbaed13d04bb4",
     "tests/Boo.Core.Tests/CaptureExclusionPolicyTests.cs": "991d99b7bbe427ebc8d43d3784a66928d8bd1fe049a980497d90a39a07514eed",
+    "tests/Boo.Core.Tests/CaptureFaultPolicyTests.cs": "96a98a9ced310e036a3fa780af94eac523685168269b759e8302cba919494205",
     "tests/Boo.Core.Tests/ChirpPolicyTests.cs": "a47d3b11a525b95c35179878bfc1e481e1b3f220727fd48047b6f914641d74c4",
     "tests/Boo.Core.Tests/ChirpSynthTests.cs": "010999310a80ccd2c9b18c7eed29b0242b9ceae9140b3281ecd937feae334044",
     "tests/Boo.Core.Tests/ControlObservationTests.cs": "c833115e77277597844bfee573784c8497597edb951ad0e53450577ca2164366",
@@ -73,6 +74,7 @@
     "tests/Boo.Core.Tests/PresenceControllerTests.cs": "e06747f24204ccb67e74f869f0774ed48b16389a7e1ca70cc364c2a2f6489f48",
     "tests/Boo.Core.Tests/ProviderFailureClassifierTests.cs": "dcdc21b019d5578929c45e196faa69d5d0a438f91c8655a9a63b92483554841a",
     "tests/Boo.Core.Tests/PushToTalkUplinkTests.cs": "baf193ed74bcd143940401345218f559494dcde2a25800c781024b3b51811185",
+    "tests/Boo.Core.Tests/RealtimeToolResultTests.cs": "3cb39988aefda06caa8b100098e1753ef6a9515609f8f12ac8811b9f0990b84b",
     "tests/Boo.Core.Tests/RequestCoordinatorTests.cs": "c4920b5baa7c22437d4740dd223cffc1a6202560d21555951b2608624568ff84",
     "tests/Boo.Core.Tests/RequestIntentTests.cs": "f0efe43e849bf7ecda1dafae78dbe3f7bca44490d5fdb902c7ae8f034cbe2ea9",
     "tests/Boo.Core.Tests/ResearchSourcesTests.cs": "f1565ee92e0d858a2f6cfeda6fa20b3f270ec75e79e04c123972bc7e9e080fa9",
@@ -86,6 +88,7 @@
     "tests/Boo.Core.Tests/StartupRegistrationTests.cs": "dcd5b440b8191dd0adfb49e700e5c53ca45a42aa8e5814d809de997e86ebf64a",
     "tests/Boo.Core.Tests/TestThreadPool.cs": "9aee9db37060b844fc341d9a202b11c064a61e95a17dbd6f94cf961ddbc4f52f",
     "tests/Boo.Core.Tests/UndoJournalTests.cs": "5f73cbb8de8b9a65d7d00bb3cb630fb66cf320437aa452936fa11762945b58c8",
+    "tests/Boo.Core.Tests/UnobservedScreenActionTests.cs": "087a2865b9217aab18ac7a1b7e755f5a2af69c13831a35e33fa72f9547e4544b",
     "tests/Boo.Core.Tests/UntrustedInputFuzzTests.cs": "1260bcb26bcac3b60d43693874fef10d7abf073caf53c93d9388403a6d20c78c",
     "tests/Boo.Core.Tests/UpdatePolicyTests.cs": "6f58aa70493669d9fa81b946694f3d545eb50842f3478bba9ebaa8f6a4e2c987",
     "tests/Boo.Core.Tests/UpdateStatusTextTests.cs": "7a50ed32cbfcd8b1d6c2c721fdb99c03ae9e51a6f23cd451fbd69e933fd3ed9e",
@@ -95,6 +98,8 @@
     "tests/Boo.Demo.Tests/BooAppFixture.cs": "3674257f2b56f26ae5c1fb537e3d7498cd633d23b466988c7c45e91e06ec2179",
     "tests/Boo.Demo.Tests/DemoTests.cs": "dcb58a575f973cd6d58f97af7612b97f6b1c4b0ab7c22f0c1b32f37e04611dac",
     "tests/Boo.Demo.Tests/OrderedSteps.cs": "306e9963f703f5d3110060f5a03f66272dfda4959eba07c238be328da40776e2",
+    "tests/Boo.Demo.Tests/UnobservedScreenActionDemoTests.cs": "b40a250d08fb9ae7c6837884a5c5cfdf0aabe45d884dfd5529fedc0f42cdaa61",
+    "tests/Boo.Demo.Tests/UnobservedScreenActionVoiceDemoTests.cs": "ededc0bf9ca1162ea6c8841443414d58b9e37c9cb166bb42f69f37eaf7a14656",
     "tests/Boo.Demo.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Integration.Tests/AppearanceReadFailureTests.cs": "71a6aa267746f1f5124cde57204258a4d6c62351d620e963b30eeec95c585a70",
     "tests/Boo.Integration.Tests/AppearanceStoreTests.cs": "fcbcc2bb697287d820e079df304ef34deffe37d4b0446d4fd548d55823871aab",
@@ -154,13 +159,17 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-28.json",
-  "previousManifestSha256": "584a852ff3db21f053d9f304cef286bcaecbac1017363a10c2eb3350ad50f406",
-  "revisionReason": "PR #83 (issue #71): add tests/Boo.Core.Tests/BusyStatusLineTests.cs, a mutation-driven unit test for Boo.Core.BusyStatusLine (Codex mutation survivor M3: the stale-generation guard of the busy status line). Additive only; no frozen file changes. Re-run on top of lane/face revision 28 (#90) per the 13 Nov DECISIONS rule.",
+  "previousManifest": "docs/verification/test-oracle-history/revision-29.json",
+  "previousManifestSha256": "e977f2abf825dd9e030e662147732a4801ce0420d19c8be095ed4e272b093eba",
+  "revisionReason": "Re-sync onto lane/face 443ee6c (#83, #84): re-add the fail-closed test files (UnobservedScreenActionTests, CaptureFaultPolicyTests, RealtimeToolResultTests, UnobservedScreenActionDemoTests, UnobservedScreenActionVoiceDemoTests)",
   "addedFiles": [
-    "tests/Boo.Core.Tests/BusyStatusLineTests.cs"
+    "tests/Boo.Core.Tests/CaptureFaultPolicyTests.cs",
+    "tests/Boo.Core.Tests/RealtimeToolResultTests.cs",
+    "tests/Boo.Core.Tests/UnobservedScreenActionTests.cs",
+    "tests/Boo.Demo.Tests/UnobservedScreenActionDemoTests.cs",
+    "tests/Boo.Demo.Tests/UnobservedScreenActionVoiceDemoTests.cs"
   ],
-  "revisionCommit": "c1522bdd42a90a8646395dd185d9c9bd31c42b01",
+  "revisionCommit": "f9422c3a23fcf742817a2337d3d9ff12ce981d56",
   "changedFiles": [],
   "removedFiles": []
 }

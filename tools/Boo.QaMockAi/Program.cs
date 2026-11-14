@@ -39,6 +39,35 @@ public static class QaConstants
     public const string EditText = "QA-EDIT: I propose replacing the button text in MainWindow.xaml with " + EditMarker + ".";
 
     public const string ResearchText = "QA-RESEARCH: Three sources support this answer.";
+
+    /// <summary>
+    /// Blind-task routes: the user asks for a task while the app has NO frame and NO control observation
+    /// (BOO_QA_CAPTURE_FAULT=1). "qa-blind-mixed" answers with a click, a type_text and a write_file;
+    /// "qa-blind-click" answers with a click only. Boo must offer the write_file alone (no "Step 1 of 3")
+    /// and nothing at all for the click-only reply.
+    /// </summary>
+    public const string BlindMixedKeyword = "qa-blind-mixed";
+    public const string BlindClickKeyword = "qa-blind-click";
+    public const string BlindMixedText = "QA-BLIND-MIXED: I propose a click, typing, and a file write.";
+    public const string BlindClickText = "QA-BLIND-CLICK: I propose a click.";
+    public const string BlindTypeAutomationId = "QaBlindBox";
+    public const string BlindTypeText = "qa blind text";
+    public const string BlindFileContents = "QA-BLIND-WRITE";
+
+    /// <summary>
+    /// Realtime (voice) impostor. The WebSocket at wss://api.openai.com/v1/realtime is accepted ONLY when the
+    /// handshake carries this key, so every other demo keeps today's behaviour (a plain 200, Boo falls back to
+    /// /v1/responses). Each user text turn answers with one screen_help function call whose question is the
+    /// user's text and whose mode is "task" when the text starts with "task " ("research" when it contains
+    /// "research", otherwise "teach"), then response.done. A function_call_output is logged as
+    /// <c>[realtime] function_call_output call_id=... output=...</c> and the next response.create is answered
+    /// with a bare response.done, so the tests can assert exactly what Boo returned to the voice model.
+    /// </summary>
+    public const string RealtimeKey = "sk-qa-mock-realtime-key-000000000000000";
+    public const string RealtimePath = "/v1/realtime";
+    public const string RealtimeFunctionName = "screen_help";
+    public const string RealtimeCallIdPrefix = "call_qa_";
+    public const string RealtimeOutputLogMarker = "[realtime] function_call_output";
     public static readonly (string Title, string Url)[] Sources =
     [
         ("QA source A", "https://example.com/a"),
@@ -70,6 +99,7 @@ public static class Program
     private static readonly object LogLock = new();
     private static string? _logPath;
     private static int _decisionCount;
+    private static int _realtimeSessionCount;
     private static string? _workspaceXaml;
 
     public static async Task<int> Main(string[] args)
@@ -132,6 +162,7 @@ public static class Program
         });
         var app = builder.Build();
 
+        app.UseWebSockets();
         app.Map("/{**path}", (RequestDelegate)HandleAsync);
 
         Log($"[startup] listening on https://0.0.0.0:{port} as api.openai.com (thumbprint {serverCert.Thumbprint})");
@@ -183,6 +214,9 @@ public static class Program
 
     private static async Task HandleAsync(HttpContext ctx)
     {
+        if (ctx.WebSockets.IsWebSocketRequest && await TryServeRealtimeAsync(ctx))
+            return;
+
         string body;
         using (var reader = new StreamReader(ctx.Request.Body, Encoding.UTF8))
             body = await reader.ReadToEndAsync();
@@ -205,6 +239,165 @@ public static class Program
         ctx.Response.StatusCode = 200;
         ctx.Response.ContentType = "application/json";
         await ctx.Response.WriteAsync(response, Encoding.UTF8);
+    }
+
+    // ---- wss://api.openai.com/v1/realtime (RealtimeClient) ----------------------------------------
+
+    /// <summary>
+    /// Accepts the realtime WebSocket only for <see cref="QaConstants.RealtimeKey"/> on
+    /// <see cref="QaConstants.RealtimePath"/>; returns false (nothing written) for any other handshake so the
+    /// caller answers it like every other request today.
+    /// </summary>
+    private static async Task<bool> TryServeRealtimeAsync(HttpContext ctx)
+    {
+        var path = ctx.Request.Path.Value ?? "/";
+        var authorized = string.Equals(ctx.Request.Headers.Authorization.ToString(),
+            "Bearer " + QaConstants.RealtimeKey, StringComparison.Ordinal);
+        if (path != QaConstants.RealtimePath || !authorized)
+        {
+            Log($"[realtime] handshake {path}{ctx.Request.QueryString} refused (not the realtime key); answered as a plain request");
+            return false;
+        }
+
+        var session = Interlocked.Increment(ref _realtimeSessionCount);
+        Log($"[realtime] handshake {path}{ctx.Request.QueryString} accepted (session {session})");
+        using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
+        await RealtimeSessionAsync(socket, session, ctx.RequestAborted);
+        return true;
+    }
+
+    private static async Task RealtimeSessionAsync(System.Net.WebSockets.WebSocket socket, int session, CancellationToken cancellation)
+    {
+        var buffer = new byte[16 * 1024];
+        string? pendingUserText = null;
+        var outputReceived = false;
+        var callCount = 0;
+        try
+        {
+            while (socket.State == System.Net.WebSockets.WebSocketState.Open && !cancellation.IsCancellationRequested)
+            {
+                using var message = new MemoryStream();
+                System.Net.WebSockets.WebSocketReceiveResult result;
+                do
+                {
+                    result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellation);
+                    if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close)
+                    {
+                        Log($"[realtime] session {session} closed by Boo");
+                        await socket.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+                        return;
+                    }
+                    message.Write(buffer, 0, result.Count);
+                }
+                while (!result.EndOfMessage);
+
+                var text = Encoding.UTF8.GetString(message.GetBuffer(), 0, checked((int)message.Length));
+                Log($"[realtime <-] session {session}\n{Truncate(text)}");
+                JsonNode? json = null;
+                try { json = JsonNode.Parse(text); } catch (JsonException) { }
+                var type = json?["type"]?.GetValue<string>();
+
+                switch (type)
+                {
+                    case "session.update":
+                        await SendRealtimeAsync(socket, session, new JsonObject
+                        {
+                            ["type"] = "session.created",
+                            ["event_id"] = $"event_qa_{session}_created",
+                            ["session"] = new JsonObject { ["id"] = $"sess_qa_{session}", ["object"] = "realtime.session" }
+                        }, cancellation);
+                        await SendRealtimeAsync(socket, session, new JsonObject
+                        {
+                            ["type"] = "session.updated",
+                            ["event_id"] = $"event_qa_{session}_updated",
+                            ["session"] = new JsonObject { ["id"] = $"sess_qa_{session}", ["object"] = "realtime.session" }
+                        }, cancellation);
+                        break;
+
+                    case "conversation.item.create":
+                        var item = json?["item"];
+                        var itemType = item?["type"]?.GetValue<string>();
+                        if (itemType == "message")
+                        {
+                            pendingUserText = CollectRealtimeText(item?["content"]);
+                        }
+                        else if (itemType == "function_call_output")
+                        {
+                            var callId = item?["call_id"]?.GetValue<string>() ?? string.Empty;
+                            var output = item?["output"]?.GetValue<string>() ?? string.Empty;
+                            Log($"{QaConstants.RealtimeOutputLogMarker} call_id={callId} output={output}");
+                            outputReceived = true;
+                        }
+                        break;
+
+                    case "response.create":
+                        var responseId = $"resp_qa_{session}_{++callCount}";
+                        if (!outputReceived && pendingUserText is { Length: > 0 } question)
+                        {
+                            var lower = question.ToLowerInvariant();
+                            var mode = lower.StartsWith("task ", StringComparison.Ordinal) ? "task"
+                                : lower.Contains("research", StringComparison.Ordinal) ? "research"
+                                : "teach";
+                            var arguments = new JsonObject { ["question"] = question, ["mode"] = mode }.ToJsonString();
+                            await SendRealtimeAsync(socket, session, new JsonObject
+                            {
+                                ["type"] = "response.function_call_arguments.done",
+                                ["event_id"] = $"event_qa_{responseId}_call",
+                                ["response_id"] = responseId,
+                                ["item_id"] = $"item_qa_{session}_{callCount}",
+                                ["output_index"] = 0,
+                                ["call_id"] = $"{QaConstants.RealtimeCallIdPrefix}{session}_{callCount}",
+                                ["name"] = QaConstants.RealtimeFunctionName,
+                                ["arguments"] = arguments
+                            }, cancellation);
+                        }
+                        pendingUserText = null;
+                        outputReceived = false;
+                        await SendRealtimeAsync(socket, session, new JsonObject
+                        {
+                            ["type"] = "response.done",
+                            ["event_id"] = $"event_qa_{responseId}_done",
+                            ["response"] = new JsonObject
+                            {
+                                ["id"] = responseId,
+                                ["object"] = "realtime.response",
+                                ["status"] = "completed",
+                                ["output"] = new JsonArray()
+                            }
+                        }, cancellation);
+                        break;
+
+                    default:
+                        Log($"[realtime] session {session} ignored event type '{type ?? "?"}'");
+                        break;
+                }
+            }
+        }
+        catch (OperationCanceledException) { Log($"[realtime] session {session} aborted"); }
+        catch (System.Net.WebSockets.WebSocketException ex) { Log($"[realtime] session {session} socket error: {ex.Message}"); }
+    }
+
+    private static async Task SendRealtimeAsync(System.Net.WebSockets.WebSocket socket, int session, JsonObject payload, CancellationToken cancellation)
+    {
+        var text = payload.ToJsonString();
+        Log($"[realtime ->] session {session}\n{Truncate(text)}");
+        await socket.SendAsync(Encoding.UTF8.GetBytes(text), System.Net.WebSockets.WebSocketMessageType.Text, true, cancellation);
+    }
+
+    /// <summary>The input_text parts of a realtime user message, joined by newlines.</summary>
+    private static string CollectRealtimeText(JsonNode? content)
+    {
+        if (content is not JsonArray parts) return string.Empty;
+        var sb = new StringBuilder();
+        foreach (var part in parts)
+        {
+            if (part?["type"]?.GetValue<string>() == "input_text" && part["text"]?.GetValue<string>() is { Length: > 0 } t)
+            {
+                if (sb.Length > 0) sb.Append('\n');
+                sb.Append(t);
+            }
+        }
+        return sb.ToString();
     }
 
     // ---- /v1/decisions (DecisionsClient) -------------------------------------------------------
@@ -315,6 +508,19 @@ public static class Program
             return Envelope(structured ? result.ToJsonString() : QaConstants.EditText, null);
         }
 
+        if (route is "blind-mixed" or "blind-click")
+        {
+            var actions = new JsonArray(BlindAction("click", "QA blind click", x: 120, y: 80));
+            if (route == "blind-mixed")
+            {
+                actions.Add(BlindAction("type_text", "QA blind type", automationId: QaConstants.BlindTypeAutomationId, text: QaConstants.BlindTypeText));
+                actions.Add(BlindAction("write_file", QaConstants.EditRelativePath, path: QaConstants.EditRelativePath, overwrite: "true", contents: QaConstants.BlindFileContents));
+            }
+            var blindText = route == "blind-mixed" ? QaConstants.BlindMixedText : QaConstants.BlindClickText;
+            var result = new JsonObject { ["text"] = blindText, ["marks"] = new JsonArray(), ["actions"] = actions };
+            return Envelope(structured ? result.ToJsonString() : blindText, null);
+        }
+
         if (route == "explain")
         {
             var size = Math.Max(8, Math.Round(frameW * QaConstants.RingSizeFraction));
@@ -338,6 +544,23 @@ public static class Program
 
         var fallback = new JsonObject { ["text"] = QaConstants.DefaultText, ["marks"] = new JsonArray(), ["actions"] = new JsonArray() };
         return Envelope(structured ? fallback.ToJsonString() : QaConstants.DefaultText, null);
+    }
+
+    /// <summary>One structured action with every schema argument present (null when unused), like the edit route.</summary>
+    private static JsonObject BlindAction(
+        string name, string target, int? x = null, int? y = null, string? automationId = null,
+        string? text = null, string? path = null, string? overwrite = null, string? contents = null)
+    {
+        return new JsonObject
+        {
+            ["name"] = name,
+            ["target"] = target,
+            ["arguments"] = new JsonObject
+            {
+                ["x"] = x, ["y"] = y, ["automationId"] = automationId, ["name"] = null, ["text"] = text,
+                ["path"] = path, ["overwrite"] = overwrite, ["content"] = null, ["contents"] = contents
+            }
+        };
     }
 
     /// <summary>Wraps text in a Responses API envelope: output[] -> message -> content[] -> output_text.</summary>
@@ -387,6 +610,8 @@ public static class Program
         ("explain", ["explain", "what is on my screen", "what's on my screen"]),
         ("research", ["research", "sources"]),
         ("edit", ["edit", "rename", "apply"]),
+        ("blind-mixed", [QaConstants.BlindMixedKeyword]),
+        ("blind-click", [QaConstants.BlindClickKeyword]),
     ];
 
     /// <summary>The route whose keyword occurs earliest in the user's text; null when none matches.</summary>

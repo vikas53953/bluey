@@ -96,4 +96,101 @@ public sealed class AudioBoundaryTests
         Assert.False(normal.RootElement.GetProperty("session").TryGetProperty("max_output_tokens", out _));
         Assert.Equal("auto", normal.RootElement.GetProperty("session").GetProperty("tool_choice").GetString());
     }
+    [Fact]
+    public void ToolTurnOptIn_ReadsExactlyOne_AndDefaultsOff()
+    {
+        string? Read(string key, string? toolTurn) => key switch
+        {
+            "BOO_QA_VOICE_INPUT" => "input.wav",
+            "GITHUB_ACTIONS" => "true",
+            "RUNNER_ENVIRONMENT" => "github-hosted",
+            "BOO_QA_VOICE_EVIDENCE" => "receipt",
+            HostedVoiceOptions.ToolTurnVariable => toolTurn,
+            _ => null
+        };
+        Assert.False(HostedVoiceOptions.Read(k => Read(k, null), true)!.ToolTurn);
+        Assert.False(HostedVoiceOptions.Read(k => Read(k, "true"), true)!.ToolTurn);
+        Assert.True(HostedVoiceOptions.Read(k => Read(k, "1"), true)!.ToolTurn);
+    }
+    [Fact]
+    public async Task ToolTurnSession_ForcesScreenHelp_KeepsTokenCap_ProductionUnchanged()
+    {
+        await using var client = RealtimeClient.ForNativeVoice(() => null, new ProviderSettings(), false,
+            new HostedVoiceOptions("input.wav", "receipt", "gpt-4o-mini-transcribe", ToolTurn: true));
+        using var json = JsonDocument.Parse(client.CreateSessionUpdate());
+        var session = json.RootElement.GetProperty("session");
+        Assert.Equal(128, session.GetProperty("max_output_tokens").GetInt32());
+        Assert.Equal("function", session.GetProperty("tool_choice").GetProperty("type").GetString());
+        Assert.Equal("screen_help", session.GetProperty("tool_choice").GetProperty("name").GetString());
+        using var normal = JsonDocument.Parse(RealtimeProtocol.SessionUpdate(new ProviderSettings(), toolTurn: true));
+        Assert.False(normal.RootElement.GetProperty("session").TryGetProperty("max_output_tokens", out _));
+        Assert.Equal("auto", normal.RootElement.GetProperty("session").GetProperty("tool_choice").GetString());
+    }
+    [Fact]
+    public async Task ToolTurnClientPermitsExactlyTwoResponses_WithoutOpeningSocket()
+    {
+        var client = new RealtimeClient(() => null, new ProviderSettings(), false, maxOutputTokens: 128, toolTurn: true);
+        var request = typeof(RealtimeClient).GetMethod("RequestResponseAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        for (var i = 0; i < 2; i++)
+        {
+            var closed = await Assert.ThrowsAsync<InvalidOperationException>(async () => await (Task)request.Invoke(client, new object[] { CancellationToken.None })!);
+            Assert.Equal("Realtime connection is not open.", closed.Message);
+        }
+        var third = Assert.Throws<System.Reflection.TargetInvocationException>(() => request.Invoke(client, new object[] { CancellationToken.None }));
+        Assert.Contains("exactly two response", third.InnerException!.Message);
+        await client.DisposeAsync();
+    }
+    [Theory]
+    [InlineData("{\"type\":\"response.done\",\"response\":{\"status\":\"incomplete\",\"status_details\":{\"type\":\"incomplete\",\"reason\":\"max_output_tokens\"}}}", "Realtime response incomplete (max_output_tokens).")]
+    [InlineData("{\"type\":\"response.done\",\"response\":{\"status\":\"incomplete\",\"status_details\":{\"type\":\"incomplete\",\"reason\":\"content_filter\"}}}", "Realtime response incomplete (content_filter).")]
+    [InlineData("{\"type\":\"response.done\",\"response\":{\"status\":\"incomplete\"}}", "Realtime response incomplete.")]
+    [InlineData("{\"type\":\"response.done\",\"response\":{\"status\":\"incomplete\",\"status_details\":{\"reason\":\"<b>bad</b> reason\"}}}", "Realtime response incomplete.")]
+    public void IncompleteResponse_KeepsItsReason_SoOnlyTheTokenCapCountsAsBoundedEnd(string json, string expected)
+    {
+        var parsed = RealtimeProtocol.Parse(json);
+        Assert.NotNull(parsed);
+        Assert.Equal(expected, parsed!.Text);
+    }
+    private const string Fault = "QA mode: screen capture is faulted (BOO_QA_CAPTURE_FAULT=1). No frame was sent.";
+    private const string Sent = "Sent to the voice conversation; waiting for the response…";
+    [Fact]
+    public void ObservedOrdering_CapBeforeBoundary_ThenNoAction_IsNotEnded()
+    {
+        var statuses = new[] { Fault, Sent, VoiceTurnOutcome.CapTruncatedStatus, VoiceTurnOutcome.NoActionStatus };
+        Assert.Equal(VoiceTurnOutcome.Kind.NotEnded, VoiceTurnOutcome.Classify(statuses, 39360, 144000));
+        Assert.Equal(VoiceTurnOutcome.Kind.NotEnded, VoiceTurnOutcome.Classify(statuses, 0, 144000));
+    }
+    [Theory]
+    [InlineData(VoiceTurnOutcome.SpokenCompleteStatus, 40000, 144000, VoiceTurnOutcome.Kind.Completed)]
+    [InlineData(VoiceTurnOutcome.CapTruncatedStatus, 40000, 144000, VoiceTurnOutcome.Kind.CapTruncated)]
+    [InlineData(VoiceTurnOutcome.SpokenCompleteStatus, 144000, 144000, VoiceTurnOutcome.Kind.NotEnded)]
+    [InlineData("Realtime response incomplete (content_filter).", 40000, 144000, VoiceTurnOutcome.Kind.NotEnded)]
+    [InlineData("Realtime response incomplete.", 40000, 144000, VoiceTurnOutcome.Kind.NotEnded)]
+    public void FollowUpTerminalStatus_CountsOnlyAfterTheToolBoundary_WithAudioAfterIt(string terminal, long atBoundary, long now, VoiceTurnOutcome.Kind expected)
+    {
+        var statuses = new[] { Fault, Sent, VoiceTurnOutcome.SpokenCompleteStatus, VoiceTurnOutcome.NoActionStatus, terminal };
+        Assert.Equal(expected, VoiceTurnOutcome.Classify(statuses, atBoundary, now));
+    }
+    [Fact]
+    public void TerminalStatusBeforeTheBoundary_OrNoBoundary_IsNotEnded()
+    {
+        Assert.Equal(VoiceTurnOutcome.Kind.NotEnded, VoiceTurnOutcome.Classify(new[] { Fault, Sent, VoiceTurnOutcome.SpokenCompleteStatus }, 0, 144000));
+        Assert.Equal(VoiceTurnOutcome.Kind.NotEnded, VoiceTurnOutcome.Classify(new[] { Fault, Sent, VoiceTurnOutcome.NothingOfferedStatus }, 0, 144000));
+        Assert.Equal(2, VoiceTurnOutcome.ToolBoundary(new[] { Fault, Sent, VoiceTurnOutcome.NothingOfferedStatus, VoiceTurnOutcome.CapTruncatedStatus }));
+        Assert.Equal(-1, VoiceTurnOutcome.ToolBoundary(new[] { Fault, Sent }));
+    }
+    [Fact]
+    public void ToolTurnResponses_FirstIsTextOnlyForcedCall_SecondIsSpokenWithToolsOff_ProductionPlain()
+    {
+        using var first = JsonDocument.Parse(RealtimeProtocol.ResponseCreate(true, 1));
+        var response = first.RootElement.GetProperty("response");
+        Assert.Equal("text", response.GetProperty("output_modalities")[0].GetString());
+        Assert.Equal("screen_help", response.GetProperty("tool_choice").GetProperty("name").GetString());
+        using var second = JsonDocument.Parse(RealtimeProtocol.ResponseCreate(true, 2));
+        var followUp = second.RootElement.GetProperty("response");
+        Assert.Equal("none", followUp.GetProperty("tool_choice").GetString());
+        Assert.False(followUp.TryGetProperty("output_modalities", out _));
+        Assert.Equal("{\"type\":\"response.create\"}", RealtimeProtocol.ResponseCreate(false, 1));
+        Assert.Equal("{\"type\":\"response.create\"}", RealtimeProtocol.ResponseCreate(false, 2));
+    }
 }

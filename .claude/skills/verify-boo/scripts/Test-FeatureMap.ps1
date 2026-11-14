@@ -29,7 +29,7 @@ $cited = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ord
 
 # The ONE list of projects whose tests drive the real, published Boo.exe. A row is "automated live" only when it cites
 # a [Fact]/[Theory] from one of them, and every test in them must be on the map. A new native project is added here once.
-$LiveDirs = @('tools/Boo.VerifyLive', 'tools/Boo.LiveSmoke', 'tools/Boo.CrashReopen', 'tests/Boo.Ui.Tests', 'tests/Boo.Perf.Tests')
+$LiveDirs = @('tools/Boo.VerifyLive', 'tools/Boo.LiveSmoke', 'tools/Boo.CrashReopen', 'tools/Boo.NativeVoice', 'tests/Boo.Ui.Tests', 'tests/Boo.Perf.Tests')
 # Native but mock-AI (demo-ci): must be mapped, never makes a row live.
 $NativeDirs = $LiveDirs + @('tests/Boo.Demo.Tests')
 $LiveDirPattern = '^(' + (($LiveDirs | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')/'

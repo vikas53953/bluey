@@ -902,7 +902,7 @@ public partial class MainWindow : Window
         SetFace(_faceInputs with { Thinking = false, Responding = false });
     }
 
-    private void RenderReply(AssistantReply reply, long generation, CapturedFrame? frame, bool explicitTask, ControlObservation? controls, bool research = false)
+    private ToolRequest? RenderReply(AssistantReply reply, long generation, CapturedFrame? frame, bool explicitTask, ControlObservation? controls, bool research = false)
     {
         ClearAnnotations();
         SetFace(_faceInputs with { Thinking = false, Responding = true, Caption = reply.Text }, TimeSpan.FromSeconds(4), FaceMomentKind.Responding);
@@ -920,16 +920,17 @@ public partial class MainWindow : Window
 
         if (!IsCurrent(generation) || UndoOwnsPendingActions)
         {
-            return;
+            return null;
         }
 
-        var action = explicitTask ? reply.Actions.FirstOrDefault() : null;
+        var offered = explicitTask ? ActionPolicy.WithoutUnobservedScreenActions(reply.Actions, controls) : reply.Actions;
+        var action = explicitTask ? offered.FirstOrDefault() : null;
         _pendingControls = action is null ? null : controls;
         if (action is not null)
         {
             action = action with { Generation = generation };
             _pendingActions.Clear();
-            foreach (var remaining in reply.Actions.Skip(1))
+            foreach (var remaining in offered.Skip(1))
             {
                 _pendingActions.Enqueue(remaining with { Generation = generation });
             }
@@ -939,7 +940,7 @@ public partial class MainWindow : Window
                 new HashSet<string>(ActionPolicy.ToolNames, StringComparer.OrdinalIgnoreCase),
                 _settings.FileRoot);
             ShowActionPreview(action, authority, frame?.Context.Target ?? TryGetTarget(),
-                _pendingActions.Count == 0 ? string.Empty : $"Step 1 of {reply.Actions.Count}: ");
+                _pendingActions.Count == 0 ? string.Empty : $"Step 1 of {offered.Count}: ");
         }
         else
         {
@@ -948,11 +949,16 @@ public partial class MainWindow : Window
             {
                 StatusText.Text = "Boo suggested an action, but no explicit task request authorized it.";
             }
+            else if (reply.Actions.Count > 0)
+            {
+                StatusText.Text = "Boo proposed a screen action, but no screen observation backs it. Nothing was offered.";
+            }
             if (reply.Actions.Count == 0)
             {
                 StatusText.Text = "Reply complete. No action was committed.";
             }
         }
+        return action;
     }
 
     private void TryRenderAnnotations(AnnotationProposal proposal, CapturedFrame frame)
@@ -1849,6 +1855,12 @@ public partial class MainWindow : Window
             return null;
         }
 
+        if (App.CaptureFault.Faulted)
+        {
+            ReportCaptureProblem(App.CaptureFault.Message);
+            return null;
+        }
+
         try
         {
             var targets = EnsureTargets();
@@ -2215,14 +2227,15 @@ public partial class MainWindow : Window
             {
                 return;
             }
-            RenderReply(reply, lease.Generation, frame, explicitTask, controls, mode == "research");
-            if (explicitTask && reply.Actions.Count > 0)
+            var offered = RenderReply(reply, lease.Generation, frame, explicitTask, controls, mode == "research");
+            var result = ActionPolicy.RealtimeToolResult(offered, reply.Actions, reply.Text, explicitTask);
+            if (result is null)
             {
                 _pendingRealtimeCallId = realtimeEvent.ItemId;
             }
             else
             {
-                await realtime.CompleteToolAsync(realtimeEvent.ItemId, reply.Text, lease.Token);
+                await realtime.CompleteToolAsync(realtimeEvent.ItemId, result, lease.Token);
             }
         }
         catch (Exception ex) when (ex is ResponseTimeoutException or OperationCanceledException or HttpRequestException or InvalidOperationException)

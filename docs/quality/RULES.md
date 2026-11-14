@@ -118,7 +118,7 @@ signal; keep real periodic timers in one owner class. **Do NOT** add a timer to 
 **GC.Collect.** Hides a leak. **Fix:** find what holds the memory and dispose it. **Do NOT** call it "just in case".
 
 ## BOO-RT-002
-**Environment.GetEnvironmentVariable.** Hidden switches (for example `BOO_QA_CAPTURABLE`) change privacy behaviour.
+**Environment.GetEnvironmentVariable.** Hidden switches (for example `BOO_QA_CAPTURABLE` or `BOO_QA_CAPTURE_FAULT`) change privacy or capture behaviour.
 **Fix:** read environment variables in one place and pass the value in. **Do NOT** add another reader.
 
 ## BOO-SAFE-003
