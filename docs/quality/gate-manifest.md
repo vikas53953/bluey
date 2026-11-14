@@ -30,3 +30,16 @@ do not bypass the base judge. Additional unrelated workflow steps do not need a 
 
 No local test result counts here. Hosted self-test and planted-removal runs must be linked in the PR body. A failed
 build or unrelated failure is not red proof; the named manifest step must report BOO-CI-001 for the planted removal.
+
+## Contract retention (Codex BLOCK on 093703e)
+
+The trusted base invocation also passes `--head-manifest docs/quality/gate-manifest.json`. The trusted checker
+validates both contracts and refuses any missing job or missing/changed existing step mapping. New job/step
+contracts are allowed; reordering is harmless. Duplicate identities and empty contracts fail closed.
+This closes the two-PR route where one PR deletes a manifest entry and the next deletes its gates.
+There is no policy-waiver/sign-off bypass implemented here. Retiring an old contract is deliberately blocked
+until an owner-controlled trusted-policy transition is designed and reviewed separately.
+
+Hosted fixtures cover shrinking a job, shrinking one step from a still-nonempty job, changed commands, softened
+step mappings, duplicates, reordering, additions, and executing the actual trusted workflow bootstrap with a
+committed base contract and a shrunk head manifest. Existing test/oracle files remain identical to lane/face.

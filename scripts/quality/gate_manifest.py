@@ -28,9 +28,46 @@ def mapping(loader, node):
 UniqueLoader.add_constructor('tag:yaml.org,2002:map', mapping)
 
 
-def inspect(root, manifest):
-    if set(manifest) != {'schema', 'jobs'} or manifest['schema'] != 1 or not manifest['jobs']:
+def contract_index(manifest):
+    if not isinstance(manifest, dict) or set(manifest) != {'schema', 'jobs'} or manifest['schema'] != 1:
         raise ValueError('invalid manifest schema')
+    if not isinstance(manifest['jobs'], list) or not manifest['jobs']:
+        raise ValueError('manifest needs a nonempty jobs list')
+    indexed = {}
+    for job in manifest['jobs']:
+        if not isinstance(job, dict) or set(job) != {'workflow', 'job', 'steps'}:
+            raise ValueError('invalid job contract')
+        key = (job['workflow'], job['job'])
+        if not all(isinstance(part, str) and part for part in key) or key in indexed:
+            raise ValueError('duplicate or invalid job identity')
+        if not isinstance(job['steps'], list) or not job['steps']:
+            raise ValueError('job needs a nonempty steps list')
+        steps = {}
+        for step in job['steps']:
+            if not isinstance(step, dict) or not isinstance(step.get('name'), str) or not step['name']:
+                raise ValueError('invalid step identity')
+            if not isinstance(step.get('run'), str) or not step['run'] or step['name'] in steps:
+                raise ValueError('duplicate step or invalid command')
+            steps[step['name']] = step
+        indexed[key] = steps
+    return indexed
+
+
+def retain_contracts(base, head):
+    before, after = contract_index(base), contract_index(head)
+    errors = []
+    for key, steps in before.items():
+        if key not in after:
+            errors.append(f'{key[0]}:{key[1]}: head manifest removed a trusted job contract')
+            continue
+        for name, expected in steps.items():
+            if after[key].get(name) != expected:
+                errors.append(f'{key[0]}:{key[1]}: head manifest removed or changed trusted step {name!r}')
+    return errors
+
+
+def inspect(root, manifest):
+    contract_index(manifest)
     errors = []
     for contract in manifest['jobs']:
         if set(contract) != {'workflow', 'job', 'steps'} or not contract['steps']:
@@ -61,10 +98,14 @@ def inspect(root, manifest):
     return errors
 
 
-def check(root, manifest_path):
+def check(root, manifest_path, head_manifest_path=None):
     try:
         manifest = json.loads(manifest_path.read_text(encoding='utf-8-sig'))
         errors = inspect(root, manifest)
+        if head_manifest_path is not None:
+            head = json.loads(head_manifest_path.read_text(encoding='utf-8-sig'))
+            errors.extend(inspect(root, head))
+            errors.extend([])  # PROOF ONLY: reproduce missing retention comparison; never merge
     except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError, AttributeError, RecursionError) as error:
         errors = [f'unreadable workflow/manifest ({type(error).__name__}); failing closed']
     for error in errors:
@@ -81,13 +122,14 @@ def self_test():
         workflows = root / '.github/workflows'
         workflows.mkdir(parents=True)
         expected = {'name': 'Oracle', 'run': 'python -I scripts/test_oracle.py'}
+        second = {'name': 'Second gate', 'run': 'echo second gate'}
         guard = {'name': 'Guard', 'run': 'python -I scripts/quality/gate_manifest.py'}
         manifest = {'schema': 1, 'jobs': [
-            {'workflow': '.github/workflows/test.yml', 'job': 'checks', 'steps': [expected]},
+            {'workflow': '.github/workflows/test.yml', 'job': 'checks', 'steps': [expected, second]},
             {'workflow': '.github/workflows/test.yml', 'job': 'guard', 'steps': [guard]}]}
         manifest_path = root / 'manifest.json'
         manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
-        valid = {'jobs': {'checks': {'runs-on': 'windows-latest', 'steps': [expected]},
+        valid = {'jobs': {'checks': {'runs-on': 'windows-latest', 'steps': [expected, second]},
                           'guard': {'runs-on': 'windows-latest', 'steps': [guard]}}}
         cases = [('valid', valid, 0)]
         for name, mutate in [
@@ -120,14 +162,44 @@ def self_test():
             if result.returncode != expected_code or marker not in result.stdout:
                 print(f'SELF_TEST_FAILED {name}: {result.stdout} {result.stderr}')
                 return 1
+        (workflows / 'test.yml').write_text(yaml.safe_dump(valid), encoding='utf-8')
+        head_path = root / 'head.json'
+        retention_cases = [('unchanged', manifest, 0),
+                           ('reordered jobs', {'schema': 1, 'jobs': list(reversed(manifest['jobs']))}, 0)]
+        for name, mutate in [
+            ('shrinking job contract', lambda m: m['jobs'].pop(0)),
+            ('shrinking step contract', lambda m: m['jobs'][0]['steps'].pop(0)),
+            ('replaced command', lambda m: m['jobs'][0]['steps'][0].update(run='echo ok')),
+            ('softened step contract', lambda m: m['jobs'][0]['steps'][0].update({'continue-on-error': 'true'})),
+            ('duplicate job contract', lambda m: m['jobs'].append(copy.deepcopy(m['jobs'][0]))),
+            ('duplicate step contract', lambda m: m['jobs'][0]['steps'].append(copy.deepcopy(expected))),
+        ]:
+            changed = copy.deepcopy(manifest)
+            mutate(changed)
+            retention_cases.append((name, changed, 1))
+        # New protected jobs are allowed when all old contracts survive unchanged.
+        smaller = copy.deepcopy(manifest)
+        smaller['jobs'].pop()
+        smaller_path = root / 'smaller.json'
+        smaller_path.write_text(json.dumps(smaller), encoding='utf-8')
+        for name, head, expected_code in retention_cases + [('add job contract', manifest, 0)]:
+            head_path.write_text(json.dumps(head), encoding='utf-8')
+            baseline = smaller_path if name == 'add job contract' else manifest_path
+            result = subprocess.run([sys.executable, '-I', str(pathlib.Path(__file__).resolve()),
+                                     '--root', str(root), '--manifest', str(baseline),
+                                     '--head-manifest', str(head_path)], capture_output=True, text=True)
+            marker = 'GATE_MANIFEST_OK' if expected_code == 0 else 'BOO-CI-001'
+            if result.returncode != expected_code or marker not in result.stdout:
+                print(f'SELF_TEST_FAILED {name}: {result.stdout} {result.stderr}')
+                return 1
         # The workflow block is a machine-consumed interface: execute it with real git base states.
         source = pathlib.Path(__file__).resolve()
         workflow = yaml.load((source.parents[2] / '.github/workflows/gate-manifest.yml').read_text(), Loader=UniqueLoader)
         bootstrap = next(step['run'] for step in workflow['jobs']['gate-manifest']['steps']
                          if step.get('name') == 'Trusted base gate manifest')
-        for index, (has_checker, has_manifest, missing_commit) in enumerate(
-                [(True, True, False), (False, False, False), (True, False, False),
-                 (False, True, False), (True, True, True)]):
+        for index, (has_checker, has_manifest, missing_commit, shrink) in enumerate(
+                [(True, True, False, False), (False, False, False, False), (True, False, False, False),
+                 (False, True, False, False), (True, True, True, False), (True, True, False, True)]):
             repo = root / f'base-{index}'
             repo.mkdir()
             def git(*arguments):
@@ -145,16 +217,20 @@ def self_test():
             git('add', '.')
             git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
                 '-c', 'commit.gpgsign=false', 'commit', '-m', 'base fixture')
+            if shrink:
+                changed = copy.deepcopy(manifest)
+                changed['jobs'].pop(0)
+                (repo / 'docs/quality/gate-manifest.json').write_text(json.dumps(changed), encoding='utf-8')
             environment = dict(os.environ, BASE_SHA='0' * 40 if missing_commit else git('rev-parse', 'HEAD'),
                                RUNNER_TEMP=str(root))
             result = subprocess.run(['pwsh', '-NoProfile', '-Command', bootstrap], cwd=repo, env=environment,
                                     capture_output=True, text=True)
-            should_pass = has_checker == has_manifest and not missing_commit
+            should_pass = has_checker == has_manifest and not missing_commit and not shrink
             marker = ('GATE_MANIFEST_OK' if has_checker else 'Base has no manifest') if should_pass else 'BOO-CI-001'
             if (result.returncode == 0) != should_pass or marker not in result.stdout + result.stderr:
                 print(f'SELF_TEST_FAILED base-{index}: {result.stdout} {result.stderr}')
                 return 1
-        print(f'GATE_MANIFEST_SELF_TEST_OK {len(cases)} CLI cases + 5 real-git bootstrap cases')
+        print(f'GATE_MANIFEST_SELF_TEST_OK {len(cases)} workflow CLI cases + {len(retention_cases) + 1} retention CLI cases + 6 real-git bootstrap cases')
         return 0
 
 
@@ -163,10 +239,11 @@ def main():
     parser.add_argument('--root', type=pathlib.Path, default=pathlib.Path.cwd())
     parser.add_argument('--manifest', type=pathlib.Path)
     parser.add_argument('--self-test', action='store_true')
+    parser.add_argument('--head-manifest', type=pathlib.Path)
     args = parser.parse_args()
     if args.self_test:
         return self_test()
-    return check(args.root, args.manifest or args.root / 'docs/quality/gate-manifest.json')
+    return check(args.root, args.manifest or args.root / 'docs/quality/gate-manifest.json', args.head_manifest)
 
 
 if __name__ == '__main__':

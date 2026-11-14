@@ -39,7 +39,7 @@ jobs:
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
               git show "${env:BASE_SHA}:docs/quality/gate-manifest.json" | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/base_gate_manifest.json"
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-              python -I "$env:RUNNER_TEMP/base_gate_manifest.py" --root . --manifest "$env:RUNNER_TEMP/base_gate_manifest.json"
+              python -I "$env:RUNNER_TEMP/base_gate_manifest.py" --root . --manifest "$env:RUNNER_TEMP/base_gate_manifest.json" --head-manifest docs/quality/gate-manifest.json
               exit $LASTEXITCODE
             }
             Write-Output 'Base has no manifest yet; this PR introduces the contract.'
