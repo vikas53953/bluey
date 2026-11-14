@@ -49,7 +49,10 @@ param(
   [double] $MaxBlankFraction = 0.40,
   [double] $MaxColourShare = 0.70,
   # Flat colours that are test fixtures on purpose, never a window: tools/Boo.CaptureProof fills the whole screen with a
-  # magenta decoy (255, 0, 255) to prove Boo's screenshots leave it out. Only exact declared fixture colours belong here.
+  # magenta decoy (255, 0, 255) to prove Boo's screenshots leave it out. Only declared fixture colours belong here.
+  # Tolerance: each entry also exempts its near neighbours, because colours are compared after rounding each channel to
+  # 5 bits (value / 8) and allowing +/-1 step per channel (about +/-8 to +/-15 of 255), the same tolerance used to group
+  # flat colours. So '#FF00FF' exempts near-magenta too, never white, grey or any other window colour.
   [string[]] $FixtureColours = @('#FF00FF'),
   [double] $MaxBlankSeconds = 1.0,
   [string] $ReportFile
