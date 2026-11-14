@@ -142,6 +142,7 @@ say which.
 | File | Role |
 | --- | --- |
 | `.claude/skills/verify-boo/SKILL.md` | This guide: the rule, the commands, how to report and maintain |
+| `.claude/skills/verify-boo/journeys.md` | The shared journey list (j0–j22): notch states/transitions, explorer regressions and mixed microphone privacy |
 | `.claude/skills/verify-boo/scripts/Invoke-VerifyBoo.ps1` | Local runner: publish, run suites, gate, leak-scan, summary.md |
 | `.claude/skills/verify-boo/scripts/Test-FeatureMap.ps1` | Drift check for `docs/FEATURE_MAP.md` |
 | `docs/FEATURE_MAP.md` | Every feature, its label, and what proves it |
