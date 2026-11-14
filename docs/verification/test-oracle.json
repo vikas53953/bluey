@@ -1,5 +1,5 @@
 {
-  "revision": 28,
+  "revision": 29,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -101,6 +101,7 @@
     "tests/Boo.Integration.Tests/AudioUploadLifecycleTests.cs": "38e02ba8a87bfc7412494ba8ba90934822e664e3634c8445b8f96d48e97d6b73",
     "tests/Boo.Integration.Tests/Boo.Integration.Tests.csproj": "53c5b410a615c6961cf43bbde0de03044da994723bc9c1a2794c1b7e5d8708f1",
     "tests/Boo.Integration.Tests/CaptureDeadlineTests.cs": "149b33d1974d734c763f605d1eca2a59232ba23474f52b5f7520abf48ed5722f",
+    "tests/Boo.Integration.Tests/CaptureExclusionPolicyTests.cs": "d6f7a6c071758ab24aa0de2f15945a1a453e37973ed61fa7d4cf622938e86065",
     "tests/Boo.Integration.Tests/CaptureLifecycleValidationTests.cs": "1b8f681178fc7aa08ab9521fa29b4384d481e0eb7f4be63d88447c39a79a01a9",
     "tests/Boo.Integration.Tests/ControlObservationProviderTests.cs": "f8ab10920135580ed095fae251a449e7ed88bfb5f930b1fc775f287a69a45bb2",
     "tests/Boo.Integration.Tests/CrashLogStoreTests.cs": "b2aab96532a841238640d223a9c33619f94d6c650935d5ebe7e0d9533d9b85f6",
@@ -153,13 +154,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-27.json",
-  "previousManifestSha256": "23c588f1cc8433d787f996dd4cee61508de75a043a2bb9d5f0a55a4eb15ef0be",
-  "revisionReason": "Kill mutant M1: open_url invisible-character guard (PR #3 mutation review 13 Nov); re-extended on lane/face 14eaa1e after #43 took revision 27",
+  "previousManifest": "docs/verification/test-oracle-history/revision-28.json",
+  "previousManifestSha256": "584a852ff3db21f053d9f304cef286bcaecbac1017363a10c2eb3350ad50f406",
+  "revisionReason": "CaptureExclusionPolicyTests: hidden or already-excluded windows are never switched for a capture (demo blank-window fix, PR #95; re-extended on top of revision 28 from PR #90)",
   "addedFiles": [
-    "tests/Boo.Core.Tests/OpenUrlInvisibleCharacterTests.cs"
+    "tests/Boo.Integration.Tests/CaptureExclusionPolicyTests.cs"
   ],
-  "revisionCommit": "7702c1408c7689d3997aa1e6a24660015c15ca63",
+  "revisionCommit": "c361e7279c5fd36dbdd3dc5f19ba2257b98c45e9",
   "changedFiles": [],
   "removedFiles": []
 }
