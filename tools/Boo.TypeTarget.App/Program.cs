@@ -8,7 +8,8 @@ namespace Boo.TypeTarget.App;
 /// shown. args[0] is the mode for A: present | missing | readonly | nonvalue, or a target-identity mode with an
 /// editable decoy whose ID is not exactly "FieldA": casefirst (decoy "fielda" before a real "FieldA"), caseonly
 /// (only "fielda"), partialonly (only "FieldA2"); or removeonwrite (A accepts the write, then is removed from the
-/// window at once, so it cannot be read back).
+/// window at once, so it cannot be read back); or destroyonwrite (A is destroyed while it handles the write, so the
+/// write call itself or its readback fails).
 /// </summary>
 internal static class Program
 {
@@ -48,7 +49,7 @@ internal static class Program
 
             Control? fieldA = mode switch
             {
-                "present" or "casefirst" or "removeonwrite" => new TextBox { Name = "FieldA", AccessibleName = "Field A" },
+                "present" or "casefirst" or "removeonwrite" or "destroyonwrite" => new TextBox { Name = "FieldA", AccessibleName = "Field A" },
                 "readonly" => new TextBox { Name = "FieldA", AccessibleName = "Field A", ReadOnly = true },
                 "nonvalue" => new Label { Name = "FieldA", AccessibleName = "Field A", Text = "Field A (not editable)" },
                 "missing" or "caseonly" or "partialonly" => null,
@@ -58,6 +59,17 @@ internal static class Program
             {
                 fieldA.SetBounds(20, 20, 480, 30);
                 Controls.Add(fieldA);
+                if (mode == "destroyonwrite")
+                {
+                    fieldA.TextChanged += (_, _) =>
+                    {
+                        if (fieldA.Text.Length > 0 && !fieldA.IsDisposed)
+                        {
+                            Controls.Remove(fieldA);
+                            fieldA.Dispose();
+                        }
+                    };
+                }
                 if (mode == "removeonwrite")
                 {
                     fieldA.TextChanged += (_, _) =>

@@ -281,7 +281,7 @@ public sealed class DesktopTools
         var namedField = NamedField(request.Arguments);
         if (namedField is null)
         {
-            return new ToolOutcome(false, false, "Typing refused: the approval names no field. Boo only types into a named field it can set and read back. Nothing was typed.");
+            return new ToolOutcome(false, false, "Can't type safely: this field has no stable identity (no automation ID was approved). Boo only types into a named field it can set and read back. Nothing was typed.");
         }
 
         var targetWindow = target!;
@@ -303,7 +303,9 @@ public sealed class DesktopTools
             FieldWrite.ReadBackMismatched =>
                 new ToolOutcome(false, true, "partial/unverified: UI Automation set the value, but the target text readback did not match."),
             FieldWrite.ReadBackUnavailable =>
-                new ToolOutcome(false, true, $"partial/unverified: the value was written to the approved field '{namedField}', but it could not be read back (the field changed or disappeared). No other field was typed into."),
+                new ToolOutcome(false, true, $"partial/unverified: the value was written to the approved field '{namedField}', but it could not be read back (the field changed or disappeared). No other field was typed into, and Boo will not retry."),
+            FieldWrite.WriteUnconfirmed =>
+                new ToolOutcome(false, true, $"partial/unverified: Windows reported an error while writing to the approved field '{namedField}', so it may have changed and could not be read back. No other field was typed into, and Boo will not retry."),
             FieldWrite.NotFound =>
                 new ToolOutcome(false, false, $"Typing refused: the approved field '{namedField}' is no longer in the target window. Nothing was typed."),
             FieldWrite.NotSettable =>
@@ -662,10 +664,12 @@ public sealed class DesktopTools
     }
 
     /// <summary>
-    /// What happened to the field a type_text request named. The write and its readback are separate: once
-    /// <see cref="ValuePattern.SetValue"/> returns, the result is a committed write (matched, mismatched or unreadable),
-    /// never "nothing was typed". The readback looks the field up again by its exact ID, so a field removed or replaced
-    /// right after the write is reported as unreadable rather than read from a detached control.
+    /// What happened to the field a type_text request named. Three separate steps: find and check the field (a failure
+    /// here is a refusal, nothing written); the write (once <see cref="ValuePattern.SetValue"/> is called, every result
+    /// is committed: an error from the write itself may still have changed the field, so it is
+    /// <see cref="WriteUnconfirmed"/>, never "nothing was typed"); the readback, which looks the field up again by its
+    /// exact ID, so a field removed or replaced right after the write is unreadable rather than read from a detached
+    /// control. Nothing is ever retried: a retry would type the text twice.
     /// </summary>
     private enum FieldWrite
     {
@@ -675,6 +679,7 @@ public sealed class DesktopTools
         ReadBackMatched,
         ReadBackMismatched,
         ReadBackUnavailable,
+        WriteUnconfirmed,
     }
 
     private static string? NamedField(IReadOnlyDictionary<string, string> arguments) =>
@@ -688,6 +693,7 @@ public sealed class DesktopTools
 
     private static FieldWrite WriteNamedField(WindowIdentity target, string automationId, string value)
     {
+        ValuePattern pattern;
         try
         {
             var element = FindExactField(target, automationId);
@@ -696,12 +702,12 @@ public sealed class DesktopTools
                 return FieldWrite.NotFound;
             }
 
-            if (!element.TryGetCurrentPattern(ValuePattern.Pattern, out var pattern) || ((ValuePattern)pattern).Current.IsReadOnly)
+            if (!element.TryGetCurrentPattern(ValuePattern.Pattern, out var found) || ((ValuePattern)found).Current.IsReadOnly)
             {
                 return FieldWrite.NotSettable;
             }
 
-            ((ValuePattern)pattern).SetValue(value);
+            pattern = (ValuePattern)found;
         }
         catch (ElementNotAvailableException)
         {
@@ -714,6 +720,23 @@ public sealed class DesktopTools
         catch (COMException)
         {
             return FieldWrite.NotSettable;
+        }
+
+        try
+        {
+            pattern.SetValue(value);
+        }
+        catch (ElementNotAvailableException)
+        {
+            return FieldWrite.WriteUnconfirmed;
+        }
+        catch (InvalidOperationException)
+        {
+            return FieldWrite.WriteUnconfirmed;
+        }
+        catch (COMException)
+        {
+            return FieldWrite.WriteUnconfirmed;
         }
 
         try
@@ -737,6 +760,10 @@ public sealed class DesktopTools
             return FieldWrite.ReadBackUnavailable;
         }
         catch (COMException)
+        {
+            return FieldWrite.ReadBackUnavailable;
+        }
+        catch (ArgumentException)
         {
             return FieldWrite.ReadBackUnavailable;
         }

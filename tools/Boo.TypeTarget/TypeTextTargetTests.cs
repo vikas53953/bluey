@@ -99,19 +99,21 @@ public sealed class TypeTextTargetTests
         Assert.True(run.FieldA == "", $"FieldA changed: '{run.FieldA}'. {run.Summary}");
         Assert.False(run.Outcome.Success, run.Summary);
         Assert.False(run.Outcome.Committed, run.Summary);
-        Assert.Contains("names no field", run.Outcome.Message, StringComparison.Ordinal);
+        Assert.Contains("no stable identity", run.Outcome.Message, StringComparison.Ordinal);
         Assert.Contains("Nothing was typed", run.Outcome.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Review of PR #132 (P2): FieldA accepts the write and is removed from the window at once, so it cannot be read
-    /// back. The text really was written, so Boo must report a committed, unverified write, never "Nothing was typed",
-    /// and must not type anywhere else.
+    /// Review of PR #132 (P2): FieldA accepts the write and is then removed from the window (removeonwrite) or destroyed
+    /// while it handles the write (destroyonwrite: the write call or its readback throws). The text reached the field,
+    /// so Boo must report a committed, unverified write, never "Nothing was typed", and must not type anywhere else.
     /// </summary>
-    [Fact]
-    public async Task FieldRemovedAfterWrite_ReportsCommittedUnverified_NotNothingTyped()
+    [Theory]
+    [InlineData("removeonwrite")]
+    [InlineData("destroyonwrite")]
+    public async Task FieldRemovedAfterWrite_ReportsCommittedUnverified_NotNothingTyped(string mode)
     {
-        var run = await RunAsync("removeonwrite");
+        var run = await RunAsync(mode);
 
         Assert.True(run.FieldB.Length == 0, $"FieldB changed: '{run.FieldB}'. {run.Summary}");
         Assert.True(run.Outcome.Committed, $"a real write must be reported as committed. {run.Summary}");
