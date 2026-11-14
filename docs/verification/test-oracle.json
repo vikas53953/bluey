@@ -1,5 +1,5 @@
 {
-  "revision": 30,
+  "revision": 31,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -95,6 +95,7 @@
     "tests/Boo.Demo.Tests/Boo.Demo.Tests.csproj": "f3fad7e22de0b6b19a8b5bb208a3a6dcb4d76db4befa792f289ef188ed955d7b",
     "tests/Boo.Demo.Tests/BooAppFixture.cs": "3674257f2b56f26ae5c1fb537e3d7498cd633d23b466988c7c45e91e06ec2179",
     "tests/Boo.Demo.Tests/DemoTests.cs": "dcb58a575f973cd6d58f97af7612b97f6b1c4b0ab7c22f0c1b32f37e04611dac",
+    "tests/Boo.Demo.Tests/HiddenTextApprovalCardDemoTests.cs": "2e51e67626e3920b3ed2b436467b1008d1762dc1b978c7e22135cde9b9275f9e",
     "tests/Boo.Demo.Tests/OrderedSteps.cs": "306e9963f703f5d3110060f5a03f66272dfda4959eba07c238be328da40776e2",
     "tests/Boo.Demo.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Integration.Tests/AppearanceReadFailureTests.cs": "71a6aa267746f1f5124cde57204258a4d6c62351d620e963b30eeec95c585a70",
@@ -156,14 +157,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-29.json",
-  "previousManifestSha256": "e977f2abf825dd9e030e662147732a4801ce0420d19c8be095ed4e272b093eba",
-  "revisionReason": "Issue #127: type_text invisible-character class tests (guard, card and executor backstop)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-30.json",
+  "previousManifestSha256": "e6672ff1c02b53a9a6acb60d9ca2f63084308cce4e87701527d30908fbb9b895",
+  "revisionReason": "Issue #127: native approval-card journey for hidden type_text (demo-ci, published Boo.exe)",
   "addedFiles": [
-    "tests/Boo.Core.Tests/TypeTextInvisibleCharacterTests.cs",
-    "tests/Boo.Integration.Tests/TypeTextExecutorInvisibleCharacterTests.cs"
+    "tests/Boo.Demo.Tests/HiddenTextApprovalCardDemoTests.cs"
   ],
-  "revisionCommit": "e0a22eeb40ea412142fe69042797281a2d82adde",
+  "revisionCommit": "86bf480bdd9ed3296750465290fb6a4f8a98043c",
   "changedFiles": [],
   "removedFiles": []
 }

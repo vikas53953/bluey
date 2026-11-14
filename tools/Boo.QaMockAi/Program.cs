@@ -269,6 +269,9 @@ public static class Program
 
         var (frameW, frameH) = ParseFrame(inputText);
 
+        if (QaHiddenText.Reply(lower) is { } typing)
+            return Envelope(structured ? typing.Json : typing.Text, null);
+
         if (route == "research")
         {
             var annotations = new JsonArray();
@@ -466,5 +469,47 @@ public static class Program
             }
             catch (IOException) { }
         }
+    }
+}
+
+/// <summary>
+/// Issue #127 approval-card journey (tests/Boo.Demo.Tests/HiddenTextApprovalCardDemoTests.cs), kept as one separate
+/// block so it merges cleanly with other mock routes. "qa-visible-type" proposes typing visible text and
+/// "qa-hidden-type" proposes text with invisible characters (U+200E, U+061C, U+200F and the tag character U+E0041),
+/// both into the test's own field <see cref="FieldId"/>. Boo's card must show the hidden ones as [U+XXXX] markers and
+/// refuse Approve.
+/// </summary>
+public static class QaHiddenText
+{
+    public const string VisibleKeyword = "qa-visible-type";
+    public const string HiddenKeyword = "qa-hidden-type";
+    public const string FieldId = "QaHiddenTextField";
+    public const string VisibleText = "paypal visible 123";
+    public const string ReplyText = "QA-TYPE: I propose typing into the field.";
+
+    public static readonly string HiddenText =
+        "pay" + char.ConvertFromUtf32(0x200E) + "pal " + char.ConvertFromUtf32(0x061C) + "x" +
+        char.ConvertFromUtf32(0x200F) + " tag" + char.ConvertFromUtf32(0xE0041);
+
+    /// <summary>The structured reply for a typing keyword in the user's words, or null for every other request.</summary>
+    public static (string Json, string Text)? Reply(string lowerUserText)
+    {
+        string? text = lowerUserText.Contains(HiddenKeyword, StringComparison.Ordinal) ? HiddenText
+            : lowerUserText.Contains(VisibleKeyword, StringComparison.Ordinal) ? VisibleText
+            : null;
+        if (text is null) return null;
+
+        var action = new JsonObject
+        {
+            ["name"] = "type_text",
+            ["target"] = "QA hidden-text target",
+            ["arguments"] = new JsonObject
+            {
+                ["x"] = null, ["y"] = null, ["automationId"] = FieldId, ["name"] = null, ["text"] = text,
+                ["path"] = null, ["overwrite"] = null, ["content"] = null, ["contents"] = null
+            }
+        };
+        var result = new JsonObject { ["text"] = ReplyText, ["marks"] = new JsonArray(), ["actions"] = new JsonArray(action) };
+        return (result.ToJsonString(), ReplyText);
     }
 }
