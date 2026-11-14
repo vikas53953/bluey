@@ -23,7 +23,7 @@ namespace Boo.Explorer;
 /// </summary>
 public static class ExplorerLedger
 {
-    public const int HardCap = 20;
+    public static readonly int HardCap = Environment.GetEnvironmentVariable("BOO_EXPLORER_CALL_CAP") == "12" ? 12 : 20;
     private static readonly object Gate = new();
     private static readonly List<string> Asked = new();
     private static int s_admitted;

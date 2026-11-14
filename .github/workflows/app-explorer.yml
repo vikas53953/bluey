@@ -127,9 +127,9 @@ jobs:
       - name: Record exact application provenance
         shell: pwsh
         run: |
-          git diff --exit-code 14eaa1e0a34fc2ddac41fa2c761bea56c21ff031 -- src
+          git diff --exit-code 50625744a54456246a7ad51b55634fb9b59e0abf -- src
           if ($LASTEXITCODE -ne 0) { throw 'Application differs from requested lane tip' }
-          "Application SHA: 14eaa1e0a34fc2ddac41fa2c761bea56c21ff031" | Set-Content artifacts/explorer-evidence/provenance.txt
+          "Application SHA: 50625744a54456246a7ad51b55634fb9b59e0abf" | Set-Content artifacts/explorer-evidence/provenance.txt
           git rev-parse HEAD | Add-Content artifacts/explorer-evidence/provenance.txt
 
       - name: Publish Boo and build the explorer
@@ -139,17 +139,18 @@ jobs:
           dotnet build tools/Boo.Explorer -c Release
           dotnet build tools/Boo.VerifyLive -c Release
 
-      - name: Scripted j0 and j1 before guided variations (zero AI calls)
+      - name: Scripted j0-j5 before guided variations (four request admissions)
         if: env.REGRESSIONS_ONLY != 'true'
         continue-on-error: true
-        timeout-minutes: 5
+        timeout-minutes: 12
         shell: pwsh
         env:
+          BOO_SCRIPTED_BUDGET: "4"
           BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\explorer-evidence\scripted
           BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
         run: |
-          dotnet test tools/Boo.VerifyLive -c Release --no-build --filter "FullyQualifiedName~J0_NotchWakes_OnHotkey|FullyQualifiedName~J1_NotchWakes_OnHover" --logger trx --results-directory artifacts/explorer-evidence/scripted/trx
+          dotnet test tools/Boo.VerifyLive -c Release --no-build --filter "FullyQualifiedName~J0_|FullyQualifiedName~J1_|FullyQualifiedName~J2_|FullyQualifiedName~J3_|FullyQualifiedName~J4_|FullyQualifiedName~J5_" --logger trx --results-directory artifacts/explorer-evidence/scripted/trx
           exit $LASTEXITCODE
 
       - name: Explore Boo (FlaUI against the published Boo.exe; no key, wrong key, no network, real key)
@@ -160,7 +161,8 @@ jobs:
           BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\explorer-evidence
           BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
-          BOO_EXPLORER_SEED: ${{ inputs.seed || '5353' }}
+          BOO_EXPLORER_CALL_CAP: "12"
+          BOO_EXPLORER_SEED: ${{ inputs.seed || '506257' }}
         run: |
           & dotnet test tools/Boo.Explorer -c Release --no-build --logger trx --logger "console;verbosity=normal" --results-directory artifacts/explorer-evidence/trx
           $testExit = $LASTEXITCODE
@@ -185,6 +187,16 @@ jobs:
           $testExit = $LASTEXITCODE
           Get-ChildItem artifacts/explorer-evidence/regressions -Filter *.txt -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike '*.capture.txt' } | Sort-Object Name | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName | Select-Object -First 30 }
           exit $testExit
+
+      - name: Scripted batch gate (all six journeys executed and passed)
+        if: ${{ !cancelled() && env.REGRESSIONS_ONLY != 'true' }}
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem artifacts/explorer-evidence/scripted/trx -Filter *.trx)
+          if ($files.Count -ne 1) { throw 'Expected one scripted TRX' }
+          [xml]$trx = Get-Content $files[0].FullName
+          $c = $trx.TestRun.ResultSummary.Counters
+          if ([int]$c.total -ne 6 -or [int]$c.executed -ne 6 -or [int]$c.passed -ne 6) { throw 'Scripted j0-j5 did not all pass; retain failures' }
 
       - name: Firewall rule removed (no-network launch cleaned up)
         if: always()
