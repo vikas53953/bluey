@@ -60,6 +60,7 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | T7 | Voice latency target (median <= 1.5 s, p95 <= 3 s over 20 warm turns) | automated mock + manual | `tests/Boo.Core.Tests/LatencyRecorderTests.cs`; runbook 3.5 |
 | T8 | Voice commands (start / pause / resume / end focus, "how's my focus", "bye") | automated mock | `tests/Boo.Core.Tests/VoiceCommandTests.cs`; `tests/Boo.Integration.Tests/VoiceToolProtocolTests.cs`. Live voice: UNVERIFIED |
 | T9 | Typed requests are classified (Undo / Action / Research / Explain) from their first words | automated mock | `tests/Boo.Core.Tests/RequestIntentTests.cs` |
+| T10 | After Stop, the status line no longer says Boo is working ("Thinking…") | automated mock | `tools/Boo.VerifyLive/Regressions/StopStatusRegressionTests.cs::StopDuringPendingQuestion_StatusNoLongerSaysThinking` (a stalled local proxy holds the question pending; no AI). Failed before the fix (issue [#71](https://github.com/vikas53953/bluey/issues/71)); passes with it (PR #83). Unit: `tests/Boo.Core.Tests/BusyStatusLineTests.cs` (a working message of a superseded or stopped request is never shown and never owns the line; oracle revision 29). |
 
 ### Screen explain and pointer
 
@@ -106,6 +107,8 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | F9 | Session history timeline (on / off task, pauses) | automated mock | `tests/Boo.Core.Tests/FocusTimelineTests.cs` |
 | F10 | Developer Mode (4x clock, checks every 10 s) | automated live | `tools/Boo.VerifyLive/LiveJourneyTests.cs::J6_FocusSession_25Minutes_OnTheDeveloperModeClock` (the 25-minute session completes in about 6.5 real minutes) |
 | F11 | Chirp on nudge and session end (880 to 1320 Hz), Mute chirps | automated mock + manual | `tests/Boo.Core.Tests/ChirpPolicyTests.cs`; `tests/Boo.Core.Tests/ChirpSynthTests.cs`; runbook 10.3 (audible) |
+| F12 | Pause does nothing once a session has ended (no "Paused" text, notch not pinned on Paused) | automated live | `tools/Boo.VerifyLive/Regressions/FocusPauseAfterEndRegressionTests.cs::PauseAfterEnd_DoesNotPinThePausedFace_OrClaimPaused` (no key, no AI). Failed before the fix (issue [#70](https://github.com/vikas53953/bluey/issues/70)); passes with it (PR #82). |
+| F13 | Pause on a running session pauses it (Paused face, clock stops); Resume clears the Paused face and the clock runs; End leaves no Paused face | automated live | `tools/Boo.VerifyLive/Regressions/FocusPauseResumeRegressionTests.cs::PauseResumeEnd_PausedFaceAndClockFollowTheSession` (no key, no AI; added for the Codex mutation tester's surviving mutants on PR #82) |
 
 ### Settings, providers and data
 
@@ -139,4 +142,6 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | X5 | Narrator, High contrast, text size, animations off | manual | `docs/verification/2026-11-08-accessibility-native-checklist.md` |
 | X6 | Window survives small resize and maximize / restore | automated live | `tests/Boo.Ui.Tests/BooSmokeTests.Hardening.cs::Panel_SurvivesSmallResizeAndMaximizeRestore` |
 | X7 | Idle memory, CPU and render-loop budgets | automated live | `tests/Boo.Perf.Tests/BooPerfBudgetTests.cs::Idle_startup_memory_cpu_and_render_loop_stay_within_budget` |
+| X9 | Every Conversation row on screen is reported to screen readers, even two identical rows | automated live | `tools/Boo.VerifyLive/Regressions/TranscriptDuplicateRowsRegressionTests.cs::SameQuestionTwice_ScreenReadersSeeBothRows` (no key, no AI). Failed before the fix (issue [#73](https://github.com/vikas53953/bluey/issues/73)); passes with it (PR #84). |
+| X10 | Conversation rows appear in the order asked, and the newest row is always in view (the oldest scrolls away) | automated live | `tools/Boo.VerifyLive/Regressions/TranscriptOrderAndScrollRegressionTests.cs::DistinctQuestions_AppearInOrder_AndTheNewestRowIsAlwaysInView` (no key, no AI; read through UI Automation; added for the Codex mutation tester's surviving mutants on PR #84) |
 | X8 | The always-on notch draws in software, and one hover-and-retract stays within its memory budget | automated live | `tests/Boo.Perf.Tests/NotchDrawingMemoryTests.cs::Notch_draws_in_software_and_one_hover_stays_within_memory_budget` (windows-ci perf step) |
