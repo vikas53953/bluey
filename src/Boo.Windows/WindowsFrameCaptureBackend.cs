@@ -217,8 +217,7 @@ internal sealed class WindowsFrameCaptureBackend : IFrameCaptureBackend, IDispos
                     $"Boo could not inspect display-capture exclusion for owned window {rawHandle}.");
             }
 
-            // Hidden windows are never in the frame, and already-excluded ones need no change: touching either
-            // is skipped (see CaptureExclusionPolicy for the blank-window bug this avoids).
+            // INVARIANT: hidden or already-excluded windows are never switched; see CaptureExclusionPolicyTests.A_hidden_window_is_never_touched
             if (!CaptureExclusionPolicy.NeedsTemporaryExclusion(IsWindowVisible(hwnd), prior))
             {
                 continue;
