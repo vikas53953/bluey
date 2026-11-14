@@ -80,6 +80,8 @@ public sealed class LiveVoiceRoundTripTests
         var settings = new ProviderSettings(TextProvider: AiProvider.OpenAI) with { RealtimeModel = realtimeModel };
         await using var client = new RealtimeClient(() => key.Trim(), settings, pushToTalk: true, transcriptionModel: transcribeModel);
         client.Received += events.Enqueue;
+        var rawMessages = new ConcurrentQueue<string>();
+        client.RawFrameObserver = rawMessages.Enqueue;
 
         using var deadline = new CancellationTokenSource(TurnTimeout);
         var started = DateTime.UtcNow;
@@ -120,6 +122,10 @@ public sealed class LiveVoiceRoundTripTests
         var answerSeconds = (double)answerAudio.Length / BytesPerSecond;
 
         WriteEvidence(accepted, realtimeModel, transcribeModel, questionSeconds, answerSeconds, seconds, heard, answer, answerAudio, problems);
+        WriteEventTrace(events.ToArray());
+        var raw = AnswerAudioFrames.Assemble(rawMessages.ToArray());
+        WriteRawAudio(raw, answerAudio);
+        _output.WriteLine($"voice: raw {raw.Lines[0]}; decode problems: {(raw.Problems.Count == 0 ? "none" : string.Join("; ", raw.Problems))}");
         _output.WriteLine($"voice: heard='{heard}' answer='{answer}' answerAudio={answerSeconds:0.0}s in {seconds:0.0}s");
 
         Assert.True(problems.Count == 0, "OpenAI voice reported a problem: " + string.Join("; ", problems));
@@ -132,9 +138,17 @@ public sealed class LiveVoiceRoundTripTests
         // The rule is SpokenAudio.IsSpokenAnswer, tested offline in SpokenAudioTests.
         var speechSeconds = SpokenAudio.SpeechSeconds(answerAudio, SampleRate);
         _output.WriteLine($"voice: answer speech={speechSeconds:0.00}s of {answerSeconds:0.00}s audio (minimum {SpokenAudio.MinimumSpeechSeconds:0.00}s)");
+        // The raw messages must agree with what Boo decoded before the audio itself is judged: a dropped or split audio
+        // message, or audio under an event name Boo does not read, is a decode failure, not a silent answer.
+        Assert.True(raw.Problems.Count == 0, "The answer audio did not decode cleanly: " + string.Join("; ", raw.Problems));
+        Assert.True(raw.Pcm.AsSpan().SequenceEqual(answerAudio),
+            $"The raw messages hold {raw.Pcm.Length} audio bytes but Boo's events delivered {answerAudio.Length}.");
+        var audioChunks = events.Count(e => e.Kind == "response.output_audio.delta" && e.Audio is not null);
         Assert.True(SpokenAudio.IsSpokenAnswer(answerAudio, SampleRate),
             $"The answer should be spoken (at least {SpokenAudio.MinimumSpeechSeconds:0.00} s of speech above the quiet " +
-            $"floor) but its {answerSeconds:0.00} s of audio held only {speechSeconds:0.00} s of speech.");
+            $"floor) but its {answerSeconds:0.00} s of audio held only {speechSeconds:0.00} s of speech: OpenAI sent " +
+            $"{audioChunks} audio chunk(s) whose loudest sample is {SpokenAudio.PeakLevel(answerAudio)} of 32767 while its " +
+            $"transcript said '{answer}' (a silent spoken answer; per-event trace in live-voice-01-events.txt).");
         Assert.True(SaidAnswer.IsMatch(answer), $"The spoken answer should say 'five' but its transcript was '{answer}'.");
     }
 
@@ -211,6 +225,47 @@ public sealed class LiveVoiceRoundTripTests
             string.Create(CultureInfo.InvariantCulture, $"estimated cost of this voice turn: about ${cost:0.0000} (see LiveVoiceRoundTripTests.EstimatedCostUsd for the assumptions)"),
         })) + "\n");
         if (answerAudio.Length > 0) File.WriteAllBytes(Path.Combine(folder, "live-voice-01-answer.wav"), Wav(answerAudio));
+    }
+
+    /// <summary>
+    /// One line per realtime event (kind, item, content index, text length, audio bytes and loudest sample), so a failed
+    /// answer can be diagnosed from the run alone: the sentinel's silent answers (runs 43575595540, 43576162645) could
+    /// not be traced to a cause without it. Transcript text and audio bytes are not repeated here; no key is involved.
+    /// </summary>
+    private static void WriteEventTrace(IReadOnlyList<RealtimeEvent> events)
+    {
+        var folder = Environment.GetEnvironmentVariable("BOO_UI_ARTIFACTS");
+        if (string.IsNullOrWhiteSpace(folder)) return;
+        Directory.CreateDirectory(folder);
+        var lines = new List<string> { $"realtime events received: {events.Count}" };
+        for (var i = 0; i < events.Count; i++)
+        {
+            var e = events[i];
+            var audio = e.Audio is { } a
+                ? string.Create(CultureInfo.InvariantCulture, $" audioBytes={a.Length} peak={SpokenAudio.PeakLevel(a)}")
+                : string.Empty;
+            var status = e.Kind is "response.done" or "error" or "disconnect" ? $" status='{e.Text}'" : string.Empty;
+            lines.Add(string.Create(CultureInfo.InvariantCulture,
+                $"{i:000} {e.Kind} item={e.ItemId ?? "-"} content={e.ContentIndex} textChars={e.Text?.Length ?? 0}{audio}{status}"));
+        }
+        File.WriteAllText(Path.Combine(folder, "live-voice-01-events.txt"), string.Join('\n', lines) + "\n");
+    }
+
+    /// <summary>
+    /// The answer audio exactly as received and as decoded: live-voice-01-audio-deltas.txt holds each audio message's
+    /// base64 text (before decoding, one per line), live-voice-01-answer.pcm the decoded 16-bit samples (after decoding),
+    /// and live-voice-01-frames.txt one line per audio message plus the confirmed output format and any decode problem.
+    /// The evidence folder is key-scanned before upload (BOO-SAFE-002); none of these contain a key.
+    /// </summary>
+    private static void WriteRawAudio(AnswerAudioReport raw, byte[] answerAudio)
+    {
+        var folder = Environment.GetEnvironmentVariable("BOO_UI_ARTIFACTS");
+        if (string.IsNullOrWhiteSpace(folder)) return;
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "live-voice-01-audio-deltas.txt"), string.Join('\n', raw.Deltas) + "\n");
+        File.WriteAllBytes(Path.Combine(folder, "live-voice-01-answer.pcm"), answerAudio);
+        File.WriteAllText(Path.Combine(folder, "live-voice-01-frames.txt"),
+            string.Join('\n', raw.Lines.Concat(raw.Problems.Select(p => "PROBLEM " + p))) + "\n");
     }
 
     /// <summary>The answer's PCM in a WAV container, so a reviewer can listen to what Boo said.</summary>
