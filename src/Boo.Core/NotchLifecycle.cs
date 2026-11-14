@@ -847,8 +847,7 @@ public static class NotchLifecycle
 
     private static NotchLifecycleState? Apply(NotchLifecycleState s, NotchEvent.Apply apply, List<NotchEffect> fx)
     {
-        if (s.Card is not { Stage: CardStage.Executing } card || s.Ticket != card.Proposal
-            || !s.IsCurrent(card.Generation))
+        if (s.Card is not { Stage: CardStage.Executing } card || s.Ticket != card.Proposal)
             return null;
 
         var proposal = card.Proposal;
