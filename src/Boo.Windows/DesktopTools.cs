@@ -722,50 +722,72 @@ public sealed class DesktopTools
             return FieldWrite.NotSettable;
         }
 
+        if (!TrySetOnce(pattern, value))
+        {
+            return FieldWrite.WriteUnconfirmed;
+        }
+
+        return ReadBackExactField(target, automationId) is not { } readBack
+            ? FieldWrite.ReadBackUnavailable
+            : string.Equals(readBack, value, StringComparison.Ordinal)
+                ? FieldWrite.ReadBackMatched
+                : FieldWrite.ReadBackMismatched;
+    }
+
+    /// <summary>
+    /// The single write attempt. False only when the write call itself failed, after which the field may or may not
+    /// have changed; the caller reports that as committed and unverified and never calls this again.
+    /// </summary>
+    private static bool TrySetOnce(ValuePattern pattern, string value)
+    {
         try
         {
             pattern.SetValue(value);
+            return true;
         }
         catch (ElementNotAvailableException)
         {
-            return FieldWrite.WriteUnconfirmed;
+            return false;
         }
         catch (InvalidOperationException)
         {
-            return FieldWrite.WriteUnconfirmed;
+            return false;
         }
         catch (COMException)
         {
-            return FieldWrite.WriteUnconfirmed;
+            return false;
         }
+    }
 
+    /// <summary>
+    /// The approved field's value, read through a fresh exact-ID lookup after the write, or null when it cannot be
+    /// read. It returns only a value or null, never a <see cref="FieldWrite"/>, so a readback failure can never be
+    /// reported as "not written" whichever error caused it.
+    /// </summary>
+    private static string? ReadBackExactField(WindowIdentity target, string automationId)
+    {
         try
         {
-            var readBack = FindExactField(target, automationId);
-            if (readBack is null || !readBack.TryGetCurrentPattern(ValuePattern.Pattern, out var readPattern))
-            {
-                return FieldWrite.ReadBackUnavailable;
-            }
-
-            return string.Equals(((ValuePattern)readPattern).Current.Value, value, StringComparison.Ordinal)
-                ? FieldWrite.ReadBackMatched
-                : FieldWrite.ReadBackMismatched;
+            var element = FindExactField(target, automationId);
+            return element is not null && element.TryGetCurrentPattern(ValuePattern.Pattern, out var pattern)
+                ? ((ValuePattern)pattern).Current.Value
+                : null;
         }
         catch (ElementNotAvailableException)
         {
-            return FieldWrite.ReadBackUnavailable;
+            return null;
         }
         catch (InvalidOperationException)
         {
-            return FieldWrite.ReadBackUnavailable;
+            return null;
         }
         catch (COMException)
         {
-            return FieldWrite.ReadBackUnavailable;
+            return null;
         }
         catch (ArgumentException)
         {
-            return FieldWrite.ReadBackUnavailable;
+            return null;
         }
     }
 

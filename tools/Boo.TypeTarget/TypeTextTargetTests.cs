@@ -122,7 +122,37 @@ public sealed class TypeTextTargetTests
         Assert.DoesNotContain("Nothing was typed", run.Outcome.Message, StringComparison.Ordinal);
     }
 
-    private sealed record Run(ToolOutcome Outcome, string? FieldA, string FieldB, string? Decoy, string Summary);
+    /// <summary>
+    /// Mutation report on PR #132 (M03, M06, M07): FieldA has its own UI Automation provider, so each failure is exact.
+    /// provider-ok: write and readback work. After the write is stored the readback fails as "element not available"
+    /// (readgone) or "invalid operation" (readinvalid), the two errors UI Automation passes to Boo, or as a plain COM
+    /// error (readfails), which UI Automation turns into an empty value (a mismatch). provider-setthrows: the write
+    /// changes the value, then the write call fails with a COM error. A write that happened is always committed and
+    /// unverified, never "Nothing was typed"; FieldA is written exactly once (no retry, no repeat); nothing reaches B.
+    /// </summary>
+    [Theory]
+    [InlineData("provider-ok", true, "observed UI Automation value read back exactly")]
+    [InlineData("provider-readgone", false, "could not be read back (the field changed or disappeared)")]
+    [InlineData("provider-readinvalid", false, "could not be read back (the field changed or disappeared)")]
+    [InlineData("provider-readfails", false, "the target text readback did not match")]
+    [InlineData("provider-setthrows", false, "Windows reported an error while writing")]
+    public async Task ControlledField_WriteOnce_ExactResultKind(string mode, bool success, string kind)
+    {
+        var run = await RunAsync(mode);
+
+        Assert.True(run.WriteCount == "1", $"FieldA must be written exactly once, was written {run.WriteCount} time(s). {run.Summary}");
+        Assert.True(run.FieldB.Length == 0, $"FieldB changed: '{run.FieldB}'. {run.Summary}");
+        Assert.True(run.Outcome.Committed, $"a write that happened must be reported as committed. {run.Summary}");
+        Assert.Equal(success, run.Outcome.Success);
+        Assert.Contains(kind, run.Outcome.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Nothing was typed", run.Outcome.Message, StringComparison.Ordinal);
+        if (!success)
+        {
+            Assert.StartsWith("partial/unverified", run.Outcome.Message, StringComparison.Ordinal);
+        }
+    }
+
+    private sealed record Run(ToolOutcome Outcome, string? FieldA, string FieldB, string? Decoy, string? WriteCount, string Summary);
 
     private async Task<Run> RunAsync(string mode, string? decoyId = null, string? approvedId = "FieldA", string? label = null)
     {
@@ -162,15 +192,25 @@ public sealed class TypeTextTargetTests
             var outcome = await new DesktopTools(coordinator, targets).ExecuteAsync(request, authority, approval, target, lease.Token);
 
             Thread.Sleep(750); // let any keystrokes Windows accepted reach the field before reading it back
-            var fieldA = ReadValue(Find(root, "FieldA"));
+            string? fieldA;
+            try
+            {
+                fieldA = ReadValue(Find(root, "FieldA"));
+            }
+            catch (Exception ex) when (ex is COMException or InvalidOperationException or ElementNotAvailableException)
+            {
+                fieldA = "(unreadable)";
+            }
+            var writeCount = ReadValue(Find(root, "WriteCount"));
             var fieldBValue = ReadValue(fieldB) ?? "";
             var decoy = decoyId is null ? null : ReadValue(Find(root, decoyId)) ?? throw new InvalidOperationException($"decoy '{decoyId}' not found");
             var summary = $"mode={label} outcome=(success={outcome.Success}, committed={outcome.Committed}, message='{outcome.Message}') " +
                           $"FieldA='{fieldA ?? "(no value field)"}' FieldB='{fieldBValue}'" +
-                          (decoyId is null ? "" : $" {decoyId}='{decoy}'");
+                          (decoyId is null ? "" : $" {decoyId}='{decoy}'") +
+                          (writeCount is null ? "" : $" writes={writeCount}");
             _output.WriteLine(summary);
             Evidence(label, summary, hwnd);
-            return new Run(outcome, fieldA, fieldBValue, decoy, summary);
+            return new Run(outcome, fieldA, fieldBValue, decoy, writeCount, summary);
         }
         finally
         {
