@@ -81,6 +81,39 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
             {
                 var areas = ShellElements(NotificationContainer);
                 Record($"unnamed discovery elements excluded={unnamedDiscoveryElements}; positively identified containers={areas.Length}");
+                if (areas.Length == 0)
+                {
+                    // Diagnose failed required setup; this inventory never supplies an accepted tray locator.
+                    var count = 0;
+                    void Describe(AutomationElement element, int depth)
+                    {
+                        if (++count > 2000) return;
+                        var hasName = element.Properties.Name.TryGetValue(out var name);
+                        var hasType = element.Properties.ControlType.TryGetValue(out var type);
+                        var hasPid = element.Properties.ProcessId.TryGetValue(out var pid);
+                        var hasBounds = element.Properties.BoundingRectangle.TryGetValue(out var bounds);
+                        Record($"shell inventory depth={depth} nameSupported={hasName} name={name} typeSupported={hasType} type={type} pidSupported={hasPid} pid={pid} boundsSupported={hasBounds} bounds={bounds}");
+                        foreach (var child in element.FindAllChildren())
+                        {
+                            if (count >= 2000) break;
+                            Describe(child, depth + 1);
+                        }
+                    }
+                    try
+                    {
+                        foreach (var root in desktop.FindAllChildren().Where(e => explorerIds.Contains(e.Properties.ProcessId.Value)))
+                        {
+                            Describe(root, 0);
+                            if (root.Properties.BoundingRectangle.TryGetValue(out var bounds) && bounds.Width > 0 && bounds.Height > 0)
+                                _boo.CaptureRectangle($"qa-j12f-shell-root-{count}", bounds);
+                        }
+                        Record($"shell inventory count={count}; truncated={count >= 2000}");
+                    }
+                    catch (Exception diagnosticError)
+                    {
+                        Record("secondary shell inventory error=" + diagnosticError);
+                    }
+                }
                 Assert.NotEmpty(areas);
                 foreach (var area in areas)
                 {

@@ -210,3 +210,6 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 
 
 | 14 Nov 2026 | Q12F excludes unrelated shell candidates whose UIA Name is unsupported, using the explicit supported-property result. | Hosted discovery failed before Stop; keep positive notification-container scope, selected icon/hit RuntimeId equality and strict required reads. Unsupported candidate metadata cannot become positive evidence. | Actions43582272364 ata1d341f; inspected identity/log/screenshot; local compile0warnings/0errors | proposed; native tray Stop UNVERIFIED |
+
+
+| 14 Nov 2026 | Diagnose Q12F zero notification containers with failure-only bounded Explorer tree/rectangle evidence; preserve the required setup failure. | Exact run942cf80 lacks the exposed shell hierarchy needed to distinguish unsupported accessibility, naming/type mismatch or discovery scope. No speculative locator broadening or alternative Stop action. | Actions43583948653; inspected identity/log/TRX/screenshot; local compile0warnings/0errors | proposed; tray Stop UNVERIFIED |
