@@ -748,7 +748,7 @@ public static class NotchLifecycle
 
     private static NotchLifecycleState? TalkButton(NotchLifecycleState s, List<NotchEffect> fx) => s.MicIndicator
         ? StopListening(s, fx)
-        : NewRequest(s, false, VoiceSessionKind.TalkButton, MicOwner.Button, false, fx);
+        : NewRequest(s, false, VoiceSessionKind.TalkButton, MicOwner.Button, true, fx);
 
     private static NotchLifecycleState? TalkDown(NotchLifecycleState s, HoldSource source, List<NotchEffect> fx)
     {
@@ -804,7 +804,7 @@ public static class NotchLifecycle
             RequestStopped = true,
             Card = CardAfterNewGeneration(s.Card),
             Ticket = s.Card?.Stage == CardStage.Executing ? s.Ticket : null,
-            Focus = PauseIfRunning(s.Focus),
+            Focus = s.Focus == FocusStatus.Running ? null : s.Focus,
         };
     }
 
