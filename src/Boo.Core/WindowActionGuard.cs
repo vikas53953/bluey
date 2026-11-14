@@ -89,9 +89,11 @@ public static class WindowActionGuard
     public static bool IsCommandHost(string? processName) =>
         !string.IsNullOrWhiteSpace(processName) && CommandHosts.Contains(NormalizeProcessName(processName));
 
-    // One shared policy (issue #127): every control character except tab and line breaks, every Unicode
-    // Format character (zero-width, bidi marks and overrides, U+061C ...) and any broken surrogate pair can
-    // make the approval card show different text from what is typed. The executor re-runs this same check.
+    /// <summary>
+    /// True when the text holds a character the approval card cannot show faithfully, by the shared
+    /// <see cref="InvisibleCharacters"/> policy (issue #127); tab and line breaks are allowed. The approval card
+    /// and the executor backstop both reach this through <see cref="BlockedReason"/>.
+    /// </summary>
     internal static bool HasDisallowedControlCharacter(string text) =>
         InvisibleCharacters.Contains(text, allowTabsAndLineBreaks: true);
 
