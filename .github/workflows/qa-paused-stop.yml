@@ -1,0 +1,75 @@
+name: qa-paused-stop
+on:
+  # One approved attempt is already running; future attempts require explicit dispatch.
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  paused-stop:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Refuse unless GitHub's own VM
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'GitHub hosted VM required; never the owner PC.' }
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build pinned app and harness (no AI key)
+        shell: pwsh
+        run: |
+          dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/paused-stop-app
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tools/Boo.QaSuite -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force artifacts/paused-stop | Out-Null
+          "app=$(git rev-parse HEAD)`nharness=$(git rev-parse HEAD)`nworkflow=$(git rev-parse HEAD)" | Set-Content artifacts/paused-stop/identity.txt
+          Get-FileHash artifacts/paused-stop-app/Boo.exe | Format-List | Out-File artifacts/paused-stop/exe-hash.txt
+      - name: One paused Stop journey (no key, no provider calls)
+        shell: pwsh
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\paused-stop-app\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\paused-stop
+          BOO_CAPTURE_SCOPE: boo-windows
+        run: |
+          dotnet test tools/Boo.QaSuite -c Release --no-build --filter FullyQualifiedName=Boo.QaSuite.Journeys.PausedStopTests.Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace --logger trx --results-directory artifacts/paused-stop/trx
+          $testExit = $LASTEXITCODE
+          $results = @(Get-ChildItem artifacts/paused-stop/trx -Filter *.trx)
+          if ($results.Count -ne 1) { throw 'Expected one TRX receipt' }
+          [xml]$trx = Get-Content $results[0].FullName -Raw
+          $rows = @($trx.TestRun.Results.UnitTestResult)
+          if ($rows.Count -ne 1 -or $rows[0].outcome -ne 'Passed' -or $rows[0].testName -ne 'Boo.QaSuite.Journeys.PausedStopTests.Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace') { throw 'Exact Q12G result did not pass' }
+          exit $testExit
+      - name: Prepare evidence scanner
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Key scan before upload
+        id: keyscan_artifacts_paused_stop
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/paused-stop; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/paused-stop' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/paused-stop')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+      - name: Upload journey evidence
+        if: ${{ !cancelled() && steps.keyscan_artifacts_paused_stop.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-paused-stop
+          if-no-files-found: error
+          retention-days: 7
+          path: artifacts/paused-stop
