@@ -47,6 +47,7 @@ PLAIN = {
     'Q18': 'Newer typed request only answer during 15-second watch (partial j18)',
     'Q16': 'Second approved file Undo restores exact contents (partial j16; field pending)',
     'Q15': 'Approval Cancel / Escape / replacement (partial j15 a-c)',
+    'Q12G': 'Stop while focus already paused: pinned face and unchanged session (j12g only)',
     'Q13': 'Focus edges: End from Paused and replace Running (no AI key; partial j13)',
     'E0': 'Empty question: "Type a question first."',
     'E1': 'No key: "No OpenAI key yet..."',
@@ -101,7 +102,7 @@ def read_trx(folder):
 
 
 def short_id(test_name):
-    m = re.search(r'\.([A-Z]{1,2}\d+)_', test_name)
+    m = re.search(r'\.([A-Z]{1,2}\d+[A-Z]?)_', test_name)
     return m.group(1) if m else None
 
 

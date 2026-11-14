@@ -1,5 +1,5 @@
 {
-  "contract_version": 1,
+  "contract_version": 2,
   "groups": {
     "contracts": {
       "C66": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot"
@@ -23,7 +23,8 @@
       "S4": "Boo.QaSuite.Journeys.QaJourneyTests.S4_Focus_StartPauseResumeEnd_AndTheNotchShowsPaused",
       "S5": "Boo.QaSuite.Journeys.QaJourneyTests.S5_Settings_SaveWritesTheFile_AndANewBooStartsWithTheSameChoices",
       "Q18": "Boo.QaSuite.Journeys.RequestGenerationTests.Q18_NewerTypedRequestWins_OnlyItsAnswerAppearsDuringLateResultWatch",
-      "QD15": "Boo.QaSuite.Journeys.SequentialApprovalTests.QD15_TwoFileSteps_RequireSeparateApprovalsAndShowNextStep"
+      "QD15": "Boo.QaSuite.Journeys.SequentialApprovalTests.QD15_TwoFileSteps_RequireSeparateApprovalsAndShowNextStep",
+      "Q12G": "Boo.QaSuite.Journeys.PausedStopTests.Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace"
     },
     "errors": {
       "E0": "Boo.QaSuite.ErrorPaths.NoKeyErrorTests.E0_EmptyQuestion_AsksTheUserToTypeFirst",

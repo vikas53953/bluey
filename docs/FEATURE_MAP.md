@@ -151,3 +151,5 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | H10 | j10a physical eye tap under 200 ms opens panel without Listening; hold/capture-loss pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/EyeTapTests.cs::Q10_PhysicalEyeTapUnder200Ms_OpensPanelWithoutListening` |
 | D10 | j10a opt-in QPC panel phase/dispatcher and recorder-stage diagnostic; no acceptance change | UNVERIFIED | `src/Boo.App/UiTiming.cs`; `tools/Boo.QaSuite/Journeys/EyeTapTests.cs::Q10_PhysicalEyeTapUnder200Ms_OpensPanelWithoutListening` |
 | E78 | Issue78 single cold Q10 ETW profiling attempt, no key, pinned app/harness; not acceptance | UNVERIFIED | `scripts/ci/Profile-EyeTap.ps1`; `.github/workflows/eye-tap-profile.yml` |
+
+| F15 | j12g Stop while already Paused preserves session and pinned face; other j12 branches pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/PausedStopTests.cs::Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace` |

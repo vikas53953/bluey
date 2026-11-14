@@ -450,3 +450,7 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 sync after #91 (14 Nov 2026)
 
 **manual:** synced lane/face `c74d0fcd58aa69c5c1cfbd66555879f6971ba30d`, retaining both handoff histories. Restored this file after a failed encoding write in the preceding commit. Full-app dispatch requested; app and harness pinned to the new head. Coverage remains **UNVERIFIED**; no QA PASS. Documented run estimate $0.03-0.05; cumulative provider billing remains UNVERIFIED.
+
+### PR #54 bounded j12g addition (14 Nov 2026)
+
+**manual:** Q12G checks one Ctrl+Alt+F12 while already Paused: identical session ID/status and panel status, Stopped acknowledgment, three-second pinned retention, action-local healthy observations and known pre/post UIA event delivery. Corrected independent-review findings (missing extension namespace; reject transient Happy before explicit End). Contract version2 maps the new method; feature row F15 is **UNVERIFIED**. Full j12 stays required and incomplete. Existing pinned full-app run43565296906 predates this addition; it cannot prove Q12G. Compilation/native behavior pending GitHub CI.
