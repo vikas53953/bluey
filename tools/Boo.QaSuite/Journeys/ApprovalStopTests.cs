@@ -61,7 +61,7 @@ public sealed class ApprovalStopTests : IClassFixture<LiveAppFixture>
             var destination = panel.FindFirstDescendant(cf => cf.ByName("Resolved destination").And(cf.ByControlType(ControlType.Edit)));
             Assert.NotNull(destination);
             var resolved = destination.AsTextBox().Text;
-            Assert.True(string.Equals(Path.GetFullPath(path), Path.GetFullPath(resolved), StringComparison.OrdinalIgnoreCase));
+            Assert.Equal(Path.GetFullPath(path), Path.GetFullPath(resolved), ignoreCase: true);
             Assert.True(Visible("ApproveButton") && Find("ApproveButton").IsEnabled, "Proposal must be actionable before Stop.");
             Assert.False(File.Exists(path));
             Record($"pending title={title} destination={resolved} approveEnabled=true fileAbsent=true");

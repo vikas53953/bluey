@@ -155,3 +155,13 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | F15 | j12g Stop while already Paused preserves session and pinned face; other j12 branches pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/PausedStopTests.cs::Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace` |
 
 | F16 | j12e physical notch right-click cancels pending approval and acknowledges Stop | UNVERIFIED | `tools/Boo.QaSuite/Journeys/ApprovalStopTests.cs::Q12E_NotchRightClick_ClearsPendingProposalAndAcknowledgesStop` |
+
+| T20 | Offline spoken-audio boundary: A_window_exactly_at_the_quiet_floor_is_not_speech_and_one_just_above_is | automated mock | `tools/Boo.LiveSmoke/SpokenAudioTests.cs::A_window_exactly_at_the_quiet_floor_is_not_speech_and_one_just_above_is` |
+
+| T21 | Offline spoken-audio boundary: Quiet_noise_below_the_floor_is_not_speech | automated mock | `tools/Boo.LiveSmoke/SpokenAudioTests.cs::Quiet_noise_below_the_floor_is_not_speech` |
+
+| T22 | Offline spoken-audio boundary: An_answer_is_spoken_only_with_enough_speech | automated mock | `tools/Boo.LiveSmoke/SpokenAudioTests.cs::An_answer_is_spoken_only_with_enough_speech` |
+
+| T23 | Offline spoken-audio boundary: Every_complete_window_is_counted_including_the_last_and_a_partial_one_is_not | automated mock | `tools/Boo.LiveSmoke/SpokenAudioTests.cs::Every_complete_window_is_counted_including_the_last_and_a_partial_one_is_not` |
+
+| T24 | Offline spoken-audio boundary: The_built_in_self_check_passes_on_the_real_measure | automated mock | `tools/Boo.LiveSmoke/SpokenAudioTests.cs::The_built_in_self_check_passes_on_the_real_measure` |

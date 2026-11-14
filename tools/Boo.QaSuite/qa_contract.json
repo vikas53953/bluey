@@ -1,5 +1,5 @@
 {
-  "contract_version": 3,
+  "contract_version": 4,
   "groups": {
     "contracts": {
       "C66": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot"
@@ -36,7 +36,12 @@
     },
     "smoke": {
       "TypedQuestion": "Boo.LiveSmoke.LiveRoundTripTests.TypedQuestion_GetsAnAnswerFromTheRealProvider",
-      "SpokenQuestion": "Boo.LiveSmoke.LiveVoiceRoundTripTests.SpokenQuestion_GetsASpokenAnswerFromRealOpenAiVoice"
+      "SpokenQuestion": "Boo.LiveSmoke.LiveVoiceRoundTripTests.SpokenQuestion_GetsASpokenAnswerFromRealOpenAiVoice",
+      "ST0": "Boo.LiveSmoke.SpokenAudioTests.A_window_exactly_at_the_quiet_floor_is_not_speech_and_one_just_above_is",
+      "ST1": "Boo.LiveSmoke.SpokenAudioTests.Quiet_noise_below_the_floor_is_not_speech",
+      "ST2": "Boo.LiveSmoke.SpokenAudioTests.An_answer_is_spoken_only_with_enough_speech",
+      "ST3": "Boo.LiveSmoke.SpokenAudioTests.Every_complete_window_is_counted_including_the_last_and_a_partial_one_is_not",
+      "ST4": "Boo.LiveSmoke.SpokenAudioTests.The_built_in_self_check_passes_on_the_real_measure"
     },
     "verifylive": {
       "J0": "Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey",
