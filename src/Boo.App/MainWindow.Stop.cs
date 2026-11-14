@@ -6,8 +6,10 @@ namespace Boo.App;
 public partial class MainWindow
 {
     private const string StoppedStatusMessage = "Stopped. Nothing is running now; ask again when you are ready.";
-    /// <summary>The "Boo is working" text last put in the status line by <see cref="ShowBusyStatus"/>.</summary>
-    private string? _busyStatusText;
+    private BusyStatusLine? _busyStatus;
+
+    /// <summary>The status line's "Boo is working" message, tied to the current request.</summary>
+    private BusyStatusLine BusyStatus => _busyStatus ??= new BusyStatusLine(IsCurrent);
 
     /// <summary>
     /// Ends every request, voice turn, overlay and pending action and pauses a running focus session. If the status line
@@ -60,11 +62,10 @@ public partial class MainWindow
             _focusTimer.Stop();
             FocusStatus.Text = "Paused by Stop; Resume is explicit.";
         }
-        if (_busyStatusText is not null && StatusText.Text == _busyStatusText)
+        if (BusyStatus.AfterStop(StatusText.Text, StoppedStatusMessage) is { } stopped)
         {
-            StatusText.Text = StoppedStatusMessage;
+            StatusText.Text = stopped;
         }
-        _busyStatusText = null;
         UpdateCaptureIndicator();
         SetFace(new FaceInputs(FocusPaused: _focus is { Snapshot.Status: Boo.Core.FocusStatus.Paused }));
     }
@@ -75,11 +76,9 @@ public partial class MainWindow
     /// </summary>
     private void ShowBusyStatus(string text, long generation)
     {
-        if (!IsCurrent(generation))
+        if (BusyStatus.Show(text, generation) is { } shown)
         {
-            return;
+            StatusText.Text = shown;
         }
-        _busyStatusText = text;
-        StatusText.Text = text;
     }
 }
