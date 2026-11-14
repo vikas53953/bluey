@@ -565,7 +565,7 @@ VUndoCapture ==
 
 \* [U1]-[U4] [F11] spoken undo finishes: capture ends; if current, the plan becomes a card and finally sets
 \* Thinking = tools in flight > 0 (SetFace at MainWindow.Edits.cs:181). NOT FAIR while current: it first awaits
-\* realtime.InterruptAsync with no timeout of its own (MainWindow.Edits.cs:144-150, RealtimeClient.cs:457-458; only the
+\* realtime.InterruptAsync with no timeout of its own (MainWindow.Edits.cs:144-150, RealtimeClient.cs:489-490; only the
 \* keep-alive bounds it, left out on purpose: see the fairness rule); FAIR once stale.
 VUndoDone ==
     /\ vundo # None /\ (vundo.cap = "On" \/ ~vundo.cur)

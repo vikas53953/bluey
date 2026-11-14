@@ -99,7 +99,7 @@ return (LOW, see Simplifications).
 | `VToolAnswer` or `VToolFail` | fair | `RespondAsync` over the 45 s `HttpClient`; failure keeps Thinking on (`MainWindow.xaml.cs:2389-2396`, `:2420-2437`) |
 | `VToolRelease` (the tool's `finally`) | fair only when stale | otherwise it waits for `CompleteToolAsync` (`RealtimeClient.cs:412-419`): only the keep-alive bounds it (cautious) |
 | `VUndoCapture` (Fix F5 only) | fair | local step of the fix |
-| `VUndoDone` | fair only when stale | otherwise it may wait for `InterruptAsync` (`MainWindow.Edits.cs:144-150`, `RealtimeClient.cs:457-458`): only the keep-alive bounds it (cautious) |
+| `VUndoDone` | fair only when stale | otherwise it may wait for `InterruptAsync` (`MainWindow.Edits.cs:144-150`, `RealtimeClient.cs:489-490`): only the keep-alive bounds it (cautious) |
 | `Apply` or `ExecEnd` | fair | `ExecuteAsync` is local and honours the lease token; read-back is at most five 120 ms polls (`MainWindow.xaml.cs:1230-1231`, `MainWindow.Edits.cs:358-364`) |
 | `PointerEnter/Leave`, `Send`, `TalkButton`, `TalkDown/Up`, `Stop`, `Quit`, `Approve`, `Reject`, `FocusStart/Pause/Resume/End`, `NudgeBack`, `NudgeBreak` | not fair | the user |
 | `VSpeechStarted/Stopped`, `VAudioDelta`, `VResponseDone`, `VDrop`, `VGoToSleep`, `VToolCall`, `VUndoStart` | not fair | the provider |
@@ -111,7 +111,7 @@ Each is LOW: it changes no check result.
 
 - After the answer, a current voice tool's capture stays open until `CompleteToolAsync` returns; the model keeps it
   open too (`st = "Send"`). If an undo card is pending, the tool first sends a decline with `CompleteToolAsync`
-  (`DeclineRealtimeToolDuringUndoAsync`, `MainWindow.Edits.cs:190-210`, called at `MainWindow.xaml.cs:2365` and `:2406`); the model ignores
+  (`DeclineRealtimeToolDuringUndoAsync`, `MainWindow.Edits.cs:190-210`, called at `MainWindow.xaml.cs:2346` and `:2406`); the model ignores
   that wait, so its answer step is fair even then.
 - After a voice-originated approval runs, the code awaits `CompletePendingRealtimeToolAsync` (a websocket send)
   before the card's `finally`; the model closes the card in the same step as the commit.
