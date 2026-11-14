@@ -146,11 +146,10 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
             if (icons.Length == 0)
             {
                 var taskbar = Assert.Single(desktop.FindAllChildren(), e => explorerIds.Contains(e.Properties.ProcessId.Value)
-                    && Visible(e) && DiscoveryName(e, out var name) && name == "Taskbar");
+                    && DiscoveryName(e, out var name) && name == "Taskbar" && Visible(e));
                 var taskbarIdentity = taskbar.Properties.RuntimeId.Value;
-                var overflow = Assert.Single(taskbar.FindAllDescendants(), e => Visible(e)
-                    && e.Properties.ControlType.Value == ControlType.Button
-                    && DiscoveryName(e, out var name) && name == "Show Hidden Icons");
+                var overflow = Assert.Single(taskbar.FindAllDescendants(), e => e.Properties.ControlType.Value == ControlType.Button
+                    && DiscoveryName(e, out var name) && name == "Show Hidden Icons" && Visible(e));
                 Assert.True(ExplorerAncestry(overflow));
                 bool WithinTaskbar(AutomationElement element)
                 {
@@ -220,7 +219,7 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
             {
                 var menus = desktop.FindAllDescendants(cf => cf.ByProcessId(_boo.App.ProcessId).And(cf.ByControlType(ControlType.Menu))).Where(Visible).ToArray();
                 var matches = menus.SelectMany(m => m.FindAllDescendants(cf => cf.ByControlType(ControlType.MenuItem)))
-                    .Where(e => Visible(e) && DiscoveryName(e, out var name) && name is "Stop (Ctrl+Alt+F12)" or "Stop").ToArray();
+                    .Where(e => DiscoveryName(e, out var name) && (name is "Stop (Ctrl+Alt+F12)" or "Stop") && Visible(e)).ToArray();
                 if (matches.Length != 1) return false;
                 var selectedStop = matches[0];
                 stop = selectedStop;

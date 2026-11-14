@@ -222,3 +222,6 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 
 
 | 14 Nov 2026 | Sync #83 from lane/face443ee6c; require its native Stop-status regression as SR0 with contract10 and preserve mock classification for its stalled proxy. | Exact method mapping must include upstream additions; published-app UI with a simulated network is not real-model evidence. Keep imported oracle29 unchanged. | PR54; report/contract selftests; oracle29; feature-map97/56 | proposed; current-head native integration UNVERIFIED |
+
+
+| 14 Nov 2026 | Evaluate exact shell candidate name/type before strict visibility in Q12F discovery. | IsOffscreen is unsupported on an unrelated descendant in run43586772539; ordering excludes irrelevant nodes without treating unavailable visibility as visible. Required matching controls keep strict reads and all identity/action/state checks. | PR54; inspected b0117b5 identity/TRX/log/screenshot; local compile0warnings/0errors | proposed; native Q12F UNVERIFIED |

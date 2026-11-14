@@ -550,3 +550,8 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 current-base Stop regression integration (14 Nov 2026)
 
 **manual:** synced lane/face443ee6c (#83) before the reviewed Q12F hosted attempt, preserving upstream production/frozen-oracle revisions unchanged. Contract9 to10 adds required SR0 for StopStatusRegressionTests; exact method bijection remains enforced. Its stalled local proxy is deliberately no-AI, so report labels that method mock and a report fixture verifies the emitted row. Report/contract selftests, oracle29/150files/28history links and feature-map97rows/56methods pass. Lesson: syncing adds both required coverage and its evidence classification, never a silent gate exception. No current-head native result yet; Q12F/full-app remain RED pending honest evidence.
+
+
+### PR #54 Q12F candidate predicate ordering (14 Nov 2026)
+
+**live failure inspected:** run43586772539 exact b0117b5 failed before the overflow click because Visible read unsupported IsOffscreen on an unrelated taskbar descendant. Identity/TRX/log/failure screenshot inspected; no Focus Start or tray Stop occurred. Candidate predicates now select exact supported name/type before strict visibility, including Taskbar/Show Hidden Icons/Stop menu candidates. No visibility fallback, property suppression, action retry or assertion change. Local QaSuite Release compile0warnings/0errors. Lesson: identify unrelated shell elements before querying required-control properties; strict reads still fail for an actual candidate lacking visibility evidence. Required native Q12F and full-app remain RED until a new hosted receipt.
