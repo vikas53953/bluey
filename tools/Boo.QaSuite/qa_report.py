@@ -147,7 +147,7 @@ def build(folder, run_url='', app_sha='', harness_sha='', models=''):
             if not ok:
                 problems.append(f'{what}: {outcome} {message}')
             result = 'passed' if ok else f'FAILED ({outcome}): {message}'.replace('|', '/')
-            label = 'mock' if group == 'contracts' or '.SpokenAudioTests.' in name else 'live'
+            label = 'mock' if group == 'contracts' or '.SpokenAudioTests.' in name or '.StopStatusRegressionTests.' in name else 'live'
             table.append(f'| {what} | {label} | {result} | {link} |')
     if not any(r[0] == 'smoke' and 'voice' in r[1].lower() for r in rows):
         table.append(f'| Voice provider: real OpenAI synthetic audio round trip (component; no Boo.exe UI) | BLOCKED | no live voice test exists on this harness yet; it '
@@ -231,11 +231,13 @@ def self_test():
         root = pathlib.Path(d)
         for g in GROUPS:
             trx(root / g / 'trx', [('Boo.QaSuite.Contracts.X.C66_Folder' if g == 'contracts' else f'Boo.QaSuite.X.T{g}.S0_Thing', 'Passed', '')])
+        trx(root / 'verifylive' / 'trx', [('Boo.VerifyLive.Regressions.StopStatusRegressionTests.StopDuringPendingQuestion_StatusNoLongerSaysThinking', 'Passed', '')])
         (root / 'journeys' / 'qa-notch-states-journeys.txt').write_text('# expected Listening and Happy\n10 Hidden\n20 Thinking\ninvalid 30 Nudge\n', encoding='utf-8')
         text, green = build(root)
         check('missing required coverage prevents green', not green and 'SUITE RED' in text)
         check('voice missing -> BLOCKED row, still not counted as a pass', '| Voice provider: real OpenAI synthetic audio round trip (component; no Boo.exe UI) | BLOCKED |' in text)
         check('mock contract cannot be labelled live', '| Selected-folder context gated by explicit task and configured root (mock HTTP) | mock | passed' in text)
+        check('stalled-proxy Stop regression cannot be labelled live AI', '| StopDuringPendingQuestion_StatusNoLongerSaysThinking | mock | passed' in text)
         check('seen state -> live', '| Notch state Thinking | live |' in text)
         check('expectations cannot count as observations', '| Notch state Happy | UNVERIFIED |' in text and '| Notch state Nudge | UNVERIFIED |' in text)
         check('unseen state -> UNVERIFIED', '| Notch state Listening | UNVERIFIED |' in text)
