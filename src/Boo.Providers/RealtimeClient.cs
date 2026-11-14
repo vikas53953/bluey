@@ -167,7 +167,7 @@ public static class RealtimeProtocol
                 text = statusElement.GetString() switch
                 {
                     "failed" => FailedResponseText(response),
-                    "incomplete" => "Realtime response incomplete.",
+                    "incomplete" => IncompleteResponseText(response),
                     "cancelled" => "Realtime response cancelled.",
                     _ => null
                 };
@@ -268,6 +268,18 @@ public static class RealtimeProtocol
             return GenericErrorText;
         var failure = ProviderFailureClassifier.FromErrorCode(GetString(error, "code"), GetString(error, "type"));
         return failure.Kind == ProviderFailureKind.Unknown ? GenericErrorText : failure.UserMessage;
+    }
+
+    /// <summary>Keeps the server's reason (for example max_output_tokens) so a bounded QA turn cut by its token cap is told apart from any other incomplete response.</summary>
+    private static string IncompleteResponseText(JsonElement response)
+    {
+        if (response.TryGetProperty("status_details", out var details) && details.ValueKind == JsonValueKind.Object)
+        {
+            var reason = GetString(details, "reason");
+            if (!string.IsNullOrWhiteSpace(reason) && reason.Length <= 64 && reason.All(c => char.IsAsciiLetterOrDigit(c) || c == '_'))
+                return $"Realtime response incomplete ({reason}).";
+        }
+        return "Realtime response incomplete.";
     }
 
     private static string FailedResponseText(JsonElement response)

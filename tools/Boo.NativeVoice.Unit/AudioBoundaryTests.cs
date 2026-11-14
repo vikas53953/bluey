@@ -140,4 +140,15 @@ public sealed class AudioBoundaryTests
         Assert.Contains("exactly two response", third.InnerException!.Message);
         await client.DisposeAsync();
     }
+    [Theory]
+    [InlineData("{\"type\":\"response.done\",\"response\":{\"status\":\"incomplete\",\"status_details\":{\"type\":\"incomplete\",\"reason\":\"max_output_tokens\"}}}", "Realtime response incomplete (max_output_tokens).")]
+    [InlineData("{\"type\":\"response.done\",\"response\":{\"status\":\"incomplete\",\"status_details\":{\"type\":\"incomplete\",\"reason\":\"content_filter\"}}}", "Realtime response incomplete (content_filter).")]
+    [InlineData("{\"type\":\"response.done\",\"response\":{\"status\":\"incomplete\"}}", "Realtime response incomplete.")]
+    [InlineData("{\"type\":\"response.done\",\"response\":{\"status\":\"incomplete\",\"status_details\":{\"reason\":\"<b>bad</b> reason\"}}}", "Realtime response incomplete.")]
+    public void IncompleteResponse_KeepsItsReason_SoOnlyTheTokenCapCountsAsBoundedEnd(string json, string expected)
+    {
+        var parsed = RealtimeProtocol.Parse(json);
+        Assert.NotNull(parsed);
+        Assert.Equal(expected, parsed!.Text);
+    }
 }
