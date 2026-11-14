@@ -502,3 +502,7 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 issue111 offline ordering complete (14 Nov 2026)
 
 **manual:** traced exact artifact9feda80 through Focus_OnSessionEnded, SetFace/ArmFaceMomentTimer, synchronous forwarding and ItemStatus-before-render publication. Existing reads establish duration2545-2674ms but lack producer origin/rearm/tick timestamps; cause remains inconclusive. [Diagnostic specification](docs/verification/issue111-offline-analysis.md) limits a possible next trace to correlated hold/deadline/rearm/tick/publication timestamps. No instrumentation, new capture, timer change or tolerance change in this loop. Lesson: healthy UIA observations cannot attribute Background timer delay. Full-app NOT PASSED.
+
+### PR #54 reviewed narrow producer diagnostics (14 Nov 2026)
+
+**manual:** separate reviewer approved issue111 instrumentation: app-owned scoped invocation/hold/arm correlation, operation-bounded QPC and actual tick values, retained causal Idle context, primitive buffered sink without broad hooks, atomic cutoff drain receipt, drop/write/incomplete-tail evidence and failure-preserving copying. Ratchet rejected initial static-state design; app ownership resolved it without a baseline change. Q13H assertions/default timer behavior unchanged. One explicit no-key hosted diagnostic attempt planned; compilation/runtime **UNVERIFIED** and no acceptance claim.

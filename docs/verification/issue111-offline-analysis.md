@@ -1,4 +1,4 @@
-﻿# Issue 111: existing-receipt diagnosis and producer trace specification
+# Issue 111: existing-receipt diagnosis and producer trace specification
 
 **Result: inconclusive attribution.** This is manual source analysis plus inspected live failure evidence, not a repair or full-app PASS.
 
@@ -40,3 +40,11 @@ Use the existing opt-in QA data-marker diagnostic mechanism; default behavior mu
 - Preserve existing test/action/read intervals, screenshots and all verdicts unchanged. Instrumented timing is diagnostic evidence, not an acceptance replacement; logger overhead must remain a stated limitation.
 
 One reviewed no-key hosted Q13H attempt with these receipts could distinguish origin/start skew, late tick entry and publication delay. A new attempt is not authorized by this document alone. No priority, refactor, assertion tolerance, retry or Q10/issue78 change follows from this analysis.
+
+## Reviewed implementation for one bounded diagnostic attempt
+
+**manual:** independent implementation review approved the uncommitted producer trace on base `f12e37b`. SetFace invocation, Happy generation and timer arm IDs are distinct. Scoped context is app-owned on the UI thread and restored on return; the notch retains the causal input context for later recomputation. Primitive operation timestamps are sampled before enqueue; formatting and file writes run on the background sink. The narrow marker enables no dispatcher hooks. Disabled mode samples no extra clocks. Default scheduling and all Q13H timing assertions are unchanged.
+
+A separate Q13H fixture seeds only `qa-face-timing.enabled` when explicitly selected by the focused workflow. Outside the measured interval, it writes an atomic nonce request and waits at most3seconds for an atomic drain receipt. The receipt freezes an issued-record cutoff and reports committed count, drops, write failures, pending tail and future events outside coverage. Failure to obtain complete cutoff evidence is retained separately without masking the original assertion. Trace copying is attempted even if receipt collection fails.
+
+Compilation/runtime remain UNVERIFIED until CI. One no-key GitHub-hosted diagnostic attempt is planned after this review. Instrumentation overhead and events after cutoff remain limits; a diagnostic pass is not uninstrumented acceptance.

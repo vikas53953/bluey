@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Drawing;
 using System.IO;
+using System.Text.Json;
 using Boo.Core;
 using Boo.Demo.Tests;
 using Boo.Storage;
@@ -11,10 +12,10 @@ using FlaUI.Core.Input;
 namespace Boo.QaSuite.Journeys;
 
 /// <summary>j13d only: bracket native Happy timing without treating UIA delivery as producer time.</summary>
-public sealed class FocusEndTimingTests : IClassFixture<NoKeyFixture>
+public sealed class FocusEndTimingTests : IClassFixture<FocusEndTimingFixture>
 {
-    private readonly NoKeyFixture _boo;
-    public FocusEndTimingTests(NoKeyFixture boo) => _boo = boo;
+    private readonly FocusEndTimingFixture _boo;
+    public FocusEndTimingTests(FocusEndTimingFixture boo) => _boo = boo;
 
     [Fact]
     public void Q13H_EndFromPaused_HappyIntervalContainsNominalDurationThenRetreats()
@@ -129,10 +130,46 @@ public sealed class FocusEndTimingTests : IClassFixture<NoKeyFixture>
                 try { action(); }
                 catch (Exception ex) { log.Add("cleanup error: " + ex); secondary.Add(ex); }
             }
+            if (File.Exists(Path.Combine(_boo.DataDirectory, "qa-face-timing.enabled")))
+            {
+                try
+                {
+                    var request = Guid.NewGuid().ToString("N");
+                    var requestPath = Path.Combine(_boo.DataDirectory, "qa-face-timing.drain");
+                    File.WriteAllText(requestPath + ".tmp", request);
+                    File.Move(requestPath + ".tmp", requestPath, true);
+                    var receiptPath = Path.Combine(_boo.DataDirectory, "qa-face-timing.drained.json");
+                    Assert.True(BooAppFixture.WaitUntil(() => File.Exists(receiptPath), TimeSpan.FromSeconds(3)), "Producer drain receipt missing; incomplete tail.");
+                    var receipt = BooAppFixture.ReadShared(receiptPath);
+                    _boo.WriteObservation("qa-j13h-producer-drain", receipt);
+                    using var parsed = JsonDocument.Parse(receipt);
+                    Assert.Equal(request, parsed.RootElement.GetProperty("request").GetString());
+                    Assert.True(parsed.RootElement.GetProperty("completeThroughCutoff").GetBoolean(), "Producer trace incomplete through drain cutoff.");
+                    log.Add("Producer receipt covers cutoff only; future events and instrumentation overhead remain limitations.");
+                }
+                catch (Exception ex) { log.Add("producer drain error: " + ex); secondary.Add(ex); }
+                finally
+                {
+                    try { _boo.WriteObservation("qa-j13h-producer-timing", BooAppFixture.ReadShared(Path.Combine(_boo.DataDirectory, "face-moment-timing.txt"))); }
+                    catch (Exception ex) { log.Add("producer copy error: " + ex); secondary.Add(ex); }
+                }
+            }
             log.AddRange(events.Select(e => $"{e.At} ItemStatus event delivery {e.Face}"));
             try { _boo.WriteObservation("qa-j13h-end-timing", string.Join("\n", log)); }
             catch (Exception ex) { Console.Error.WriteLine(ex); secondary.Add(ex); }
             if (primary is null && secondary.Count > 0) throw new AggregateException(secondary);
         }
+    }
+}
+
+/// <summary>Narrow producer diagnostics are seeded only for an explicit hosted diagnostic run.</summary>
+public sealed class FocusEndTimingFixture : BooAppFixture
+{
+    public FocusEndTimingFixture() : base(Seed) { }
+    private static void Seed(string directory)
+    {
+        QaSeeds.NoKeySpeechOff(directory);
+        if (Environment.GetEnvironmentVariable("BOO_QA_FACE_TIMING") == "1")
+            File.WriteAllText(Path.Combine(directory, "qa-face-timing.enabled"), "producer diagnostics only");
     }
 }

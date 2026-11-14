@@ -153,39 +153,69 @@ public partial class MainWindow : Window
     private DispatcherTimer? _faceMomentTimer;
 
     private readonly FaceMomentSchedule _faceMoments = new();
+    private readonly FaceMomentTrace _faceTrace = new();
 
     private void SetFace(FaceInputs next, TimeSpan? momentFor = null, FaceMomentKind moment = FaceMomentKind.None)
     {
         // Responding / nudge / happy are moments: each is cleared when its own hold runs out, so a reply finishing
         // does not take a happy face (session complete) or a nudge with it, and vice versa.
+        using var traceScope = _faceTrace.Begin(momentFor is not null && moment.HasFlag(FaceMomentKind.Happy));
+        var clockBefore = FaceMomentTrace.Stamp();
         var now = Environment.TickCount64;
+        var clockAfter = FaceMomentTrace.Stamp();
+        _faceTrace.Write("setface-clock-anchor", clockBefore, clockAfter, now);
         if (momentFor is { } duration && moment != FaceMomentKind.None)
         {
+            var holdBefore = FaceMomentTrace.Stamp();
             _faceMoments.Hold(moment, now, duration);
+            var holdAfter = FaceMomentTrace.Stamp();
+            if (FaceMomentTrace.Enabled) _faceTrace.Write("hold", holdBefore, holdAfter, now,
+                now + Math.Max(0L, (long)duration.TotalMilliseconds), (long)moment);
         }
         var switchedOff = FaceMomentKind.None;
         if (!next.Responding) switchedOff |= FaceMomentKind.Responding;
         if (!next.NudgeShowing) switchedOff |= FaceMomentKind.Nudge;
         if (!next.Happy) switchedOff |= FaceMomentKind.Happy;
+        var clearBefore = FaceMomentTrace.Stamp();
         _faceMoments.Clear(switchedOff);
+        var clearAfter = FaceMomentTrace.Stamp();
+        _faceTrace.Write("clear-mask", clearBefore, clearAfter, now, flags: (long)switchedOff);
+        _faceTrace.ClearHappy(switchedOff.HasFlag(FaceMomentKind.Happy));
         ArmFaceMomentTimer(now);
         if (next == _faceInputs)
         {
+            var at = FaceMomentTrace.Stamp();
+            _faceTrace.Write("unchanged-return", at, at);
             return;
         }
         _faceInputs = next;
-        FaceInputsChanged?.Invoke(next);
+        var publishBefore = FaceMomentTrace.Stamp();
+        try { FaceInputsChanged?.Invoke(next); }
+        finally { _faceTrace.Write("faceinputs-forward", publishBefore, FaceMomentTrace.Stamp(), flags: next.Happy ? 1 : 0); }
     }
 
     private void ArmFaceMomentTimer(long nowMs)
     {
         var due = _faceMoments.NextDue(nowMs);
         _faceMomentTimer ??= CreateFaceMomentTimer();
+        _faceTrace.Arm();
+        var stopBefore = FaceMomentTrace.Stamp();
         _faceMomentTimer.Stop();
+        var stopAfter = FaceMomentTrace.Stamp();
+        _faceTrace.Write("arm-stop", stopBefore, stopAfter, nowMs, flags: due is null ? 1 : 0);
         if (due is { } interval)
         {
+            var intervalBefore = FaceMomentTrace.Stamp();
             _faceMomentTimer.Interval = interval;
+            var intervalAfter = FaceMomentTrace.Stamp();
+            var startBefore = FaceMomentTrace.Stamp();
             _faceMomentTimer.Start();
+            var startAfter = FaceMomentTrace.Stamp();
+            if (FaceMomentTrace.Enabled)
+            {
+                _faceTrace.Write("arm-interval", intervalBefore, intervalAfter, nowMs, interval.Ticks);
+                _faceTrace.Write("arm-start", startBefore, startAfter, nowMs, interval.Ticks);
+            }
         }
     }
 
@@ -194,8 +224,20 @@ public partial class MainWindow : Window
         var timer = new DispatcherTimer(DispatcherPriority.Background);
         timer.Tick += (_, _) =>
         {
+            var entry = FaceMomentTrace.Stamp();
+            var entryTick = FaceMomentTrace.Enabled ? Environment.TickCount64 : 0;
+            var entryAfter = FaceMomentTrace.Stamp();
+            var stopBefore = FaceMomentTrace.Stamp();
             timer.Stop();
-            var expired = _faceMoments.Expire(Environment.TickCount64);
+            var stopAfter = FaceMomentTrace.Stamp();
+            var expireBefore = FaceMomentTrace.Stamp();
+            var expireNow = Environment.TickCount64;
+            var expired = _faceMoments.Expire(expireNow);
+            var expireAfter = FaceMomentTrace.Stamp();
+            _faceTrace.Write("tick-entry-anchor", entry, entryAfter, entryTick);
+            _faceTrace.Write("tick-stop", stopBefore, stopAfter);
+            _faceTrace.Write("expire", expireBefore, expireAfter, expireNow, flags: (long)expired);
+            _faceTrace.ClearHappy(expired.HasFlag(FaceMomentKind.Happy));
             SetFace(_faceInputs with
             {
                 Responding = _faceInputs.Responding && !expired.HasFlag(FaceMomentKind.Responding),

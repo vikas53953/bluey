@@ -178,7 +178,14 @@ public partial class App : System.Windows.Application
         return panel;
     }
 
-    private void OnFaceInputsChanged(Boo.Core.FaceInputs inputs) => _notch?.UpdateFace(inputs);
+    internal FaceTraceContext ProducerContext { get; set; }
+
+    private void OnFaceInputsChanged(Boo.Core.FaceInputs inputs)
+    {
+        var before = FaceMomentTrace.Stamp();
+        try { _notch?.UpdateFace(inputs); }
+        finally { FaceMomentTrace.Write(FaceMomentTrace.Current, "notch-forward", before, FaceMomentTrace.Stamp()); }
+    }
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
     {
