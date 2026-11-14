@@ -417,11 +417,21 @@ def self_test(out=print):
     with tempfile.TemporaryDirectory() as d:
         receipt = pathlib.Path(d, 'r', 'receipt.txt')
 
-        def trx(name, results):
+        def trx(name, results, summary='Completed', counters=None, summaries=1):
+            """A .trx shaped like the one `dotnet test --logger trx` writes: results, then ONE run summary whose
+            counters agree with them (unless a case overrides them to plant a defect)."""
             rows = ''.join(f'<UnitTestResult testName="{n}" outcome="{o}"/>' for n, o in results)
+            passed = sum(1 for _, o in results if o == 'Passed')
+            c = {'total': len(results), 'executed': len(results), 'passed': passed,
+                 'failed': len(results) - passed, 'error': 0, 'timeout': 0, 'aborted': 0, 'inconclusive': 0,
+                 'passedButRunAborted': 0, 'notRunnable': 0, 'notExecuted': 0, 'disconnected': 0, 'warning': 0,
+                 'completed': len(results), 'inProgress': 0, 'pending': 0}
+            c.update(counters or {})
+            attrs = ' '.join(f'{k}="{v}"' for k, v in c.items())
+            block = f'<ResultSummary outcome="{summary}"><Counters {attrs}/></ResultSummary>' * summaries
             pathlib.Path(d, name).write_text(
                 '<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Results>'
-                f'{rows}</Results></TestRun>', encoding='utf-8')
+                f'{rows}</Results>{block}</TestRun>', encoding='utf-8')
         quiet = []
         check('no trx -> fail', trx_check(d, 'typed', receipt, out=quiet.append) == 1 and not receipt.exists())
         check('missing folder -> fail', trx_check(pathlib.Path(d, 'nope'), 'voice', receipt, out=quiet.append) == 1)
@@ -440,6 +450,31 @@ def self_test(out=print):
         check('failed -> fail', trx_check(d, 'typed', receipt, out=quiet.append) == 1)
         trx('a.trx', [('Boo.LiveSmoke.Other.Test', 'Passed')])
         check('a different test -> fail', trx_check(d, 'typed', receipt, out=quiet.append) == 1)
+        # Issue #128: the run summary must agree. A passed result inside an aborted or failed run, or counters that
+        # say something else ran, failed or was cut short, is not a receipt. Typed and voice alike.
+        for tid in ('typed', 'voice'):
+            ok = [(REQUIRED[tid], 'Passed')]
+            planted = [
+                ('run aborted', dict(summary='Aborted', counters={'passedButRunAborted': 1})),
+                ('summary says Aborted, counters clean', dict(summary='Aborted')),
+                ('passedButRunAborted counted', dict(counters={'passedButRunAborted': 1})),
+                ('summary says Failed', dict(summary='Failed')),
+                ('aborted counted', dict(counters={'aborted': 1})),
+                ('error counted', dict(counters={'error': 1})),
+                ('timeout counted', dict(counters={'timeout': 1})),
+                ('not executed counted', dict(counters={'notExecuted': 1})),
+                ('counters say 2 ran', dict(counters={'total': 2, 'executed': 2, 'passed': 2})),
+                ('counters say 0 passed', dict(counters={'passed': 0})),
+                ('no run summary', dict(summaries=0)),
+                ('two run summaries', dict(summaries=2)),
+            ]
+            for label, kw in planted:
+                trx('a.trx', ok, **kw)
+                rc = trx_check(d, tid, receipt, out=quiet.append)
+                check(f'#128 {tid}: {label} -> fail', rc == 1 and not receipt.exists())
+            trx('a.trx', ok)
+            check(f'#128 {tid}: clean Completed run -> receipt', trx_check(d, tid, receipt, out=quiet.append) == 0)
+            receipt.unlink()
         pathlib.Path(d, 'a.trx').write_text('<not xml', encoding='utf-8')
         check('broken trx -> fail', trx_check(d, 'typed', receipt, out=quiet.append) == 1 and not receipt.exists())
 

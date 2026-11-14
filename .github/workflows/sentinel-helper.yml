@@ -1,0 +1,28 @@
+# Sentinel helper self-test on every pull request that changes the daily sentinel's judge.
+#
+# scripts/ci/live_sentinel.py decides whether the daily real-model sentinel passed (its receipts close the failure
+# issue), but its --self-test used to run only inside the sentinel's own report job (scheduled or dispatched, never on a
+# PR). So a change to the judge could merge with a broken rule. This job runs the self-test at PR time: no key, no app,
+# no network, no paid call. Issue #128 (an aborted test run accepted as a pass) is pinned there.
+name: sentinel-helper
+
+on:
+  pull_request:
+    paths:
+      - scripts/ci/live_sentinel.py
+      - .github/workflows/live-sentinel.yml
+      - .github/workflows/sentinel-helper.yml
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Sentinel judge self-test (every rule fires on a planted sample)
+        run: python3 -I scripts/ci/live_sentinel.py --self-test
