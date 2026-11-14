@@ -20,7 +20,7 @@ namespace Boo.NativeVoice;
 /// </summary>
 public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoiceFixture>
 {
-    private const string Prompt = "task: click the Start button on my taskbar for me";
+    private const string Prompt = "task click the Start button at the left end of my Windows taskbar. This is a bounded screen task: call screen_help with mode task now, do not ask a clarifying question.";
     private const string CaptureFaultMarker = "BOO_QA_CAPTURE_FAULT=1";
     private const string NothingOfferedStatus = "Boo proposed a screen action, but no screen observation backs it. Nothing was offered.";
     private const string NoActionStatus = "Reply complete. No action was committed.";
@@ -87,7 +87,8 @@ public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoice
             Assert.Contains(CaptureFaultMarker, captureDetail, StringComparison.Ordinal);
             Assert.Contains(statuses, s => s == HandedToVoiceStatus);
             Assert.True(toolCalled,
-                "TEST SETUP: the real model answered without calling screen_help, so the fail-closed guard was never reached; no verdict. Inspect fail-closed-voice.txt.");
+                "TEST SETUP: the real model answered without calling screen_help, so the fail-closed guard was never reached; no verdict. " +
+                $"statuses={string.Join(" > ", statuses)} rows={string.Join(" | ", rows)}");
             Assert.DoesNotContain(previews, IsScreenAction);
             Assert.True(sawReplyComplete, "The voice turn did not complete with a spoken reply after the tool result; inspect fail-closed-voice.txt.");
             Assert.Null(VisiblePreviewText(panel));
