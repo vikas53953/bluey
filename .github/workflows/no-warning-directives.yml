@@ -1,0 +1,56 @@
+﻿name: no-warning-directives
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  no-warning-directives:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Trusted base syntax gate
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if ($env:BASE_SHA) {
+            git cat-file -e "${env:BASE_SHA}^{commit}" 2>$null
+            if ($LASTEXITCODE -ne 0) { throw 'BOO-LINT-002A base commit unavailable' }
+            git cat-file -e "${env:BASE_SHA}:scripts/quality/no-warning-directives/NoWarningDirectives.csproj" 2>$null
+            $hasProject = $LASTEXITCODE -eq 0
+            git cat-file -e "${env:BASE_SHA}:scripts/quality/no-warning-directives/Program.cs" 2>$null
+            $hasSource = $LASTEXITCODE -eq 0
+            if ($hasProject -ne $hasSource) { throw 'BOO-LINT-002A partial base checker; restore both files' }
+            if ($hasProject) {
+              $toolDir = Join-Path $env:RUNNER_TEMP 'trusted-no-warning-directives'
+              New-Item -ItemType Directory -Force $toolDir | Out-Null
+              foreach ($file in @('NoWarningDirectives.csproj', 'Program.cs')) {
+                git show "${env:BASE_SHA}:scripts/quality/no-warning-directives/$file" | Set-Content -Encoding utf8 (Join-Path $toolDir $file)
+                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              }
+              dotnet build (Join-Path $toolDir 'NoWarningDirectives.csproj') -c Release -o (Join-Path $toolDir 'out')
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              dotnet (Join-Path $toolDir 'out/NoWarningDirectives.dll') --root $env:GITHUB_WORKSPACE
+              exit $LASTEXITCODE
+            }
+            Write-Output 'Base has no syntax gate yet; introducing this rule.'
+          }
+          exit 0
+      - name: Build syntax gate
+        run: dotnet build scripts/quality/no-warning-directives/NoWarningDirectives.csproj -c Release -o artifacts/no-warning-directives
+      - name: Roslyn syntax cases
+        run: dotnet artifacts/no-warning-directives/NoWarningDirectives.dll --self-test
+      - name: Reject warning-disable directives
+        run: dotnet artifacts/no-warning-directives/NoWarningDirectives.dll --root .
