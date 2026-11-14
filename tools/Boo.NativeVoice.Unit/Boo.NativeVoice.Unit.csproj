@@ -8,6 +8,7 @@
     <ProjectReference Include="../../src/Boo.Providers/Boo.Providers.csproj" />
     <Compile Include="../../src/Boo.Windows/AudioSession.cs" Link="AudioSession.cs" />
     <Compile Include="../../src/Boo.Windows/HostedVoiceAudio.cs" Link="HostedVoiceAudio.cs" />
+    <Compile Include="../Boo.NativeVoice/VoiceTurnOutcome.cs" Link="VoiceTurnOutcome.cs" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

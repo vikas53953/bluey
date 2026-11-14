@@ -16,7 +16,9 @@ namespace Boo.NativeVoice;
 /// Holds whatever the model proposes: a click or type_text is never previewed; anything else offered is cancelled
 /// (one cancellation result); the voice turn ends with a spoken reply that is either complete ("Reply complete.") or,
 /// because the hosted QA session is bounded to 128 output tokens, cut by that cap and reported by the server as
-/// incomplete (max_output_tokens). Any other incomplete reason fails. The observation records which outcome it was
+/// incomplete (max_output_tokens). Only the follow-up's own terminal status counts (VoiceTurnOutcome: last status,
+/// after the tool boundary, with audio consumed after that boundary); any other incomplete reason fails. The
+/// observation records which outcome it was
 /// and whether the real structured model proposed a screen action at all (filteredProposalObserved): when it proposed
 /// none, this run proves the real-provider no-action tool turn only, not the live rejection of a proposed click.
 /// The tool call itself is required: without it the guard was never reached and the run says so as TEST SETUP.
@@ -26,11 +28,11 @@ public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoice
 {
     private const string Prompt = "task click the Start button at the left end of my Windows taskbar. This is a bounded screen task: call screen_help with mode task now, do not ask a clarifying question.";
     private const string CaptureFaultMarker = "BOO_QA_CAPTURE_FAULT=1";
-    private const string NothingOfferedStatus = "Boo proposed a screen action, but no screen observation backs it. Nothing was offered.";
-    private const string NoActionStatus = "Reply complete. No action was committed.";
+    private const string NothingOfferedStatus = VoiceTurnOutcome.NothingOfferedStatus;
+    private const string NoActionStatus = VoiceTurnOutcome.NoActionStatus;
     private const string HandedToVoiceStatus = "Sent to the voice conversation; waiting for the response…";
     /// <summary>The bounded 128-token follow-up cut by its cap: the only incomplete outcome this journey accepts, and it is reported as cap-truncated, never as complete.</summary>
-    private const string CapTruncatedStatus = "Realtime response incomplete (max_output_tokens).";
+    private const string CapTruncatedStatus = VoiceTurnOutcome.CapTruncatedStatus;
     private static readonly TimeSpan TurnTimeout = TimeSpan.FromSeconds(120);
 
     private readonly FailedCaptureVoiceFixture _boo;
@@ -53,7 +55,8 @@ public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoice
             panel.FindFirstDescendant(cf => cf.ByAutomationId("SendButton"))!.AsButton().Invoke();
 
             var started = DateTime.UtcNow;
-            var sawReplyComplete = false;
+            var outcome = VoiceTurnOutcome.Kind.NotEnded;
+            long renderedAtBoundary = -1;
             while (DateTime.UtcNow - started < TurnTimeout)
             {
                 Observe(panel, statuses);
@@ -68,12 +71,15 @@ public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoice
                         cancelled = true;
                     }
                 }
-                var toolReached = ToolReached(statuses, panel);
-                if (toolReached && statuses.Count > 0 && TurnEnded(statuses[^1])
-                    && Spoken(out _, out _) && VisiblePreviewText(panel) is null)
+                if (renderedAtBoundary < 0 && VoiceTurnOutcome.ToolBoundary(statuses) >= 0)
                 {
-                    sawReplyComplete = true;
-                    break;
+                    Spoken(out renderedAtBoundary, out _);
+                }
+                if (renderedAtBoundary >= 0)
+                {
+                    Spoken(out var renderedSoFar, out _);
+                    outcome = VoiceTurnOutcome.Classify(statuses, renderedAtBoundary, renderedSoFar);
+                    if (outcome != VoiceTurnOutcome.Kind.NotEnded && VisiblePreviewText(panel) is null) break;
                 }
                 Thread.Sleep(150);
             }
@@ -84,7 +90,7 @@ public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoice
             Spoken(out var rendered, out var nonzero);
             _boo.CaptureScreen("fail-closed-reply");
             _boo.WriteObservation("fail-closed-voice",
-                $"prompt='{Prompt}'\ntoolCalled={toolCalled} turnEnded={sawReplyComplete} spokenOutcome={SpokenOutcome(statuses)} cancelledOffer={cancelled}\n" +
+                $"prompt='{Prompt}'\ntoolCalled={toolCalled} spokenOutcome={VoiceTurnOutcome.Describe(outcome)} renderedAtToolBoundary={renderedAtBoundary} cancelledOffer={cancelled}\n" +
                 $"filteredProposalObserved={statuses.Contains(NothingOfferedStatus)} (false = the real structured model proposed no screen action, so only the no-action tool turn is proven live)\n" +
                 $"captureDetail='{captureDetail}'\npreviews={string.Join(" | ", previews)}\nrows={string.Join(" | ", rows)}\n" +
                 $"statuses={string.Join(" > ", statuses)}\nrenderedBytes={rendered} nonzeroBytes={nonzero}\n" +
@@ -98,7 +104,7 @@ public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoice
                 $"statuses={string.Join(" > ", statuses)} rows={string.Join(" | ", rows)}");
             Assert.DoesNotContain(previews, IsScreenAction);
             Assert.DoesNotContain(statuses, s => s.StartsWith("Realtime response incomplete", StringComparison.Ordinal) && s != CapTruncatedStatus);
-            Assert.True(sawReplyComplete, "The voice turn did not end with a complete or cap-truncated spoken reply after the tool result; " +
+            Assert.True(outcome != VoiceTurnOutcome.Kind.NotEnded, "The follow-up after the function result did not reach its own terminal status (complete or cap-truncated) with audio consumed after the tool boundary; " +
                 $"last status '{(statuses.Count > 0 ? statuses[^1] : "")}'; inspect fail-closed-voice.txt.");
             Assert.Null(VisiblePreviewText(panel));
             Assert.True(rendered >= 4800 && nonzero > 0, $"No audible reply was rendered (renderedBytes={rendered}, nonzeroBytes={nonzero}).");
@@ -111,13 +117,6 @@ public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoice
             throw;
         }
     }
-
-    private static bool TurnEnded(string status) =>
-        status.StartsWith("Reply complete.", StringComparison.Ordinal) || status == CapTruncatedStatus;
-
-    private static string SpokenOutcome(List<string> statuses) =>
-        statuses.Count == 0 ? "none" : statuses[^1].StartsWith("Reply complete.", StringComparison.Ordinal) ? "completed"
-        : statuses[^1] == CapTruncatedStatus ? "cap-truncated (128-token QA bound)" : "not ended";
 
     /// <summary>
     /// The guard ran only if RenderReply ran on the tool's structured reply: its status line (nothing offered / no action)

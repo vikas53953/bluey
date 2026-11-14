@@ -151,4 +151,32 @@ public sealed class AudioBoundaryTests
         Assert.NotNull(parsed);
         Assert.Equal(expected, parsed!.Text);
     }
+    private const string Fault = "QA mode: screen capture is faulted (BOO_QA_CAPTURE_FAULT=1). No frame was sent.";
+    private const string Sent = "Sent to the voice conversation; waiting for the response…";
+    [Fact]
+    public void ObservedOrdering_CapBeforeBoundary_ThenNoAction_IsNotEnded()
+    {
+        var statuses = new[] { Fault, Sent, VoiceTurnOutcome.CapTruncatedStatus, VoiceTurnOutcome.NoActionStatus };
+        Assert.Equal(VoiceTurnOutcome.Kind.NotEnded, VoiceTurnOutcome.Classify(statuses, 39360, 144000));
+        Assert.Equal(VoiceTurnOutcome.Kind.NotEnded, VoiceTurnOutcome.Classify(statuses, 0, 144000));
+    }
+    [Theory]
+    [InlineData(VoiceTurnOutcome.SpokenCompleteStatus, 40000, 144000, VoiceTurnOutcome.Kind.Completed)]
+    [InlineData(VoiceTurnOutcome.CapTruncatedStatus, 40000, 144000, VoiceTurnOutcome.Kind.CapTruncated)]
+    [InlineData(VoiceTurnOutcome.SpokenCompleteStatus, 144000, 144000, VoiceTurnOutcome.Kind.NotEnded)]
+    [InlineData("Realtime response incomplete (content_filter).", 40000, 144000, VoiceTurnOutcome.Kind.NotEnded)]
+    [InlineData("Realtime response incomplete.", 40000, 144000, VoiceTurnOutcome.Kind.NotEnded)]
+    public void FollowUpTerminalStatus_CountsOnlyAfterTheToolBoundary_WithAudioAfterIt(string terminal, long atBoundary, long now, VoiceTurnOutcome.Kind expected)
+    {
+        var statuses = new[] { Fault, Sent, VoiceTurnOutcome.SpokenCompleteStatus, VoiceTurnOutcome.NoActionStatus, terminal };
+        Assert.Equal(expected, VoiceTurnOutcome.Classify(statuses, atBoundary, now));
+    }
+    [Fact]
+    public void TerminalStatusBeforeTheBoundary_OrNoBoundary_IsNotEnded()
+    {
+        Assert.Equal(VoiceTurnOutcome.Kind.NotEnded, VoiceTurnOutcome.Classify(new[] { Fault, Sent, VoiceTurnOutcome.SpokenCompleteStatus }, 0, 144000));
+        Assert.Equal(VoiceTurnOutcome.Kind.NotEnded, VoiceTurnOutcome.Classify(new[] { Fault, Sent, VoiceTurnOutcome.NothingOfferedStatus }, 0, 144000));
+        Assert.Equal(2, VoiceTurnOutcome.ToolBoundary(new[] { Fault, Sent, VoiceTurnOutcome.NothingOfferedStatus, VoiceTurnOutcome.CapTruncatedStatus }));
+        Assert.Equal(-1, VoiceTurnOutcome.ToolBoundary(new[] { Fault, Sent }));
+    }
 }
