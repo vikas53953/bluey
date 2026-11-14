@@ -14,39 +14,51 @@ using Xunit.Abstractions;
 namespace Boo.Explorer;
 
 /// <summary>
-/// The run's hard budget of REAL (billed) OpenAI requests. Every user action that makes Boo send one request is
-/// spent here BEFORE the action; past the cap the action is refused (the step fails "BUDGET", it never runs).
-/// Boo sends exactly one HTTP request per typed, non-undo turn on the text path (MainWindow.SendButton_OnClick ->
-/// ResponsesClient.RespondAsync, one SendAsync, no retry anywhere in src/Boo.Providers) and speech is off in every
-/// explorer launch, so no voice request exists. The explorer itself never retries.
-/// Unbilled attempts (wrong key -> 401, firewall-blocked) are listed separately and never count as billed.
+/// The run's budget: at most <see cref="HardCap"/> requests from launches that hold the REAL OpenAI key, enforced at
+/// ADMISSION. Before a real-key question the harness requires: a healthy meter, a quiet Boo (every request it started
+/// has stopped), speech off (no voice session), and fewer than <see cref="HardCap"/> admissions so far. Each admission
+/// allows exactly one request on that Boo (<see cref="RequestMeter.AllowOne"/>); the meter, reading Boo's own network
+/// events, ends the run if Boo starts anything it was not allowed. The ledger lists admitted questions next to what Boo
+/// really started, stopped and failed. The explorer never retries a question.
 /// </summary>
 public static class ExplorerLedger
 {
     public const int HardCap = 20;
     private static readonly object Gate = new();
-    private static readonly List<string> Billed = new();
-    private static readonly List<string> Unbilled = new();
+    private static readonly List<string> Asked = new();
+    private static int s_admitted;
 
-    public static int BilledCount { get { lock (Gate) return Billed.Count; } }
+    static ExplorerLedger()
+    {
+        // Stop and drain every meter session at the end of the run, so the final ledger holds every delivered event.
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => RequestMeter.DrainAll();
+    }
 
-    public static void SpendBilled(string what)
+    public static int Admitted => Volatile.Read(ref s_admitted);
+
+    /// <summary>Admits one question on <paramref name="meter"/>'s Boo, or throws (nothing is typed).</summary>
+    public static void Admit(string what, RequestMeter meter, bool billable)
     {
         lock (Gate)
         {
-            if (Billed.Count >= HardCap)
+            if (meter.Problem is { } problem)
             {
                 Write();
-                throw new InvalidOperationException($"BUDGET: refusing '{what}': the run already used {Billed.Count} of {HardCap} real OpenAI requests.");
+                throw new InvalidOperationException($"FAIL CLOSED: refusing '{what}': {problem}");
             }
-            Billed.Add($"{DateTime.UtcNow:HH:mm:ss} {what}");
+            if (billable)
+            {
+                if (s_admitted >= HardCap)
+                {
+                    Write();
+                    throw new InvalidOperationException($"BUDGET: refusing '{what}': {s_admitted} of {HardCap} real-key requests already admitted.");
+                }
+                s_admitted++;
+                meter.AllowOne();
+            }
+            Asked.Add($"{DateTime.UtcNow:HH:mm:ss.fff} {(billable ? $"real key, admitted #{s_admitted}" : "no/wrong key or offline")}: {what}");
             Write();
         }
-    }
-
-    public static void NoteUnbilled(string what)
-    {
-        lock (Gate) { Unbilled.Add($"{DateTime.UtcNow:HH:mm:ss} {what}"); Write(); }
     }
 
     public static void Flush()
@@ -59,11 +71,18 @@ public static class ExplorerLedger
         var dir = Environment.GetEnvironmentVariable("BOO_UI_ARTIFACTS");
         if (string.IsNullOrWhiteSpace(dir)) return;
         Directory.CreateDirectory(dir);
+        var events = RequestMeter.Events;
         var sb = new StringBuilder();
-        sb.AppendLine($"real (billed) OpenAI requests: {Billed.Count} of hard cap {HardCap}; retries: 0 (none exist)");
-        Billed.ForEach(b => sb.AppendLine("  billed   " + b));
-        sb.AppendLine($"unbilled attempts (wrong key 401 / firewall-blocked): {Unbilled.Count}");
-        Unbilled.ForEach(u => sb.AppendLine("  unbilled " + u));
+        sb.AppendLine($"real-key requests ADMITTED (the cap, enforced before each ask): {s_admitted} of {HardCap}");
+        sb.AppendLine($"real-key requests Boo STARTED (seen at its network boundary): {RequestMeter.BillableStarted}");
+        sb.AppendLine($"all requests Boo started: {events.Count(e => e.Contains(" START "))}; answered with an HTTP status: {events.Count(e => e.Contains(" STOP ") && !e.Contains("HTTP -1"))}; failed or cancelled: {events.Count(e => e.Contains(" FAILED "))}");
+        sb.AppendLine("meter problems: " + string.Join("; ", RequestMeter.Problems.DefaultIfEmpty("none")));
+        sb.AppendLine("not seen by the meter: voice turns over an open WebSocket (voice is kept off; opening a voice session is a request and would be unadmitted)");
+        sb.AppendLine("retries: 0 (the harness never re-asks)");
+        sb.AppendLine("--- asked by the harness ---");
+        Asked.ForEach(a => sb.AppendLine("  " + a));
+        sb.AppendLine("--- what Boo really started (System.Net.Http events, each with its own time) ---");
+        foreach (var e in events) sb.AppendLine("  " + e);
         File.WriteAllText(Path.Combine(dir, "explorer-ledger.txt"), sb.ToString());
     }
 }
@@ -150,8 +169,20 @@ public abstract class ExplorerSteps<TFixture> where TFixture : BooAppFixture
     {
         var seedText = Environment.GetEnvironmentVariable("BOO_EXPLORER_SEED");
         var seed = int.TryParse(seedText, out var s) ? s : 5353;
-        return new Random(HashCode.Combine(seed, step.Length, step[0], step[^1]));
+        // FNV-1a over the step name: stable across processes (HashCode.Combine is randomised per process).
+        var hash = 2166136261u ^ (uint)seed;
+        foreach (var c in step)
+        {
+            hash = (hash ^ c) * 16777619u;
+        }
+        return new Random((int)hash);
     }
+
+    /// <summary>True for a launch that holds the REAL key: its requests count toward the run's cap.</summary>
+    protected virtual bool BillableLaunch => false;
+
+    /// <summary>The meter on the Boo this step drives (attached on first use; fails closed if it cannot attach).</summary>
+    protected RequestMeter Meter => RequestMeter.For(Boo.App.ProcessId, GetType().Name, BillableLaunch);
 
     /// <summary>
     /// Runs a step: records the face timeline, then checks the health invariants even when the body passed. A failure
@@ -162,6 +193,7 @@ public abstract class ExplorerSteps<TFixture> where TFixture : BooAppFixture
         using var faces = new FaceSampler(Boo);
         try
         {
+            if (!Boo.App.HasExited) _ = Meter; // count Boo's requests from before the first action of the step
             body(faces);
             var problems = HealthProblems();
             Assert.True(problems.Count == 0, "HEALTH: " + string.Join("; ", problems));
@@ -174,6 +206,10 @@ public abstract class ExplorerSteps<TFixture> where TFixture : BooAppFixture
         }
         finally
         {
+            if (!Boo.App.HasExited && !Meter.Drain(TimeSpan.FromSeconds(15)))
+            {
+                Boo.WriteObservation(step + "-meter", $"requests still in flight after the step: {Meter.InFlight}");
+            }
             faces.Dispose();
             Boo.WriteObservation(step + "-faces", faces.Timeline());
             Boo.WriteObservation("explorer-face-coverage", FaceSampler.SeenSummary());
@@ -217,6 +253,7 @@ public abstract class ExplorerSteps<TFixture> where TFixture : BooAppFixture
         }
         catch (Exception) { /* Boo gone; reported above */ }
         if (panels > 1) problems.Add($"{panels} panel windows are open at once");
+        problems.AddRange(RequestMeter.Problems.Select(p => "METER: " + p));
         if (!boo.App.HasExited && boo.FindNotch() is null) problems.Add("the notch window is gone");
         return problems;
     }
@@ -288,14 +325,62 @@ public abstract class ExplorerSteps<TFixture> where TFixture : BooAppFixture
         box.Text = text;
     }
 
-    /// <summary>Types and sends one question. A billed ask spends the ledger first (refused past the cap).</summary>
-    protected void Ask(Window panel, string text, bool billed, string label)
+    /// <summary>
+    /// Types and sends one question. On a real-key launch the metered request count must be under the cap first
+    /// (refused otherwise, nothing typed). The meter, not this call, says what Boo really sent.
+    /// </summary>
+    /// <param name="whilePending">
+    /// True only for a question deliberately sent while the previous reply is still on the wire (the caller has just
+    /// proved that with <see cref="RequireReplyPending"/>). It is still admitted and counted; it skips the "quiet Boo"
+    /// wait, which would otherwise hold it until the first reply finished.
+    /// </param>
+    protected void Ask(Window panel, string text, string label, bool whilePending = false)
     {
-        if (billed) ExplorerLedger.SpendBilled(label + ": " + text);
-        else ExplorerLedger.NoteUnbilled(label + ": " + text);
+        var meter = Meter;
+        if (BillableLaunch)
+        {
+            // Voice turns travel over an open WebSocket the meter cannot count, so voice must be off.
+            var settings = BooAppFixture.ReadShared(Boo.SettingsPath);
+            Assert.True(System.Text.RegularExpressions.Regex.IsMatch(settings, "\"SpeechEnabled\"\\s*:\\s*false"),
+                "FAIL CLOSED: speech is on in settings.json, so voice turns could bypass the meter. Nothing was asked.");
+            // One request per admission: start only from a quiet Boo, unless this question is meant to overlap.
+            Assert.True(whilePending || meter.Drain(TimeSpan.FromSeconds(30)),
+                $"FAIL CLOSED: Boo still has {meter.InFlight} request(s) in flight before '{label}'. Nothing was asked.");
+        }
+        ExplorerLedger.Admit(label + ": " + text, meter, BillableLaunch);
+        _lastAsk = (meter.Started, BooRows(panel).Count);
         Type(panel, text);
         Find(panel, "SendButton").AsButton().Invoke();
-        Output.WriteLine($"sent ({(billed ? "billed" : "unbilled")}): {text}");
+        Output.WriteLine($"asked: {text}");
+    }
+
+    private (int Started, int BooRows) _lastAsk;
+
+    /// <summary>How many Boo answer rows the panel showed when the last question was asked.</summary>
+    protected int BooRowsAtLastAsk => _lastAsk.BooRows;
+
+    /// <summary>
+    /// The precondition of every "while Boo is answering" variation: a request is really on the wire (the meter saw it
+    /// start and not end) and no answer containing <paramref name="answerWord"/> has arrived yet. If that is never
+    /// true, the step fails as NOT REACHED: it says nothing about Boo, and never passes by acting on an idle app.
+    /// </summary>
+    protected void RequireReplyPending(Window panel, string answerWord, string what)
+    {
+        // THIS ask's request: one Boo started after the ask, not stopped yet, while the panel still says it is working
+        // and no new answer (or error) has been shown.
+        var baseline = _lastAsk;
+        var newRequest = BooAppFixture.WaitUntil(() => Meter.Started > baseline.Started, TimeSpan.FromSeconds(20));
+        var inFlight = Meter.InFlight > 0;
+        var status = Status(panel);
+        var busy = LooksBusy(status);
+        var newRows = BooRows(panel).Count - baseline.BooRows;
+        var answered = BooRows(panel).Any(r => r.Contains(answerWord, StringComparison.OrdinalIgnoreCase));
+        Output.WriteLine($"{what}: newRequest={newRequest} inFlight={inFlight} busy={busy} status='{status}' newRows={newRows} answered={answered}");
+        if (!newRequest || !inFlight || !busy || newRows > 0 || answered)
+        {
+            Assert.Fail($"NOT REACHED ({what}): no reply of THIS question was pending (new request={newRequest}, in flight={inFlight}, " +
+                        $"status busy={busy} '{status}', new answer rows={newRows}). Nothing about Boo was checked.");
+        }
     }
 
     /// <summary>Every transcript row ("You: ...", "Boo: ...", "Source ..."), oldest first.</summary>
