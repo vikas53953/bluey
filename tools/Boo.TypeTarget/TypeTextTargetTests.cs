@@ -56,9 +56,37 @@ public sealed class TypeTextTargetTests
         Assert.True(run.Outcome.Success, run.Summary);
     }
 
-    private sealed record Run(ToolOutcome Outcome, string? FieldA, string FieldB, string Summary);
+    /// <summary>
+    /// Issue #134: the approved field is matched by its exact, case-sensitive automationId, never by a field whose ID
+    /// differs only by case or contains it. casefirst puts the decoy "fielda" before the real "FieldA" (only FieldA may
+    /// change); caseonly ("fielda") and partialonly ("FieldA2") have no exact match, so Boo must refuse and type nowhere.
+    /// </summary>
+    [Theory]
+    [InlineData("casefirst", "fielda")]
+    [InlineData("caseonly", "fielda")]
+    [InlineData("partialonly", "FieldA2")]
+    public async Task ApprovedFieldMatchedOnlyByExactId(string mode, string decoyId)
+    {
+        var run = await RunAsync(mode, decoyId);
 
-    private async Task<Run> RunAsync(string mode)
+        Assert.True(run.Decoy == "", $"text approved for FieldA landed in the decoy '{decoyId}': '{run.Decoy}'. {run.Summary}");
+        Assert.True(run.FieldB.Length == 0, $"FieldB changed: '{run.FieldB}'. {run.Summary}");
+        if (mode == "casefirst")
+        {
+            Assert.True(run.FieldA == Text, $"the exact FieldA should hold the approved text. {run.Summary}");
+            Assert.True(run.Outcome.Success, run.Summary);
+            return;
+        }
+
+        Assert.Null(run.FieldA);
+        Assert.False(run.Outcome.Success, run.Summary);
+        Assert.False(run.Outcome.Committed, run.Summary);
+        Assert.Contains("Nothing was typed", run.Outcome.Message, StringComparison.Ordinal);
+    }
+
+    private sealed record Run(ToolOutcome Outcome, string? FieldA, string FieldB, string? Decoy, string Summary);
+
+    private async Task<Run> RunAsync(string mode, string? decoyId = null)
     {
         var exe = Environment.GetEnvironmentVariable("BOO_TYPE_TARGET_EXE");
         Assert.False(string.IsNullOrWhiteSpace(exe), "BOO_TYPE_TARGET_EXE must name tools/Boo.TypeTarget.App's exe");
@@ -96,11 +124,13 @@ public sealed class TypeTextTargetTests
             Thread.Sleep(750); // let any keystrokes Windows accepted reach the field before reading it back
             var fieldA = ReadValue(Find(root, "FieldA"));
             var fieldBValue = ReadValue(fieldB) ?? "";
+            var decoy = decoyId is null ? null : ReadValue(Find(root, decoyId)) ?? throw new InvalidOperationException($"decoy '{decoyId}' not found");
             var summary = $"mode={mode} outcome=(success={outcome.Success}, committed={outcome.Committed}, message='{outcome.Message}') " +
-                          $"FieldA='{fieldA ?? "(no value field)"}' FieldB='{fieldBValue}'";
+                          $"FieldA='{fieldA ?? "(no value field)"}' FieldB='{fieldBValue}'" +
+                          (decoyId is null ? "" : $" {decoyId}='{decoy}'");
             _output.WriteLine(summary);
             Evidence(mode, summary, hwnd);
-            return new Run(outcome, fieldA, fieldBValue, summary);
+            return new Run(outcome, fieldA, fieldBValue, decoy, summary);
         }
         finally
         {
