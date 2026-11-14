@@ -72,7 +72,7 @@ jobs:
           dotnet test tools/Boo.NativeVoice.Unit -c Release --logger trx --results-directory artifacts/native-voice/unit
           exit $LASTEXITCODE
       - name: One real native voice turn (no retries)
-        timeout-minutes: 3
+        timeout-minutes: 6
         shell: pwsh
         env:
           BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}

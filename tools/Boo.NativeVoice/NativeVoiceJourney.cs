@@ -16,7 +16,32 @@ namespace Boo.NativeVoice;
 public sealed class NativeVoiceFixture : BooAppFixture
 {
     public NativeVoiceFixture() : base(Seed) { }
-    private static void Seed(string data)
+    private static void Seed(string data) => NativeVoiceSeed.Apply(data, "audio-device.jsonl");
+}
+
+/// <summary>
+/// The same real-key, real-provider seed, with Boo.Core.CaptureFaultPolicy switched on (BOO_QA_CAPTURE_FAULT=1): every
+/// per-request screen capture fails before a frame is taken, so an explicit task reaches the fail-closed guard with no
+/// observation. The variable is set in the seed (BooAppFixture copies the process environment after it) and cleared
+/// right after launch so no other fixture inherits it.
+/// </summary>
+public sealed class FailedCaptureVoiceFixture : BooAppFixture
+{
+    public const string Variable = "BOO_QA_CAPTURE_FAULT";
+    public FailedCaptureVoiceFixture() : base(data =>
+    {
+        NativeVoiceSeed.Apply(data, "audio-device-fail-closed.jsonl");
+        Environment.SetEnvironmentVariable(Variable, "1");
+    })
+    {
+        Environment.SetEnvironmentVariable(Variable, null);
+    }
+}
+
+internal static class NativeVoiceSeed
+{
+    /// <param name="evidenceFile">Per-fixture device evidence file under BOO_UI_ARTIFACTS (each Boo appends its own counters).</param>
+    public static void Apply(string data, string evidenceFile)
     {
         if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true"
             || Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT") != "github-hosted")
@@ -34,7 +59,7 @@ public sealed class NativeVoiceFixture : BooAppFixture
             throw new InvalidOperationException("Invalid voice model identifier.");
         Environment.SetEnvironmentVariable("BOO_QA_VOICE_TRANSCRIBE_MODEL", transcription);
         Environment.SetEnvironmentVariable("BOO_QA_VOICE_INPUT", Path.Combine(AppContext.BaseDirectory, "question.wav"));
-        Environment.SetEnvironmentVariable("BOO_QA_VOICE_EVIDENCE", Path.Combine(folder, "audio-device.jsonl"));
+        Environment.SetEnvironmentVariable("BOO_QA_VOICE_EVIDENCE", Path.Combine(folder, evidenceFile));
         new CredentialStore(Path.Combine(data, AiProviders.CredentialFileName(AiProvider.OpenAI))).Save(key);
         new SettingsStore(Path.Combine(data, "settings.json")).Save(new AppSettings(SpeechEnabled: true,
             ChirpsEnabled: false, Provider: new ProviderSettings(RealtimeModel: model)));
