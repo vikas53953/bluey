@@ -231,3 +231,6 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 
 
 | 14 Nov 2026 | Separate Q12F pre-hit screenshot from metadata and report property support explicitly in bounded hit/ancestor/descendant diagnostics. | Unsupported Name aborted the previous compound diagnostic before image capture; its secondary failure did not mask the strict RuntimeId failure. Retain original equality and do not infer the hit's identity. | Actions43588864021 exact3d8d31f; identity/TRX/log/screenshot inspected; local compile0warnings/0errors | proposed; diagnostic-only, Q12F/full-app RED |
+
+
+| 14 Nov 2026 | Q12F targets exposed padding of the same Boo tray button, retaining exact pointer-hit RuntimeId equality. | Run43589938562 proves the centre hit is a decorative Image whose immediate parent is the selected Button; change input geometry, not acceptance. One bounds-contained point, no fallback or repeated click. | Exact2e79292 identity/log/TRX/overflow screenshot inspected; local compile0warnings/0errors | proposed; native Q12F UNVERIFIED |

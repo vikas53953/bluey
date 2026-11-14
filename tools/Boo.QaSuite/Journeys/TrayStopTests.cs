@@ -202,7 +202,11 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
             Assert.Equal("Boo companion", icon.Properties.Name.Value);
             Assert.True(ExplorerAncestry(icon));
             var bounds = icon.BoundingRectangle;
-            var point = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
+            // The centre hits Explorer's decorative Image child. Use the button's exposed left padding;
+            // the unchanged FromPoint RuntimeId assertion must still prove the exact selected Button.
+            var point = new Point(bounds.Left + Math.Max(1, bounds.Width / 8), bounds.Top + bounds.Height / 2);
+            Assert.True(bounds.Contains(point), "Tray point must be inside the selected button; no fallback point.");
+            Record($"single tray hit point in button padding={point.X},{point.Y} selectedBounds={bounds}");
             Mouse.Position = point;
             var hit = _boo.Automation.FromPoint(point);
             try
