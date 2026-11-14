@@ -7,6 +7,11 @@ on:
       - .github/workflows/qa-paused-stop.yml
   workflow_dispatch:
     inputs:
+      verify_journey:
+        description: One existing real-OpenAI journey, with J0 launch prerequisite
+        type: choice
+        options: [none, j3, j4, j5, j6]
+        default: none
       typed_chat:
         description: Run existing S2 and J2 typed chat checks with cheap real OpenAI (two requests)
         type: boolean
@@ -70,7 +75,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet build tools/Boo.QaSuite -c Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ('${{ inputs.hotkey || inputs.basic_hover || inputs.typed_chat }}' -eq 'true') {
+          if ('${{ inputs.hotkey || inputs.basic_hover || inputs.typed_chat || (inputs.verify_journey && inputs.verify_journey != 'none') }}' -eq 'true') {
             dotnet build tools/Boo.VerifyLive -c Release
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
@@ -85,13 +90,16 @@ jobs:
           BOO_CAPTURE_SCOPE: boo-windows
           BOO_LIVE_TEXT_PROVIDER: openai
           BOO_LIVE_MODEL: gpt-6-luna
-          BOO_LIVE_OPENAI_KEY: ${{ (inputs.approval_stop || inputs.hotkey || inputs.basic_hover || inputs.typed_chat) && secrets.BOO_LIVE_OPENAI_KEY || '' }}
+          BOO_LIVE_OPENAI_KEY: ${{ (inputs.approval_stop || inputs.hotkey || inputs.basic_hover || inputs.typed_chat || (inputs.verify_journey && inputs.verify_journey != 'none')) && secrets.BOO_LIVE_OPENAI_KEY || '' }}
+          BOO_LIVE_FOCUS_MODEL: gpt-6-luna
+          BOO_LIVE_REALTIME_MODEL: gpt-realtime-2.1-mini
           BOO_QA_FACE_TIMING: ${{ inputs.face_timing_diagnostics && '1' || '0' }}
           TRAY_STOP: ${{ inputs.tray_stop || false }}
           HOVER_EDGES: ${{ inputs.hover_edges || false }}
           HOTKEY: ${{ inputs.hotkey || false }}
           BASIC_HOVER: ${{ inputs.basic_hover || false }}
           TYPED_CHAT: ${{ inputs.typed_chat || false }}
+          VERIFY_JOURNEY: ${{ inputs.verify_journey || 'none' }}
           FOCUS_END: ${{ inputs.focus_end || false }}
           FOCUS_RESUME: ${{ inputs.focus_resume || false }}
           APPROVAL_STOP: ${{ inputs.approval_stop || false }}
@@ -99,11 +107,21 @@ jobs:
           $test = 'Boo.QaSuite.Journeys.PausedStopTests.Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace'
           $selected = @($env:APPROVAL_STOP, $env:FOCUS_RESUME, $env:FOCUS_END, $env:TRAY_STOP, $env:HOVER_EDGES, $env:HOTKEY, $env:BASIC_HOVER, $env:TYPED_CHAT) | Where-Object { $_ -eq 'true' }
           if ($env:BOO_QA_FACE_TIMING -eq '1' -and $env:FOCUS_END -ne 'true') { throw 'Producer timing requires focus_end' }
-          if (@($selected).Count -gt 1) { throw 'Choose one focused journey' }
+          $verifySelected = $env:VERIFY_JOURNEY -ne 'none'
+          if ((@($selected).Count + [int]$verifySelected) -gt 1) { throw 'Choose one focused journey' }
+          $verifyMethod = switch ($env:VERIFY_JOURNEY) {
+            'none' { '' }
+            'j3' { 'J3_ScreenExplain_PointerAndRingLandOnTheTarget' }
+            'j4' { 'J4_Research_ShowsRealSourceLinks' }
+            'j5' { 'J5_ApplyThenUndo_OnlyAfterApproval' }
+            'j6' { 'J6_FocusSession_25Minutes_OnTheDeveloperModeClock' }
+            default { throw 'Unknown verify journey' }
+          }
           if ($env:HOVER_EDGES -eq 'true') { $test = 'Boo.QaSuite.Journeys.HoverEdgeTests.Q7_HoverEdges_AllFourBranches_OnTheRealClock' }
           if ($env:HOTKEY -eq 'true') { $test = 'Boo.QaSuite.Journeys.QaJourneyTests.S0_Launch_OnlyTheNotch_ThenHotkeyOpensThePanel' }
           if ($env:BASIC_HOVER -eq 'true') { $test = 'Boo.QaSuite.Journeys.QaJourneyTests.S1_Hover_WakesTheNotch_ThenItRetracts' }
           if ($env:TYPED_CHAT -eq 'true') { $test = 'Boo.QaSuite.Journeys.QaJourneyTests.S2_RealChat_EchoesARunTimeCode_AndTheNotchThinksThenResponds' }
+          if ($verifySelected) { $test = 'Boo.QaSuite.Journeys.QaJourneyTests.S0_Launch_OnlyTheNotch_ThenHotkeyOpensThePanel' }
           if ($env:TRAY_STOP -eq 'true') { $test = 'Boo.QaSuite.Journeys.TrayStopTests.Q12F_TrayStop_PausesRunningFocusAndKeepsItPinned' }
           if ($env:FOCUS_END -eq 'true') { $test = 'Boo.QaSuite.Journeys.FocusEndTimingTests.Q13H_EndFromPaused_HappyIntervalContainsNominalDurationThenRetreats' }
           if ($env:FOCUS_RESUME -eq 'true') { $test = 'Boo.QaSuite.Journeys.FocusResumeTests.Q13R_PauseResume_OrdersFacesAndRetainsSessionAtPauseCheckpoint' }
@@ -116,14 +134,15 @@ jobs:
           $rows = @($trx.TestRun.Results.UnitTestResult)
           if ($rows.Count -ne 1 -or $rows[0].outcome -ne 'Passed' -or $rows[0].testName -ne $test) { throw 'Exact selected journey did not pass' }
           if ($testExit -ne 0) { exit $testExit }
-          if ($env:HOTKEY -eq 'true' -or $env:BASIC_HOVER -eq 'true' -or $env:TYPED_CHAT -eq 'true') {
+          if ($env:HOTKEY -eq 'true' -or $env:BASIC_HOVER -eq 'true' -or $env:TYPED_CHAT -eq 'true' -or $verifySelected) {
             $test = 'Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey'
             if ($env:BASIC_HOVER -eq 'true') { $test = 'Boo.VerifyLive.LiveJourneyTests.J1_NotchWakes_OnHover' }
             if ($env:TYPED_CHAT -eq 'true') { $test = 'Boo.VerifyLive.LiveJourneyTests.J2_TypedChat_GetsARealAnswer' }
+            if ($verifySelected) { $test = "Boo.VerifyLive.LiveJourneyTests.$verifyMethod" }
             $expected = @($test)
-            # J2 belongs to an ordered shared-fixture suite: retain J0's launch/readiness step.
+            # These checks belong to an ordered shared-fixture suite: retain J0's launch/readiness step.
             # Both results are required; no retry, timeout change or discarded setup failure.
-            if ($env:TYPED_CHAT -eq 'true') { $expected = @('Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey', $test) }
+            if ($env:TYPED_CHAT -eq 'true' -or $verifySelected) { $expected = @('Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey', $test) }
             $filter = ($expected | ForEach-Object { "FullyQualifiedName=$_" }) -join '|'
             dotnet test tools/Boo.VerifyLive -c Release --no-build --filter $filter --logger trx --results-directory artifacts/paused-stop/verifylive-trx
             $testExit = $LASTEXITCODE
