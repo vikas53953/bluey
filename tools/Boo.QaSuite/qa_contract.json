@@ -1,5 +1,5 @@
 {
-  "contract_version": 10,
+  "contract_version": 11,
   "groups": {
     "contracts": {
       "C66": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot"
@@ -44,7 +44,18 @@
       "ST1": "Boo.LiveSmoke.SpokenAudioTests.Quiet_noise_below_the_floor_is_not_speech",
       "ST2": "Boo.LiveSmoke.SpokenAudioTests.An_answer_is_spoken_only_with_enough_speech",
       "ST3": "Boo.LiveSmoke.SpokenAudioTests.Every_complete_window_is_counted_including_the_last_and_a_partial_one_is_not",
-      "ST4": "Boo.LiveSmoke.SpokenAudioTests.The_built_in_self_check_passes_on_the_real_measure"
+      "ST4": "Boo.LiveSmoke.SpokenAudioTests.The_built_in_self_check_passes_on_the_real_measure",
+      "AF0": "Boo.LiveSmoke.AnswerAudioFramesTests.Real_speech_sent_in_even_chunks_comes_back_exactly_and_is_spoken",
+      "AF1": "Boo.LiveSmoke.AnswerAudioFramesTests.A_sample_split_across_two_messages_is_reported",
+      "AF2": "Boo.LiveSmoke.AnswerAudioFramesTests.One_base64_string_cut_mid_way_is_reported_as_dropped_audio",
+      "AF3": "Boo.LiveSmoke.AnswerAudioFramesTests.Audio_under_an_event_name_Boo_does_not_read_is_reported",
+      "AF4": "Boo.LiveSmoke.AnswerAudioFramesTests.A_silent_answer_decodes_cleanly_and_is_still_not_spoken",
+      "AF5": "Boo.LiveSmoke.AnswerAudioFramesTests.The_session_output_format_is_recorded",
+      "AF6": "Boo.LiveSmoke.AnswerAudioFramesTests.Audio_the_parser_drops_is_reported_both_as_dropped_and_as_a_joined_decode_mismatch",
+      "RL0": "Boo.LiveSmoke.RealtimeReceiveLoopTests.Every_server_message_reaches_the_raw_observer_once_and_in_order_even_ones_the_parser_drops",
+      "ST5": "Boo.LiveSmoke.SpokenAudioTests.A_real_spoken_answer_from_OpenAI_passes",
+      "ST6": "Boo.LiveSmoke.SpokenAudioTests.A_silent_answer_from_OpenAI_fails_even_when_long_and_with_a_transcript",
+      "ST7": "Boo.LiveSmoke.SpokenAudioTests.The_peak_level_counts_negative_samples_by_their_size"
     },
     "verifylive": {
       "J0": "Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey",

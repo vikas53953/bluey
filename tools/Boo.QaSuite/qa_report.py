@@ -147,7 +147,9 @@ def build(folder, run_url='', app_sha='', harness_sha='', models=''):
             if not ok:
                 problems.append(f'{what}: {outcome} {message}')
             result = 'passed' if ok else f'FAILED ({outcome}): {message}'.replace('|', '/')
-            label = 'mock' if group == 'contracts' or '.SpokenAudioTests.' in name or '.StopStatusRegressionTests.' in name else 'live'
+            label = 'mock' if group == 'contracts' or any(cls in name for cls in (
+                '.SpokenAudioTests.', '.AnswerAudioFramesTests.', '.RealtimeReceiveLoopTests.',
+                '.StopStatusRegressionTests.')) else 'live'
             table.append(f'| {what} | {label} | {result} | {link} |')
     if not any(r[0] == 'smoke' and 'voice' in r[1].lower() for r in rows):
         table.append(f'| Voice provider: real OpenAI synthetic audio round trip (component; no Boo.exe UI) | BLOCKED | no live voice test exists on this harness yet; it '
