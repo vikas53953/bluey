@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    LIVE-AI smoke test: one real round trip from the published Boo.exe to a real AI provider.
+    Run only by .github/workflows/live-ai-smoke.yml (workflow_dispatch). See docs/LIVE_AI_SMOKE.md.
+
+    Lives in tools/, not tests/: tests/** is the frozen test oracle (docs/verification/test-oracle.json),
+    and this project must not add to it. It REUSES the demo harness unchanged by linking
+    tests/Boo.Demo.Tests/BooAppFixture.cs (launch published Boo, isolated BOO_DATA_DIR, screenshots, Run-key restore).
+
+    Not part of Boo.sln. Costs money per run (one paid request), so nothing runs it automatically.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
+    <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Boo.Storage/Boo.Storage.csproj" />
+    <!-- The live voice round trip drives Boo's own OpenAI Realtime client (LiveVoiceRoundTripTests). -->
+    <ProjectReference Include="../../src/Boo.Providers/Boo.Providers.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Synthetic spoken question (Windows' offline speech synthesizer; see Voice/New-VoiceFixture.ps1). Never a mic. -->
+    <None Include="Voice/what-is-two-plus-three.wav" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Two real OpenAI answers kept as offline test fixtures for SpokenAudio (SpokenAudioTests): a spoken "five"
+         (live-ai-smoke run 43575903395) and a silent answer whose transcript said "5" (live-sentinel run 43576162645). -->
+    <None Include="Voice/answer-five-real-speech.wav" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Voice/answer-silent-from-provider.wav" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Compile Include="../../tests/Boo.Demo.Tests/BooAppFixture.cs" Link="Harness/BooAppFixture.cs" />
+  </ItemGroup>
+</Project>

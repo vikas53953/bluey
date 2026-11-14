@@ -1,5 +1,65 @@
 # Boo project status
 
+Updated 8 November 2026 (video-parity build). Phase: **built and Windows-CI-tested; native hands-on QA pending**. Delivery is **not accepted** until Vikas runs the three demos + a 25-minute focus session on his PC.
+
+Source of truth is now GitHub `vikas53953/bluey`. Docs (README, user guide, demo script, acceptance runbook, this page) were cross-checked against `lane/face` head `22ef666` on 8 Nov 2026 20:00 UTC: every quoted UI string, hotkey and settings label below exists in the code. Morning test order: [docs/MORNING_CHECKLIST.md](MORNING_CHECKLIST.md). Every push runs `windows-ci` on windows-latest (build, Core + Integration tests, publish win-x64).
+
+## 10 Nov: test-gate integrity (branch `fix/ci-frozen-tests-and-sf006`)
+
+- **Frozen-test oracle now runs in windows-ci** (`python -I scripts/test_oracle.py`, before restore). Revision 18 is a reviewed rebaseline: 95 files added, 3 changed, each decided with evidence in `docs/verification/test-oracle-revision-18.md`. Changing, emptying or deleting any file under `tests/` without a new revision fails CI.
+- **Vacuous-pass gate** (`scripts/test_gate.py`): fails on an empty test file, a `*Tests.cs` file or test project with no tests, any `Skip =`, and any test run whose results show zero tests or a skipped test.
+- **SF-006 runs** (junction, directory symlink, file symlink; no skip, no silent early return). Symlink cases need Developer Mode or an elevated shell on a dev PC and fail with that instruction otherwise.
+- **`ScopedFiles.Resolve` refuses names Windows would rewrite**: trailing dot/space (`notes.` no longer lands on `notes`), DOS device names (`nul.txt`), wildcards/control characters, plus a backstop that the resolved path names exactly the requested segments.
+
+## 8 Nov additions (plan: docs/plans/2026-11-08-feat-boo-video-parity-plan.md)
+
+Each lane: independent test author froze failing tests first, a separate builder implemented, a third agent reviewed. Core tests: 555 pass, 1 pre-existing skip.
+
+| Lane | What it adds | Evidence | Not yet proven by hand on Windows |
+| --- | --- | --- | --- |
+| Hold-to-talk (U4) | Hold Ctrl+Alt+Space or hold the eyes; release sends; tap <200 ms shows "Hold to talk"; push-to-talk Realtime turns; latency recorder (median / p95) | main, Windows CI green; review fixed 5 bugs (Alt menu-bar leak, AltGr, lock-screen stuck keys, re-hold race) | Real mic round trip, 20-turn latency target, elevated windows |
+| Chirp, start-with-Windows, QA capture switch | 880->1320 Hz chirp on nudge and session end (toggle, on by default); HKCU Run entry (off by default); BOO_QA_CAPTURABLE=1 makes Boo screenshot-able | main, Windows CI green | Audible chirp, registry write |
+| Pointer (U3, U6) | Blue pointer flies to the target, then ring/arrow draws; nudge pointer via Windows OCR | PR #1, Windows CI green; review fixed stale-generation bug | Landing accuracy at 100/150 % and second monitor |
+| Eyes and notch (U1, U2) | Face B "Button eyes" in HeyClicky pocket, data-driven from docs/design/boo-notch-spec.json; gaze follows cursor; blinks; listening/thinking/responding/capture/nudge/paused/happy faces; hover 240 ms reveal, 900+160 ms retract; Nunito font | PR #3 (includes #1), Windows CI green; review + integration review fixed 9 bugs | Look and feel, hover timing, idle CPU, DPI |
+
+| Installer and updates (8 Nov night, branch claude/project-thread-e9urgv) | Velopack per-user installer `Boo-win-Setup.exe` (Start menu, Settings > Apps uninstall, `%LocalAppData%\Boo`); Settings > Updates opt-in check of GitHub Releases on the private repo with a DPAPI-protected read token, 24 h interval, manual check, explicit **Install and restart**; `releases.win.json` hash verified in CI and by Velopack on the PC; decisions in `Boo.Core/Updates.cs` (105 test cases) | release workflow uploads `boo-installer-win-x64`; `vpk pack` verified end to end on the build container (91 MB Setup.exe); whole app compiles | Install, Start menu shortcut, uninstall, and a real update round trip on Windows; SmartScreen prompt (unsigned) |
+
+### Accessibility pass (8 Nov night, branch claude/project-thread-syqxnu, off lane/face c2cdcc2)
+
+Screen-reader structure (UIA groups + heading levels), transcript as a navigable list, assertive approval announcement, F6 region cycling, visible focus rings, Windows Text size scaling, and "Animation effects off" now also stopping the pointer flight. Visual design unchanged. Proven in CI by UI smoke steps 11-14 and 23 Core tests; the human checks (Narrator, High contrast, 150/225 % text, animations off) are listed in [the accessibility checklist](verification/2026-11-08-accessibility-native-checklist.md).
+
+### Hardening pass (8 Nov evening, branch claude/project-thread-2kwt3c)
+
+Edge cases found and fixed, each with new tests (Core 1028 pass / 1 skip; Integration 119+; UI smoke 9 on windows-latest):
+
+| Area | Fix | Still needs a hands-on check |
+| --- | --- | --- |
+| Focus sleep/resume, drift | FocusClock measures real time; a >30 s gap (sleep without a Suspend event) pauses with "Paused after sleep"; Running sessions saved every 30 s and recovered as Paused after a crash | Real sleep / modern standby |
+| Crash handling | Redacted crash logs in <data>/logs (keys, Bearer tokens, profile path removed), StopAll on crash, recoverable UI errors keep Boo alive (max 5/min), startup errors stay fatal, one-time "Boo recovered" notice | A real crash |
+| Hotkey conflicts | One truthful message when Ctrl+Alt+B, Ctrl+Alt+F12, Ctrl+Alt+S or the Ctrl+Alt+Space hook fail; shown in Settings, status and tray; tray labels drop dead shortcuts; retried on unlock/display change | Another app owning the combo |
+| OpenAI / network | 401, quota, rate limit, 5xx, offline and timeout get distinct plain messages; missing key says so; Realtime connect has a 15 s timeout and keep-alive detects dead sockets so voice never sticks on Listening/Thinking | Live OpenAI errors |
+| Microphone | No mic, privacy switch off, in use, unplugged each get their own message; Listening never shows when the mic did not start | Real privacy switch, unplug |
+| Multi-monitor / DPI | Each monitor's own DPI used for pointer, ring, overlay and panel; overlay placed in physical pixels; notch re-centres when its monitor is unplugged and sits below a top taskbar | 100% + 150% two-monitor setup |
+| Corrupt settings | Corrupt settings.json no longer crashes startup (defaults + message) | - |
+
+Native checklists for each lane: docs/verification/2026-11-08-*-native-checklist.md.
+
+### Provider abstraction (8 Nov, plan: docs/plans/2026-11-08-multi-provider.md)
+
+| Area | What it adds | Evidence | Not yet proven by hand on Windows |
+| --- | --- | --- | --- |
+| Text AI provider choice (**out of scope since 13 Nov 2026**: OpenAI only; kept as history) | `IScreenAssistant` / `IFocusClassifier` behind `AssistantProviders`; OpenAI stays the default; Anthropic Claude and Google Gemini selectable in Settings > Text AI for screen explain, research, nudges and focus classification, with editable model ids; one DPAPI key file per provider; voice stays on OpenAI Realtime; "No {vendor} key yet" status per provider | Core + Providers build on Linux; Claude and Gemini clients are source-tested with mocked HTTP | Neither Claude nor Gemini has been exercised natively against the live APIs; the Settings UI (provider combo, model boxes, two new key boxes) has not been opened on Windows |
+
+---
+
+### Night integration and reviews (8 Nov, 19:00 to 20:10 UTC, PR #3 = lane/face)
+
+Folded into lane/face in this order: security pass 1 (PR #7), parity motion, hardening, face polish, Riley gap-close (U8), user guide, installer (PR #8), Claude/Gemini providers, performance (PR #9), accessibility, docs cross-check, security pass 2, demo-in-CI, fuzz, end-to-end review. Three independent reviews of the hand-merged head and the fuzz run on windows-latest found and fixed: nudge pills never appearing (caption completion read a thresholded opacity), a pasted GitHub token discarded when a model id was rejected, Gemini/GitHub keys unredacted in crash logs, `...` resolving to the scoped file root on Windows, a capture-dispose race, the happy face lost when a session ended mid-reply, and sessions left Running in sessions.db after Start. Core 1673 + Providers 115 pass; windows-ci green except the evidence-only `demos` job (continue-on-error), whose mock-OpenAI wiring is still being fixed.
+
+**Known residuals (not fixed, from the end-to-end review, both passes):** a live Windows text-scale change grows the window without re-clamping to the work area; F6 skips the Conversation and Review groups; `release.yml` compares the tag with the raw csproj Version, so a suffixed Version would block every tag; the demo mock listens on all interfaces and demo-ci never removes its hosts entry or root cert (hosted runners only); the accessibility smoke steps 11-14 were restored at 2a9552b after an empty file had let them pass vacuously; their first real run failed on step 14 (the resting notch collapses its host, so its HelpText is not in the UIA tree) and c8ec2ca hover-reveals the notch first. demo-ci (`demos`, still continue-on-error) is green at 47b6d9f: all four scripted demos pass on windows-latest against the mock AI (explain with pointer ring; edit then undo through two approval cards, file bytes restored; research with three source links; focus nudge on the notch, Back to it, happy face, "Session complete"). Fixes on the way there: `FileUndoJournal` (Boo.Core, 9 unit tests) so "undo" after a write_file/delete_file proposes the reverse write or delete; link probe searches the window because the sources StackPanel has no UIA peer; a 3-minute Developer Mode session; the mock answers off_task three times at P=0.96 (NudgePolicy needs about 44 focus-seconds between two P=0.90 checks, the checks were exactly 40 apart); the completion status reads "Session complete", not "Ended". The mock replaces OpenAI, so this proves Boo's UI and policies, not the real models. Also: `App.StopAll`'s "Stopped" bubble is dead code for the tray and right-click Stop paths; Realtime `screen_help` tool calls are answered before `response.done`, so a fast failure races and is treated as fatal; Anthropic `pause_turn` is treated as a final reply; `budgets.json` `idleGen0PerMinute` 3 over 15 s can flake on a single gen0 GC. Nothing in this section has been tried on a real Windows PC.
+
+## Earlier status (7 Nov, Codex build 15)
+
 Updated 7 November 2026. Phase: **integration and native Windows QA**. Delivery is **not accepted**.
 
 The app exists and has been packaged locally. It is not yet a reliably demonstrated finished assistant. No routine owner approval is pending; autonomous implementation remains authorized.

@@ -1,0 +1,43 @@
+{
+  "bypass": "<CompilerResponseFile> passes /analyzerconfig: to csc (PR #28 bypass 2)",
+  "builds": [
+    {
+      "label": "build",
+      "args": [
+        "build",
+        "App/App.csproj",
+        "-c",
+        "Release"
+      ]
+    }
+  ],
+  "projects": [
+    "App/App.csproj"
+  ],
+  "visible": [
+    {
+      "label": "build",
+      "project": "App/App.csproj",
+      "field": "csc.arguments",
+      "contains": "@App/extra.rsp"
+    },
+    {
+      "label": "build",
+      "project": "App/App.csproj",
+      "field": "csc.responseFiles.content",
+      "contains": "/analyzerconfig:quiet.globalconfig"
+    },
+    {
+      "label": "build",
+      "project": "App/App.csproj",
+      "field": "csc.analyzerConfigs.content",
+      "contains": "dotnet_diagnostic.CS0168.severity = none"
+    }
+  ],
+  "check": {
+    "result": "fail",
+    "mustInclude": [
+      "response file passed to the compiler"
+    ]
+  }
+}

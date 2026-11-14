@@ -1,0 +1,357 @@
+name: live-ai-smoke
+
+# TWO real AI round trips (no mock): (1) typed question -> the published Boo.exe captures the screen -> real provider ->
+# answer row in Boo's transcript; (2) voice: a synthetic spoken question (a checked-in WAV, never a microphone) -> Boo's
+# own OpenAI Realtime client -> OpenAI's transcript of the question and a spoken answer. Runs on EVERY pull request (its
+# final job `live-ai-smoke` is meant to be a required check once added to branch protection) and by hand
+# (workflow_dispatch). Each run spends two small paid requests on cheap OpenAI models (about US$0.004 per run, see
+# docs/LIVE_AI_SMOKE.md section 6). How to add the key and run it: docs/LIVE_AI_SMOKE.md.
+#
+# RUNS ONLY ON GITHUB'S OWN WINDOWS VM (windows-latest), never on the owner's PC: the test drives the mouse and
+# keyboard, and Boo sends a picture of the screen to the AI. A step refuses any runner that is not GitHub-hosted, and
+# scripts/ci/check_runners.py (windows-ci) fails any workflow that names a self-hosted runner. Evidence screenshots are
+# of Boo's own windows only (BOO_CAPTURE_SCOPE=boo-windows), never the whole desktop.
+#
+# FAILS CLOSED: if the key for the chosen text provider is missing or malformed, the `preflight` job goes red with a
+# plain message and the smoke job never starts. A missing key is never a skip and never a green.
+# Keys: only ever read from repository secrets into environment variables; never echoed (GitHub masks secret values,
+# and the run masks them again explicitly); never typed into Boo's UI (the test seeds Boo's own DPAPI key file), so
+# they cannot appear in a screenshot. A final scan refuses to upload any evidence file that contains a key.
+
+on:
+  # REQUIRED on every pull request (Vikas, 12 Nov 2026, 11:20 PM IST): every PR gets one real round trip on its head.
+  # The required check is the final `live-ai-smoke` job below. PRs from forks get no secrets, so they fail closed.
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      text_provider:
+        description: Which AI answers Boo's typed question (needs the matching BOO_LIVE_*_KEY secret)
+        type: choice
+        options: [openai, anthropic, gemini]
+        default: openai
+      model:
+        description: Optional chat model id for the chosen provider (blank = round trip on the cheap CI default gpt-6-luna, rule in docs/LIVE_AI_SMOKE.md section 6; journeys on Boo's own default)
+        type: string
+        required: false
+        default: ''
+      realtime_model:
+        description: Optional OpenAI realtime (voice) model id (blank = gpt-realtime-2.1-mini, the mini variant of Boo's voice model)
+        type: string
+        required: false
+        default: ''
+      transcribe_model:
+        description: Optional OpenAI speech-to-text model id (blank = gpt-4o-mini-transcribe, Boo's own)
+        type: string
+        required: false
+        default: ''
+      journeys:
+        description: "Also run the verify-boo LIVE user journeys (tools/Boo.VerifyLive: hotkey + hover wake, chat, explain ring, research, Apply/Undo, 25-min Developer Mode focus). About 15 more minutes and ~45 paid requests."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One run per PR (or ref) at a time; a newer push to the same PR cancels the older run, since only the head counts.
+concurrency:
+  group: live-ai-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Runs on a cheap Linux VM so a missing secret fails in seconds, before the Windows VM starts.
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require the key for the chosen provider (fail closed)
+        shell: bash
+        env:
+          PROVIDER: ${{ inputs.text_provider || 'openai' }}
+          MODEL: ${{ inputs.model }}
+          REALTIME_MODEL: ${{ inputs.realtime_model }}
+          TRANSCRIBE_MODEL: ${{ inputs.transcribe_model }}
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
+          GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
+        run: |
+          case "$PROVIDER" in
+            openai)    NAME=BOO_LIVE_OPENAI_KEY;    VALUE="$OPENAI_KEY" ;;
+            anthropic) NAME=BOO_LIVE_ANTHROPIC_KEY; VALUE="$ANTHROPIC_KEY" ;;
+            gemini)    NAME=BOO_LIVE_GEMINI_KEY;    VALUE="$GEMINI_KEY" ;;
+            *) echo "::error title=Live AI smoke FAILED CLOSED::Unknown text provider '$PROVIDER'."; exit 1 ;;
+          esac
+          TRIMMED="$(printf '%s' "$VALUE" | tr -d '[:space:]')"
+          if [ -z "$TRIMMED" ]; then
+            echo "::error title=Live AI smoke FAILED CLOSED::Repository secret $NAME is missing or empty, so no real AI round trip can run. Add it under Settings > Secrets and variables > Actions (docs/LIVE_AI_SMOKE.md). This run is NOT a pass."
+            exit 1
+          fi
+          if [ "$TRIMMED" != "$VALUE" ]; then
+            echo "::error title=Live AI smoke FAILED CLOSED::Repository secret $NAME contains spaces or line breaks. Paste the key again without them."
+            exit 1
+          fi
+          if [ "${#VALUE}" -lt 20 ]; then
+            echo "::error title=Live AI smoke FAILED CLOSED::Repository secret $NAME is too short (${#VALUE} characters) to be a real key."
+            exit 1
+          fi
+          for M in "$MODEL" "$REALTIME_MODEL" "$TRANSCRIBE_MODEL"; do
+            if [ -n "$M" ] && ! printf '%s' "$M" | grep -Eq '^[A-Za-z0-9._:-]{1,128}$'; then
+              echo "::error title=Live AI smoke FAILED CLOSED::Model override '$M' is not a valid model id."
+              exit 1
+            fi
+          done
+          # Voice is always OpenAI (Boo's voice uses BOO_LIVE_OPENAI_KEY whatever the text provider is).
+          if [ -z "$(printf '%s' "$OPENAI_KEY" | tr -d '[:space:]')" ]; then
+            echo "::error title=Live AI smoke FAILED CLOSED::Repository secret BOO_LIVE_OPENAI_KEY is missing or empty, so the live voice round trip cannot run. This run is NOT a pass."
+            exit 1
+          fi
+          # Lengths only, never values.
+          echo "Text provider: $PROVIDER. Secret $NAME is present (${#VALUE} characters)."
+
+  smoke:
+    needs: preflight
+    # GitHub's own Windows VM only. Never the owner's PC (see the header).
+    runs-on: windows-latest
+    timeout-minutes: 50  # 30 for the round trip + about 15 for the journeys
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      # Evidence screenshots show Boo's own windows only, never the whole desktop (BooAppFixture.CaptureScreen).
+      BOO_CAPTURE_SCOPE: boo-windows
+      # Models for the two round trips, set per run (workflow_dispatch inputs). Rule: the cheapest model Boo itself
+      # already uses for that kind of request, or the cheapest variant of one (a cheaper model that is neither is not used):
+      # chat about a screenshot with reasoning and structured output: gpt-6-luna (Boo's focus-check model; the only
+      # cheaper one, gpt-5-nano, is deprecated and unused by Boo); voice: gpt-realtime-2.1-mini (the mini variant of
+      # Boo's voice model); speech-to-text: gpt-4o-mini-transcribe (Boo's own). A step below checks each exists before any paid call. The live journeys
+      # keep Boo's own shipped models (their step sets BOO_LIVE_MODEL to the input only), since they prove what users get.
+      BOO_LIVE_MODEL: ${{ inputs.model || ((inputs.text_provider || 'openai') == 'openai' && 'gpt-6-luna' || '') }}
+      BOO_LIVE_REALTIME_MODEL: ${{ inputs.realtime_model || 'gpt-realtime-2.1-mini' }}
+      BOO_LIVE_TRANSCRIBE_MODEL: ${{ inputs.transcribe_model || 'gpt-4o-mini-transcribe' }}
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=Live AI smoke refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)'). Set this job's runner back to windows-latest."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: true
+
+      - name: Mask keys (again) and start with an empty evidence folder
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
+          GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
+        run: |
+          foreach ($v in @($env:OPENAI_KEY, $env:ANTHROPIC_KEY, $env:GEMINI_KEY)) {
+            if (-not [string]::IsNullOrWhiteSpace($v)) { Write-Output "::add-mask::$($v.Trim())" }
+          }
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts\live-evidence'
+          if (Test-Path $evidence) { Remove-Item $evidence -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+
+      # Free check before any paid call: every OpenAI model this run will use exists for this key (GET /v1/models/<id>
+      # costs nothing). A retired or misspelled model fails here in seconds with its name, not later as a vague error.
+      - name: OpenAI models exist (free check, before any paid call)
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          TEXT_PROVIDER: ${{ inputs.text_provider || 'openai' }}
+        run: |
+          $models = @($env:BOO_LIVE_REALTIME_MODEL, $env:BOO_LIVE_TRANSCRIBE_MODEL)
+          if ($env:TEXT_PROVIDER -eq 'openai' -and $env:BOO_LIVE_MODEL) { $models += $env:BOO_LIVE_MODEL }
+          $headers = @{ Authorization = "Bearer $($env:OPENAI_KEY.Trim())" }
+          $bad = 0
+          foreach ($m in $models) {
+            try {
+              $null = Invoke-RestMethod -Method Get -Uri "https://api.openai.com/v1/models/$([uri]::EscapeDataString($m))" -Headers $headers -TimeoutSec 30
+              "OpenAI model available: $m"
+            } catch {
+              $status = $_.Exception.Response.StatusCode.value__
+              "::error title=Live AI smoke FAILED CLOSED::OpenAI model '$m' is not available to this key (HTTP $status). Pick another with the workflow inputs."
+              $bad++
+            }
+          }
+          if ($bad -gt 0) { exit 1 }
+
+      # A leftover hosts-file redirect (the demo-ci mock trick) would send Boo to a fake server and turn this into a
+      # false green. Refuse to run unless every provider host resolves to a real, non-loopback address.
+      # This step is the early, coarse check (hosts-file pins and loopback). The full check runs inside the test before
+      # Boo starts: tools/Boo.LiveSmoke/RealAiHostGuard.cs rejects loopback, private/LAN, link-local, site-local,
+      # unique-local, CGNAT, fake-IP and NAT64/6to4 addresses (also IPv6-wrapped), hostnames that resolve to one, and any
+      # proxy in the way. It does not check for a planted trusted root certificate. Its behaviour tests run in
+      # windows-ci (tests/Boo.LiveGuard.Tests).
+      - name: Refuse if any AI host is redirected (no mock may answer)
+        shell: pwsh
+        run: |
+          $hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
+          $bad = @()
+          foreach ($h in 'api.openai.com', 'api.anthropic.com', 'generativelanguage.googleapis.com') {
+            $line = Get-Content $hostsFile -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch '^\s*#' -and $_ -match "(^|\s)$([regex]::Escape($h))(\s|$)" }
+            if ($line) { $bad += "$h is pinned in the hosts file: $line" }
+            $ips = @(Resolve-DnsName $h -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress } | Select-Object -ExpandProperty IPAddress)
+            if ($ips.Count -eq 0) { $bad += "$h does not resolve (no internet?)" }
+            foreach ($ip in $ips) { if ($ip -match '^(127\.|0\.|::1$|::$)') { $bad += "$h resolves to loopback $ip" } }
+            "$h -> $($ips -join ', ')"
+          }
+          if ($bad) { $bad | ForEach-Object { "::error title=Live AI smoke FAILED CLOSED::$_" }; exit 1 }
+
+      # Python for scripts/quality/key_scan.py (the key scan before every upload).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The key scan's workflow check reads YAML with PyYAML (hash-pinned) and fails closed without it.
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Publish Boo and build the live smoke test
+        run: |
+          dotnet restore Boo.sln
+          dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/live
+          dotnet build tools/Boo.LiveSmoke -c Release
+          dotnet build tools/Boo.VerifyLive -c Release
+
+      - name: Real AI round trips (typed question via FlaUI on published Boo.exe; spoken question via Boo's voice client)
+        timeout-minutes: 15
+        shell: pwsh
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\live-evidence
+          BOO_LIVE_TEXT_PROVIDER: ${{ inputs.text_provider || 'openai' }}
+          BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          BOO_LIVE_ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
+          BOO_LIVE_GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
+        run: |
+          & dotnet test tools/Boo.LiveSmoke -c Release --no-build --logger trx --logger "console;verbosity=normal" --results-directory artifacts/live-evidence/trx
+          $testExit = $LASTEXITCODE
+          '----- observations -----'
+          Get-ChildItem artifacts/live-evidence -Filter *.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          exit $testExit
+
+      - name: Test gate (the live test ran and passed)
+        if: always()
+        shell: pwsh
+        run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/live-evidence/trx -SourceDirectory tools/Boo.LiveSmoke
+
+      # verify-boo skill: the live user journeys on the same runner, same key, same evidence folder (so the key leak scan
+      # below covers them too). Runs after the round trip even if it failed, so one run shows every live feature.
+      - name: Live user journeys (verify-boo skill, FlaUI against published Boo.exe)
+        if: ${{ !cancelled() && inputs.journeys }}
+        timeout-minutes: 25
+        shell: pwsh
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\live-evidence\journeys
+          BOO_LIVE_TEXT_PROVIDER: ${{ inputs.text_provider || 'openai' }}
+          BOO_LIVE_MODEL: ${{ inputs.model }}
+          BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          BOO_LIVE_ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
+          BOO_LIVE_GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/live-evidence/journeys | Out-Null
+          & dotnet test tools/Boo.VerifyLive -c Release --no-build --logger trx --logger "console;verbosity=normal" --results-directory artifacts/live-evidence/journeys/trx
+          $testExit = $LASTEXITCODE
+          '----- journey observations -----'
+          Get-ChildItem artifacts/live-evidence/journeys -Filter *.txt -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          exit $testExit
+
+      - name: Test gate (every live journey ran and passed)
+        if: ${{ !cancelled() && inputs.journeys }}
+        shell: pwsh
+        run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/live-evidence/journeys/trx -SourceDirectory tools/Boo.VerifyLive
+
+      # Proof in the log (readable even when artifact upload fails) that every screenshot is a Boo window, not the
+      # whole desktop. Every PNG must come from the Boo-window renderer (BooAppFixture.CaptureBooWindows writes only
+      # <name>.boo-<n>.png, drawn with PrintWindow from the window's own content, never screen pixels). Any other PNG
+      # means a screen copy happened, and fails the run. Sizes and window titles are printed for the reviewer.
+      - name: Screenshots are Boo windows only (never the desktop)
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing, System.Windows.Forms
+          foreach ($m in [System.Windows.Forms.Screen]::AllScreens) { "Runner monitor: $($m.Bounds.Width) x $($m.Bounds.Height)" }
+          $images = '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tif', '.tiff', '.webp'
+          $shots = @(Get-ChildItem artifacts/live-evidence -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $images -contains $_.Extension.ToLowerInvariant() })
+          if ($shots.Count -eq 0) { "::error title=Live AI smoke::no screenshots were written, so there is no visual evidence"; exit 1 }
+          # Every image must come from the Boo-window renderer and be readable. A single window may legitimately render as
+          # one colour (the retracted notch is fully transparent), but each capture moment (<step>.boo-*.png) must have
+          # at least one window with real content, or the renderer is broken and there is no visual evidence.
+          $bad = 0; $moments = @{}
+          foreach ($s in $shots) {
+            $ok = $s.Name -match '^(?<step>.+)\.boo-\d+\.png$'
+            $note = if ($ok) { '' } else { '  <-- NOT FROM THE BOO-WINDOW RENDERER' }
+            try {
+              $img = [System.Drawing.Bitmap]::FromFile($s.FullName)
+              $first = $img.GetPixel(0, 0).ToArgb(); $varied = $false
+              for ($y = 0; $y -lt $img.Height -and -not $varied; $y += 4) {
+                for ($x = 0; $x -lt $img.Width; $x += 4) { if ($img.GetPixel($x, $y).ToArgb() -ne $first) { $varied = $true; break } }
+              }
+              if (-not $varied) { $note += '  (one colour)' }
+              "{0}: {1} x {2}{3}" -f $s.Name, $img.Width, $img.Height, $note
+              $img.Dispose()
+              if ($ok) { $step = $Matches['step']; if (-not $moments.ContainsKey($step)) { $moments[$step] = $false }; if ($varied) { $moments[$step] = $true } }
+            } catch { $ok = $false; "{0}: unreadable ({1})" -f $s.Name, $_.Exception.Message }
+            if (-not $ok) { $bad++ }
+          }
+          foreach ($step in $moments.Keys) { if (-not $moments[$step]) { "$step <-- EVERY WINDOW BLANK (renderer produced no content)"; $bad++ } }
+          Get-ChildItem artifacts/live-evidence -Recurse -Filter *.capture.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          if ($bad -gt 0) { "::error title=Live AI smoke::$bad screenshot problem(s): copied from the screen, unreadable, or a capture with no real Boo window content"; exit 1 }
+
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (live evidence)
+        id: keyscan_artifacts_live_evidence
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          ANTHROPIC_KEY: ${{ secrets.BOO_LIVE_ANTHROPIC_KEY }}
+          GEMINI_KEY: ${{ secrets.BOO_LIVE_GEMINI_KEY }}
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --secret-env ANTHROPIC_KEY --secret-env GEMINI_KEY --secret-env OPENAI_KEY --delete artifacts/live-evidence; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/live-evidence' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/live-evidence')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload live evidence (screenshots, observations, test results)
+        if: ${{ !cancelled() && steps.keyscan_artifacts_live_evidence.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-ai-evidence
+          path: artifacts/live-evidence
+          if-no-files-found: warn
+          retention-days: 7
+
+  # THE REQUIRED CHECK. GitHub counts a skipped required job as passing, so `smoke` (skipped when `preflight` fails)
+  # must never be the required check itself. This job always runs and is green only when both jobs really succeeded.
+  live-ai-smoke:
+    needs: [preflight, smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Both the key check and the real round trip succeeded
+        env:
+          PREFLIGHT: ${{ needs.preflight.result }}
+          SMOKE: ${{ needs.smoke.result }}
+        run: |
+          echo "preflight: $PREFLIGHT, smoke: $SMOKE"
+          if [ "$PREFLIGHT" != "success" ] || [ "$SMOKE" != "success" ]; then
+            echo "::error title=live-ai-smoke::The real-key round trip did not pass on this head (preflight: $PREFLIGHT, smoke: $SMOKE). A skip, a cancel or a missing key is never a pass."
+            exit 1
+          fi

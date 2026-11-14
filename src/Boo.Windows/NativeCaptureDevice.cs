@@ -28,9 +28,12 @@ internal sealed class NativeCaptureDevice : IDisposable
     private static readonly Guid DxgiInterfaceAccessGuid = new("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1");
     private static readonly Guid D3d11Texture2DGuid = new("6F15AAF2-D208-4E89-9AB4-489535D34F9C");
 
+    private const int InitialJpegCapacity = 512 * 1024;
+
     private readonly IntPtr _devicePointer;
     private readonly IntPtr _contextPointer;
     private bool _disposed;
+    private int _lastJpegCapacity = InitialJpegCapacity;
 
     public IDirect3DDevice Device { get; }
 
@@ -183,8 +186,9 @@ internal sealed class NativeCaptureDevice : IDisposable
 
             stagingTexture = CreateTexture2D(description);
             CopyResource(stagingTexture, sourceTexture);
-            var pixels = ReadMappedTexture(stagingTexture, width, height);
-            return EncodeJpeg(pixels, width, height);
+            // Encode straight from the mapped staging texture: no width*height*4 managed copy (15 MB on a
+            // 2560x1440 display, straight onto the large object heap every focus check) and no per-row copy loop.
+            return EncodeMappedTexture(stagingTexture, width, height);
         }
         finally
         {
@@ -251,7 +255,7 @@ internal sealed class NativeCaptureDevice : IDisposable
         copy(_contextPointer, destination, source);
     }
 
-    private byte[] ReadMappedTexture(IntPtr texture, int width, int height)
+    private byte[] EncodeMappedTexture(IntPtr texture, int width, int height)
     {
         var vtable = GetVtableEntry(_contextPointer, D3d11ContextMapVtableIndex);
         var map = Marshal.GetDelegateForFunctionPointer<MapDelegate>(vtable);
@@ -264,13 +268,14 @@ internal sealed class NativeCaptureDevice : IDisposable
         try
         {
             var rowBytes = checked(width * 4);
-            var pixels = new byte[checked(rowBytes * height)];
-            for (var row = 0; row < height; row++)
+            if (mapped.RowPitch < rowBytes)
             {
-                Marshal.Copy(IntPtr.Add(mapped.Data, row * mapped.RowPitch), pixels, row * rowBytes, rowBytes);
+                throw new CaptureLimitationException("Direct3D returned a mapped frame narrower than its width.");
             }
-
-            return pixels;
+            // The staging rows may be padded (RowPitch >= width*4); BitmapSource takes the pitch as its stride and
+            // copies the pixels into its own buffer synchronously, so the mapping can be released right after.
+            var bufferSize = checked(mapped.RowPitch * height);
+            return EncodeJpeg(mapped.Data, bufferSize, mapped.RowPitch, width, height);
         }
         finally
         {
@@ -280,14 +285,16 @@ internal sealed class NativeCaptureDevice : IDisposable
         }
     }
 
-    private static byte[] EncodeJpeg(byte[] pixels, int width, int height)
+    private byte[] EncodeJpeg(IntPtr pixels, int bufferSize, int stride, int width, int height)
     {
-        var bitmap = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, pixels, width * 4);
+        var bitmap = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, pixels, bufferSize, stride);
         bitmap.Freeze();
         var encoder = new JpegBitmapEncoder { QualityLevel = 90 };
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
-        using var stream = new MemoryStream();
+        // Size the stream from the previous frame so a 300-700 KB JPEG does not grow through a dozen reallocations.
+        using var stream = new MemoryStream(_lastJpegCapacity);
         encoder.Save(stream);
+        _lastJpegCapacity = (int)Math.Min(int.MaxValue / 2, Math.Max(InitialJpegCapacity, stream.Length + stream.Length / 4));
         return stream.ToArray();
     }
 

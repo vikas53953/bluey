@@ -2,7 +2,7 @@ using Boo.Core;
 
 namespace Boo.Windows;
 
-public sealed class ScreenCapture
+public sealed class ScreenCapture : IDisposable
 {
     private const double MaximumTimeoutMilliseconds = 4_294_967_294d;
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(5);
@@ -10,9 +10,13 @@ public sealed class ScreenCapture
     private readonly IFrameCaptureBackend _backend;
     private readonly TimeSpan _timeout;
     private readonly SemaphoreSlim _lifetimeGate = new(1, 1);
+    private static readonly TimeSpan DisposeWait = TimeSpan.FromSeconds(2);
+    private bool _disposed;
+    private volatile bool _disposeDeferred;
+    private int _backendDisposed;
 
-    public ScreenCapture()
-        : this(new WindowsFrameCaptureBackend(), DefaultTimeout)
+    public ScreenCapture(TimeProvider? clock = null)
+        : this(new WindowsFrameCaptureBackend(clock), DefaultTimeout)
     {
     }
 
@@ -41,6 +45,7 @@ public sealed class ScreenCapture
         ArgumentNullException.ThrowIfNull(target);
         ValidateCaptureArguments(display, target, ownedWindowSnapshot);
 
+        ObjectDisposedException.ThrowIf(_disposed, this);
         await _lifetimeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -81,6 +86,64 @@ public sealed class ScreenCapture
             // The backend task is awaited above, so this gate is not released
             // while a canceled backend is still cleaning up native resources.
             _lifetimeGate.Release();
+            if (_disposeDeferred)
+            {
+                // Dispose() gave up waiting for this capture; it is now safe to release the device.
+                DisposeBackend();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Releases backend resources held between captures (the cached Direct3D device). Waits briefly for an
+    /// in-flight capture to finish so the device is never released under a native readback; callers cancel
+    /// their tokens first, so the wait is normally immediate.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
+        var held = _lifetimeGate.Wait(DisposeWait);
+        if (!held)
+        {
+            // A capture is still inside the backend (possibly in a native readback). Releasing the Direct3D
+            // device under it would be a use-after-free, so hand the disposal to that capture: it disposes the
+            // backend right after it leaves the gate. Re-check once so a release that raced the timeout is not
+            // missed; the semaphore itself is left to the collector.
+            _disposeDeferred = true;
+            if (_lifetimeGate.Wait(0))
+            {
+                try
+                {
+                    DisposeBackend();
+                }
+                finally
+                {
+                    _lifetimeGate.Release();
+                }
+            }
+            return;
+        }
+
+        try
+        {
+            DisposeBackend();
+        }
+        finally
+        {
+            _lifetimeGate.Release();
+            _lifetimeGate.Dispose();
+        }
+    }
+
+    private void DisposeBackend()
+    {
+        if (Interlocked.Exchange(ref _backendDisposed, 1) == 0)
+        {
+            (_backend as IDisposable)?.Dispose();
         }
     }
 

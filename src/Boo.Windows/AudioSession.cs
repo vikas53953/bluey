@@ -1,3 +1,6 @@
+using System.Runtime.InteropServices;
+using Boo.Core;
+using NAudio;
 using NAudio.Wave;
 
 namespace Boo.Windows;
@@ -14,10 +17,17 @@ public sealed class AudioSession : IDisposable
     private WaveOutEvent? _playback;
     private BufferedWaveProvider? _playbackBuffer;
     private bool _disposed;
+    private readonly HostedVoiceAudio? _qaVoice;
     private Action<byte[]>? _captured;
     private Action<string>? _failed;
 
-    public AudioSession() => _context = SynchronizationContext.Current;
+    public AudioSession() : this(HostedVoiceAudio.FromEnvironment()) { }
+
+    internal AudioSession(HostedVoiceAudio? qaVoice)
+    {
+        _context = SynchronizationContext.Current;
+        _qaVoice = qaVoice;
+    }
 
     public event Action<byte[]>? Captured
     {
@@ -33,6 +43,7 @@ public sealed class AudioSession : IDisposable
 
     public IReadOnlyList<string> InputDevices()
     {
+        if (_qaVoice is not null) return new[] { "Synthetic hosted QA input" };
         try
         {
             var names = new List<string>(WaveIn.DeviceCount);
@@ -46,22 +57,43 @@ public sealed class AudioSession : IDisposable
         }
     }
 
+    /// <summary>Starts capture; a failure is reported through <see cref="Failed"/>.</summary>
     public void Start(int device = -1)
+    {
+        if (!TryStart(device, out var failure))
+            PublishFailure(failure);
+    }
+
+    /// <summary>
+    /// Starts capture and reports synchronously whether it did, with a user-facing reason
+    /// (no microphone, privacy setting off, device missing, ...) that never contains exception text.
+    /// Does not raise <see cref="Failed"/>; the caller owns the failure.
+    /// </summary>
+    public bool TryStart(int device, out string failureMessage)
     {
         lock (_gate)
         {
             ThrowIfDisposed();
         }
         StopCaptureOnly();
+        if (_qaVoice is not null)
+        {
+            _qaVoice.Start(PublishCaptured);
+            failureMessage = string.Empty;
+            return true;
+        }
+        var count = 0;
         try
         {
-            var count = WaveIn.DeviceCount;
-            if (count == 0)
-                throw new InvalidOperationException("No microphone is available.");
+            count = WaveIn.DeviceCount;
+            if (count == 0 || device >= count)
+            {
+                failureMessage = MicrophoneFailures.Message(
+                    MicrophoneFailures.ClassifyStart(count, device, mmResult: null, accessDenied: false));
+                return false;
+            }
             if (device < 0)
                 device = 0;
-            if (device >= count)
-                throw new ArgumentOutOfRangeException(nameof(device));
 
             var waveIn = new WaveInEvent
             {
@@ -77,13 +109,24 @@ public sealed class AudioSession : IDisposable
                 _capture = waveIn;
             }
             waveIn.StartRecording();
+            failureMessage = string.Empty;
+            return true;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
             StopCaptureOnly();
-            PublishFailure("Microphone capture could not start.");
+            failureMessage = MicrophoneFailures.Message(MicrophoneFailures.ClassifyStart(
+                count, device, MmResultOf(exception), IsAccessDenied(exception)));
+            return false;
         }
     }
+
+    private static int? MmResultOf(Exception exception) =>
+        exception is MmException mm ? (int)mm.Result : null;
+
+    private static bool IsAccessDenied(Exception exception) =>
+        exception is UnauthorizedAccessException ||
+        (exception is ExternalException && MicrophoneFailures.IsAccessDeniedCode(exception.HResult));
 
     public void Play(byte[] pcm)
     {
@@ -102,12 +145,16 @@ public sealed class AudioSession : IDisposable
                         DiscardOnBufferOverflow = true,
                         ReadFully = false
                     };
-                    _playback = new WaveOutEvent();
-                    _playback.Init(_playbackBuffer);
+                    if (_qaVoice is null)
+                    {
+                        _playback = new WaveOutEvent();
+                        _playback.Init(_playbackBuffer);
+                    }
+                    else _qaVoice.StartPlayback(_playbackBuffer);
                 }
                 if (pcm.Length > 0)
                     _playbackBuffer.AddSamples(pcm, 0, pcm.Length);
-                _playback!.Play();
+                _playback?.Play();
             }
         }
         catch (ObjectDisposedException)
@@ -151,6 +198,7 @@ public sealed class AudioSession : IDisposable
         }
         StopCaptureOnly();
         ClearPlayback();
+        _qaVoice?.Dispose();
         lock (_gate)
         {
             _playback?.Dispose();
@@ -161,6 +209,7 @@ public sealed class AudioSession : IDisposable
 
     private void StopCaptureOnly()
     {
+        _qaVoice?.StopCapture();
         WaveInEvent? capture;
         lock (_gate)
         {
@@ -190,8 +239,16 @@ public sealed class AudioSession : IDisposable
 
     private void OnRecordingStopped(object? sender, StoppedEventArgs args)
     {
-        if (args.Exception is not null)
-            PublishFailure("Microphone capture stopped unexpectedly.");
+        if (args.Exception is not { } exception)
+            return;
+        lock (_gate)
+        {
+            // A stop we asked for (or one from a replaced capture) is not a device failure.
+            if (_disposed || !ReferenceEquals(sender, _capture))
+                return;
+        }
+        PublishFailure(MicrophoneFailures.Message(
+            MicrophoneFailures.ClassifyStopped(MmResultOf(exception), IsAccessDenied(exception))));
     }
 
     private void PublishFailure(string message) => Publish(_failed, message);

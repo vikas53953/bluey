@@ -8,8 +8,8 @@ root applied the behavior-preserving changes in `7ef0e07`. This is the
 
 Release build: zero warnings/errors. Release tests: 84 passed, one unchanged
 host-dependent reparse fixture skipped. Results are in
-`TestResults/vikasmit_VIKASMIT_2026-11-07_10_43_12_net10.0.trx` and
-`TestResults/vikasmit_VIKASMIT_2026-11-07_10_43_14_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_10_43_12_net10.0.trx` and
+`TestResults/<user>_<machine>_2026-11-07_10_43_14_net10.0.trx`.
 Oracle revision 3 verifies all 23 frozen files. `git diff --check` passed.
 The format-only verification failed on pre-existing whitespace, including
 frozen Contracts.cs. No frozen file was reformatted or weakened.

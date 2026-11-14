@@ -1,0 +1,234 @@
+name: demo-ci
+
+# End-to-end demo evidence on windows-latest with NO real AI key:
+#   tools/Boo.QaMockAi impersonates api.openai.com (hosts-file entry + a self-signed certificate trusted only on the
+#   runner), so the published Boo.exe runs unmodified against scripted answers. tests/Boo.Demo.Tests (FlaUI) then
+#   drives the four demos and saves screenshots + observations as the `demo-evidence` artifact:
+#   1. screen explain with the pointer ring at the scripted coordinate
+#   2. edit -> Apply -> Undo on a copy of tests/fixtures/native/Boo.QaWorkspace
+#   3. research with three source links
+#   4. Developer Mode focus session -> nudge -> Back to it -> happy face
+# BLOCKING GATE (since ci/real-gates): no continue-on-error. A failed demo, a demo that did not run, or a demo that
+# was skipped fails this job and the `demos` check on the PR. It went 9/9 green from 47b6d9f on (same-commit push and
+# PR runs always agreed), so it is deterministic enough to block. Mark it required in branch protection.
+# What it does NOT prove: the real AI. Answers come from the mock; see live-ai-smoke.yml for the real round trip.
+# Nothing here touches the app's official-origin guard; the redirect lives only on the runner.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  demos:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Python for scripts/quality/key_scan.py (the key scan before every upload).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The key scan's workflow check reads YAML with PyYAML (hash-pinned) and fails closed without it.
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore and publish Boo
+        run: |
+          dotnet restore Boo.sln
+          dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
+
+      # tools/Boo.LiveSmoke and tools/Boo.VerifyLive are only RUN by live-ai-smoke.yml (manual, needs a key); compiling
+      # them here on every push keeps them from silently breaking when the shared demo harness changes.
+      - name: Build mock AI server, demo tests and the live tests (compile only)
+        run: |
+          dotnet build tools/Boo.QaMockAi -c Release
+          dotnet build tests/Boo.Demo.Tests -c Release
+          dotnet build tools/Boo.LiveSmoke -c Release
+          dotnet build tools/Boo.VerifyLive -c Release
+          dotnet build tools/Boo.CaptureProof -c Release
+
+      # Video of the demo run (agent-trust plan 2.8): records this GitHub VM's desktop, never a personal PC (the script
+      # refuses unless RUNNER_ENVIRONMENT is github-hosted, BOO-SAFE-001). Pinned ffmpeg, SHA-256 checked.
+      # Every run first proves the video checker on known files (no screen capture): an empty file, random bytes and
+      # a good test-pattern MP4 cut in half must be rejected, the good one accepted. A broken checker fails the job.
+      - name: Recorder self-test (validator rejects empty/corrupt video)
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./scripts/ci/Record-Desktop.ps1 -SelfTest
+
+      # Minimises every open window first, so the windows the demos open come up on a clean desktop.
+      - name: Start desktop video (GitHub VM only)
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./scripts/ci/Record-Desktop.ps1 -Start -OutFile artifacts/demo-video/demo.mp4
+
+      # Runner-only redirect: api.openai.com -> loopback, trust the mock's self-signed certificate, then run the demos in
+      # the SAME step so the mock process is guaranteed to outlive the probe (a process started in an earlier step is not
+      # guaranteed to survive on the hosted runner; run 1 saw "Can't reach OpenAI" right after a successful probe).
+      - name: Start mock api.openai.com and run the four demos (FlaUI against published Boo.exe)
+        timeout-minutes: 25
+        shell: pwsh
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\ci\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\demo-evidence
+          BOO_DEMO_WORKSPACE: ${{ github.workspace }}\tests\fixtures\native\Boo.QaWorkspace
+        run: |
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts\demo-evidence'
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+          Add-Content -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Value "`n127.0.0.1 api.openai.com"
+          ipconfig /flushdns | Out-Null
+          "hosts resolves api.openai.com to: $((Resolve-DnsName api.openai.com -ErrorAction SilentlyContinue | Select-Object -ExpandProperty IPAddress) -join ', ')"
+          $cert = Join-Path $evidence 'mock-api-openai.cer'
+          $log = Join-Path $evidence 'mock-requests.log'
+          $dll = Get-ChildItem tools\Boo.QaMockAi\bin\Release -Recurse -Filter Boo.QaMockAi.dll | Select-Object -First 1
+          # Hidden console so the mock's window never covers Boo in the demo video (output still goes to the files).
+          $mock = Start-Process -FilePath dotnet -ArgumentList "`"$($dll.FullName)`" --port 443 --cert-out `"$cert`" --log `"$log`" --workspace `"$env:BOO_DEMO_WORKSPACE`"" -PassThru -WindowStyle Hidden -RedirectStandardOutput "$evidence\mock-stdout.txt" -RedirectStandardError "$evidence\mock-stderr.txt"
+          "mock pid $($mock.Id)"
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not (Test-Path $cert) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          if (-not (Test-Path $cert)) { Get-Content "$evidence\mock-stderr.txt"; throw 'mock server did not write its certificate' }
+          Import-Certificate -FilePath $cert -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+          Start-Sleep -Seconds 2
+          try {
+            $r = Invoke-WebRequest -Uri https://api.openai.com/v1/models -UseBasicParsing -TimeoutSec 15
+            "mock reachable through the real hostname: HTTP $($r.StatusCode)"
+          } catch { "probe: $($_.Exception.Message)"; Get-Content "$evidence\mock-stderr.txt" -ErrorAction SilentlyContinue }
+          # Second probe with a plain .NET HttpClient (what Boo uses), POSTing to the responses path.
+          try {
+            $client = [System.Net.Http.HttpClient]::new()
+            $content = [System.Net.Http.StringContent]::new('{"input":[{"role":"user","content":[{"type":"input_text","text":"probe"}]}]}', [System.Text.Encoding]::UTF8, 'application/json')
+            $resp = $client.PostAsync('https://api.openai.com/v1/responses', $content).GetAwaiter().GetResult()
+            "HttpClient POST /v1/responses: HTTP $([int]$resp.StatusCode)"
+          } catch { "HttpClient probe failed: $($_.Exception.GetBaseException().Message)" }
+          "mock alive before tests: $(-not $mock.HasExited)"
+
+          & dotnet test tests/Boo.Demo.Tests -c Release --no-build --logger trx --logger "console;verbosity=detailed" --results-directory artifacts/demo-evidence/trx
+          $testExit = $LASTEXITCODE
+
+          # Capture-privacy proof (tools/Boo.CaptureProof): the explanation overlay open over a magenta decoy, window-only
+          # screenshots must contain the overlay and zero decoy pixels. Same mock, same published Boo.exe.
+          & dotnet test tools/Boo.CaptureProof -c Release --no-build --logger trx --logger "console;verbosity=detailed" --results-directory artifacts/demo-evidence/proof-trx
+          if ($LASTEXITCODE -ne 0) { $testExit = $LASTEXITCODE }
+
+          "mock alive after tests: $(-not $mock.HasExited)"
+          '----- mock stdout -----'; Get-Content "$evidence\mock-stdout.txt" -ErrorAction SilentlyContinue | Select-Object -Last 40
+          '----- mock stderr -----'; Get-Content "$evidence\mock-stderr.txt" -ErrorAction SilentlyContinue | Select-Object -Last 40
+          '----- mock request log (first 120 lines) -----'; Get-Content $log -ErrorAction SilentlyContinue | Select-Object -First 120
+          '----- observations -----'
+          Get-ChildItem $evidence -Filter *.txt | Where-Object { $_.Name -notlike 'mock-*' } | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName | Select-Object -First 20 }
+          try { Stop-Process -Id $mock.Id -Force -ErrorAction SilentlyContinue } catch { }
+          exit $testExit
+
+      # Runs on failed demos too, so a red run still has its video. Fails unless the video is non-empty, decodable, has a
+      # positive duration and frame count, and is at most 25 MB. A rejected video is kept as demo.rejected.mp4 with
+      # demo.rejected.txt (the reason and the checker output); only an oversized one is deleted, never uploaded.
+      # A good one gets six still frames (artifacts/demo-video/frames) so reviewers can see it without a player.
+      - name: Stop desktop video
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./scripts/ci/Record-Desktop.ps1 -Stop
+
+      # No vacuous green: every [Fact] declared in tests/Boo.Demo.Tests must have run and passed (not skipped, not
+      # filtered away, not undiscovered). Runs even if the step above failed, so the log says exactly what broke.
+      - name: Test gate (every demo ran and passed)
+        if: always()
+        shell: pwsh
+        run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/demo-evidence/trx -SourceDirectory tests/Boo.Demo.Tests
+
+      - name: Test gate (the capture-privacy proof ran and passed)
+        if: always()
+        shell: pwsh
+        run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/demo-evidence/proof-trx -SourceDirectory tools/Boo.CaptureProof
+
+      - name: Contact sheet in the job log (for reviewers without artifact access)
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $dir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\demo-evidence'
+          $shots = Get-ChildItem $dir -Filter *.png | Where-Object { $_.Name -notlike 'zz-*' } | Sort-Object Name
+          if (-not $shots) { 'no screenshots'; exit 0 }
+          $shots | ForEach-Object { "{0} {1} bytes" -f $_.Name, $_.Length }
+          $cell = 480; $cols = 2; $rows = [math]::Ceiling($shots.Count / $cols)
+          $sheet = New-Object System.Drawing.Bitmap ($cell * $cols), ([int]($cell * 0.5625 + 18) * $rows)
+          $g = [System.Drawing.Graphics]::FromImage($sheet); $g.Clear([System.Drawing.Color]::Black)
+          $font = New-Object System.Drawing.Font 'Segoe UI', 9
+          $i = 0
+          foreach ($s in $shots) {
+            $img = [System.Drawing.Image]::FromFile($s.FullName)
+            $x = ($i % $cols) * $cell; $y = [math]::Floor($i / $cols) * [int]($cell * 0.5625 + 18)
+            $g.DrawImage($img, $x, $y + 18, $cell, [int]($cell * 0.5625)); $img.Dispose()
+            $g.DrawString($s.Name, $font, [System.Drawing.Brushes]::White, $x + 2, $y)
+            $i++
+          }
+          $g.Dispose()
+          $ms = New-Object System.IO.MemoryStream; $sheet.Save($ms, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+          $b64 = [Convert]::ToBase64String($ms.ToArray())
+          '=====DEMO-SHEET-BEGIN====='
+          for ($j = 0; $j -lt $b64.Length; $j += 3000) { $b64.Substring($j, [Math]::Min(3000, $b64.Length - $j)) }
+          '=====DEMO-SHEET-END====='
+
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (demo evidence)
+        id: keyscan_artifacts_demo_evidence
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/demo-evidence; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/demo-evidence' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/demo-evidence')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload demo evidence
+        if: ${{ !cancelled() && steps.keyscan_artifacts_demo_evidence.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: demo-evidence
+          path: artifacts/demo-evidence
+          if-no-files-found: warn
+
+      # BOO-SAFE-002: the same key scan, on exactly the video folder (generated from scripts/quality/key_scan.py).
+      - name: Key scan before upload (demo video)
+        id: keyscan_artifacts_demo_video
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/demo-video; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/demo-video' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/demo-video')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload demo video
+        if: ${{ !cancelled() && steps.keyscan_artifacts_demo_video.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: demo-video
+          path: artifacts/demo-video
+          if-no-files-found: warn

@@ -16,6 +16,32 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Do not leave the job token in .git/config for later build/test steps.
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Frozen-test contract: every file under tests/, the acceptance notes and Contracts.cs must hash to
+      # docs/verification/test-oracle.json, and the revision history must be intact. Editing, emptying,
+      # deleting or adding a test without a reviewed oracle revision (--extend / --rebaseline) fails here.
+      - name: Frozen-test oracle
+        run: python -I scripts/test_oracle.py
+
+      # No empty test file, no *Tests.cs file without a [Fact]/[Theory], no test project without tests,
+      # no Skip = on any test. (8185c1d once emptied a 474-line test file and CI stayed green.)
+      - name: Test gate (source)
+        run: python -I scripts/test_gate.py static
+
+      # Never the owner's PC: every job must run on one literal GitHub-hosted label (no self-hosted, no expressions),
+      # because the UI/demo/live tests take screenshots and the live smoke sends one to a real AI.
+      - name: GitHub-hosted runners only
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+          python -I scripts/ci/check_runners.py --self-test
+          python -I scripts/ci/check_runners.py
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -24,8 +50,9 @@ jobs:
       - name: Restore
         run: dotnet restore Boo.sln
 
+      # -bl: binary log of this exact build, read by the build-facts step below (it changes nothing that is built).
       - name: Build
-        run: dotnet build Boo.sln -c Release --no-restore
+        run: dotnet build Boo.sln -c Release --no-restore -bl:artifacts/binlog/build.binlog
 
       # Provider tests use in-memory HTTP handlers; no OpenAI key or other secret is needed.
       - name: Core tests
@@ -34,14 +61,151 @@ jobs:
       - name: Integration tests
         run: dotnet test tests/Boo.Integration.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/integration
 
+      # Anthropic/Gemini/OpenAI text-provider clients against in-memory HTTP handlers; no key is needed.
+      - name: Provider tests
+        run: dotnet test tests/Boo.Providers.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/providers
+
+      # The live-AI anti-mock guard (tools/Boo.LiveSmoke/RealAiHostGuard.cs): every local/private/LAN range is rejected,
+      # including hostnames that resolve to one, and a real public API host (api.openai.com, real DNS) passes. No key.
+      - name: Live-AI guard tests
+        run: dotnet test tests/Boo.LiveGuard.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/liveguard
+
+      # Architecture rules BOO-ARCH-001..006 (docs/quality/RULES.md) over the compiled src assemblies. No app, no key.
+      - name: Architecture tests
+        run: dotnet test tests/Boo.Architecture.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/architecture
+
+      # Each project must have produced results with tests that ran, and none skipped or not executed.
+      - name: Test gate (unit, integration, provider, live-guard and architecture results)
+        run: python -I scripts/test_gate.py trx artifacts/test-results/core artifacts/test-results/integration artifacts/test-results/providers artifacts/test-results/liveguard artifacts/test-results/architecture
+
       - name: Publish app
-        run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
+        run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci -bl:artifacts/binlog/publish.binlog
+
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (published app)
+        id: keyscan_artifacts_ci
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/ci; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/ci' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/ci')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
 
       - name: Upload published app
+        if: ${{ steps.keyscan_artifacts_ci.outputs.safe == 'true' }}
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: boo-win-x64
           path: artifacts/ci
+
+      # Build facts (docs/quality/RULES.md "Build facts (the shipped build)"): read the binary logs of the Release build
+      # and publish above and write build-facts.json (what csc was really given, what was imported and referenced, what
+      # came out, with hashes). Fails closed on malformed facts, an unknown task or compiler switch, a response file, a
+      # solution project without a compile, or a published assembly that does not trace to a judged compile or a
+      # restored package. The fixtures prove each known bypass shows up in the facts. Only build-facts.json is uploaded:
+      # the raw binary logs can hold environment values.
+      - name: Build facts (the shipped build)
+        shell: pwsh
+        run: |
+          dotnet restore scripts/quality/buildfacts/BuildFacts.csproj --locked-mode
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build scripts/quality/buildfacts/BuildFacts.csproj -c Release --no-restore -o artifacts/buildfacts-tool
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          artifacts/buildfacts-tool/BuildFacts.exe --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force -Path artifacts/build-facts | Out-Null
+          artifacts/buildfacts-tool/BuildFacts.exe --repo . --out artifacts/build-facts/build-facts.json build=artifacts/binlog/build.binlog publish=artifacts/binlog/publish.binlog
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I scripts/quality/build_facts.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I scripts/quality/build_facts.py check artifacts/build-facts/build-facts.json --solution Boo.sln --publish-dir artifacts/ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I scripts/quality/build_facts.py fixtures --extractor artifacts/buildfacts-tool/BuildFacts.exe --work "$env:RUNNER_TEMP/buildfacts-fixtures"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (build facts)
+        id: keyscan_artifacts_build_facts
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/build-facts; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/build-facts' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/build-facts')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload build facts
+        if: ${{ !cancelled() && steps.keyscan_artifacts_build_facts.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: build-facts
+          path: artifacts/build-facts
+          if-no-files-found: warn
+
+      # Every notch face state rendered offscreen to PNG (Boo.exe --notch-gallery), uploaded with the UI smoke screenshots.
+      - name: Notch face gallery
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE 'artifacts\ui-smoke\notch-gallery'
+          $p = Start-Process -FilePath artifacts\ci\Boo.exe -ArgumentList '--notch-gallery', "`"$out`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "notch gallery exited with $($p.ExitCode)" }
+          $png = Get-ChildItem $out -Filter *.png
+          $png | ForEach-Object { "{0} {1} bytes" -f $_.Name, $_.Length }
+          if ($png.Count -lt 10) { throw "expected 10 gallery PNGs, got $($png.Count)" }
+
+      # Before/after evidence for the face polish: also render the gallery of the pre-polish commit, then print
+      # both contact sheets as base64 between markers so reviewers without artifact access can read them from the log.
+      # 21b8152 is the last lane/face commit before the face polish that already has Boo.exe --notch-gallery
+      # (the earlier hard-coded SHA was a rebased-away commit that no branch reaches, so it only worked until GC).
+      - name: Check out the pre-polish commit (gallery before)
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: 21b8152cd6ee4cf6fbc9e1f8a699868ba83ea31e
+          path: before-src
+          persist-credentials: false
+
+      - name: Notch gallery before/after (log dump)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $bout = Join-Path $env:GITHUB_WORKSPACE 'artifacts\ui-smoke\notch-gallery-before'
+          if (Test-Path before-src\src\Boo.App\Boo.App.csproj) {
+            dotnet build before-src\src\Boo.App\Boo.App.csproj -c Release -o "$env:RUNNER_TEMP\before-bin" | Select-Object -Last 3
+            # A failed "before" build must not stop the AFTER contact sheet below from being printed.
+            if ($LASTEXITCODE -eq 0 -and (Test-Path "$env:RUNNER_TEMP\before-bin\Boo.exe")) {
+              $p = Start-Process -FilePath "$env:RUNNER_TEMP\before-bin\Boo.exe" -ArgumentList '--notch-gallery', "`"$bout`"" -Wait -PassThru
+              "before gallery exit $($p.ExitCode)"
+            } else {
+              "before build failed (exit $LASTEXITCODE); skipping the before gallery"
+            }
+          }
+          Add-Type -AssemblyName System.Drawing
+          foreach ($pair in @(@('BEFORE', $bout), @('AFTER', (Join-Path $env:GITHUB_WORKSPACE 'artifacts\ui-smoke\notch-gallery')))) {
+            $file = Join-Path $pair[1] '00-contact-sheet.png'
+            if (-not (Test-Path $file)) { "no $($pair[0]) contact sheet"; continue }
+            $src = [System.Drawing.Image]::FromFile($file)
+            $w = [int]($src.Width / 2); $h = [int]($src.Height / 2)
+            $bmp = New-Object System.Drawing.Bitmap $w, $h
+            $g = [System.Drawing.Graphics]::FromImage($bmp); $g.InterpolationMode = 'HighQualityBicubic'; $g.DrawImage($src, 0, 0, $w, $h); $g.Dispose()
+            $ms = New-Object System.IO.MemoryStream; $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+            $b64 = [Convert]::ToBase64String($ms.ToArray())
+            "=====GALLERY-$($pair[0])-BEGIN====="
+            for ($i = 0; $i -lt $b64.Length; $i += 3000) { $b64.Substring($i, [Math]::Min(3000, $b64.Length - $i)) }
+            "=====GALLERY-$($pair[0])-END====="
+          }
 
       # Native UI smoke run (FlaUI) against the published Boo.exe on the runner's interactive desktop.
       # Not part of Boo.sln, so it is built here. Uses a temp BOO_DATA_DIR and restores HKCU Run.
@@ -55,17 +219,91 @@ jobs:
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\ui-smoke
         run: dotnet test tests/Boo.Ui.Tests -c Release --no-build --logger trx --logger "console;verbosity=detailed" --results-directory artifacts/test-results/ui
 
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (UI smoke screenshots)
+        id: keyscan_artifacts_ui_smoke
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/ui-smoke; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/ui-smoke' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/ui-smoke')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
       - name: Upload UI smoke screenshots
-        if: always()
+        if: ${{ !cancelled() && steps.keyscan_artifacts_ui_smoke.outputs.safe == 'true' }}
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: ui-smoke-screenshots
           path: artifacts/ui-smoke
           if-no-files-found: warn
 
-      - name: Upload test results
-        if: always()
+      # Perf budgets (FlaUI + BOO_PERF_DIAG counters) against the same published Boo.exe: fails on any budget breach
+      # and writes perf-results.json/.md + reveal.png to artifacts/ui-smoke/perf. Not part of Boo.sln, so built here.
+      - name: Build perf tests
+        run: dotnet build tests/Boo.Perf.Tests -c Release
+
+      - name: Perf budgets (published Boo.exe)
+        timeout-minutes: 10
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\ci\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\ui-smoke
+        run: dotnet test tests/Boo.Perf.Tests -c Release --no-build --logger trx --logger "console;verbosity=detailed" --results-directory artifacts/test-results/perf
+
+      - name: Test gate (UI smoke and perf results)
+        run: python -I scripts/test_gate.py trx artifacts/test-results/ui artifacts/test-results/perf
+
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (perf results)
+        id: keyscan_artifacts_ui_smoke_perf
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/ui-smoke/perf; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/ui-smoke/perf' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/ui-smoke/perf')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload perf results
+        if: ${{ !cancelled() && steps.keyscan_artifacts_ui_smoke_perf.outputs.safe == 'true' }}
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
+          name: perf-results
+          path: artifacts/ui-smoke/perf
+          if-no-files-found: warn
+
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (test results)
+        id: keyscan_artifacts_test_results
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/test-results; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/test-results' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/test-results')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload test results
+        if: ${{ !cancelled() && steps.keyscan_artifacts_test_results.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
           name: test-results
           path: artifacts/test-results

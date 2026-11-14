@@ -53,7 +53,7 @@ public partial class MainWindow
             return;
         }
 
-        _talk = new HoldToTalkController(TimeProvider.System);
+        _talk = new HoldToTalkController(_timeProvider);
         _talkTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
         _talkTimer.Tick += (_, _) => RunTalk(c => c.Tick());
         SystemEvents.SessionSwitch += Talk_OnSessionSwitch;
@@ -224,6 +224,7 @@ public partial class MainWindow
 
     private async void StartPushToTalk()
     {
+        CancelPendingSleep();
         PushToTalkUplink? uplink = null;
         var lease = _requestLease;
         try
@@ -249,7 +250,13 @@ public partial class MainWindow
                 _audio = audio;
                 _talkAudio = audio;
             }
-            _audio.Start(_settings.MicrophoneDevice);
+            if (!_audio.TryStart(_settings.MicrophoneDevice, out var micFailure))
+            {
+                // No microphone, privacy switch off, device unplugged...: never show Listening or connect.
+                _ = uplink.Discard();
+                FailVoiceSession(micFailure);
+                return;
+            }
             _listening = true;
             _onMicrophoneActivity(true);
             ListeningStatus.Text = "Listening… release to send.";
@@ -285,15 +292,13 @@ public partial class MainWindow
         catch (Exception ex)
         {
             _ = uplink?.Discard();
-            StopListening();
-            ListeningStatus.Text = "Microphone unavailable. You can still type a request.";
-            StatusText.Text = SanitizedError(ex, "Microphone or realtime setup failed.");
+            FailVoiceSession(SanitizedError(ex, "Microphone or realtime setup failed."));
         }
     }
 
     private async Task SendPushToTalkAsync()
     {
-        var endOfSpeech = DateTimeOffset.UtcNow;
+        var endOfSpeech = _timeProvider.GetUtcNow();
         var uplink = Interlocked.Exchange(ref _uplink, null);
         StopPushToTalkMic();
         var realtime = _realtime;
@@ -322,7 +327,7 @@ public partial class MainWindow
             }
             _endOfSpeech = endOfSpeech;
             await realtime.CommitAudioTurnAsync(CancellationToken.None);
-            StatusText.Text = "Voice turn sent; waiting for the reply…";
+            ShowBusyStatus("Voice turn sent; waiting for the reply…", lease.Generation);
         }
         catch (OperationCanceledException)
         {
@@ -392,6 +397,29 @@ public partial class MainWindow
         _onMicrophoneActivity(false);
     }
 
+    /// <summary>
+    /// A microphone or realtime failure ended the voice session: stop capture, clear the notch mic indicator and
+    /// face (via <see cref="StopListening"/>), and end any key/eye hold so hold-to-talk is idle again and a
+    /// later release does nothing.
+    /// </summary>
+    private void FailVoiceSession(string statusMessage, string listeningMessage = "Microphone unavailable. You can still type a request.")
+    {
+        AbortHoldToTalk();
+        StopListening();
+        ListeningStatus.Text = listeningMessage;
+        StatusText.Text = statusMessage;
+    }
+
+    /// <summary>Ends a hold without running its Cancel command (the caller is already tearing the session down).</summary>
+    private void AbortHoldToTalk()
+    {
+        lock (_talkGate)
+        {
+            _ = _talk?.Stop();
+        }
+        _talkTimer?.Stop();
+    }
+
     /// <summary>Called from <see cref="StopListening"/>: drop any in-progress push-to-talk audio.</summary>
     private void DiscardPushToTalkUplink()
     {
@@ -422,7 +450,7 @@ public partial class MainWindow
                 if (_endOfSpeech is { } endOfSpeech)
                 {
                     _endOfSpeech = null;
-                    var firstAudio = DateTimeOffset.UtcNow;
+                    var firstAudio = _timeProvider.GetUtcNow();
                     if (firstAudio >= endOfSpeech)
                     {
                         _latency.Record(endOfSpeech, firstAudio);

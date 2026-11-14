@@ -1,0 +1,50 @@
+{
+  "bypass": "a same-name compile outside the solution stands in for a solution project's assembly, moved only by allowed SDK copies (PR #37 review)",
+  "builds": [
+    {
+      "label": "build",
+      "args": [
+        "build",
+        "Fix.slnx",
+        "-c",
+        "Release"
+      ]
+    },
+    {
+      "label": "publish",
+      "args": [
+        "publish",
+        "App/App.csproj",
+        "-c",
+        "Release",
+        "-o",
+        "out"
+      ]
+    }
+  ],
+  "projects": [
+    "App/App.csproj",
+    "Lib/Lib.csproj"
+  ],
+  "publishDir": "out",
+  "visible": [
+    {
+      "label": "build",
+      "project": "Evil/Evil.csproj",
+      "field": "csc.output.path",
+      "contains": "Evil/obj/"
+    },
+    {
+      "label": "build",
+      "field": "copies.destination",
+      "contains": "Lib/bin/Release/net10.0/Lib.dll"
+    }
+  ],
+  "check": {
+    "result": "fail",
+    "mustInclude": [
+      "Evil/Evil.csproj was compiled but is not a project of the solution",
+      "Lib.dll belongs to Lib/Lib.csproj but this copy comes from Evil/Evil.csproj"
+    ]
+  }
+}

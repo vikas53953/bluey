@@ -7,9 +7,20 @@ using Windows.Graphics.DirectX.Direct3D11;
 
 namespace Boo.Windows;
 
-internal sealed class WindowsFrameCaptureBackend : IFrameCaptureBackend
+internal sealed class WindowsFrameCaptureBackend : IFrameCaptureBackend, IDisposable
 {
     private const uint WdaExcludeFromCapture = 0x11;
+
+    // One Direct3D device for the life of the backend. Creating a device (adapter enumeration, driver load,
+    // WinRT bridge) costs tens of milliseconds and megabytes per call, and a focus session captures every
+    // 30 s for 25 minutes. ScreenCapture serialises captures through its lifetime gate, so this needs no lock
+    // beyond the dispose flag; any failure after the device stage drops it so the next capture starts clean
+    // (device removed, driver reset, GPU switch).
+    private readonly TimeProvider _clock;
+    private NativeCaptureDevice? _device;
+    private bool _disposed;
+
+    public WindowsFrameCaptureBackend(TimeProvider? clock = null) => _clock = clock ?? TimeProvider.System;
 
     public async Task<CapturedFrame> CaptureAsync(
         DisplayInfo display,
@@ -30,6 +41,7 @@ internal sealed class WindowsFrameCaptureBackend : IFrameCaptureBackend
 
         var affinity = new List<WindowAffinity>(ownedWindows.Count);
         Exception? operationError = null;
+        var deviceUsed = false;
         var stage = "exclude Boo's windows from capture";
 
         try
@@ -51,7 +63,9 @@ internal sealed class WindowsFrameCaptureBackend : IFrameCaptureBackend
             cancellationToken.ThrowIfCancellationRequested();
 
             stage = "create the graphics capture device";
-            using var d3d = NativeCaptureDevice.Create();
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var d3d = _device ??= NativeCaptureDevice.Create();
+            deviceUsed = true;
             cancellationToken.ThrowIfCancellationRequested();
 
             var frameSize = item.Size;
@@ -92,13 +106,17 @@ internal sealed class WindowsFrameCaptureBackend : IFrameCaptureBackend
                 frame.ContentSize.Width,
                 frame.ContentSize.Height,
                 target,
-                DateTimeOffset.UtcNow);
+                _clock.GetUtcNow());
             stage = "finish native capture cleanup";
             return new CapturedFrame(context, jpeg);
         }
         catch (Exception error)
         {
             operationError = error;
+            if (deviceUsed && error is not OperationCanceledException)
+            {
+                DropDevice(); // a fresh device next time; this one may be lost or in a bad state.
+            }
             if (error is OperationCanceledException or CaptureLimitationException)
             {
                 throw;
@@ -129,6 +147,20 @@ internal sealed class WindowsFrameCaptureBackend : IFrameCaptureBackend
                     new AggregateException(operationError, restoreError));
             }
         }
+    }
+
+    /// <summary>Releases the cached Direct3D device (app exit or after a capture error).</summary>
+    public void Dispose()
+    {
+        _disposed = true;
+        DropDevice();
+    }
+
+    private void DropDevice()
+    {
+        var device = _device;
+        _device = null;
+        device?.Dispose();
     }
 
     private static async Task<Direct3D11CaptureFrame> CaptureOneFrameAsync(

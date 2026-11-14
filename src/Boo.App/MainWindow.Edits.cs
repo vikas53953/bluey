@@ -1,0 +1,556 @@
+using System.IO;
+using System.Windows;
+using Boo.Core;
+using System.Net.Http;
+using Boo.Providers;
+
+namespace Boo.App;
+
+/// <summary>
+/// Edit -> Apply -> Undo glue (plan unit U5). Every decision lives in Boo.Core
+/// (<see cref="UndoJournal"/>, <see cref="ActionReadback"/>, <see cref="ResearchSources"/>);
+/// this file only re-reads controls through the existing observation path and routes
+/// Undo steps through the existing preview/approval queue. Nothing here executes an
+/// action on its own.
+/// </summary>
+public partial class MainWindow
+{
+    private static readonly IReadOnlySet<string> UndoTools =
+        new HashSet<string>(["click", "type_text"], StringComparer.Ordinal);
+
+    private static readonly IReadOnlySet<string> UndoFileTools =
+        new HashSet<string>(["write_file", "delete_file"], StringComparer.Ordinal);
+
+    private readonly UndoJournal _undoJournal = new();
+    private readonly FileUndoJournal _fileUndo = new();
+    private ActiveUndo? _activeUndo;
+    private bool _journalAwaitingApply;
+    private bool _voiceUndoInProgress;
+
+    /// <summary>
+    /// True while Boo is planning or showing a local Undo. Realtime tool calls fail
+    /// closed and replies leave the pending preview queue alone during that time.
+    /// </summary>
+    private bool UndoOwnsPendingActions =>
+        _voiceUndoInProgress || (_activeUndo is not null && _pendingPreview is not null);
+
+    private const string UndoOwnsVoiceTurnMessage = "Boo is handling Undo locally; no action taken.";
+
+    private void RenderSources(AssistantReply reply, bool research)
+    {
+        SourceLinksList.Children.Clear();
+        IReadOnlyList<SourceLink> sources = reply.Sources;
+        if (research)
+        {
+            var result = ResearchSources.Finalize(reply.Text, reply.Sources);
+            sources = result.Sources;
+            SourceStatusText.Text = result.SourceStatus;
+            SourceStatusText.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            ClearSourceStatus();
+        }
+
+        foreach (var source in sources)
+        {
+            AppendSourceLink(source);
+        }
+    }
+
+    private void ClearSourceStatus()
+    {
+        SourceStatusText.Text = string.Empty;
+        SourceStatusText.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Handles "undo" locally: no model call. Reads the current controls, asks the
+    /// journal for a plan, and shows its steps through the normal approval queue.
+    /// </summary>
+    private async Task HandleUndoRequestAsync(CapturedFrame? frame, RequestLease lease)
+    {
+        _activeUndo = null;
+        if (_fileUndo.HasPendingUndo)
+        {
+            // The last edit Boo made was a file write or delete: no screen read is needed to reverse it.
+            HandleFileUndoRequest(lease);
+            return;
+        }
+
+        if (!_undoJournal.HasPendingUndo)
+        {
+            ReportUndo("Nothing to undo: Boo has no recorded edit.");
+            return;
+        }
+
+        if (frame is null)
+        {
+            ReportUndo("Boo needs a current view of the edited window before it can undo. Nothing was changed.");
+            return;
+        }
+
+        var controls = await ReadRequestedControlsAsync(frame, lease);
+        if (controls is null || !IsCurrent(lease.Generation) || !ReferenceEquals(_requestLease, lease))
+        {
+            return;
+        }
+
+        if (controls.Controls.Count == 0)
+        {
+            ReportUndo("Boo could not read the window's controls, so it cannot plan an Undo. Nothing was changed.");
+            return;
+        }
+
+        var plan = _undoJournal.Plan(controls, lease.Generation);
+        if (!plan.CanUndo || plan.Steps.Count == 0)
+        {
+            ReportUndo(plan.BlockedReason ?? "Boo could not plan an Undo for the recorded edit.");
+            return;
+        }
+
+        var authority = new TaskAuthority(lease.Generation, ExplicitUserTask: true, UndoTools, _settings.FileRoot);
+        _activeUndo = new ActiveUndo(plan, lease.Generation, controls.Context);
+        _pendingControls = controls;
+        _pendingActions.Clear();
+        foreach (var step in plan.Steps.Skip(1))
+        {
+            _pendingActions.Enqueue(step);
+        }
+
+        AppendTranscript("Boo", $"Undo is ready: {plan.Steps.Count} step(s) to review before anything changes.");
+        ShowActionPreview(plan.Steps[0], authority, controls.Context.Target,
+            plan.Steps.Count == 1 ? "Undo: " : $"Undo step 1 of {plan.Steps.Count}: ");
+    }
+
+    /// <summary>
+    /// A spoken "undo" is handled locally too: the model's reply to that turn is
+    /// cancelled and the current voice lease is used for capture and the plan.
+    /// </summary>
+    private async Task HandleVoiceUndoAsync(RealtimeClient realtime)
+    {
+        var lease = _requestLease;
+        if (lease is null || !IsCurrent(lease.Generation) || !ReferenceEquals(_realtime, realtime))
+        {
+            return;
+        }
+
+        _voiceUndoInProgress = true;
+        var activity = _captureActivities.CreateOperation();
+        try
+        {
+            // Only cancel a response that is actually running: response.cancel with no active
+            // response comes back as a provider "error", which would tear down the voice session.
+            if (_responseActive)
+            {
+                _responseActive = false;
+                try
+                {
+                    await realtime.InterruptAsync(lease.Token);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // The local Undo plan does not depend on the model acknowledging the cancel.
+                }
+            }
+
+            var frame = await CaptureForRequestAsync(lease, activity);
+            if (frame is null)
+            {
+                EndCaptureActivity(activity);
+            }
+
+            if (!IsCurrent(lease.Generation) || !ReferenceEquals(_requestLease, lease)
+                || !ReferenceEquals(_realtime, realtime))
+            {
+                return;
+            }
+
+            await HandleUndoRequestAsync(frame, lease);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            _voiceUndoInProgress = false;
+            EndCaptureActivity(activity);
+            if (IsCurrent(lease.Generation))
+            {
+                // The cancelled model turn may never send response.done; do not strand the notch on Thinking.
+                SetFace(_faceInputs with { Thinking = _realtimeToolsInFlight > 0 });
+            }
+        }
+    }
+
+    /// <summary>
+    /// Completes a realtime tool call without acting when a local Undo owns the turn.
+    /// Returns true when the call was handled here.
+    /// </summary>
+    private async Task<bool> DeclineRealtimeToolDuringUndoAsync(RealtimeClient realtime, string? itemId, RequestLease lease)
+    {
+        if (!UndoOwnsPendingActions)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(itemId))
+        {
+            try
+            {
+                await realtime.CompleteToolAsync(itemId, UndoOwnsVoiceTurnMessage, lease.Token);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or InvalidOperationException or HttpRequestException)
+            {
+                // The local Undo continues whether or not the model hears this.
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Runs after an approved action returned. Records verified edits, re-reads the
+    /// target's controls after a click (and between queued steps), and replaces the
+    /// click's unverified outcome with what the re-read actually observed. A click
+    /// in the edited window that cannot be tied to the recorded edits clears the
+    /// journal, so a later "undo" never reports a false restore.
+    /// </summary>
+    private async Task<ToolOutcome> ReadBackActionAsync(
+        ToolRequest action, ToolOutcome outcome, ControlObservation? before, WindowIdentity? target, RequestLease lease)
+    {
+        if (!outcome.Committed || action.Name is not ("click" or "type_text"))
+        {
+            return outcome;
+        }
+
+        var undo = _activeUndo is { } active && active.Generation == action.Generation ? active : null;
+        action.Arguments.TryGetValue("automationId", out var automationId);
+
+        if (undo is not null)
+        {
+            return await ReadBackUndoStepAsync(undo, outcome, before, lease);
+        }
+
+        if (action.Name == "type_text")
+        {
+            var recorded = false;
+            if (before is not null && outcome.Success && !string.IsNullOrWhiteSpace(automationId)
+                && action.Arguments.TryGetValue("text", out var typed) && typed is not null)
+            {
+                var field = before.Controls.FirstOrDefault(
+                    control => string.Equals(control.AutomationId, automationId, StringComparison.Ordinal));
+                _undoJournal.RecordEdit(before.Context.Target, automationId, field?.Value, typed);
+                _fileUndo.Clear(); // the newest edit is the one "undo" reverses
+                _journalAwaitingApply = true;
+                recorded = true;
+            }
+
+            var typedWindow = before?.Context.Target ?? target;
+            if (!recorded && _undoJournal.HasPendingUndo
+                && (typedWindow is null || SameWindow(_undoJournal.Window, typedWindow)))
+            {
+                // Committed but unverified typing in the edited window: the recorded
+                // values can no longer be trusted for a restore.
+                ClearUndoJournal();
+            }
+
+            if (before is not null && _pendingActions.Count > 0)
+            {
+                var between = await PollControlsAsync(before.Context, lease, _ => true);
+                AdvancePendingControls(before, between);
+            }
+
+            return outcome;
+        }
+
+        // Click.
+        var window = before?.Context.Target ?? target;
+        var applyRecorded = false;
+        try
+        {
+            if (before is null || string.IsNullOrWhiteSpace(automationId))
+            {
+                return outcome;
+            }
+
+            // Keep reading after the first change until two consecutive reads agree, so
+            // an app that updates properties in sequence is recorded completely.
+            ControlObservation? changed = null;
+            var after = await PollControlsAsync(before.Context, lease,
+                observation =>
+                {
+                    if (ControlDiff.Compare(before, observation).Count == 0)
+                    {
+                        return false;
+                    }
+
+                    if (changed is not null && ControlDiff.Compare(changed, observation).Count == 0)
+                    {
+                        return true;
+                    }
+
+                    changed = observation;
+                    return false;
+                },
+                extendOnce: () => changed is not null);
+            AdvancePendingControls(before, after);
+            if (after is null)
+            {
+                return outcome;
+            }
+
+            var verified = ActionReadback.VerifyClick(before, after);
+            if (verified.Success && _journalAwaitingApply
+                && SameWindow(_undoJournal.Window, before.Context.Target))
+            {
+                _undoJournal.RecordApply(before.Context.Target, automationId, ControlDiff.Compare(before, after));
+                _journalAwaitingApply = false;
+                applyRecorded = true;
+            }
+
+            return verified;
+        }
+        finally
+        {
+            if (!applyRecorded && _undoJournal.HasPendingUndo
+                && (window is null || SameWindow(_undoJournal.Window, window)))
+            {
+                // A committed click in the edited window that Boo could not tie to the
+                // edits (no observed change, failed re-read, coordinates, or a click
+                // after the apply) makes the recorded state untrustworthy.
+                ClearUndoJournal();
+            }
+        }
+    }
+
+    private async Task<ToolOutcome> ReadBackUndoStepAsync(
+        ActiveUndo undo, ToolOutcome outcome, ControlObservation? before, RequestLease lease)
+    {
+        if (_pendingActions.Count > 0)
+        {
+            if (before is not null)
+            {
+                var between = await PollControlsAsync(before.Context, lease, _ => true);
+                AdvancePendingControls(before, between);
+            }
+
+            return outcome;
+        }
+
+        _activeUndo = null;
+        var after = await PollControlsAsync(undo.Context, lease,
+            observation => ActionReadback.VerifyExpected(observation, undo.Plan.Expected, "observed").Success);
+        if (after is null)
+        {
+            return outcome;
+        }
+
+        var restored = _undoJournal.VerifyUndo(after, undo.Plan);
+        if (restored.Success)
+        {
+            _journalAwaitingApply = false;
+        }
+
+        AppendTranscript("Boo", restored.Message);
+        return restored;
+    }
+
+    /// <summary>
+    /// Re-reads the target's controls through the existing observation path, up to
+    /// five times 120 ms apart, stopping as soon as <paramref name="settled"/> holds.
+    /// Returns the last good observation, or null when the read failed or went stale.
+    /// </summary>
+    private async Task<ControlObservation?> PollControlsAsync(
+        ScreenContext context, RequestLease lease, Func<ControlObservation, bool> settled,
+        Func<bool>? extendOnce = null)
+    {
+        const int baseAttempts = 5;
+        var attempts = baseAttempts;
+        ControlObservation? last = null;
+        for (var attempt = 0; attempt < attempts; attempt++)
+        {
+            if (!IsCurrent(lease.Generation) || !ReferenceEquals(_requestLease, lease))
+            {
+                return null;
+            }
+
+            if (attempt > 0)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(120), lease.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return null;
+                }
+
+                if (!IsCurrent(lease.Generation) || !ReferenceEquals(_requestLease, lease))
+                {
+                    return null;
+                }
+            }
+
+            ControlObservation? observation;
+            try
+            {
+                observation = await ReadRequestedControlsAsync(new CapturedFrame(context, Array.Empty<byte>()), lease);
+            }
+            catch (OperationCanceledException)
+            {
+                return null;
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+            {
+                return null;
+            }
+
+            if (observation is null || observation.Controls.Count == 0 || !IsCurrent(lease.Generation))
+            {
+                return null;
+            }
+
+            last = observation;
+            if (settled(observation))
+            {
+                break;
+            }
+
+            if (attempt == attempts - 1 && attempts == baseAttempts && extendOnce?.Invoke() == true)
+            {
+                attempts++;
+            }
+        }
+
+        return last;
+    }
+
+    private void AdvancePendingControls(ControlObservation before, ControlObservation? after)
+    {
+        if (!ReferenceEquals(_pendingControls, before))
+        {
+            return;
+        }
+
+        // Later steps compare against the newest observation. When the re-read failed,
+        // drop the stale baseline so a later click cannot claim this step's change.
+        _pendingControls = after;
+    }
+
+    private static bool SameWindow(WindowIdentity? left, WindowIdentity? right) =>
+        left is not null && right is not null && left.Handle == right.Handle && left.ProcessId == right.ProcessId;
+
+    private void ClearUndoJournal()
+    {
+        _undoJournal.Clear();
+        _journalAwaitingApply = false;
+    }
+
+    /// <summary>
+    /// Plans the reverse of Boo's last file edit from <see cref="FileUndoJournal"/> and shows it
+    /// through the normal approval queue: a write_file of the previous text, or a delete_file of a
+    /// file Boo created. Nothing changes until the user approves the preview.
+    /// </summary>
+    private void HandleFileUndoRequest(RequestLease lease)
+    {
+        var root = _settings.FileRoot;
+        var relativePath = _fileUndo.RelativePath!;
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            ReportUndo("Boo needs the folder it edited (Settings, file root) before it can undo. Nothing was changed.");
+            return;
+        }
+
+        var plan = _fileUndo.Plan(lease.Generation, () => ReadScopedFile(root, relativePath));
+        if (!plan.CanUndo || plan.Step is null)
+        {
+            ReportUndo(plan.BlockedReason ?? "Boo could not plan an Undo for the recorded file edit.");
+            return;
+        }
+
+        var authority = new TaskAuthority(lease.Generation, ExplicitUserTask: true, UndoFileTools, root);
+        _pendingControls = null;
+        _pendingActions.Clear();
+        var verb = plan.Step.Name == "delete_file" ? "remove the file Boo created" : "restore the file to how it was before Boo's edit";
+        AppendTranscript("Boo", $"Undo is ready: {verb} ({relativePath}). Review it before anything changes.");
+        ShowActionPreview(plan.Step, authority, null, "Undo: ");
+    }
+
+    /// <summary>
+    /// Reads a file's bytes before an approved file action runs so the edit can be reversed later.
+    /// Returns ok=false when the file exists but could not be read; the edit is then not journaled,
+    /// so "undo" can never propose deleting content Boo did not see.
+    /// </summary>
+    private static (bool Ok, byte[]? Previous) SnapshotFileForUndo(ToolRequest action, TaskAuthority authority)
+    {
+        if (action.Name is not ("write_file" or "delete_file"))
+        {
+            return (false, null);
+        }
+
+        try
+        {
+            var plan = FileActionResolver.Resolve(action, authority);
+            return File.Exists(plan.CanonicalPath) ? (true, File.ReadAllBytes(plan.CanonicalPath)) : (true, null);
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return (false, null);
+        }
+    }
+
+    /// <summary>Journals a committed, verified file action so the next "undo" reverses it.</summary>
+    private void RecordFileEdit(ToolRequest action, (bool Ok, byte[]? Previous) snapshot)
+    {
+        if (!snapshot.Ok || action.Name is not ("write_file" or "delete_file"))
+        {
+            return;
+        }
+
+        var relativePath = action.Arguments.TryGetValue("path", out var path) && !string.IsNullOrWhiteSpace(path)
+            ? path
+            : action.Target;
+        string? written = null;
+        if (action.Name == "write_file")
+        {
+            if (!action.Arguments.TryGetValue("contents", out written))
+            {
+                action.Arguments.TryGetValue("content", out written);
+            }
+
+            if (written is null)
+            {
+                return;
+            }
+        }
+        else if (snapshot.Previous is null)
+        {
+            return;
+        }
+
+        _fileUndo.Record(relativePath, snapshot.Previous, written);
+        ClearUndoJournal();
+    }
+
+    private static byte[]? ReadScopedFile(string root, string relativePath)
+    {
+        try
+        {
+            var path = ScopedFiles.Resolve(root, relativePath);
+            return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private void ReportUndo(string message)
+    {
+        AppendTranscript("Boo", message);
+        StatusText.Text = message;
+    }
+
+    private sealed record ActiveUndo(UndoPlan Plan, long Generation, ScreenContext Context);
+}

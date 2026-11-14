@@ -1,7 +1,7 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
-$workspacePath = 'C:\Users\vikasmit\Downloads\blue--fo'
+$workspacePath = Join-Path $env:USERPROFILE 'Downloads\blue--fo'
 $targetPath = Join-Path $workspacePath '.env.local'
 $statusDirectory = Join-Path $workspacePath 'artifacts\setup'
 [IO.Directory]::CreateDirectory($statusDirectory) | Out-Null
