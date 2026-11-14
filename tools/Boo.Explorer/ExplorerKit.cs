@@ -356,6 +356,9 @@ public abstract class ExplorerSteps<TFixture> where TFixture : BooAppFixture
 
     private (int Started, int BooRows) _lastAsk;
 
+    /// <summary>How many Boo answer rows the panel showed when the last question was asked.</summary>
+    protected int BooRowsAtLastAsk => _lastAsk.BooRows;
+
     /// <summary>
     /// The precondition of every "while Boo is answering" variation: a request is really on the wire (the meter saw it
     /// start and not end) and no answer containing <paramref name="answerWord"/> has arrived yet. If that is never

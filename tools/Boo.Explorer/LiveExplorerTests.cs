@@ -23,9 +23,43 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
 
     protected override bool BillableLaunch => true;
 
-    private string WaitForBooRowContaining(Window panel, string word, TimeSpan timeout) =>
-        Boo.WaitFor(() => BooRows(panel).LastOrDefault(r => r.Contains(word, StringComparison.OrdinalIgnoreCase)), timeout,
-            $"a Boo answer containing {word}");
+    /// <summary>
+    /// Waits for Boo's answer carrying <paramref name="word"/>. If Boo has finished answering (status no longer busy for
+    /// 10 s) and no answer carries the word, the MODEL answered something else: that is reported as AI-DEPENDENT with the
+    /// answer quoted, not as a Boo failure and not as a bare timeout.
+    /// </summary>
+    private string WaitForBooRowContaining(Window panel, string word, TimeSpan timeout)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var idleSince = (TimeSpan?)null;
+        while (clock.Elapsed < timeout)
+        {
+            if (BooRows(panel).LastOrDefault(r => r.Contains(word, StringComparison.OrdinalIgnoreCase)) is { } hit)
+            {
+                return hit;
+            }
+            if (LooksBusy(Status(panel)))
+            {
+                idleSince = null;
+            }
+            else
+            {
+                idleSince ??= clock.Elapsed;
+                if (clock.Elapsed - idleSince > TimeSpan.FromSeconds(10))
+                {
+                    if (BooRows(panel).Count > BooRowsAtLastAsk)
+                    {
+                        Assert.Fail($"AI-DEPENDENT (not a Boo verdict): Boo answered, but no answer carries {word}. " +
+                                    $"Last answer: '{Shorten(BooRows(panel).Last(), 300)}' status: '{Status(panel)}'.");
+                    }
+                    Assert.Fail($"Boo stopped working without an answer to the question (no new answer row); status: '{Status(panel)}'.");
+                }
+            }
+            Thread.Sleep(200);
+        }
+        Boo.CaptureScreen("timeout-answer-" + word);
+        throw new TimeoutException($"Timed out after {timeout.TotalSeconds:0}s waiting for a Boo answer containing {word} (status '{Status(panel)}').");
+    }
 
     [Fact, Step(1)]
     public void L01_Chat_RealAnswer_NotchSettles()
@@ -49,7 +83,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         Explore("l02-newer-wins", faces =>
         {
             var panel = OpenPanel();
-            Ask(panel, "Write a 120-word paragraph about the Moon, then end with the word BRAVO.", label: "l02 first (to be superseded)");
+            Ask(panel, "In your reply here, write about 120 words about the Moon, then end with the word BRAVO.", label: "l02 first (to be superseded)");
             RequireReplyPending(panel, "BRAVO", "l02 first question still pending");
             Ask(panel, "Reply with exactly the word CHARLIE.", label: "l02 second (typed during the pending reply)", whilePending: true);
             WaitForBooRowContaining(panel, "CHARLIE", AnswerTimeout);
@@ -71,7 +105,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         Explore("l03-settings-mid-chat", faces =>
         {
             var panel = OpenPanel();
-            Ask(panel, "Write a 120-word paragraph about rivers, then end with the word DELTA.", label: "l03 settings saved mid-reply");
+            Ask(panel, "In your reply here, write about 120 words about rivers, then end with the word DELTA.", label: "l03 settings saved mid-reply");
             RequireReplyPending(panel, "DELTA", "l03 reply pending while settings are saved");
             var chirp = Find(panel, "ChirpMute").AsCheckBox();
             chirp.IsChecked = chirp.IsChecked != true;
@@ -95,7 +129,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         {
             var panel = OpenPanel();
             var before = BooRows(panel).Count;
-            Ask(panel, "Write a 150-word story about a lighthouse keeper, and end it with the word ECHO.", label: "l04 stopped mid-reply");
+            Ask(panel, "In your reply here, tell a 150-word story about a lighthouse keeper, and end it with the word ECHO.", label: "l04 stopped mid-reply");
             RequireReplyPending(panel, "lighthouse", "l04 reply pending when Stop is pressed");
             PressStop();
             var stopped = BooAppFixture.WaitUntil(() => !LooksBusy(Status(panel)), TimeSpan.FromSeconds(5));
@@ -121,7 +155,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         Explore("l05-storm", faces =>
         {
             var panel = OpenPanel();
-            Ask(panel, "Write a 120-word paragraph about mountains, then end with the word GOLF.", label: "l05 hover/hotkey storm during reply");
+            Ask(panel, "In your reply here, write about 120 words about mountains, then end with the word GOLF.", label: "l05 hover/hotkey storm during reply");
             RequireReplyPending(panel, "GOLF", "l05 reply pending during the storm");
             var rng = Rng("l05");
             var hover = NotchHoverPoint();
@@ -183,7 +217,7 @@ public sealed class LiveExplorerTests : ExplorerSteps<BooAppFixture>, IClassFixt
         Explore("l07-kill-relaunch", faces =>
         {
             var panel = OpenPanel();
-            Ask(panel, "Write a 120-word paragraph about tea, then end with the word INDIA.", label: "l07 killed mid-reply");
+            Ask(panel, "In your reply here, write about 120 words about tea, then end with the word INDIA.", label: "l07 killed mid-reply");
             RequireReplyPending(panel, "INDIA", "l07 reply pending when Boo is killed");
             KilledOnPurpose = true;
             Boo.App.Kill();
