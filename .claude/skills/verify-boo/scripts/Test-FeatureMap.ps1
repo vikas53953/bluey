@@ -9,8 +9,7 @@
     - a row says "automated live" but cites no test method that drives the real Boo.exe;
     - a row cites a file that does not exist, or `file.cs::Method` where the method is not in that file;
     - a row claims "automated live" or "automated mock" but cites no test, workflow or script as proof;
-    - a [Fact]/[Theory] in a live user-journey project (tools/Boo.VerifyLive, tools/Boo.LiveSmoke) or a native UI suite
-      (tests/Boo.Ui.Tests, tests/Boo.Demo.Tests, tests/Boo.Perf.Tests) is not cited by any row
+    - a [Fact]/[Theory] in a live or native project ($LiveDirs and tests/Boo.Demo.Tests below) is not cited by any row
       (a new live check nobody mapped);
     - two rows share an ID.
   Read-only. Works in Windows PowerShell 5.1 and PowerShell 7.
@@ -27,6 +26,13 @@ $problems = [System.Collections.Generic.List[string]]::new()
 $ids = @{}
 $rows = 0
 $cited = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+
+# The ONE list of projects whose tests drive the real, published Boo.exe. A row is "automated live" only when it cites
+# a [Fact]/[Theory] from one of them, and every test in them must be on the map. A new native project is added here once.
+$LiveDirs = @('tools/Boo.VerifyLive', 'tools/Boo.LiveSmoke', 'tools/Boo.CrashReopen', 'tests/Boo.Ui.Tests', 'tests/Boo.Perf.Tests')
+# Native but mock-AI (demo-ci): must be mapped, never makes a row live.
+$NativeDirs = $LiveDirs + @('tests/Boo.Demo.Tests')
+$LiveDirPattern = '^(' + (($LiveDirs | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')/'
 
 $inMap = $false
 foreach ($line in Get-Content $MapPath -Encoding UTF8) {
@@ -71,7 +77,7 @@ foreach ($line in Get-Content $MapPath -Encoding UTF8) {
         if ($code -notmatch "\b$([regex]::Escape($method))\s*\(") { $problems.Add("$id cites ${relFile}::$method, but no such method is in that file") }
         elseif (-not $isTest) { $problems.Add("$id cites ${relFile}::$method, which is not a [Fact]/[Theory] test") }
         [void] $cited.Add("${relFile}::$method")
-        if ($isTest -and $relFile -match '^(tools/Boo\.VerifyLive|tools/Boo\.LiveSmoke|tests/Boo\.Ui\.Tests|tests/Boo\.Perf\.Tests)/') { $liveCited = $true }
+        if ($isTest -and $relFile -match $LiveDirPattern) { $liveCited = $true }
       }
     } elseif ($ref -match 'gh workflow run|Boo\.exe --notch-gallery|text_provider=|SpeechEnabled|BOO_LIVE_') {
       $hasProof = $true
@@ -82,14 +88,14 @@ foreach ($line in Get-Content $MapPath -Encoding UTF8) {
   # "automated live" must name a test method that drives the real Boo.exe (live journeys, live smoke, ui smoke, perf).
   # demo-ci (mock AI) and unit tests never make a row live.
   if (($parts -ccontains 'automated live') -and -not $liveCited) {
-    $problems.Add("$id claims 'automated live' but cites no file.cs::Method from tools/Boo.VerifyLive, tools/Boo.LiveSmoke, tests/Boo.Ui.Tests or tests/Boo.Perf.Tests")
+    $problems.Add("$id claims 'automated live' but cites no file.cs::Method from $($LiveDirs -join ', ')")
   }
 }
 
 if ($rows -eq 0) { $problems.Add("no map rows found in $MapPath") }
 
 # Every live or native UI test must be on the map, so a new live check cannot hide from it.
-foreach ($dir in 'tools/Boo.VerifyLive', 'tools/Boo.LiveSmoke', 'tests/Boo.Ui.Tests', 'tests/Boo.Demo.Tests', 'tests/Boo.Perf.Tests') {
+foreach ($dir in $NativeDirs) {
   foreach ($f in Get-ChildItem (Join-Path $repo $dir) -Recurse -Filter *.cs | Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' }) {
     $code = Get-Content $f.FullName -Raw
     $rel = $f.FullName.Substring($repo.Length + 1) -replace '\\', '/'
