@@ -1,5 +1,5 @@
 {
-  "revision": 29,
+  "revision": 30,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -85,6 +85,7 @@
     "tests/Boo.Core.Tests/ShortcutStatusTests.cs": "fe065ecb9bf3b10124516db983f741afe36b88dd9e770f07a6fb87fd538d8356",
     "tests/Boo.Core.Tests/StartupRegistrationTests.cs": "dcd5b440b8191dd0adfb49e700e5c53ca45a42aa8e5814d809de997e86ebf64a",
     "tests/Boo.Core.Tests/TestThreadPool.cs": "9aee9db37060b844fc341d9a202b11c064a61e95a17dbd6f94cf961ddbc4f52f",
+    "tests/Boo.Core.Tests/TypeTextInvisibleCharacterTests.cs": "9cd0fdd95f45eeae41fa9d7978384a2f5696c51e1cc89b579ebcf3146e5ef03c",
     "tests/Boo.Core.Tests/UndoJournalTests.cs": "5f73cbb8de8b9a65d7d00bb3cb630fb66cf320437aa452936fa11762945b58c8",
     "tests/Boo.Core.Tests/UntrustedInputFuzzTests.cs": "1260bcb26bcac3b60d43693874fef10d7abf073caf53c93d9388403a6d20c78c",
     "tests/Boo.Core.Tests/UpdatePolicyTests.cs": "6f58aa70493669d9fa81b946694f3d545eb50842f3478bba9ebaa8f6a4e2c987",
@@ -117,6 +118,7 @@
     "tests/Boo.Integration.Tests/ReviewCaptureDisposeTests.cs": "153e15534f883714d918604ce91ab9b8e07607283a968fbe6b9eeb3985d8fab8",
     "tests/Boo.Integration.Tests/SessionRecoveryTests.cs": "604ff4bb833ce2be64718fc82650417dca2091517d4d33a71359fd5fd9d62e36",
     "tests/Boo.Integration.Tests/StoragePrivacyTests.cs": "dd188faa6dd2e0e92b039971fef54aadcbf37176d43ca0ec71ee2363d3982811",
+    "tests/Boo.Integration.Tests/TypeTextExecutorInvisibleCharacterTests.cs": "219d3e67b0d59bde704afb03adf5a06486c621b2f30382a395519ab8e91436ed",
     "tests/Boo.Integration.Tests/VoiceToolProtocolTests.cs": "c95200c7c8ae01709e3f2f2aa5a8a5b223b831c86da47a874fe31e1e07f3bb72",
     "tests/Boo.LiveGuard.Tests/Boo.LiveGuard.Tests.csproj": "60db626ed4d77856c6f35ffb5cf2000827e486d016f505e55733f5fbcb52e981",
     "tests/Boo.LiveGuard.Tests/RealAiHostGuardTests.cs": "0f5a1b2b02d692058bcc5637d9667a45eafd36048bd91ffbc72f2dbe2af1b536",
@@ -154,13 +156,14 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-28.json",
-  "previousManifestSha256": "584a852ff3db21f053d9f304cef286bcaecbac1017363a10c2eb3350ad50f406",
-  "revisionReason": "PR #83 (issue #71): add tests/Boo.Core.Tests/BusyStatusLineTests.cs, a mutation-driven unit test for Boo.Core.BusyStatusLine (Codex mutation survivor M3: the stale-generation guard of the busy status line). Additive only; no frozen file changes. Re-run on top of lane/face revision 28 (#90) per the 13 Nov DECISIONS rule.",
+  "previousManifest": "docs/verification/test-oracle-history/revision-29.json",
+  "previousManifestSha256": "e977f2abf825dd9e030e662147732a4801ce0420d19c8be095ed4e272b093eba",
+  "revisionReason": "Issue #127: type_text invisible-character class tests (guard, card and executor backstop)",
   "addedFiles": [
-    "tests/Boo.Core.Tests/BusyStatusLineTests.cs"
+    "tests/Boo.Core.Tests/TypeTextInvisibleCharacterTests.cs",
+    "tests/Boo.Integration.Tests/TypeTextExecutorInvisibleCharacterTests.cs"
   ],
-  "revisionCommit": "c1522bdd42a90a8646395dd185d9c9bd31c42b01",
+  "revisionCommit": "ff448ffbb98167b77bfe535a20256db28fdf07c4",
   "changedFiles": [],
   "removedFiles": []
 }
