@@ -154,13 +154,15 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             var before = BooRows(panel).Count;
             SetText(panel, "InputBox", "Explain the window titled 'Boo live target' and point at its big 'Send report' button.");
 
-            // Send, then get out of the way like a user would: hide Boo's panel (on a small screen it covers everything)
-            // and bring the target forward, so Boo explains (and the AI sees) the target.
+            // Capture snapshots its target during Send. Establish the external window first;
+            // bringing it forward after Send cannot change the already selected capture target.
+            BringTargetForward("j3 before send");
+            Assert.True(s_target.IsForeground(), "TEST SETUP (j3): target must be foreground before Send.");
+            AssertTargetOnTop(s_target, "j3 before send");
             var explainClock = Stopwatch.StartNew(); // Boo gives up on OpenAI after 45 s (HttpClient timeout); record how long it took
             Find(panel, "SendButton").AsButton().Invoke();
             Find(panel, "CloseButton").AsButton().Invoke();
             Assert.True(BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, UiTimeout), "TEST SETUP: Boo's panel did not hide.");
-            BringTargetForward("j3");
             AssertTargetOnTop(s_target, "j3");
 
             // Screenshots are of Boo's own windows only (PR #18), so the marks are read from Boo's explanation overlay
