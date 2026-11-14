@@ -7,6 +7,10 @@ on:
       - .github/workflows/qa-paused-stop.yml
   workflow_dispatch:
     inputs:
+      hover_edges:
+        description: Run no-key Q7 four-branch hover journey instead of Q12G
+        type: boolean
+        default: false
       approval_stop:
         description: Run Q12E with one real cheap OpenAI request instead of no-key Q12G
         type: boolean
@@ -68,14 +72,16 @@ jobs:
           BOO_LIVE_OPENAI_KEY: ${{ inputs.approval_stop && secrets.BOO_LIVE_OPENAI_KEY || '' }}
           BOO_QA_FACE_TIMING: ${{ inputs.face_timing_diagnostics && '1' || '0' }}
           TRAY_STOP: ${{ inputs.tray_stop || false }}
+          HOVER_EDGES: ${{ inputs.hover_edges || false }}
           FOCUS_END: ${{ inputs.focus_end || false }}
           FOCUS_RESUME: ${{ inputs.focus_resume || false }}
           APPROVAL_STOP: ${{ inputs.approval_stop || false }}
         run: |
           $test = 'Boo.QaSuite.Journeys.PausedStopTests.Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace'
-          $selected = @($env:APPROVAL_STOP, $env:FOCUS_RESUME, $env:FOCUS_END, $env:TRAY_STOP) | Where-Object { $_ -eq 'true' }
+          $selected = @($env:APPROVAL_STOP, $env:FOCUS_RESUME, $env:FOCUS_END, $env:TRAY_STOP, $env:HOVER_EDGES) | Where-Object { $_ -eq 'true' }
           if ($env:BOO_QA_FACE_TIMING -eq '1' -and $env:FOCUS_END -ne 'true') { throw 'Producer timing requires focus_end' }
           if (@($selected).Count -gt 1) { throw 'Choose one focused journey' }
+          if ($env:HOVER_EDGES -eq 'true') { $test = 'Boo.QaSuite.Journeys.HoverEdgeTests.Q7_HoverEdges_AllFourBranches_OnTheRealClock' }
           if ($env:TRAY_STOP -eq 'true') { $test = 'Boo.QaSuite.Journeys.TrayStopTests.Q12F_TrayStop_PausesRunningFocusAndKeepsItPinned' }
           if ($env:FOCUS_END -eq 'true') { $test = 'Boo.QaSuite.Journeys.FocusEndTimingTests.Q13H_EndFromPaused_HappyIntervalContainsNominalDurationThenRetreats' }
           if ($env:FOCUS_RESUME -eq 'true') { $test = 'Boo.QaSuite.Journeys.FocusResumeTests.Q13R_PauseResume_OrdersFacesAndRetainsSessionAtPauseCheckpoint' }
