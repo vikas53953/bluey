@@ -465,7 +465,7 @@ def self_test(out=print):
     with tempfile.TemporaryDirectory() as d:
         receipt = pathlib.Path(d, 'r', 'receipt.txt')
 
-        def trx(name, results, summary='Completed', counters=None, summaries=1):
+        def trx(name, results, summary='Completed', counters=None, summaries=1, counter_blocks=1):
             """A .trx shaped like the one `dotnet test --logger trx` writes: results, then ONE run summary whose
             counters agree with them (unless a case overrides them to plant a defect)."""
             rows = ''.join(f'<UnitTestResult testName="{n}" outcome="{o}"/>' for n, o in results)
@@ -476,7 +476,8 @@ def self_test(out=print):
                  'completed': len(results), 'inProgress': 0, 'pending': 0}
             c.update(counters or {})
             attrs = ' '.join(f'{k}="{v}"' for k, v in c.items())
-            block = f'<ResultSummary outcome="{summary}"><Counters {attrs}/></ResultSummary>' * summaries
+            block = (f'<ResultSummary outcome="{summary}">' + f'<Counters {attrs}/>' * counter_blocks +
+                     '</ResultSummary>') * summaries
             pathlib.Path(d, name).write_text(
                 '<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Results>'
                 f'{rows}</Results>{block}</TestRun>', encoding='utf-8')
@@ -513,10 +514,23 @@ def self_test(out=print):
                 ('not executed counted', dict(counters={'notExecuted': 1})),
                 ('counters say 2 ran', dict(counters={'total': 2, 'executed': 2, 'passed': 2})),
                 ('counters say 0 passed', dict(counters={'passed': 0})),
+                # One case per counter and per rule, so dropping any single one of them is caught (Codex mutation
+                # run on #131: these survived when only the cases above existed).
+                ('failed counted', dict(counters={'failed': 1})),
+                ('inconclusive counted', dict(counters={'inconclusive': 1})),
+                ('not runnable counted', dict(counters={'notRunnable': 1})),
+                ('disconnected counted', dict(counters={'disconnected': 1})),
+                ('in progress counted', dict(counters={'inProgress': 1})),
+                ('pending counted', dict(counters={'pending': 1})),
+                ('only total says 2', dict(counters={'total': 2})),
+                ('only executed says 2', dict(counters={'executed': 2})),
+                ('only passed says 2', dict(counters={'passed': 2})),
+                ('two counter blocks in one summary', dict(counter_blocks=2)),
                 ('no run summary', dict(summaries=0)),
                 ('two run summaries', dict(summaries=2)),
             ]
             for label, kw in planted:
+                receipt.unlink(missing_ok=True)  # each case judged on its own: no receipt left from an earlier one
                 trx('a.trx', ok, **kw)
                 rc = trx_check(d, tid, receipt, out=quiet.append)
                 check(f'#128 {tid}: {label} -> fail', rc == 1 and not receipt.exists())
