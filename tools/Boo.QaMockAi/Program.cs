@@ -39,6 +39,20 @@ public static class QaConstants
     public const string EditText = "QA-EDIT: I propose replacing the button text in MainWindow.xaml with " + EditMarker + ".";
 
     public const string ResearchText = "QA-RESEARCH: Three sources support this answer.";
+
+    /// <summary>
+    /// Blind-task routes: the user asks for a task while the app has NO frame and NO control observation
+    /// (BOO_QA_CAPTURE_FAULT=1). "qa-blind-mixed" answers with a click, a type_text and a write_file;
+    /// "qa-blind-click" answers with a click only. Boo must offer the write_file alone (no "Step 1 of 3")
+    /// and nothing at all for the click-only reply.
+    /// </summary>
+    public const string BlindMixedKeyword = "qa-blind-mixed";
+    public const string BlindClickKeyword = "qa-blind-click";
+    public const string BlindMixedText = "QA-BLIND-MIXED: I propose a click, typing, and a file write.";
+    public const string BlindClickText = "QA-BLIND-CLICK: I propose a click.";
+    public const string BlindTypeAutomationId = "QaBlindBox";
+    public const string BlindTypeText = "qa blind text";
+    public const string BlindFileContents = "QA-BLIND-WRITE";
     public static readonly (string Title, string Url)[] Sources =
     [
         ("QA source A", "https://example.com/a"),
@@ -315,6 +329,19 @@ public static class Program
             return Envelope(structured ? result.ToJsonString() : QaConstants.EditText, null);
         }
 
+        if (route is "blind-mixed" or "blind-click")
+        {
+            var actions = new JsonArray(BlindAction("click", "QA blind click", x: 120, y: 80));
+            if (route == "blind-mixed")
+            {
+                actions.Add(BlindAction("type_text", "QA blind type", automationId: QaConstants.BlindTypeAutomationId, text: QaConstants.BlindTypeText));
+                actions.Add(BlindAction("write_file", QaConstants.EditRelativePath, path: QaConstants.EditRelativePath, overwrite: "true", contents: QaConstants.BlindFileContents));
+            }
+            var blindText = route == "blind-mixed" ? QaConstants.BlindMixedText : QaConstants.BlindClickText;
+            var result = new JsonObject { ["text"] = blindText, ["marks"] = new JsonArray(), ["actions"] = actions };
+            return Envelope(structured ? result.ToJsonString() : blindText, null);
+        }
+
         if (route == "explain")
         {
             var size = Math.Max(8, Math.Round(frameW * QaConstants.RingSizeFraction));
@@ -338,6 +365,23 @@ public static class Program
 
         var fallback = new JsonObject { ["text"] = QaConstants.DefaultText, ["marks"] = new JsonArray(), ["actions"] = new JsonArray() };
         return Envelope(structured ? fallback.ToJsonString() : QaConstants.DefaultText, null);
+    }
+
+    /// <summary>One structured action with every schema argument present (null when unused), like the edit route.</summary>
+    private static JsonObject BlindAction(
+        string name, string target, int? x = null, int? y = null, string? automationId = null,
+        string? text = null, string? path = null, string? overwrite = null, string? contents = null)
+    {
+        return new JsonObject
+        {
+            ["name"] = name,
+            ["target"] = target,
+            ["arguments"] = new JsonObject
+            {
+                ["x"] = x, ["y"] = y, ["automationId"] = automationId, ["name"] = null, ["text"] = text,
+                ["path"] = path, ["overwrite"] = overwrite, ["content"] = null, ["contents"] = contents
+            }
+        };
     }
 
     /// <summary>Wraps text in a Responses API envelope: output[] -> message -> content[] -> output_text.</summary>
@@ -387,6 +431,8 @@ public static class Program
         ("explain", ["explain", "what is on my screen", "what's on my screen"]),
         ("research", ["research", "sources"]),
         ("edit", ["edit", "rename", "apply"]),
+        ("blind-mixed", [QaConstants.BlindMixedKeyword]),
+        ("blind-click", [QaConstants.BlindClickKeyword]),
     ];
 
     /// <summary>The route whose keyword occurs earliest in the user's text; null when none matches.</summary>

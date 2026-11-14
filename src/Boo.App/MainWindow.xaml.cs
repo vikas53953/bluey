@@ -2027,6 +2027,12 @@ public partial class MainWindow : Window
             return null;
         }
 
+        if (App.CaptureFault.Faulted)
+        {
+            ReportCaptureProblem(App.CaptureFault.Message);
+            return null;
+        }
+
         try
         {
             var targets = EnsureTargets();
