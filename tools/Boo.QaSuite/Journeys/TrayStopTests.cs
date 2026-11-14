@@ -207,12 +207,35 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
             var hit = _boo.Automation.FromPoint(point);
             try
             {
-                Record($"pre-right-click selectedRuntimeId={string.Join(",", iconIdentity)} currentRuntimeId={string.Join(",", icon.Properties.RuntimeId.Value)} selectedName={icon.Properties.Name.Value} selectedBounds={bounds} point={point.X},{point.Y}; hitRuntimeId={string.Join(",", hit.Properties.RuntimeId.Value)} hitName={hit.Properties.Name.Value} hitType={hit.Properties.ControlType.Value} hitPid={hit.Properties.ProcessId.Value} hitBounds={hit.BoundingRectangle}");
                 _boo.CaptureRectangle("qa-j12f-pre-right-click-area", area.BoundingRectangle);
             }
             catch (Exception diagnosticError)
             {
-                Record("secondary pre-right-click diagnostic error=" + diagnosticError);
+                Record("secondary pre-right-click capture error=" + diagnosticError);
+            }
+            try
+            {
+                void DescribeHit(string label, AutomationElement element)
+                {
+                    var hasName = element.Properties.Name.TryGetValue(out var name);
+                    var hasType = element.Properties.ControlType.TryGetValue(out var type);
+                    var hasPid = element.Properties.ProcessId.TryGetValue(out var pid);
+                    var hasBounds = element.Properties.BoundingRectangle.TryGetValue(out var rectangle);
+                    Record($"{label} runtimeId={string.Join(",", element.Properties.RuntimeId.Value)} nameSupported={hasName} name={name} typeSupported={hasType} type={type} pidSupported={hasPid} pid={pid} boundsSupported={hasBounds} bounds={rectangle}");
+                }
+                Record($"pre-right-click selectedRuntimeId={string.Join(",", iconIdentity)} point={point.X},{point.Y}");
+                DescribeHit("selected", icon);
+                DescribeHit("physical hit", hit);
+                AutomationElement? ancestor = walker.GetParent(hit);
+                for (var depth = 0; ancestor is not null && depth < 8; depth++, ancestor = walker.GetParent(ancestor))
+                    DescribeHit($"hit ancestor {depth}", ancestor);
+                var descendants = icon.FindAllDescendants();
+                foreach (var child in descendants.Take(32)) DescribeHit("selected descendant", child);
+                Record($"selected descendant count={descendants.Length}; truncated={descendants.Length > 32}");
+            }
+            catch (Exception diagnosticError)
+            {
+                Record("secondary pre-right-click metadata error=" + diagnosticError);
             }
             Assert.True(ExplorerAncestry(hit));
             Assert.Equal(iconIdentity, hit.Properties.RuntimeId.Value);

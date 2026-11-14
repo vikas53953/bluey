@@ -228,3 +228,6 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 
 
 | 14 Nov 2026 | Retain Q12F exact physical-hit identity failure; collect selected/hit name/type/PID/bounds/RuntimeId and hosted overflow image before assertions. | Run43587856610 proves overflow discovery but mismatched hit identity after Start. Existing evidence cannot attribute that mismatch; do not relax equality or substitute another Stop path. | b057d58 identity/TRX/log/screenshot inspected; verifier correctly rejects absent current-head QA PASS | proposed; Q12F/full-app RED |
+
+
+| 14 Nov 2026 | Separate Q12F pre-hit screenshot from metadata and report property support explicitly in bounded hit/ancestor/descendant diagnostics. | Unsupported Name aborted the previous compound diagnostic before image capture; its secondary failure did not mask the strict RuntimeId failure. Retain original equality and do not infer the hit's identity. | Actions43588864021 exact3d8d31f; identity/TRX/log/screenshot inspected; local compile0warnings/0errors | proposed; diagnostic-only, Q12F/full-app RED |
