@@ -71,7 +71,10 @@ public sealed class NotchLifecyclePropertyTests
                     w.Require(after.MicDevice == MicOwner.Off && !after.MicIndicator, "INV-STOP-1: Stop turns the mic off");
                     w.Require(!after.ChordHeld && !after.EyesHeld && after.Voice == VoiceSessionKind.Off, "INV-STOP-1: Stop ends holds and voice");
                     w.Require(!after.Thinking && !after.Responding && !after.Nudge && !after.Happy, "INV-STOP-1: Stop clears the chat flags");
-                    w.Require(after.Focus != FocusStatus.Running, "F4 (known gap): Stop leaves focus Paused, never Running");
+                    // F4 lets Stop PAUSE a running session; it never discards one (Codex review of cb1b9a0, P2).
+                    w.Require(before.Focus == FocusStatus.Running
+                        ? after.Focus == FocusStatus.Paused
+                        : after.Focus == before.Focus, "F4 (known gap): Stop turns a running session Paused and keeps any other focus state");
                 }
             }
         }));
@@ -191,6 +194,9 @@ public sealed class NotchLifecyclePropertyTests
     /// release (TalkUp, HoldTimeout) or Stop the hold mic and the indicator are off; Stop and a voice end turn every
     /// mic off. The indicator never shows with no mic open. Known exception F10: a Talk-button mic opened during a
     /// hold survives the release with the indicator off (so the release check is "not the hold mic", not "off").
+    /// F10 is the ONLY way a Talk-button mic may be open without its indicator: that state must have just been made
+    /// by a handled release (TalkUp, HoldTimeout) of an open Talk-button mic, or carried over unchanged from it.
+    /// Any other unseen Talk-button mic fails (Codex review of cb1b9a0, P1: an invisible Talk button survived).
     /// </summary>
     [Fact]
     public void P4_Talk_has_one_mic_owner_and_release_turns_the_hold_mic_off()
@@ -221,6 +227,15 @@ public sealed class NotchLifecyclePropertyTests
                 w.Require(after.MicDevice != MicOwner.Hold || held, "INV-TALK-1: the hold mic is open only while held");
                 w.Require(after.MicDevice != MicOwner.Hold || after.MicIndicator, "INV-PRIV-1: the hold mic never records unseen");
                 w.Require(!after.MicIndicator || after.MicDevice != MicOwner.Off, "F12: the indicator never shows with no mic");
+                if (after.MicDevice == MicOwner.Button && !after.MicIndicator)
+                {
+                    var before = w.Before;
+                    var carriedOver = before.MicDevice == MicOwner.Button && !before.MicIndicator;
+                    var madeByRelease = w.Step.Handled && w.Event is E.TalkUp or E.HoldTimeout
+                        && before.MicDevice == MicOwner.Button;
+                    w.Require(carriedOver || madeByRelease,
+                        "INV-PRIV-1 / F10 (narrow): a Talk-button mic is unseen only after a hold release left it open");
+                }
 
                 var lastRelease = w.Event is E.TalkUp or E.HoldTimeout && w.Step.Handled && !held && after.Alive;
                 if (lastRelease)
