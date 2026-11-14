@@ -76,4 +76,31 @@ public sealed class SpokenAudioTests
     {
         Assert.Null(SpokenAudio.SelfCheck(Rate));
     }
+
+    private static byte[] Fixture(string name) =>
+        LiveVoiceRoundTripTests.ReadPcm24kMono16(Path.Combine(AppContext.BaseDirectory, "Voice", name));
+
+    [Fact]
+    public void A_real_spoken_answer_from_OpenAI_passes()
+    {
+        // OpenAI's spoken "five" from live-ai-smoke run 43575903395: 0.6 s long, loudest sample about 11,900.
+        var pcm = Fixture("answer-five-real-speech.wav");
+        Assert.True(SpokenAudio.PeakLevel(pcm) > 5000, "the fixture is real speech");
+        Assert.True(SpokenAudio.SpeechSeconds(pcm, Rate) >= 0.20, "a spoken one-word answer holds about a quarter second of speech");
+        Assert.True(SpokenAudio.IsSpokenAnswer(pcm, Rate));
+    }
+
+    [Fact]
+    public void A_silent_answer_from_OpenAI_fails_even_when_long_and_with_a_transcript()
+    {
+        // live-sentinel run 43576162645: OpenAI sent 1.55 s of answer audio whose transcript said "5", but the audio is a
+        // flat noise floor (loudest sample 335 of 32767, RMS 20 to 30): no speech at all. The old 0.5 s length rule passed
+        // such an answer; this rule must reject it, and so must pure digital silence of the same length.
+        var pcm = Fixture("answer-silent-from-provider.wav");
+        Assert.True(pcm.Length >= Rate * 2, "the fixture is longer than one second");
+        Assert.True(SpokenAudio.PeakLevel(pcm) < 500, "the fixture never gets loud");
+        Assert.Equal(0.0, SpokenAudio.SpeechSeconds(pcm, Rate), 6);
+        Assert.False(SpokenAudio.IsSpokenAnswer(pcm, Rate));
+        Assert.False(SpokenAudio.IsSpokenAnswer(new byte[pcm.Length], Rate));
+    }
 }

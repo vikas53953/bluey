@@ -120,6 +120,7 @@ public sealed class LiveVoiceRoundTripTests
         var answerSeconds = (double)answerAudio.Length / BytesPerSecond;
 
         WriteEvidence(accepted, realtimeModel, transcribeModel, questionSeconds, answerSeconds, seconds, heard, answer, answerAudio, problems);
+        WriteEventTrace(events.ToArray());
         _output.WriteLine($"voice: heard='{heard}' answer='{answer}' answerAudio={answerSeconds:0.0}s in {seconds:0.0}s");
 
         Assert.True(problems.Count == 0, "OpenAI voice reported a problem: " + string.Join("; ", problems));
@@ -132,9 +133,12 @@ public sealed class LiveVoiceRoundTripTests
         // The rule is SpokenAudio.IsSpokenAnswer, tested offline in SpokenAudioTests.
         var speechSeconds = SpokenAudio.SpeechSeconds(answerAudio, SampleRate);
         _output.WriteLine($"voice: answer speech={speechSeconds:0.00}s of {answerSeconds:0.00}s audio (minimum {SpokenAudio.MinimumSpeechSeconds:0.00}s)");
+        var audioChunks = events.Count(e => e.Kind == "response.output_audio.delta" && e.Audio is not null);
         Assert.True(SpokenAudio.IsSpokenAnswer(answerAudio, SampleRate),
             $"The answer should be spoken (at least {SpokenAudio.MinimumSpeechSeconds:0.00} s of speech above the quiet " +
-            $"floor) but its {answerSeconds:0.00} s of audio held only {speechSeconds:0.00} s of speech.");
+            $"floor) but its {answerSeconds:0.00} s of audio held only {speechSeconds:0.00} s of speech: OpenAI sent " +
+            $"{audioChunks} audio chunk(s) whose loudest sample is {SpokenAudio.PeakLevel(answerAudio)} of 32767 while its " +
+            $"transcript said '{answer}' (a silent spoken answer; per-event trace in live-voice-01-events.txt).");
         Assert.True(SaidAnswer.IsMatch(answer), $"The spoken answer should say 'five' but its transcript was '{answer}'.");
     }
 
@@ -211,6 +215,30 @@ public sealed class LiveVoiceRoundTripTests
             string.Create(CultureInfo.InvariantCulture, $"estimated cost of this voice turn: about ${cost:0.0000} (see LiveVoiceRoundTripTests.EstimatedCostUsd for the assumptions)"),
         })) + "\n");
         if (answerAudio.Length > 0) File.WriteAllBytes(Path.Combine(folder, "live-voice-01-answer.wav"), Wav(answerAudio));
+    }
+
+    /// <summary>
+    /// One line per realtime event (kind, item, content index, text length, audio bytes and loudest sample), so a failed
+    /// answer can be diagnosed from the run alone: the sentinel's silent answers (runs 43575595540, 43576162645) could
+    /// not be traced to a cause without it. Transcript text and audio bytes are not repeated here; no key is involved.
+    /// </summary>
+    private static void WriteEventTrace(IReadOnlyList<RealtimeEvent> events)
+    {
+        var folder = Environment.GetEnvironmentVariable("BOO_UI_ARTIFACTS");
+        if (string.IsNullOrWhiteSpace(folder)) return;
+        Directory.CreateDirectory(folder);
+        var lines = new List<string> { $"realtime events received: {events.Count}" };
+        for (var i = 0; i < events.Count; i++)
+        {
+            var e = events[i];
+            var audio = e.Audio is { } a
+                ? string.Create(CultureInfo.InvariantCulture, $" audioBytes={a.Length} peak={SpokenAudio.PeakLevel(a)}")
+                : string.Empty;
+            var status = e.Kind is "response.done" or "error" or "disconnect" ? $" status='{e.Text}'" : string.Empty;
+            lines.Add(string.Create(CultureInfo.InvariantCulture,
+                $"{i:000} {e.Kind} item={e.ItemId ?? "-"} content={e.ContentIndex} textChars={e.Text?.Length ?? 0}{audio}{status}"));
+        }
+        File.WriteAllText(Path.Combine(folder, "live-voice-01-events.txt"), string.Join('\n', lines) + "\n");
     }
 
     /// <summary>The answer's PCM in a WAV container, so a reviewer can listen to what Boo said.</summary>
