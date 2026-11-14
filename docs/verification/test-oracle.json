@@ -1,5 +1,5 @@
 {
-  "revision": 29,
+  "revision": 30,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -73,6 +73,7 @@
     "tests/Boo.Core.Tests/PresenceControllerTests.cs": "e06747f24204ccb67e74f869f0774ed48b16389a7e1ca70cc364c2a2f6489f48",
     "tests/Boo.Core.Tests/ProviderFailureClassifierTests.cs": "dcdc21b019d5578929c45e196faa69d5d0a438f91c8655a9a63b92483554841a",
     "tests/Boo.Core.Tests/PushToTalkUplinkTests.cs": "baf193ed74bcd143940401345218f559494dcde2a25800c781024b3b51811185",
+    "tests/Boo.Core.Tests/RealtimeToolResultTests.cs": "3cb39988aefda06caa8b100098e1753ef6a9515609f8f12ac8811b9f0990b84b",
     "tests/Boo.Core.Tests/RequestCoordinatorTests.cs": "c4920b5baa7c22437d4740dd223cffc1a6202560d21555951b2608624568ff84",
     "tests/Boo.Core.Tests/RequestIntentTests.cs": "f0efe43e849bf7ecda1dafae78dbe3f7bca44490d5fdb902c7ae8f034cbe2ea9",
     "tests/Boo.Core.Tests/ResearchSourcesTests.cs": "f1565ee92e0d858a2f6cfeda6fa20b3f270ec75e79e04c123972bc7e9e080fa9",
@@ -156,15 +157,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-28.json",
-  "previousManifestSha256": "584a852ff3db21f053d9f304cef286bcaecbac1017363a10c2eb3350ad50f406",
-  "revisionReason": "PR #93 on lane/face 5062574 (after #90, revision 28): app-boundary M2 regression demo test, CaptureFaultPolicy tests and the guard's Core tests",
+  "previousManifest": "docs/verification/test-oracle-history/revision-29.json",
+  "previousManifestSha256": "472061dee91bcf99ab6816a08ef9dd455f9fae5826d3cdcc53890f4967ff471a",
+  "revisionReason": "PR #93: RealtimeToolResult decides the voice function-call result on the offered action (Codex P2, a953fdc review)",
   "addedFiles": [
-    "tests/Boo.Core.Tests/CaptureFaultPolicyTests.cs",
-    "tests/Boo.Core.Tests/UnobservedScreenActionTests.cs",
-    "tests/Boo.Demo.Tests/UnobservedScreenActionDemoTests.cs"
+    "tests/Boo.Core.Tests/RealtimeToolResultTests.cs"
   ],
-  "revisionCommit": "a953fdc4bbc4750a889235e549f325bef0058fdb",
+  "revisionCommit": "6f9a2cf072cda1e275e0898d29e9e441bdaf1fa9",
   "changedFiles": [],
   "removedFiles": []
 }

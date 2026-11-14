@@ -952,7 +952,7 @@ public partial class MainWindow : Window
         SetFace(_faceInputs with { Thinking = false, Responding = false });
     }
 
-    private void RenderReply(AssistantReply reply, long generation, CapturedFrame? frame, bool explicitTask, ControlObservation? controls, bool research = false)
+    private ToolRequest? RenderReply(AssistantReply reply, long generation, CapturedFrame? frame, bool explicitTask, ControlObservation? controls, bool research = false)
     {
         ClearAnnotations();
         SetFace(_faceInputs with { Thinking = false, Responding = true, Caption = reply.Text }, TimeSpan.FromSeconds(4), FaceMomentKind.Responding);
@@ -970,7 +970,7 @@ public partial class MainWindow : Window
 
         if (!IsCurrent(generation) || UndoOwnsPendingActions)
         {
-            return;
+            return null;
         }
 
         var offered = explicitTask ? ActionPolicy.WithoutUnobservedScreenActions(reply.Actions, controls) : reply.Actions;
@@ -1008,6 +1008,7 @@ public partial class MainWindow : Window
                 StatusText.Text = "Reply complete. No action was committed.";
             }
         }
+        return action;
     }
 
     private void TryRenderAnnotations(AnnotationProposal proposal, CapturedFrame frame)
@@ -2399,14 +2400,15 @@ public partial class MainWindow : Window
             {
                 return;
             }
-            RenderReply(reply, lease.Generation, frame, explicitTask, controls, mode == "research");
-            if (explicitTask && reply.Actions.Count > 0)
+            var offered = RenderReply(reply, lease.Generation, frame, explicitTask, controls, mode == "research");
+            var result = ActionPolicy.RealtimeToolResult(offered, reply.Actions, reply.Text, explicitTask);
+            if (result is null)
             {
                 _pendingRealtimeCallId = realtimeEvent.ItemId;
             }
             else
             {
-                await realtime.CompleteToolAsync(realtimeEvent.ItemId, reply.Text, lease.Token);
+                await realtime.CompleteToolAsync(realtimeEvent.ItemId, result, lease.Token);
             }
         }
         catch (Exception ex) when (ex is ResponseTimeoutException or OperationCanceledException or HttpRequestException or InvalidOperationException)

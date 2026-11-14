@@ -98,6 +98,29 @@ public static class ActionPolicy
         return actions.Where(action => !RequiresScreenObservation(action.Name)).ToArray();
     }
 
+    /// <summary>The voice function-call result when a task proposed only screen actions and no observation backed them.</summary>
+    public const string UnobservedScreenActionRefusal =
+        "Boo proposed a screen action, but no screen observation backs it, so nothing was offered. Explain without taking an action.";
+
+    /// <summary>
+    /// The function-call result a voice task returns as soon as its reply is rendered: null while an action is
+    /// offered (the result then follows approval, cancel or stop), <see cref="UnobservedScreenActionRefusal"/> when the
+    /// task proposed actions but <see cref="WithoutUnobservedScreenActions"/> left nothing to offer, otherwise the
+    /// reply text. Deciding on the offered action rather than on the proposed list is what keeps a filtered-out
+    /// reply from waiting forever for an approval that no control can give.
+    /// </summary>
+    public static string? RealtimeToolResult(ToolRequest? offeredAction, IReadOnlyList<ToolRequest> proposedActions, string replyText, bool explicitTask)
+    {
+        ArgumentNullException.ThrowIfNull(proposedActions);
+        ArgumentNullException.ThrowIfNull(replyText);
+        if (offeredAction is not null)
+        {
+            return null;
+        }
+
+        return explicitTask && proposedActions.Count > 0 ? UnobservedScreenActionRefusal : replyText;
+    }
+
     public static ApprovalTicket Approve(ToolRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
