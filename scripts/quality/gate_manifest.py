@@ -105,7 +105,7 @@ def check(root, manifest_path, head_manifest_path=None):
         if head_manifest_path is not None:
             head = json.loads(head_manifest_path.read_text(encoding='utf-8-sig'))
             errors.extend(inspect(root, head))
-            errors.extend([])  # PROOF ONLY: reproduce missing retention comparison; never merge
+            errors.extend(retain_contracts(manifest, head))
     except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError, AttributeError, RecursionError) as error:
         errors = [f'unreadable workflow/manifest ({type(error).__name__}); failing closed']
     for error in errors:
