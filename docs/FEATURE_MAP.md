@@ -171,3 +171,5 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | F17 | j13 Pause/Resume ordered faces and second Pause persistence checkpoint; other j13 branches pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FocusResumeTests.cs::Q13R_PauseResume_OrdersFacesAndRetainsSessionAtPauseCheckpoint` |
 
 | F18 | j13d End from Paused: Happy nominal-duration compatibility and ordered retreat | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FocusEndTimingTests.cs::Q13H_EndFromPaused_HappyIntervalContainsNominalDurationThenRetreats` |
+
+| F20 | j12f actual notification-area tray Stop pauses running focus and keeps Paused pinned | UNVERIFIED | `tools/Boo.QaSuite/Journeys/TrayStopTests.cs::Q12F_TrayStop_PausesRunningFocusAndKeepsItPinned` |

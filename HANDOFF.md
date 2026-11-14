@@ -510,3 +510,7 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 single producer attempt inspected (14 Nov 2026)
 
 **diagnostic evidence:** run43577334463 exact7b0f4ed Q13H1/1 passed,38/38 records through acknowledged cutoff,0drop/writefail/pending. Header confirms narrow producer/no broad hooks. Expiry sampled TickCount64 equals deadline; Happy-to-Idle publication2499.9053-2499.9385ms, observer interval2499-2612ms. TRX/identity/logs/Happy screenshot inspected. This attempt does not attribute older2545-2674ms failure or prove uninstrumented timing. No repair or repeated capture. Lesson: complete instrumented evidence describes its own attempt, not an earlier workload. Issue111 and full-app remain unresolved.
+
+### PR #54 required actual tray Stop coverage (14 Nov 2026)
+
+**manual:** Q12F discovers semantically named notification-area/overflow containers in Explorer, retains UIA ancestry, and verifies selected icon/hit RuntimeId and area identity before one physical right-click. Only Boo-process exact Stop menu with supported Invoke is accepted; hosted rectangle captures retain tray/menu evidence. Single Stop must pause the same persisted session with exact status and healthy pinned observations. No hotkey/panel fallback or repeated Stop. Contract8 requires Q12F; F20 UNVERIFIED; native accessibility/overflow survival pending. Reviewer correction tightened scope beyond a global Explorer icon search. Full j12/full-app remain incomplete.

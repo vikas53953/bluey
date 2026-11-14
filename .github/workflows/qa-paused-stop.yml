@@ -23,6 +23,10 @@ on:
         description: Narrow producer timing only, requires focus_end; diagnostic result is not acceptance
         type: boolean
         default: false
+      tray_stop:
+        description: Run no-key Q12F actual tray Stop instead of Q12G
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -63,14 +67,16 @@ jobs:
           BOO_LIVE_MODEL: gpt-6-luna
           BOO_LIVE_OPENAI_KEY: ${{ inputs.approval_stop && secrets.BOO_LIVE_OPENAI_KEY || '' }}
           BOO_QA_FACE_TIMING: ${{ inputs.face_timing_diagnostics && '1' || '0' }}
+          TRAY_STOP: ${{ inputs.tray_stop || false }}
           FOCUS_END: ${{ inputs.focus_end || false }}
           FOCUS_RESUME: ${{ inputs.focus_resume || false }}
           APPROVAL_STOP: ${{ inputs.approval_stop || false }}
         run: |
           $test = 'Boo.QaSuite.Journeys.PausedStopTests.Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace'
-          $selected = @($env:APPROVAL_STOP, $env:FOCUS_RESUME, $env:FOCUS_END) | Where-Object { $_ -eq 'true' }
+          $selected = @($env:APPROVAL_STOP, $env:FOCUS_RESUME, $env:FOCUS_END, $env:TRAY_STOP) | Where-Object { $_ -eq 'true' }
           if ($env:BOO_QA_FACE_TIMING -eq '1' -and $env:FOCUS_END -ne 'true') { throw 'Producer timing requires focus_end' }
           if (@($selected).Count -gt 1) { throw 'Choose one focused journey' }
+          if ($env:TRAY_STOP -eq 'true') { $test = 'Boo.QaSuite.Journeys.TrayStopTests.Q12F_TrayStop_PausesRunningFocusAndKeepsItPinned' }
           if ($env:FOCUS_END -eq 'true') { $test = 'Boo.QaSuite.Journeys.FocusEndTimingTests.Q13H_EndFromPaused_HappyIntervalContainsNominalDurationThenRetreats' }
           if ($env:FOCUS_RESUME -eq 'true') { $test = 'Boo.QaSuite.Journeys.FocusResumeTests.Q13R_PauseResume_OrdersFacesAndRetainsSessionAtPauseCheckpoint' }
           if ($env:APPROVAL_STOP -eq 'true') { $test = 'Boo.QaSuite.Journeys.ApprovalStopTests.Q12E_NotchRightClick_ClearsPendingProposalAndAcknowledgesStop' }
