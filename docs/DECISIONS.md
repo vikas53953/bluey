@@ -179,3 +179,5 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 | 14 Nov 2026 | Add Q13R bounded Pause/Resume coverage with contract version5. | Require ordered action-timed faces before scheduled capture; use second Pause for durable session readback, without inventing immediate Resume persistence. Full j13 remains incomplete. | PR #54; independent source review; native result UNVERIFIED | proposed |
 
 | 14 Nov 2026 | Prioritize gate-only Codex review after syncing #54 to lane/face5062574. | Pipeline manager requires strict current-base CI plus verifier-owned codex-verified status; incomplete native journeys stay honest RED. | Pipeline manager instruction; PR #54 | proposed |
+
+| 14 Nov 2026 | Add Q13H End-from-Paused timing with contract6; nominal compatibility uses bounded direct-read brackets, not callback timestamps. | No invented dispatcher-delay allowance; interrupted/backward state sequences fail. Full j13 stays required incomplete. | PR #54; independent source-review corrections; native result UNVERIFIED | proposed |

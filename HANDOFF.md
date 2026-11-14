@@ -476,3 +476,7 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 gate-priority base sync (14 Nov 2026)
 
 **manual:** synced lane/face `5062574` (#90), importing its frozen tests/oracle unchanged (revision28/149). Acceptance contract implementation originated in d727001; current contract5 includes subsequent explicitly required coverage IDs. Named Codex reviewer requested to assess only the acceptance gate on this sync head; undriven journeys remain RED and no full-app QA PASS is asserted. New codex-verified status is owned by the verifier, not this builder.
+
+### PR #54 bounded End-from-Paused timing (14 Nov 2026)
+
+**manual:** Q13H uses direct read intervals on one monotonic clock to bracket Happy entry/exit, each bracket at most100ms; the duration interval must contain nominal2500ms (compatibility only). Deduplicated reads must be exactly Paused/Happy/Idle/Hidden, event deliveries Happy/Idle/Hidden, rejecting interrupted/backward phases. Strict UIA, screenshots, same durable ended session/history; no-key focused selector. Contract6 requires Q13H and F18 stays **UNVERIFIED** pending native execution. Full j13 remains incomplete; issue78/full-app remain RED.

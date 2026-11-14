@@ -167,3 +167,5 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | T24 | Offline spoken-audio boundary: The_built_in_self_check_passes_on_the_real_measure | automated mock | `tools/Boo.LiveSmoke/SpokenAudioTests.cs::The_built_in_self_check_passes_on_the_real_measure` |
 
 | F17 | j13 Pause/Resume ordered faces and second Pause persistence checkpoint; other j13 branches pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FocusResumeTests.cs::Q13R_PauseResume_OrdersFacesAndRetainsSessionAtPauseCheckpoint` |
+
+| F18 | j13d End from Paused: Happy nominal-duration compatibility and ordered retreat | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FocusEndTimingTests.cs::Q13H_EndFromPaused_HappyIntervalContainsNominalDurationThenRetreats` |

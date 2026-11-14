@@ -170,6 +170,10 @@ public sealed class NotchStateRecorder : IDisposable
     private readonly object _gate = new();
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
     private readonly List<(long Start, long End, string State)> _observations = new();
+    public (long Start, long End, string State)[] ReadIntervals
+    {
+        get { lock (_gate) return _observations.ToArray(); }
+    }
     public long Mark() => _clock.ElapsedMilliseconds;
     public bool HasSeenSince(string state, long mark)
     {
