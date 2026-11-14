@@ -107,6 +107,7 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | F10 | Developer Mode (4x clock, checks every 10 s) | automated live | `tools/Boo.VerifyLive/LiveJourneyTests.cs::J6_FocusSession_25Minutes_OnTheDeveloperModeClock` (the 25-minute session completes in about 6.5 real minutes) |
 | F11 | Chirp on nudge and session end (880 to 1320 Hz), Mute chirps | automated mock + manual | `tests/Boo.Core.Tests/ChirpPolicyTests.cs`; `tests/Boo.Core.Tests/ChirpSynthTests.cs`; runbook 10.3 (audible) |
 | F12 | Pause does nothing once a session has ended (no "Paused" text, notch not pinned on Paused) | automated live | `tools/Boo.VerifyLive/Regressions/FocusPauseAfterEndRegressionTests.cs::PauseAfterEnd_DoesNotPinThePausedFace_OrClaimPaused` (no key, no AI). Failed before the fix (issue [#70](https://github.com/vikas53953/bluey/issues/70)); passes with it (PR #82). |
+| F13 | Pause on a running session pauses it (Paused face, clock stops); Resume clears the Paused face and the clock runs; End leaves no Paused face | automated live | `tools/Boo.VerifyLive/Regressions/FocusPauseResumeRegressionTests.cs::PauseResumeEnd_PausedFaceAndClockFollowTheSession` (no key, no AI; added for the Codex mutation tester's surviving mutants on PR #82) |
 
 ### Settings, providers and data
 
