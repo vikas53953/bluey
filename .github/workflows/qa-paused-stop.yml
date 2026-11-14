@@ -1,6 +1,10 @@
 name: qa-paused-stop
 on:
-  # One approved attempt is already running; future attempts require explicit dispatch.
+  # No-key focused coverage runs on relevant PRs; dispatch is available after workflow registration.
+  pull_request:
+    paths:
+      - tools/Boo.QaSuite/Journeys/PausedStopTests.cs
+      - .github/workflows/qa-paused-stop.yml
   workflow_dispatch:
 permissions:
   contents: read
