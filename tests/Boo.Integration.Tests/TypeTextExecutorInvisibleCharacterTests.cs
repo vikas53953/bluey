@@ -14,14 +14,20 @@ namespace Boo.Integration.Tests;
 /// </summary>
 public sealed class TypeTextExecutorInvisibleCharacterTests
 {
+    // Code points, not strings: an attribute keeps its strings as UTF-8, which turns a lone surrogate into U+FFFD
+    // (a visible replacement character), so the text is built at run time.
     [Theory]
-    [InlineData("pay؜pal")]
-    [InlineData("pay‎pal")]
-    [InlineData("pay‏pal")]
-    [InlineData("pay\U000E0041pal")]
-    [InlineData("pay\uD800pal")]
-    public async Task Executor_refuses_approved_text_with_an_invisible_character(string text)
+    [InlineData(0x61C)]
+    [InlineData(0x200E)]
+    [InlineData(0x200F)]
+    [InlineData(0xE0041)]
+    [InlineData(0xD800)]
+    public async Task Executor_refuses_approved_text_with_an_invisible_character(int codePoint)
     {
+        var hidden = codePoint <= 0xFFFF ? ((char)codePoint).ToString() : char.ConvertFromUtf32(codePoint);
+        var text = "pay" + hidden + "pal";
+        Assert.Equal(codePoint <= 0xFFFF ? 7 : 8, text.Length);
+
         using var targets = new TargetObserver();
         using var coordinator = new RequestCoordinator();
         var lease = coordinator.Begin();

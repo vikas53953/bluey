@@ -10,7 +10,7 @@ namespace Boo.Core.Tests;
 /// <summary>
 /// Issue #127: the type_text guard checked control characters plus a hand-written list of zero-width and bidi
 /// characters, so other invisible Unicode Format (Cf) characters such as U+061C ARABIC LETTER MARK, U+200E and
-/// U+200F passed: "pay‎pal" reads as "paypal" on the approval card but types an extra hidden character.
+/// U+200F passed: "pay\u200Epal" reads as "paypal" on the approval card but types an extra hidden character.
 /// The class fix is one policy shared with open_url: every Format character (in any plane), every control
 /// character except tab / line feed / carriage return, and every unpaired surrogate is refused, on the approval
 /// card (preview) and again by the executor backstop (the same WindowActionGuard.BlockedReason). Visible text in
@@ -72,7 +72,7 @@ public sealed class TypeTextInvisibleCharacterTests
         yield return new object[] { "emoji skin tone", "👋🏽" };
         yield return new object[] { "flag", "🇮🇳" };
         yield return new object[] { "tab and line breaks", "a\tb\r\nc\nd\re" };
-        yield return new object[] { "no-break space", "10 kg" };
+        yield return new object[] { "no-break space", "10\u00A0kg" };
     }
 
     [Theory]
@@ -181,9 +181,9 @@ public sealed class TypeTextInvisibleCharacterTests
     // with it (family, profession and some flag emoji) are refused. Approval-text fidelity is the safety property;
     // the same emoji without joiners still types (see the allowed cases).
     [Theory]
-    [InlineData("👨‍👩‍👧")]
-    [InlineData("👩‍💻")]
-    [InlineData("🏳️‍🌈")]
+    [InlineData("👨\u200D👩\u200D👧")]
+    [InlineData("👩\u200D💻")]
+    [InlineData("🏳️\u200D🌈")]
     public void Emoji_joined_with_zero_width_joiner_are_refused(string text)
     {
         Assert.NotNull(WindowActionGuard.BlockedReason(TypeText(text), Notepad, BooPid));
