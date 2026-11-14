@@ -150,7 +150,15 @@ jobs:
           if ($results.Count -ne 1) { throw 'Expected one TRX receipt' }
           [xml]$trx = Get-Content $results[0].FullName -Raw
           $rows = @($trx.TestRun.Results.UnitTestResult)
-          if ($rows.Count -ne 1 -or $rows[0].outcome -ne 'Passed' -or $rows[0].testName -ne $test) { throw 'Exact selected journey did not pass' }
+          $expectedQa = @($test)
+          if ($env:QA_JOURNEY -eq 'approval_edges') {
+            $expectedQa = @('cancel', 'escape', 'replacement') | ForEach-Object { '{0}(branch: "{1}")' -f $test, $_ }
+          }
+          if ($rows.Count -ne $expectedQa.Count) { throw 'Selected QA result count mismatch' }
+          foreach ($name in $expectedQa) {
+            $matched = @($rows | Where-Object { $_.testName -eq $name })
+            if ($matched.Count -ne 1 -or $matched[0].outcome -ne 'Passed') { throw "Exact selected journey did not pass: $name" }
+          }
           if ($testExit -ne 0) { exit $testExit }
           if ($env:HOTKEY -eq 'true' -or $env:BASIC_HOVER -eq 'true' -or $env:TYPED_CHAT -eq 'true' -or $verifySelected) {
             $test = 'Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey'
