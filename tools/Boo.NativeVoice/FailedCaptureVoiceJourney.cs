@@ -7,7 +7,7 @@ using FlaUI.Core.Definitions;
 namespace Boo.NativeVoice;
 
 /// <summary>
-/// Real-provider acceptance for the fail-closed screen-action guard on the published Boo.exe (feature map A7): Boo runs
+/// Real-provider acceptance for the fail-closed screen-action guard on the published Boo.exe (feature map A8): Boo runs
 /// with speech on, the real OpenAI key and BOO_QA_CAPTURE_FAULT=1 (FailedCaptureVoiceFixture). A typed explicit task
 /// is carried by Boo's own OpenAI Realtime session; the real model calls screen_help, Boo's capture fails before a
 /// frame is taken, the structured reply comes back from the real /v1/responses with no observation, and
