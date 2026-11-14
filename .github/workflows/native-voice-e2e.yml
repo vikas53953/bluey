@@ -1,0 +1,143 @@
+name: Native app voice E2E
+on:
+  workflow_dispatch:
+    inputs:
+      red_proof:
+        type: boolean
+        default: false
+      realtime_model:
+        type: string
+        default: gpt-realtime-2.1-mini
+      transcribe_model:
+        type: string
+        default: gpt-4o-mini-transcribe
+  pull_request:
+    branches:
+      - lane/face
+    paths:
+      - tools/Boo.NativeVoice/**
+      - tools/Boo.NativeVoice.Unit/**
+      - src/Boo.Windows/HostedVoiceAudio.cs
+      - .github/workflows/native-voice-e2e.yml
+permissions:
+  contents: read
+jobs:
+  native-voice:
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'qa/native-voice-') }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      BOO_CAPTURE_SCOPE: boo-windows
+      BOO_QA_VOICE_MODEL: ${{ inputs.realtime_model || 'gpt-realtime-2.1-mini' }}
+      BOO_QA_VOICE_TRANSCRIBE_MODEL: ${{ inputs.transcribe_model || 'gpt-4o-mini-transcribe' }}
+      BOO_QA_VOICE_RED_PROOF: ${{ inputs.red_proof || contains(github.head_ref, 'redproof') }}
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=Live AI smoke refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)'). Set this job's runner back to windows-latest."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned artifact scanner
+        run: 'python -m pip install --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt'
+      - name: Validate credential and models before paid calls
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:OPENAI_KEY)) { throw 'BOO_LIVE_OPENAI_KEY missing; BLOCKED' }
+          foreach ($m in @($env:BOO_QA_VOICE_MODEL, $env:BOO_QA_VOICE_TRANSCRIBE_MODEL)) {
+            if ($m -notmatch '^[A-Za-z0-9._:-]{1,128}$') { throw 'Invalid model id' }
+            try { $null = Invoke-RestMethod -Uri "https://api.openai.com/v1/models/$m" -Headers @{Authorization="Bearer $env:OPENAI_KEY"} -TimeoutSec 20 }
+            catch { throw "Model preflight failed for $m (response body withheld)" }
+          }
+      - name: Publish exact head and compile standalone journeys
+        run: |
+          dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/native-app
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tools/Boo.NativeVoice -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test tools/Boo.NativeVoice.Unit -c Release --logger trx --results-directory artifacts/native-voice/unit
+          exit $LASTEXITCODE
+      - name: One real native voice turn (no retries)
+        timeout-minutes: 3
+        shell: pwsh
+        env:
+          BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\native-app\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\native-voice
+        run: |
+          New-Item -ItemType Directory -Force artifacts/native-voice | Out-Null
+          git rev-parse HEAD | Set-Content artifacts/native-voice/app-sha.txt
+          dotnet test tools/Boo.NativeVoice -c Release --no-build --logger trx --results-directory artifacts/native-voice/trx
+          exit $LASTEXITCODE
+      - name: Test gate (no empty or skipped native journey)
+        if: always()
+        shell: pwsh
+        run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/native-voice/trx -SourceDirectory tools/Boo.NativeVoice
+      - name: Screenshots are Boo windows only (never the desktop)
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing, System.Windows.Forms
+          foreach ($m in [System.Windows.Forms.Screen]::AllScreens) { "Runner monitor: $($m.Bounds.Width) x $($m.Bounds.Height)" }
+          $images = '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tif', '.tiff', '.webp'
+          $shots = @(Get-ChildItem artifacts/native-voice -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $images -contains $_.Extension.ToLowerInvariant() })
+          if ($shots.Count -eq 0) { "::error title=Live AI smoke::no screenshots were written, so there is no visual evidence"; exit 1 }
+          # Every image must come from the Boo-window renderer and be readable. A single window may legitimately render as
+          # one colour (the retracted notch is fully transparent), but each capture moment (<step>.boo-*.png) must have
+          # at least one window with real content, or the renderer is broken and there is no visual evidence.
+          $bad = 0; $moments = @{}
+          foreach ($s in $shots) {
+            $ok = $s.Name -match '^(?<step>.+)\.boo-\d+\.png$'
+            $note = if ($ok) { '' } else { '  <-- NOT FROM THE BOO-WINDOW RENDERER' }
+            try {
+              $img = [System.Drawing.Bitmap]::FromFile($s.FullName)
+              $first = $img.GetPixel(0, 0).ToArgb(); $varied = $false
+              for ($y = 0; $y -lt $img.Height -and -not $varied; $y += 4) {
+                for ($x = 0; $x -lt $img.Width; $x += 4) { if ($img.GetPixel($x, $y).ToArgb() -ne $first) { $varied = $true; break } }
+              }
+              if (-not $varied) { $note += '  (one colour)' }
+              "{0}: {1} x {2}{3}" -f $s.Name, $img.Width, $img.Height, $note
+              $img.Dispose()
+              if ($ok) { $step = $Matches['step']; if (-not $moments.ContainsKey($step)) { $moments[$step] = $false }; if ($varied) { $moments[$step] = $true } }
+            } catch { $ok = $false; "{0}: unreadable ({1})" -f $s.Name, $_.Exception.Message }
+            if (-not $ok) { $bad++ }
+          }
+          foreach ($step in $moments.Keys) { if (-not $moments[$step]) { "$step <-- EVERY WINDOW BLANK (renderer produced no content)"; $bad++ } }
+          Get-ChildItem artifacts/native-voice -Recurse -Filter *.capture.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          if ($bad -gt 0) { "::error title=Live AI smoke::$bad screenshot problem(s): copied from the screen, unreadable, or a capture with no real Boo window content"; exit 1 }
+      - name: Key scan before upload
+        id: keyscan_artifacts_native_voice
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |-
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --secret-env OPENAI_KEY --delete artifacts/native-voice; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/native-voice' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/native-voice')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+      - name: Upload native voice evidence
+        if: ${{ !cancelled() && steps.keyscan_artifacts_native_voice.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-voice-evidence
+          path: artifacts/native-voice
+          if-no-files-found: error
+          retention-days: 7

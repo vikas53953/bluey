@@ -17,10 +17,17 @@ public sealed class AudioSession : IDisposable
     private WaveOutEvent? _playback;
     private BufferedWaveProvider? _playbackBuffer;
     private bool _disposed;
+    private readonly HostedVoiceAudio? _qaVoice;
     private Action<byte[]>? _captured;
     private Action<string>? _failed;
 
-    public AudioSession() => _context = SynchronizationContext.Current;
+    public AudioSession() : this(HostedVoiceAudio.FromEnvironment()) { }
+
+    internal AudioSession(HostedVoiceAudio? qaVoice)
+    {
+        _context = SynchronizationContext.Current;
+        _qaVoice = qaVoice;
+    }
 
     public event Action<byte[]>? Captured
     {
@@ -36,6 +43,7 @@ public sealed class AudioSession : IDisposable
 
     public IReadOnlyList<string> InputDevices()
     {
+        if (_qaVoice is not null) return new[] { "Synthetic hosted QA input" };
         try
         {
             var names = new List<string>(WaveIn.DeviceCount);
@@ -68,6 +76,12 @@ public sealed class AudioSession : IDisposable
             ThrowIfDisposed();
         }
         StopCaptureOnly();
+        if (_qaVoice is not null)
+        {
+            _qaVoice.Start(PublishCaptured);
+            failureMessage = string.Empty;
+            return true;
+        }
         var count = 0;
         try
         {
@@ -131,12 +145,16 @@ public sealed class AudioSession : IDisposable
                         DiscardOnBufferOverflow = true,
                         ReadFully = false
                     };
-                    _playback = new WaveOutEvent();
-                    _playback.Init(_playbackBuffer);
+                    if (_qaVoice is null)
+                    {
+                        _playback = new WaveOutEvent();
+                        _playback.Init(_playbackBuffer);
+                    }
+                    else _qaVoice.StartPlayback(_playbackBuffer);
                 }
                 if (pcm.Length > 0)
                     _playbackBuffer.AddSamples(pcm, 0, pcm.Length);
-                _playback!.Play();
+                _playback?.Play();
             }
         }
         catch (ObjectDisposedException)
@@ -180,6 +198,7 @@ public sealed class AudioSession : IDisposable
         }
         StopCaptureOnly();
         ClearPlayback();
+        _qaVoice?.Dispose();
         lock (_gate)
         {
             _playback?.Dispose();
@@ -190,6 +209,7 @@ public sealed class AudioSession : IDisposable
 
     private void StopCaptureOnly()
     {
+        _qaVoice?.StopCapture();
         WaveInEvent? capture;
         lock (_gate)
         {
