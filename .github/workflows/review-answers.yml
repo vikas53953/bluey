@@ -1,0 +1,75 @@
+name: review-answers
+
+# BOO-REVIEW-001 (docs/quality/review-answers.md): when the newest Codex review comment on a PR is a
+# `CODEX REVIEW BLOCK - <sha>`, the PR body must answer every finding of it, in order, in a "Review answers" table
+# (`fixed in <commit after the review>` or `disputed: <reason>`), before a new review is asked for.
+# Linux, no build, no artifacts. The PR body is read from the event file into a file, never pasted into a shell.
+# A BLOCK posted after the last push is seen on the next push or the next edit of the PR text.
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: review-answers-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  answers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Inputs first, before any code from the PR runs: the PR body (from the event file) and every comment on the PR.
+      - name: Collect the PR body and its comments
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/pr_body.md"
+          gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate > "$RUNNER_TEMP/pr_comments.json"
+          echo "PR body: $(wc -c < "$RUNNER_TEMP/pr_body.md") bytes; comments: $(jq -s 'map(length) | add // 0' "$RUNNER_TEMP/pr_comments.json")"
+
+      # A PR could loosen its own review_answers.py. So the BASE branch's copy (read from git, not from the PR) judges
+      # first, before any code from the PR runs. Until the base has the file (the PR that adds it), only the PR's copy runs.
+      - name: Review answers judged by the base branch's own checker (a PR cannot loosen its checker)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Only CODEX REVIEW comments by this login count: every agent posts as the repository owner's account.
+          TRUSTED_AUTHORS: ${{ github.repository_owner }}
+        run: |
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "::error::BOO-REVIEW-001 the base commit is not in the checkout, so the base branch's checker cannot run"
+            exit 1
+          fi
+          if git cat-file -e "$BASE_SHA:scripts/quality/review_answers.py" 2>/dev/null; then
+            git show "$BASE_SHA:scripts/quality/review_answers.py" > "$RUNNER_TEMP/review_answers_base.py"
+            python -I "$RUNNER_TEMP/review_answers_base.py" --body "$RUNNER_TEMP/pr_body.md" --comments "$RUNNER_TEMP/pr_comments.json" --head "$HEAD_SHA" --trusted-authors "$TRUSTED_AUTHORS" --repo "$GITHUB_WORKSPACE"
+          else
+            echo "The base branch has no review_answers.py yet (this PR adds it); the PR's own copy judges in the next steps."
+          fi
+
+      - name: Review answers self-test (every case gives the expected answer)
+        run: python -I scripts/quality/review_answers.py --self-test
+
+      - name: Every finding of the newest CODEX REVIEW BLOCK is answered in the PR body
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Only CODEX REVIEW comments by this login count: every agent posts as the repository owner's account.
+          TRUSTED_AUTHORS: ${{ github.repository_owner }}
+        run: python -I scripts/quality/review_answers.py --body "$RUNNER_TEMP/pr_body.md" --comments "$RUNNER_TEMP/pr_comments.json" --head "$HEAD_SHA" --trusted-authors "$TRUSTED_AUTHORS" --repo "$GITHUB_WORKSPACE"
