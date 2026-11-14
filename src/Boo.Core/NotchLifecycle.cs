@@ -748,7 +748,7 @@ public static class NotchLifecycle
 
     private static NotchLifecycleState? TalkButton(NotchLifecycleState s, List<NotchEffect> fx) => s.MicIndicator
         ? StopListening(s, fx)
-        : NewRequest(s, false, VoiceSessionKind.TalkButton, MicOwner.Button, true, fx);
+        : NewRequest(s, false, VoiceSessionKind.TalkButton, MicOwner.Button, false, fx);
 
     private static NotchLifecycleState? TalkDown(NotchLifecycleState s, HoldSource source, List<NotchEffect> fx)
     {
