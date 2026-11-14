@@ -325,6 +325,13 @@ public sealed class RealtimeClient : IAsyncDisposable
     /// <summary>The exact session.update payload sent by ConnectAsync.</summary>
     public string CreateSessionUpdate() => RealtimeProtocol.SessionUpdate(_settings, _pushToTalk, _transcriptionModel, _maxOutputTokens);
 
+    /// <summary>
+    /// Diagnostics only (the live voice test): sees every server message exactly as received, before parsing, so a
+    /// test can prove what audio arrived even when the parser drops a message. Null in the app. The observer must not
+    /// throw (the live test only adds the message to a queue).
+    /// </summary>
+    public Action<string>? RawFrameObserver { get; set; }
+
     public event Action<RealtimeEvent>? Received
     {
         add => _received += value;
@@ -561,6 +568,7 @@ public sealed class RealtimeClient : IAsyncDisposable
                 while (!result.EndOfMessage);
 
                 var json = Encoding.UTF8.GetString(message.GetBuffer(), 0, checked((int)message.Length));
+                RawFrameObserver?.Invoke(json);
                 var parsed = RealtimeProtocol.Parse(json);
                 // Voice focus tool calls are answered here (VoiceCommandHandler) and are not published, so the app's
                 // screen_help path never sees them as a second request for the same call id.
