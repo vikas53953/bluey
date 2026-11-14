@@ -60,7 +60,7 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | T7 | Voice latency target (median <= 1.5 s, p95 <= 3 s over 20 warm turns) | automated mock + manual | `tests/Boo.Core.Tests/LatencyRecorderTests.cs`; runbook 3.5 |
 | T8 | Voice commands (start / pause / resume / end focus, "how's my focus", "bye") | automated mock | `tests/Boo.Core.Tests/VoiceCommandTests.cs`; `tests/Boo.Integration.Tests/VoiceToolProtocolTests.cs`. Live voice: UNVERIFIED |
 | T9 | Typed requests are classified (Undo / Action / Research / Explain) from their first words | automated mock | `tests/Boo.Core.Tests/RequestIntentTests.cs` |
-| T10 | After Stop, the status line no longer says Boo is working ("Thinking…") | automated mock | `tools/Boo.VerifyLive/Regressions/StopStatusRegressionTests.cs::StopDuringPendingQuestion_StatusNoLongerSaysThinking` (a stalled local proxy holds the question pending; no AI). Fails today (issue [#71](https://github.com/vikas53953/bluey/issues/71)) until the fix lands. |
+| T10 | After Stop, the status line no longer says Boo is working ("Thinking…") | automated mock | `tools/Boo.VerifyLive/Regressions/StopStatusRegressionTests.cs::StopDuringPendingQuestion_StatusNoLongerSaysThinking` (a stalled local proxy holds the question pending; no AI). Failed before the fix (issue [#71](https://github.com/vikas53953/bluey/issues/71)); passes with it (PR #83). Unit: `tests/Boo.Core.Tests/BusyStatusLineTests.cs` (a working message of a superseded or stopped request is never shown and never owns the line; oracle revision 29). |
 
 ### Screen explain and pointer
 
