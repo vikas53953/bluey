@@ -120,13 +120,22 @@ jobs:
             $test = 'Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey'
             if ($env:BASIC_HOVER -eq 'true') { $test = 'Boo.VerifyLive.LiveJourneyTests.J1_NotchWakes_OnHover' }
             if ($env:TYPED_CHAT -eq 'true') { $test = 'Boo.VerifyLive.LiveJourneyTests.J2_TypedChat_GetsARealAnswer' }
-            dotnet test tools/Boo.VerifyLive -c Release --no-build --filter "FullyQualifiedName=$test" --logger trx --results-directory artifacts/paused-stop/verifylive-trx
+            $expected = @($test)
+            # J2 belongs to an ordered shared-fixture suite: retain J0's launch/readiness step.
+            # Both results are required; no retry, timeout change or discarded setup failure.
+            if ($env:TYPED_CHAT -eq 'true') { $expected = @('Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey', $test) }
+            $filter = ($expected | ForEach-Object { "FullyQualifiedName=$_" }) -join '|'
+            dotnet test tools/Boo.VerifyLive -c Release --no-build --filter $filter --logger trx --results-directory artifacts/paused-stop/verifylive-trx
             $testExit = $LASTEXITCODE
             $results = @(Get-ChildItem artifacts/paused-stop/verifylive-trx -Filter *.trx)
             if ($results.Count -ne 1) { throw 'Expected one selected verify-live TRX receipt' }
             [xml]$trx = Get-Content $results[0].FullName -Raw
             $rows = @($trx.TestRun.Results.UnitTestResult)
-            if ($rows.Count -ne 1 -or $rows[0].outcome -ne 'Passed' -or $rows[0].testName -ne $test) { throw 'Exact selected verify-live check did not pass' }
+            if ($rows.Count -ne $expected.Count) { throw 'Selected verify-live result count mismatch' }
+            foreach ($name in $expected) {
+              $matched = @($rows | Where-Object { $_.testName -eq $name })
+              if ($matched.Count -ne 1 -or $matched[0].outcome -ne 'Passed') { throw "Exact selected verify-live check did not pass: $name" }
+            }
           }
           exit $testExit
       - name: Prepare evidence scanner
