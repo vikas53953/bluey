@@ -1317,129 +1317,6 @@ public partial class MainWindow : Window
         _pendingActions.Clear();
     }
 
-    private void FocusStartButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrWhiteSpace(FocusTaskBox.Text))
-        {
-            FocusStatus.Text = "Name the focus task first.";
-            return;
-        }
-        if (!double.TryParse(FocusDurationBox.Text, out var minutes) || minutes <= 0)
-        {
-            FocusStatus.Text = "Enter a positive duration in minutes.";
-            return;
-        }
-
-        try
-        {
-            _focusCancellation.Cancel();
-            _focusCancellation.Dispose();
-            _focusCancellation = new CancellationTokenSource();
-            if (_focus is { Status: not Boo.Core.FocusStatus.Ended } superseded)
-            {
-                // Start while a session is live replaces it explicitly: settle it as ended and save it, so it is not
-                // left Running in sessions.db and reported as "interrupted when Boo closed" at the next start.
-                // No happy face or chirp: those belong to the session the user finishes.
-                superseded.SessionEnded -= Focus_OnSessionEnded;
-                superseded.EndQuietly();
-                SaveFocusSnapshot(superseded);
-            }
-            _focus = new FocusSessionController(FocusTaskBox.Text.Trim(), Math.Clamp(minutes * 60d, 60d, 14400d),
-                DeveloperModeBox.IsChecked == true, _timeProvider);
-            _focus.SessionEnded += Focus_OnSessionEnded;
-            _focusCaptureInFlight = false;
-            _lastFocusSaveRealElapsed = 0;
-            _focusClock.Start();
-            _focusTimer.Start();
-            _focusCaptureTimer.Start();
-            SaveFocusSnapshot();
-            UpdateFocusView();
-            FocusStatus.Text = "Running; monitoring pauses on Stop, lock, sleep, or Pause.";
-            SetFace(_faceInputs with { FocusPaused = false, Happy = false });
-        }
-        catch (Exception ex)
-        {
-            FocusStatus.Text = SanitizedError(ex, "Focus session is not available yet.");
-        }
-    }
-
-    private void FocusPauseButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_focus is null)
-        {
-            return;
-        }
-        try
-        {
-            _focus.Pause("User pause");
-            _focusTimer.Stop();
-            StopFocusMonitoring();
-            SaveFocusSnapshot();
-            UpdateFocusView();
-            FocusStatus.Text = "Paused. Resume is explicit; unlock/reconnect will not resume it.";
-            SetFace(_faceInputs with { FocusPaused = true });
-        }
-        catch (Exception ex)
-        {
-            FocusStatus.Text = SanitizedError(ex, "Could not pause focus.");
-        }
-    }
-
-    /// <summary>Nudge pills on the notch: "Back to it" dismisses the nudge; "5 min break" pauses focus (resume stays explicit).</summary>
-    public void HandleNudgeAction(bool takeBreak)
-    {
-        SetFace(_faceInputs with { NudgeShowing = false });
-        if (takeBreak && _focus is { Status: Boo.Core.FocusStatus.Running })
-        {
-            FocusPauseButton_OnClick(this, new RoutedEventArgs());
-            FocusStatus.Text = "On a 5 minute break. Press Resume when you are back.";
-        }
-    }
-
-    private void FocusResumeButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_focus is null)
-        {
-            return;
-        }
-        try
-        {
-            if (_focus.Status != Boo.Core.FocusStatus.Paused)
-            {
-                return;
-            }
-            _focus.Resume();
-            _focusCancellation.Dispose();
-            _focusCancellation = new CancellationTokenSource();
-            _focusCaptureTimer.Start();
-            _focusClock.Start();
-            _focusTimer.Start();
-            UpdateFocusView();
-            FocusStatus.Text = "Running after explicit Resume.";
-            SetFace(_faceInputs with { FocusPaused = false });
-        }
-        catch (Exception ex)
-        {
-            FocusStatus.Text = SanitizedError(ex, "Could not resume focus.");
-        }
-    }
-
-    private void FocusEndButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_focus is null)
-        {
-            return;
-        }
-        try
-        {
-            _focus.End(); // Focus_OnSessionEnded stops, saves and updates the view.
-        }
-        catch (Exception ex)
-        {
-            FocusStatus.Text = SanitizedError(ex, "Could not end focus.");
-        }
-    }
-
     private void FocusTimer_OnTick(object? sender, EventArgs e)
     {
         if (_focus is null)
@@ -1459,7 +1336,7 @@ public partial class MainWindow : Window
                 SaveFocusSnapshot();
                 UpdateFocusView();
                 FocusStatus.Text = "Paused after sleep. Press Resume to continue.";
-                SetFace(_faceInputs with { FocusPaused = true });
+                SetFace(WithFocusFace(_faceInputs));
                 return;
             }
             _focus.Tick(tick.Seconds); // Focus_OnSessionEnded stops, saves and updates on completion.
@@ -1489,7 +1366,7 @@ public partial class MainWindow : Window
                 }
                 SaveFocusSnapshot();
                 UpdateFocusView();
-                SetFace(_faceInputs with { FocusPaused = true });
+                SetFace(WithFocusFace(_faceInputs));
             }
             catch (Exception)
             {
@@ -2297,7 +2174,7 @@ public partial class MainWindow : Window
                             _focusTimer.Stop();
                             StopFocusMonitoring();
                             SaveFocusSnapshot();
-                            SetFace(_faceInputs with { FocusPaused = true });
+                            SetFace(WithFocusFace(_faceInputs));
                         }
                         StatusText.Text = realtimeEvent.Kind == "error" && realtimeEvent.Text is { Length: > 0 } errorText
                                           && errorText != RealtimeProtocol.GenericErrorText
