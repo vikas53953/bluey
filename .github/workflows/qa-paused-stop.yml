@@ -7,6 +7,11 @@ on:
       - .github/workflows/qa-paused-stop.yml
   workflow_dispatch:
     inputs:
+      qa_journey:
+        description: One existing partial journey; does not certify missing branches
+        type: choice
+        options: [none, file_undo, approval_edges, sequential_approval, focus_edges, request_generation, eye_tap]
+        default: none
       verify_journey:
         description: One existing real-OpenAI journey, with J0 launch prerequisite
         type: choice
@@ -90,7 +95,7 @@ jobs:
           BOO_CAPTURE_SCOPE: boo-windows
           BOO_LIVE_TEXT_PROVIDER: openai
           BOO_LIVE_MODEL: gpt-6-luna
-          BOO_LIVE_OPENAI_KEY: ${{ (inputs.approval_stop || inputs.hotkey || inputs.basic_hover || inputs.typed_chat || (inputs.verify_journey && inputs.verify_journey != 'none')) && secrets.BOO_LIVE_OPENAI_KEY || '' }}
+          BOO_LIVE_OPENAI_KEY: ${{ (inputs.approval_stop || inputs.hotkey || inputs.basic_hover || inputs.typed_chat || (inputs.verify_journey && inputs.verify_journey != 'none') || (inputs.qa_journey && inputs.qa_journey != 'none')) && secrets.BOO_LIVE_OPENAI_KEY || '' }}
           BOO_LIVE_FOCUS_MODEL: gpt-6-luna
           BOO_LIVE_REALTIME_MODEL: gpt-realtime-2.1-mini
           BOO_QA_FACE_TIMING: ${{ inputs.face_timing_diagnostics && '1' || '0' }}
@@ -100,6 +105,7 @@ jobs:
           BASIC_HOVER: ${{ inputs.basic_hover || false }}
           TYPED_CHAT: ${{ inputs.typed_chat || false }}
           VERIFY_JOURNEY: ${{ inputs.verify_journey || 'none' }}
+          QA_JOURNEY: ${{ inputs.qa_journey || 'none' }}
           FOCUS_END: ${{ inputs.focus_end || false }}
           FOCUS_RESUME: ${{ inputs.focus_resume || false }}
           APPROVAL_STOP: ${{ inputs.approval_stop || false }}
@@ -108,7 +114,18 @@ jobs:
           $selected = @($env:APPROVAL_STOP, $env:FOCUS_RESUME, $env:FOCUS_END, $env:TRAY_STOP, $env:HOVER_EDGES, $env:HOTKEY, $env:BASIC_HOVER, $env:TYPED_CHAT) | Where-Object { $_ -eq 'true' }
           if ($env:BOO_QA_FACE_TIMING -eq '1' -and $env:FOCUS_END -ne 'true') { throw 'Producer timing requires focus_end' }
           $verifySelected = $env:VERIFY_JOURNEY -ne 'none'
-          if ((@($selected).Count + [int]$verifySelected) -gt 1) { throw 'Choose one focused journey' }
+          $qaSelected = $env:QA_JOURNEY -ne 'none'
+          if ((@($selected).Count + [int]$verifySelected + [int]$qaSelected) -gt 1) { throw 'Choose one focused journey' }
+          $qaMethod = switch ($env:QA_JOURNEY) {
+            'none' { '' }
+            'file_undo' { 'FileUndoEdgeTests.Q16_SecondApprovedFileUndo_RecreatesTheOriginalContents' }
+            'approval_edges' { 'ApprovalEdgeTests.Q15_CancelEscapeOrReplacement_CannotApplyAnOldProposal' }
+            'sequential_approval' { 'SequentialApprovalTests.QD15_TwoFileSteps_RequireSeparateApprovalsAndShowNextStep' }
+            'focus_edges' { 'FocusEdgeTests.Q13_EndFromPaused_AndReplaceRunningSession_KeepHistoryAndFacesHonest' }
+            'request_generation' { 'RequestGenerationTests.Q18_NewerTypedRequestWins_OnlyItsAnswerAppearsDuringLateResultWatch' }
+            'eye_tap' { 'EyeTapTests.Q10_PhysicalEyeTapUnder200Ms_OpensPanelWithoutListening' }
+            default { throw 'Unknown QA journey' }
+          }
           $verifyMethod = switch ($env:VERIFY_JOURNEY) {
             'none' { '' }
             'j3' { 'J3_ScreenExplain_PointerAndRingLandOnTheTarget' }
@@ -122,6 +139,7 @@ jobs:
           if ($env:BASIC_HOVER -eq 'true') { $test = 'Boo.QaSuite.Journeys.QaJourneyTests.S1_Hover_WakesTheNotch_ThenItRetracts' }
           if ($env:TYPED_CHAT -eq 'true') { $test = 'Boo.QaSuite.Journeys.QaJourneyTests.S2_RealChat_EchoesARunTimeCode_AndTheNotchThinksThenResponds' }
           if ($verifySelected) { $test = 'Boo.QaSuite.Journeys.QaJourneyTests.S0_Launch_OnlyTheNotch_ThenHotkeyOpensThePanel' }
+          if ($qaSelected) { $test = "Boo.QaSuite.Journeys.$qaMethod" }
           if ($env:TRAY_STOP -eq 'true') { $test = 'Boo.QaSuite.Journeys.TrayStopTests.Q12F_TrayStop_PausesRunningFocusAndKeepsItPinned' }
           if ($env:FOCUS_END -eq 'true') { $test = 'Boo.QaSuite.Journeys.FocusEndTimingTests.Q13H_EndFromPaused_HappyIntervalContainsNominalDurationThenRetreats' }
           if ($env:FOCUS_RESUME -eq 'true') { $test = 'Boo.QaSuite.Journeys.FocusResumeTests.Q13R_PauseResume_OrdersFacesAndRetainsSessionAtPauseCheckpoint' }
