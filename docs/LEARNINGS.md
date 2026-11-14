@@ -98,3 +98,12 @@ head manifests and rejects any removed job or removed/changed step; additions re
 is added. Hosted retention and real-git bootstrap regression evidence is recorded in #85; until inspected,
 this correction remains UNVERIFIED. Synced by merging lane/face `14eaa1e`, no force push; #43 is merged but
 its WPF integration is still pending. This remains one gate-manifest rule PR.
+
+2026-11-14 sync (**manual**): merged lane/face `50625744a54456246a7ad51b55634fb9b59e0abf`
+without rewriting history. The earlier contract-shrink BLOCK was cleared by [Codex PASS WITH ISSUES at
+8e2f3eb](https://github.com/vikas53953/bluey/pull/85#issuecomment-6871815208): inspected rule proof was
+17 workflow CLI + 9 retention CLI + 6 real-git bootstrap cases. That is historical evidence, not new-head proof;
+QA and re-review are required on the synced head. Owner-required gate-manifest protection remains pending.
+Next candidate after this PR's exact-head QA/review: Phase 1 BOO-LINT-002, no new warning suppressions.
+#28 owns RS0030-specific defenses; a follow-up must cover only the uncovered general policy and must not
+claim to replace the shipped-build/compiler checks in #28/#32.
