@@ -179,4 +179,18 @@ public sealed class AudioBoundaryTests
         Assert.Equal(2, VoiceTurnOutcome.ToolBoundary(new[] { Fault, Sent, VoiceTurnOutcome.NothingOfferedStatus, VoiceTurnOutcome.CapTruncatedStatus }));
         Assert.Equal(-1, VoiceTurnOutcome.ToolBoundary(new[] { Fault, Sent }));
     }
+    [Fact]
+    public void ToolTurnResponses_FirstIsTextOnlyForcedCall_SecondIsSpokenWithToolsOff_ProductionPlain()
+    {
+        using var first = JsonDocument.Parse(RealtimeProtocol.ResponseCreate(true, 1));
+        var response = first.RootElement.GetProperty("response");
+        Assert.Equal("text", response.GetProperty("output_modalities")[0].GetString());
+        Assert.Equal("screen_help", response.GetProperty("tool_choice").GetProperty("name").GetString());
+        using var second = JsonDocument.Parse(RealtimeProtocol.ResponseCreate(true, 2));
+        var followUp = second.RootElement.GetProperty("response");
+        Assert.Equal("none", followUp.GetProperty("tool_choice").GetString());
+        Assert.False(followUp.TryGetProperty("output_modalities", out _));
+        Assert.Equal("{\"type\":\"response.create\"}", RealtimeProtocol.ResponseCreate(false, 1));
+        Assert.Equal("{\"type\":\"response.create\"}", RealtimeProtocol.ResponseCreate(false, 2));
+    }
 }

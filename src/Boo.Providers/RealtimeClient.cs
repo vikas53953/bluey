@@ -180,6 +180,16 @@ public static class RealtimeProtocol
         }
     }
 
+    /// <summary>The response.create payload for one request of a session. A bounded tool turn spends its first response on
+    /// the forced screen_help call as text only (so the 128-token cap is not eaten by a spoken preamble before the call)
+    /// and its second on the spoken follow-up with tools off; every other request is the plain payload.</summary>
+    public static string ResponseCreate(bool toolTurn, int request) => (toolTurn, request) switch
+    {
+        (true, 1) => "{\"type\":\"response.create\",\"response\":{\"output_modalities\":[\"text\"],\"tool_choice\":{\"type\":\"function\",\"name\":\"screen_help\"}}}",
+        (true, 2) => "{\"type\":\"response.create\",\"response\":{\"tool_choice\":\"none\"}}",
+        _ => "{\"type\":\"response.create\"}"
+    };
+
     public static string TextTurn(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -512,14 +522,14 @@ public sealed class RealtimeClient : IAsyncDisposable
         if (_maxOutputTokens is not null)
         {
             var request = Interlocked.Increment(ref _responseRequests);
-            if (_toolTurn && request == 2)
-                return SendJsonAsync("{\"type\":\"response.create\",\"response\":{\"tool_choice\":\"none\"}}", cancellationToken);
+            if (_toolTurn && request <= 2)
+                return SendJsonAsync(RealtimeProtocol.ResponseCreate(true, request), cancellationToken);
             if (request != 1)
                 throw new InvalidOperationException(_toolTurn
                     ? "Bounded voice tool turn permits exactly two response requests."
                     : "Bounded voice session permits exactly one response request.");
         }
-        return SendJsonAsync("{\"type\":\"response.create\"}", cancellationToken);
+        return SendJsonAsync(RealtimeProtocol.ResponseCreate(false, 1), cancellationToken);
     }
 
     /// <summary>Push-to-talk cancel: drop audio appended since the last commit.</summary>
