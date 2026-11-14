@@ -1,5 +1,5 @@
 {
-  "contract_version": 6,
+  "contract_version": 7,
   "groups": {
     "contracts": {
       "C66": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot"
@@ -52,7 +52,9 @@
       "J3": "Boo.VerifyLive.LiveJourneyTests.J3_ScreenExplain_PointerAndRingLandOnTheTarget",
       "J4": "Boo.VerifyLive.LiveJourneyTests.J4_Research_ShowsRealSourceLinks",
       "J5": "Boo.VerifyLive.LiveJourneyTests.J5_ApplyThenUndo_OnlyAfterApproval",
-      "J6": "Boo.VerifyLive.LiveJourneyTests.J6_FocusSession_25Minutes_OnTheDeveloperModeClock"
+      "J6": "Boo.VerifyLive.LiveJourneyTests.J6_FocusSession_25Minutes_OnTheDeveloperModeClock",
+      "FR0": "Boo.VerifyLive.Regressions.FocusPauseAfterEndRegressionTests.PauseAfterEnd_DoesNotPinThePausedFace_OrClaimPaused",
+      "FR1": "Boo.VerifyLive.Regressions.FocusPauseResumeRegressionTests.PauseResumeEnd_PausedFaceAndClockFollowTheSession"
     }
   },
   "retired": {}
