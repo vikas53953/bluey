@@ -163,6 +163,7 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             Find(panel, "SendButton").AsButton().Invoke();
             Find(panel, "CloseButton").AsButton().Invoke();
             Assert.True(BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, UiTimeout), "TEST SETUP: Boo's panel did not hide.");
+            BringTargetForward("j3 after panel close");
             AssertTargetOnTop(s_target, "j3");
 
             // Screenshots are of Boo's own windows only (PR #18), so the marks are read from Boo's explanation overlay
