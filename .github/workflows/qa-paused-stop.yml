@@ -7,6 +7,10 @@ on:
       - .github/workflows/qa-paused-stop.yml
   workflow_dispatch:
     inputs:
+      hotkey:
+        description: Run existing S0 and J0 hotkey checks (key seeded; no AI requests)
+        type: boolean
+        default: false
       hover_edges:
         description: Run no-key Q7 four-branch hover journey instead of Q12G
         type: boolean
@@ -58,6 +62,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet build tools/Boo.QaSuite -c Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ('${{ inputs.hotkey }}' -eq 'true') {
+            dotnet build tools/Boo.VerifyLive -c Release
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
           New-Item -ItemType Directory -Force artifacts/paused-stop | Out-Null
           "app=$(git rev-parse HEAD)`nharness=$(git rev-parse HEAD)`nworkflow=$(git rev-parse HEAD)" | Set-Content artifacts/paused-stop/identity.txt
           Get-FileHash artifacts/paused-stop-app/Boo.exe | Format-List | Out-File artifacts/paused-stop/exe-hash.txt
@@ -69,19 +77,21 @@ jobs:
           BOO_CAPTURE_SCOPE: boo-windows
           BOO_LIVE_TEXT_PROVIDER: openai
           BOO_LIVE_MODEL: gpt-6-luna
-          BOO_LIVE_OPENAI_KEY: ${{ inputs.approval_stop && secrets.BOO_LIVE_OPENAI_KEY || '' }}
+          BOO_LIVE_OPENAI_KEY: ${{ (inputs.approval_stop || inputs.hotkey) && secrets.BOO_LIVE_OPENAI_KEY || '' }}
           BOO_QA_FACE_TIMING: ${{ inputs.face_timing_diagnostics && '1' || '0' }}
           TRAY_STOP: ${{ inputs.tray_stop || false }}
           HOVER_EDGES: ${{ inputs.hover_edges || false }}
+          HOTKEY: ${{ inputs.hotkey || false }}
           FOCUS_END: ${{ inputs.focus_end || false }}
           FOCUS_RESUME: ${{ inputs.focus_resume || false }}
           APPROVAL_STOP: ${{ inputs.approval_stop || false }}
         run: |
           $test = 'Boo.QaSuite.Journeys.PausedStopTests.Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace'
-          $selected = @($env:APPROVAL_STOP, $env:FOCUS_RESUME, $env:FOCUS_END, $env:TRAY_STOP, $env:HOVER_EDGES) | Where-Object { $_ -eq 'true' }
+          $selected = @($env:APPROVAL_STOP, $env:FOCUS_RESUME, $env:FOCUS_END, $env:TRAY_STOP, $env:HOVER_EDGES, $env:HOTKEY) | Where-Object { $_ -eq 'true' }
           if ($env:BOO_QA_FACE_TIMING -eq '1' -and $env:FOCUS_END -ne 'true') { throw 'Producer timing requires focus_end' }
           if (@($selected).Count -gt 1) { throw 'Choose one focused journey' }
           if ($env:HOVER_EDGES -eq 'true') { $test = 'Boo.QaSuite.Journeys.HoverEdgeTests.Q7_HoverEdges_AllFourBranches_OnTheRealClock' }
+          if ($env:HOTKEY -eq 'true') { $test = 'Boo.QaSuite.Journeys.QaJourneyTests.S0_Launch_OnlyTheNotch_ThenHotkeyOpensThePanel' }
           if ($env:TRAY_STOP -eq 'true') { $test = 'Boo.QaSuite.Journeys.TrayStopTests.Q12F_TrayStop_PausesRunningFocusAndKeepsItPinned' }
           if ($env:FOCUS_END -eq 'true') { $test = 'Boo.QaSuite.Journeys.FocusEndTimingTests.Q13H_EndFromPaused_HappyIntervalContainsNominalDurationThenRetreats' }
           if ($env:FOCUS_RESUME -eq 'true') { $test = 'Boo.QaSuite.Journeys.FocusResumeTests.Q13R_PauseResume_OrdersFacesAndRetainsSessionAtPauseCheckpoint' }
@@ -93,6 +103,17 @@ jobs:
           [xml]$trx = Get-Content $results[0].FullName -Raw
           $rows = @($trx.TestRun.Results.UnitTestResult)
           if ($rows.Count -ne 1 -or $rows[0].outcome -ne 'Passed' -or $rows[0].testName -ne $test) { throw 'Exact selected journey did not pass' }
+          if ($testExit -ne 0) { exit $testExit }
+          if ($env:HOTKEY -eq 'true') {
+            $test = 'Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey'
+            dotnet test tools/Boo.VerifyLive -c Release --no-build --filter "FullyQualifiedName=$test" --logger trx --results-directory artifacts/paused-stop/verifylive-trx
+            $testExit = $LASTEXITCODE
+            $results = @(Get-ChildItem artifacts/paused-stop/verifylive-trx -Filter *.trx)
+            if ($results.Count -ne 1) { throw 'Expected one J0 TRX receipt' }
+            [xml]$trx = Get-Content $results[0].FullName -Raw
+            $rows = @($trx.TestRun.Results.UnitTestResult)
+            if ($rows.Count -ne 1 -or $rows[0].outcome -ne 'Passed' -or $rows[0].testName -ne $test) { throw 'Exact J0 check did not pass' }
+          }
           exit $testExit
       - name: Prepare evidence scanner
         if: ${{ always() }}
