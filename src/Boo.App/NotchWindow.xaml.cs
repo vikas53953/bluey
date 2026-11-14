@@ -299,9 +299,12 @@ public partial class NotchWindow : Window
     /// microphone also arrive through <see cref="SetCaptureActivity"/> / <see cref="SetMicrophoneActivity"/>
     /// and are OR-ed in. Revealed/Hovered are owned by this window and ignored here.
     /// </summary>
+    private FaceTraceContext _producerInputsContext;
+
     public void UpdateFace(FaceInputs inputs)
     {
         ArgumentNullException.ThrowIfNull(inputs);
+        if (FaceMomentTrace.Enabled) _producerInputsContext = FaceMomentTrace.Current;
         _appInputs = inputs;
         SetCaption(inputs.Caption);
         Recompute();
@@ -1272,12 +1275,18 @@ public partial class NotchWindow : Window
     private void PublishFaceState(NotchFaceState previous)
     {
         var name = _state.ToString();
+        var assignmentBefore = FaceMomentTrace.Stamp();
         System.Windows.Automation.AutomationProperties.SetItemStatus(this, name);
+        var assignmentAfter = FaceMomentTrace.Stamp();
         if (previous != _state && System.Windows.Automation.Peers.AutomationPeer.ListenerExists(System.Windows.Automation.Peers.AutomationEvents.PropertyChanged))
         {
+            var eventBefore = FaceMomentTrace.Stamp();
             System.Windows.Automation.Peers.UIElementAutomationPeer.FromElement(this)?.RaisePropertyChangedEvent(
                 System.Windows.Automation.AutomationElementIdentifiers.ItemStatusProperty, previous.ToString(), name);
+            var eventAfter = FaceMomentTrace.Stamp();
+            FaceMomentTrace.Write(_producerInputsContext, "uia-event-raise", eventBefore, eventAfter, value: (long)_state, flags: (long)previous);
         }
+        FaceMomentTrace.Write(_producerInputsContext, "itemstatus-assignment", assignmentBefore, assignmentAfter, value: (long)_state, flags: (long)previous);
     }
 
     private void UpdateDisclosure()
@@ -1325,6 +1334,7 @@ public partial class NotchWindow : Window
     private void OpenButton_OnPreviewMouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         _holdTimer.Stop();
+        UiTiming.Mark("eyes mouse-up begin");
         var outcome = _press.Up(_clock.Elapsed);
         if (OpenButton.IsMouseCaptured)
         {
@@ -1334,6 +1344,7 @@ public partial class NotchWindow : Window
         switch (outcome)
         {
             case PressOutcome.Click:
+                UiTiming.Mark("eyes classified Click");
                 OpenPanelFromNotch();
                 break;
             case PressOutcome.HoldEnded:
@@ -1384,6 +1395,7 @@ public partial class NotchWindow : Window
     private void NotchSurface_OnMouseRightButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         _onStop();
+        ShowStoppedBriefly();
         e.Handled = true;
     }
 

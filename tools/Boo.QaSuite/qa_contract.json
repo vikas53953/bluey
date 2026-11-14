@@ -1,0 +1,76 @@
+{
+  "contract_version": 11,
+  "groups": {
+    "contracts": {
+      "C66": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot"
+    },
+    "antimock": {
+      "AM0": "Boo.QaSuite.AntiMock.AntiMockTests.AM0_ShippedBuild_HoldsNoMockOrTestCode",
+      "AM1": "Boo.QaSuite.AntiMock.AntiMockTests.AM1_NoAiHostRedirected_NoProxy_NoHostsPin",
+      "AM2": "Boo.QaSuite.AntiMock.AntiMockTests.AM2_NoPlantedRootCertificate_AndOpenAIsRealCertificateValidates"
+    },
+    "journeys": {
+      "Q15": "Boo.QaSuite.Journeys.ApprovalEdgeTests.Q15_CancelEscapeOrReplacement_CannotApplyAnOldProposal",
+      "Q10": "Boo.QaSuite.Journeys.EyeTapTests.Q10_PhysicalEyeTapUnder200Ms_OpensPanelWithoutListening",
+      "Q16": "Boo.QaSuite.Journeys.FileUndoEdgeTests.Q16_SecondApprovedFileUndo_RecreatesTheOriginalContents",
+      "Q67": "Boo.QaSuite.Journeys.FocusAutomationDiagnosticTests.Q67_CompactWindow_FocusStartPauseEnd_TenConsecutiveCyclesWithoutUiaErrors",
+      "Q13": "Boo.QaSuite.Journeys.FocusEdgeTests.Q13_EndFromPaused_AndReplaceRunningSession_KeepHistoryAndFacesHonest",
+      "Q7": "Boo.QaSuite.Journeys.HoverEdgeTests.Q7_HoverEdges_AllFourBranches_OnTheRealClock",
+      "S0": "Boo.QaSuite.Journeys.QaJourneyTests.S0_Launch_OnlyTheNotch_ThenHotkeyOpensThePanel",
+      "S1": "Boo.QaSuite.Journeys.QaJourneyTests.S1_Hover_WakesTheNotch_ThenItRetracts",
+      "S2": "Boo.QaSuite.Journeys.QaJourneyTests.S2_RealChat_EchoesARunTimeCode_AndTheNotchThinksThenResponds",
+      "S3": "Boo.QaSuite.Journeys.QaJourneyTests.S3_Stop_WhileAnAnswerIsOnItsWay_ClearsTheFaceAndNoAnswerLands",
+      "S4": "Boo.QaSuite.Journeys.QaJourneyTests.S4_Focus_StartPauseResumeEnd_AndTheNotchShowsPaused",
+      "S5": "Boo.QaSuite.Journeys.QaJourneyTests.S5_Settings_SaveWritesTheFile_AndANewBooStartsWithTheSameChoices",
+      "Q18": "Boo.QaSuite.Journeys.RequestGenerationTests.Q18_NewerTypedRequestWins_OnlyItsAnswerAppearsDuringLateResultWatch",
+      "QD15": "Boo.QaSuite.Journeys.SequentialApprovalTests.QD15_TwoFileSteps_RequireSeparateApprovalsAndShowNextStep",
+      "Q12G": "Boo.QaSuite.Journeys.PausedStopTests.Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace",
+      "Q12E": "Boo.QaSuite.Journeys.ApprovalStopTests.Q12E_NotchRightClick_ClearsPendingProposalAndAcknowledgesStop",
+      "Q13R": "Boo.QaSuite.Journeys.FocusResumeTests.Q13R_PauseResume_OrdersFacesAndRetainsSessionAtPauseCheckpoint",
+      "Q13H": "Boo.QaSuite.Journeys.FocusEndTimingTests.Q13H_EndFromPaused_HappyIntervalContainsNominalDurationThenRetreats",
+      "Q12F": "Boo.QaSuite.Journeys.TrayStopTests.Q12F_TrayStop_PausesRunningFocusAndKeepsItPinned"
+    },
+    "errors": {
+      "E0": "Boo.QaSuite.ErrorPaths.NoKeyErrorTests.E0_EmptyQuestion_AsksTheUserToTypeFirst",
+      "E1": "Boo.QaSuite.ErrorPaths.NoKeyErrorTests.E1_NoKey_SaysAddAKey_AndSendsNothing",
+      "E2": "Boo.QaSuite.ErrorPaths.BadKeyErrorTests.E2_BadKey_RealOpenAIRejectsIt_AndBooSaysPasteAValidKey",
+      "E3": "Boo.QaSuite.ErrorPaths.NetworkDownErrorTests.E3_NetworkDown_SaysCheckYourInternet_ThenRecoversWhenItIsBack",
+      "E4": "Boo.QaSuite.ErrorPaths.TimeoutErrorTests.E4_ProviderNeverAnswers_BooTimesOutHonestly_ThenRecovers"
+    },
+    "smoke": {
+      "TypedQuestion": "Boo.LiveSmoke.LiveRoundTripTests.TypedQuestion_GetsAnAnswerFromTheRealProvider",
+      "SpokenQuestion": "Boo.LiveSmoke.LiveVoiceRoundTripTests.SpokenQuestion_GetsASpokenAnswerFromRealOpenAiVoice",
+      "ST0": "Boo.LiveSmoke.SpokenAudioTests.A_window_exactly_at_the_quiet_floor_is_not_speech_and_one_just_above_is",
+      "ST1": "Boo.LiveSmoke.SpokenAudioTests.Quiet_noise_below_the_floor_is_not_speech",
+      "ST2": "Boo.LiveSmoke.SpokenAudioTests.An_answer_is_spoken_only_with_enough_speech",
+      "ST3": "Boo.LiveSmoke.SpokenAudioTests.Every_complete_window_is_counted_including_the_last_and_a_partial_one_is_not",
+      "ST4": "Boo.LiveSmoke.SpokenAudioTests.The_built_in_self_check_passes_on_the_real_measure",
+      "AF0": "Boo.LiveSmoke.AnswerAudioFramesTests.Real_speech_sent_in_even_chunks_comes_back_exactly_and_is_spoken",
+      "AF1": "Boo.LiveSmoke.AnswerAudioFramesTests.A_sample_split_across_two_messages_is_reported",
+      "AF2": "Boo.LiveSmoke.AnswerAudioFramesTests.One_base64_string_cut_mid_way_is_reported_as_dropped_audio",
+      "AF3": "Boo.LiveSmoke.AnswerAudioFramesTests.Audio_under_an_event_name_Boo_does_not_read_is_reported",
+      "AF4": "Boo.LiveSmoke.AnswerAudioFramesTests.A_silent_answer_decodes_cleanly_and_is_still_not_spoken",
+      "AF5": "Boo.LiveSmoke.AnswerAudioFramesTests.The_session_output_format_is_recorded",
+      "AF6": "Boo.LiveSmoke.AnswerAudioFramesTests.Audio_the_parser_drops_is_reported_both_as_dropped_and_as_a_joined_decode_mismatch",
+      "RL0": "Boo.LiveSmoke.RealtimeReceiveLoopTests.Every_server_message_reaches_the_raw_observer_once_and_in_order_even_ones_the_parser_drops",
+      "ST5": "Boo.LiveSmoke.SpokenAudioTests.A_real_spoken_answer_from_OpenAI_passes",
+      "ST6": "Boo.LiveSmoke.SpokenAudioTests.A_silent_answer_from_OpenAI_fails_even_when_long_and_with_a_transcript",
+      "ST7": "Boo.LiveSmoke.SpokenAudioTests.The_peak_level_counts_negative_samples_by_their_size"
+    },
+    "verifylive": {
+      "J0": "Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey",
+      "J1": "Boo.VerifyLive.LiveJourneyTests.J1_NotchWakes_OnHover",
+      "J2": "Boo.VerifyLive.LiveJourneyTests.J2_TypedChat_GetsARealAnswer",
+      "J3": "Boo.VerifyLive.LiveJourneyTests.J3_ScreenExplain_PointerAndRingLandOnTheTarget",
+      "J4": "Boo.VerifyLive.LiveJourneyTests.J4_Research_ShowsRealSourceLinks",
+      "J5": "Boo.VerifyLive.LiveJourneyTests.J5_ApplyThenUndo_OnlyAfterApproval",
+      "J6": "Boo.VerifyLive.LiveJourneyTests.J6_FocusSession_25Minutes_OnTheDeveloperModeClock",
+      "FR0": "Boo.VerifyLive.Regressions.FocusPauseAfterEndRegressionTests.PauseAfterEnd_DoesNotPinThePausedFace_OrClaimPaused",
+      "FR1": "Boo.VerifyLive.Regressions.FocusPauseResumeRegressionTests.PauseResumeEnd_PausedFaceAndClockFollowTheSession",
+      "TR0": "Boo.VerifyLive.Regressions.TranscriptDuplicateRowsRegressionTests.SameQuestionTwice_ScreenReadersSeeBothRows",
+      "TR1": "Boo.VerifyLive.Regressions.TranscriptOrderAndScrollRegressionTests.DistinctQuestions_AppearInOrder_AndTheNewestRowIsAlwaysInView",
+      "SR0": "Boo.VerifyLive.Regressions.StopStatusRegressionTests.StopDuringPendingQuestion_StatusNoLongerSaysThinking"
+    }
+  },
+  "retired": {}
+}

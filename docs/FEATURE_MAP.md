@@ -146,3 +146,35 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | X9 | Every Conversation row on screen is reported to screen readers, even two identical rows | automated live | `tools/Boo.VerifyLive/Regressions/TranscriptDuplicateRowsRegressionTests.cs::SameQuestionTwice_ScreenReadersSeeBothRows` (no key, no AI). Failed before the fix (issue [#73](https://github.com/vikas53953/bluey/issues/73)); passes with it (PR #84). |
 | X10 | Conversation rows appear in the order asked, and the newest row is always in view (the oldest scrolls away) | automated live | `tools/Boo.VerifyLive/Regressions/TranscriptOrderAndScrollRegressionTests.cs::DistinctQuestions_AppearInOrder_AndTheNewestRowIsAlwaysInView` (no key, no AI; read through UI Automation; added for the Codex mutation tester's surviving mutants on PR #84) |
 | X8 | The always-on notch draws in software, and one hover-and-retract stays within its memory budget | automated live | `tests/Boo.Perf.Tests/NotchDrawingMemoryTests.cs::Notch_draws_in_software_and_one_hover_stays_within_memory_budget` (windows-ci perf step) |
+| F19 | Focus: End from Paused and replace Running; remaining j13 timing/event branches pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FocusEdgeTests.cs::Q13_EndFromPaused_AndReplaceRunningSession_KeepHistoryAndFacesHonest` |
+| F14 | j7 hover edges: leave during reveal, re-enter during delay/retract, Paused pin | UNVERIFIED | `tools/Boo.QaSuite/Journeys/HoverEdgeTests.cs::Q7_HoverEdges_AllFourBranches_OnTheRealClock` |
+| A15 | j15 a-c: Cancel, Escape and replacement invalidate unapproved file proposals; d-e pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/ApprovalEdgeTests.cs::Q15_CancelEscapeOrReplacement_CannotApplyAnOldProposal` |
+| A16 | j16 file branch: second approved Undo recreates original file; field branch pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FileUndoEdgeTests.cs::Q16_SecondApprovedFileUndo_RecreatesTheOriginalContents` |
+| A66 | Selected task-folder context for explicit file requests; issue #66 | UNVERIFIED | `tools/Boo.QaSuite/Contracts/SelectedFolderContractTests.cs::C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot` (mock HTTP contract); `tools/Boo.QaSuite/Journeys/FileUndoEdgeTests.cs::Q16_SecondApprovedFileUndo_RecreatesTheOriginalContents` (live regression pending) |
+| G18 | j18 typed replacement: first pending, only second answer during 15-second watch; rings/face ownership pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/RequestGenerationTests.cs::Q18_NewerTypedRequestWins_OnlyItsAnswerAppearsDuringLateResultWatch` |
+| D67 | Hosted UIA focus Start/Running/Pause/End diagnostic: ten fixed compact-window cycles, no retries | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FocusAutomationDiagnosticTests.cs::Q67_CompactWindow_FocusStartPauseEnd_TenConsecutiveCyclesWithoutUiaErrors` |
+| A115 | j15d two file steps: Next step card, separate approvals, exact readbacks | UNVERIFIED | `tools/Boo.QaSuite/Journeys/SequentialApprovalTests.cs::QD15_TwoFileSteps_RequireSeparateApprovalsAndShowNextStep` |
+| E68 | GitHub VM audio endpoint and PCM24k/mono16 format-query capability receipt; no app voice proof | UNVERIFIED | `tools/Boo.QaSuite/Probe-AudioCapabilities.ps1` |
+| H10 | j10a physical eye tap under 200 ms opens panel without Listening; hold/capture-loss pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/EyeTapTests.cs::Q10_PhysicalEyeTapUnder200Ms_OpensPanelWithoutListening` |
+| D10 | j10a opt-in QPC panel phase/dispatcher and recorder-stage diagnostic; no acceptance change | UNVERIFIED | `src/Boo.App/UiTiming.cs`; `tools/Boo.QaSuite/Journeys/EyeTapTests.cs::Q10_PhysicalEyeTapUnder200Ms_OpensPanelWithoutListening` |
+| E78 | Issue78 single cold Q10 ETW profiling attempt, no key, pinned app/harness; not acceptance | UNVERIFIED | `scripts/ci/Profile-EyeTap.ps1`; `.github/workflows/eye-tap-profile.yml` |
+
+| F15 | j12g Stop while already Paused preserves session and pinned face; other j12 branches pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/PausedStopTests.cs::Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace` |
+
+| F16 | j12e physical notch right-click cancels pending approval and acknowledges Stop (issue #103 red; repair pending live) | UNVERIFIED | `tools/Boo.QaSuite/Journeys/ApprovalStopTests.cs::Q12E_NotchRightClick_ClearsPendingProposalAndAcknowledgesStop` |
+
+| T20 | Offline spoken-audio boundary: A_window_exactly_at_the_quiet_floor_is_not_speech_and_one_just_above_is | automated mock | `tools/Boo.LiveSmoke/SpokenAudioTests.cs::A_window_exactly_at_the_quiet_floor_is_not_speech_and_one_just_above_is` |
+
+| T21 | Offline spoken-audio boundary: Quiet_noise_below_the_floor_is_not_speech | automated mock | `tools/Boo.LiveSmoke/SpokenAudioTests.cs::Quiet_noise_below_the_floor_is_not_speech` |
+
+| T22 | Offline spoken-audio boundary: An_answer_is_spoken_only_with_enough_speech | automated mock | `tools/Boo.LiveSmoke/SpokenAudioTests.cs::An_answer_is_spoken_only_with_enough_speech` |
+
+| T23 | Offline spoken-audio boundary: Every_complete_window_is_counted_including_the_last_and_a_partial_one_is_not | automated mock | `tools/Boo.LiveSmoke/SpokenAudioTests.cs::Every_complete_window_is_counted_including_the_last_and_a_partial_one_is_not` |
+
+| T24 | Offline spoken-audio boundary: The_built_in_self_check_passes_on_the_real_measure | automated mock | `tools/Boo.LiveSmoke/SpokenAudioTests.cs::The_built_in_self_check_passes_on_the_real_measure` |
+
+| F17 | j13 Pause/Resume ordered faces and second Pause persistence checkpoint; other j13 branches pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FocusResumeTests.cs::Q13R_PauseResume_OrdersFacesAndRetainsSessionAtPauseCheckpoint` |
+
+| F18 | j13d End from Paused: Happy nominal-duration compatibility and ordered retreat | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FocusEndTimingTests.cs::Q13H_EndFromPaused_HappyIntervalContainsNominalDurationThenRetreats` |
+
+| F20 | j12f actual notification-area tray Stop pauses running focus and keeps Paused pinned | UNVERIFIED | `tools/Boo.QaSuite/Journeys/TrayStopTests.cs::Q12F_TrayStop_PausesRunningFocusAndKeepsItPinned` |

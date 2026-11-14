@@ -14,12 +14,14 @@ public sealed class ResponsesClient : IScreenAssistant
     private readonly HttpClient _http;
     private readonly Func<string?> _credential;
     private readonly ProviderSettings _settings;
+    private readonly Func<bool> _hasSelectedFileRoot;
 
-    public ResponsesClient(HttpClient http, Func<string?> credential, ProviderSettings settings)
+    public ResponsesClient(HttpClient http, Func<string?> credential, ProviderSettings settings, Func<bool>? hasSelectedFileRoot = null)
     {
         _http = http ?? throw new ArgumentNullException(nameof(http));
         _credential = credential ?? throw new ArgumentNullException(nameof(credential));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _hasSelectedFileRoot = hasSelectedFileRoot ?? (() => false);
     }
 
     public async Task<AssistantReply> RespondAsync(AssistantRequest request, CancellationToken cancellationToken, ControlObservation? controls = null)
@@ -41,7 +43,7 @@ public sealed class ResponsesClient : IScreenAssistant
             });
         }
 
-        var contextText = StructuredReplies.ContextText(request);
+        var contextText = StructuredReplies.ContextText(request, request.AllowActions && _hasSelectedFileRoot());
         content.Insert(0, new { type = "input_text", text = $"User request: {request.Text}\n{contextText}" });
         if (controls is not null)
         {

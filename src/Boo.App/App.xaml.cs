@@ -99,11 +99,13 @@ public partial class App : System.Windows.Application
         SystemEvents.SessionSwitch += OnSessionSwitch;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
         SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+        UiTiming.Start(Dispatcher, _dataDirectory);
         _startupComplete = true;
     }
 
     internal void OpenPanel(bool settings)
     {
+        UiTiming.Mark("OpenPanel begin");
         if (_panel is null)
         {
             _panel = CreatePanel();
@@ -115,7 +117,9 @@ public partial class App : System.Windows.Application
         {
             _panel.WindowState = _restorePanelState;
         }
+        UiTiming.Mark("PrimeExternalTarget begin");
         _panel.PrimeExternalTarget();
+        UiTiming.Mark("PrimeExternalTarget end");
         if (settings)
         {
             _panel.ShowSettings();
@@ -125,18 +129,24 @@ public partial class App : System.Windows.Application
         {
             if (!_hasShownPanel)
             {
+                UiTiming.Mark("PrepareInitialPlacement begin");
                 _panel.PrepareInitialPlacement();
+                UiTiming.Mark("PrepareInitialPlacement end");
                 _panel.WindowState = WindowState.Maximized;
                 _restorePanelState = WindowState.Maximized;
                 _hasShownPanel = true;
             }
+            UiTiming.Mark("Show begin");
             _panel.Show();
+            UiTiming.Mark("Show end");
         }
         else
         {
             _panel.Activate();
         }
+        UiTiming.Mark("RefreshSelectedDisplay begin");
         _panel.RefreshSelectedDisplay();
+        UiTiming.Mark("OpenPanel end");
     }
 
     private MainWindow CreatePanel()
@@ -168,7 +178,14 @@ public partial class App : System.Windows.Application
         return panel;
     }
 
-    private void OnFaceInputsChanged(Boo.Core.FaceInputs inputs) => _notch?.UpdateFace(inputs);
+    internal FaceTraceContext ProducerContext { get; set; }
+
+    private void OnFaceInputsChanged(Boo.Core.FaceInputs inputs)
+    {
+        var before = FaceMomentTrace.Stamp();
+        try { _notch?.UpdateFace(inputs); }
+        finally { FaceMomentTrace.Write(FaceMomentTrace.Current, "notch-forward", before, FaceMomentTrace.Stamp()); }
+    }
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
     {

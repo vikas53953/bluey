@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    FULL-APP QA SUITE (the phase-gate suite, docs/verification/full-app-qa.md): the published Boo.exe driven with FlaUI
+    the way a user drives it, on GitHub's own Windows VM only, run by .github/workflows/full-app-qa.yml.
+
+    Groups (each its own folder, so the workflow runs and test-gates them one by one, in a fixed order):
+      AntiMock/    the shipped build holds no mock or test code; no AI host is redirected; no planted root certificate
+      Journeys/    launch, hotkey, real OpenAI chat (runtime nonce), notch states, Stop mid-answer, focus pause, settings
+      ErrorPaths/  empty question, no key, bad key (real OpenAI 401), network down (firewall), provider timeout
+
+    Lives in tools/, not tests/: tests/** is the frozen oracle. It REUSES the harness by linking
+    tests/Boo.Demo.Tests/BooAppFixture.cs and tools/Boo.LiveSmoke/LiveAppFixture.cs + RealAiHostGuard.cs, unchanged.
+
+    Not part of Boo.sln. The Journeys group spends a few small paid OpenAI requests per run; the other groups spend none.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
+    <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Boo.Storage/Boo.Storage.csproj" />
+    <ProjectReference Include="../../src/Boo.Providers/Boo.Providers.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Compile Include="../../tests/Boo.Demo.Tests/BooAppFixture.cs" Link="Harness/BooAppFixture.cs" />
+    <Compile Include="../../tests/Boo.Demo.Tests/OrderedSteps.cs" Link="Harness/OrderedSteps.cs" />
+    <Compile Include="../Boo.LiveSmoke/LiveAppFixture.cs" Link="Harness/LiveAppFixture.cs" />
+    <Compile Include="../Boo.LiveSmoke/RealAiHostGuard.cs" Link="Harness/RealAiHostGuard.cs" />
+    <Content Include="../../tests/Boo.Demo.Tests/xunit.runner.json" Link="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
