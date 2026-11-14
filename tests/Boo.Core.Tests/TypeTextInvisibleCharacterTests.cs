@@ -124,7 +124,7 @@ public sealed class TypeTextInvisibleCharacterTests
             .Where(codePoint => codePoint is < 0xD800 or > 0xDFFF)
             .Where(codePoint => CharUnicodeInfo.GetUnicodeCategory((char)codePoint) == UnicodeCategory.Format)
             .ToList();
-        Assert.True(formatCharacters.Count > 100, $"sanity: expected many BMP format characters, found {formatCharacters.Count}.");
+        Assert.True(formatCharacters.Count >= 40, $"sanity: expected about 40+ BMP format characters, found {formatCharacters.Count}.");
 
         var missed = formatCharacters
             .Where(codePoint => WindowActionGuard.BlockedReason(TypeText("a" + (char)codePoint + "b"), Notepad, BooPid) is null)

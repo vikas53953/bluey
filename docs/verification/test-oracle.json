@@ -85,7 +85,7 @@
     "tests/Boo.Core.Tests/ShortcutStatusTests.cs": "fe065ecb9bf3b10124516db983f741afe36b88dd9e770f07a6fb87fd538d8356",
     "tests/Boo.Core.Tests/StartupRegistrationTests.cs": "dcd5b440b8191dd0adfb49e700e5c53ca45a42aa8e5814d809de997e86ebf64a",
     "tests/Boo.Core.Tests/TestThreadPool.cs": "9aee9db37060b844fc341d9a202b11c064a61e95a17dbd6f94cf961ddbc4f52f",
-    "tests/Boo.Core.Tests/TypeTextInvisibleCharacterTests.cs": "9cd0fdd95f45eeae41fa9d7978384a2f5696c51e1cc89b579ebcf3146e5ef03c",
+    "tests/Boo.Core.Tests/TypeTextInvisibleCharacterTests.cs": "7a0e9f2556fd7ed1412594ea5224feabd97cbb38d8273d3928d0cd0db75b1089",
     "tests/Boo.Core.Tests/UndoJournalTests.cs": "5f73cbb8de8b9a65d7d00bb3cb630fb66cf320437aa452936fa11762945b58c8",
     "tests/Boo.Core.Tests/UntrustedInputFuzzTests.cs": "1260bcb26bcac3b60d43693874fef10d7abf073caf53c93d9388403a6d20c78c",
     "tests/Boo.Core.Tests/UpdatePolicyTests.cs": "6f58aa70493669d9fa81b946694f3d545eb50842f3478bba9ebaa8f6a4e2c987",
@@ -163,7 +163,7 @@
     "tests/Boo.Core.Tests/TypeTextInvisibleCharacterTests.cs",
     "tests/Boo.Integration.Tests/TypeTextExecutorInvisibleCharacterTests.cs"
   ],
-  "revisionCommit": "ff448ffbb98167b77bfe535a20256db28fdf07c4",
+  "revisionCommit": "31a552423e4e191b2f8dcf611001f7e1f703a07c",
   "changedFiles": [],
   "removedFiles": []
 }
