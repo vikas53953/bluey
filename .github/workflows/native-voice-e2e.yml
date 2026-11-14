@@ -11,6 +11,10 @@ on:
       transcribe_model:
         type: string
         default: gpt-4o-mini-transcribe
+      ref:
+        description: Exact commit SHA (or branch) to test, e.g. a PR's current head SHA. Blank = the branch this run is started on. Use this instead of an evidence-only shadow PR.
+        type: string
+        default: ''
   pull_request:
     branches:
       - lane/face
@@ -43,7 +47,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+      - name: Record the tested commit (the evidence must name this exact SHA)
+        shell: pwsh
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          if ($env:REQUESTED_REF) { "Requested ref: $env:REQUESTED_REF" }
+          "Native voice E2E tests commit $sha"
+          "## Tested commit`n`n$sha" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
