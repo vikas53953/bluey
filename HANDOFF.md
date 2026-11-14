@@ -520,3 +520,7 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 base sync after #84 (14 Nov 2026)
 
 **manual:** imported lane/face933088f transcript repair unchanged before Q12F push. Exact method gate detected its two new no-key native transcript regressions; contract9 adds required TR0/TR1 (no gate bypass). Full VerifyLive workflow already runs all methods. Map96/55 includes upstream rows; no authored frozen-test/oracle edits. Q12F/native integration remains **UNVERIFIED** until hosted run.
+
+### PR #54 xUnit2031 correction and local compile loop (14 Nov 2026)
+
+**manual:** gate43579562469 stopped at Q12F Assert.Single(Where(...)), xUnit2031. Equivalent predicate overload preserves uniqueness. Installed repository-pinned SDK10.0.403 under ignored artifacts after verifying the official release archive SHA512; compilation uses workspace CLI/package caches and public NuGet only. QaSuite, LiveSmoke and VerifyLive all build Release with0warnings/0errors; no tests/Boo.exe/Desktop run locally. Lesson: use this pinned compiler/analyzer inner loop before future harness pushes, alongside required hosted compile gate. Native tray behavior remains **UNVERIFIED** pending corrected hosted attempt; full-app NOT PASSED.

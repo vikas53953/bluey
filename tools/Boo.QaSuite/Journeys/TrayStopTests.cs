@@ -166,7 +166,7 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
                 if (matches.Length != 1) return false;
                 var selectedStop = matches[0];
                 stop = selectedStop;
-                menu = Assert.Single(menus.Where(m => m.FindAllDescendants().Any(e => e.Properties.RuntimeId.Value.SequenceEqual(selectedStop.Properties.RuntimeId.Value))));
+                menu = Assert.Single(menus, m => m.FindAllDescendants().Any(e => e.Properties.RuntimeId.Value.SequenceEqual(selectedStop.Properties.RuntimeId.Value)));
                 return true;
             }, TimeSpan.FromSeconds(3)), "Boo-process tray Stop menu not uniquely exposed; no shortcut/panel fallback.");
             Assert.NotNull(menu);

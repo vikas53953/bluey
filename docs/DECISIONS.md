@@ -203,3 +203,5 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 | 14 Nov 2026 | Require actual notification-area tray Stop as Q12F, contract8; never substitute another Stop source. | Explorer process/name alone did not prove tray membership. Positive container/ancestry and matching hit RuntimeId fail closed when hosted UIA cannot expose them. | PR54; independent review correction; native result UNVERIFIED | proposed |
 
 | 14 Nov 2026 | Sync #84 before Q12F push; require both added native transcript tests as TR0/TR1, contract8 to9. | Prevent synthetic merge drift from silently dropping existing native coverage; keep exact method bijection. | PR54; lane/face933088f | proposed; native result UNVERIFIED |
+
+| 14 Nov 2026 | Fix Q12F xUnit2031 with equivalent Assert.Single predicate and compile all acceptance harnesses locally before push. | Required compile gate caught another analyzer error before runtime. Verified SDK10.0.403 in ignored workspace enables fast compiler checks without driving Boo or the desktop. | PR54; gate43579562469; local Release builds0warnings/0errors | proposed; native Q12F UNVERIFIED |
