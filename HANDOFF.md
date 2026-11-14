@@ -528,3 +528,8 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 Q12F startup readiness (14 Nov 2026)
 
 **manual:** exact eeed04f Q12F run43580312381 failed at initial panel open, before tray discovery. Receipt shows one Ctrl+Alt+B at99ms after fixture launch; constructor launches Boo without waiting for notch. Failure screenshot contains only hidden notch. Added strict OpenPanelOnceReady helper for Q12F: wait for notch UIA and read its status before exactly one shortcut; post-action8second limit unchanged, no UIA suppression or retries. Local pinned-SDK Release compile0warnings/0errors and contract selftests pass. Native tray path remains **UNVERIFIED** until corrected run. Lesson: readiness polling belongs before a single action, not repeated actions after an unready launch.
+
+
+### PR #54 Q12F unsupported shell metadata (14 Nov 2026)
+
+**live failure inspected:** exact a1d341f run43582272364 opened Boo after notch readiness, then failed before any tray action: an unrelated Explorer container does not support UIA Name. Identity, log and failure screenshot inspected. Discovery now uses the supported-property result to exclude unnamed candidates and records exclusions; selected container/icon/hit identity, strict required reads, unique Boo menu and action/state assertions remain unchanged. Local pinned-SDK QaSuite Release compile has0warnings/0errors; report/contract selftests pass. Lesson: optional metadata on unrelated shell candidates is not required evidence on the selected control. Native tray membership and Stop remain **UNVERIFIED**, full-app NOT PASSED; no Boo defect inferred from this harness discovery failure.

@@ -60,11 +60,18 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
                         results.TryAdd(string.Join(",", e.Properties.RuntimeId.Value), e);
                 return results.Values.ToArray();
             }
+            var unnamedDiscoveryElements = 0;
+            bool DiscoveryName(AutomationElement e, out string name)
+            {
+                if (e.Properties.Name.TryGetValue(out name)) return true;
+                unnamedDiscoveryElements++;
+                return false;
+            }
             bool NotificationContainer(AutomationElement e)
             {
                 var type = e.Properties.ControlType.Value;
                 if (type is not (ControlType.Pane or ControlType.ToolBar or ControlType.Window)) return false;
-                var name = e.Properties.Name.Value;
+                if (!DiscoveryName(e, out var name)) return false;
                 return name.Contains("notification area", StringComparison.OrdinalIgnoreCase)
                     || name.Contains("notification overflow", StringComparison.OrdinalIgnoreCase)
                     || name.Contains("system tray", StringComparison.OrdinalIgnoreCase)
@@ -73,6 +80,7 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
             AutomationElement[] Areas()
             {
                 var areas = ShellElements(NotificationContainer);
+                Record($"unnamed discovery elements excluded={unnamedDiscoveryElements}; positively identified containers={areas.Length}");
                 Assert.NotEmpty(areas);
                 foreach (var area in areas)
                 {
@@ -94,18 +102,19 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
                 AutomationElement? current = walker.GetParent(e);
                 for (var depth = 0; current is not null && depth < 32; depth++, current = walker.GetParent(current))
                 {
-                    Record($"ancestry name={current.Properties.Name.Value} type={current.Properties.ControlType.Value} pid={current.Properties.ProcessId.Value} runtimeId={string.Join(",", current.Properties.RuntimeId.Value)}");
+                    var nameSupported = DiscoveryName(current, out var ancestorName);
+                    Record($"ancestry nameSupported={nameSupported} name={ancestorName} type={current.Properties.ControlType.Value} pid={current.Properties.ProcessId.Value} runtimeId={string.Join(",", current.Properties.RuntimeId.Value)}");
                     if (NotificationContainer(current) && ExplorerAncestry(current)) return current;
                 }
                 return null;
             }
-            AutomationElement[] Icons() => InAreas(e => e.Properties.Name.Value == "Boo companion" && Visible(e));
+            AutomationElement[] Icons() => InAreas(e => DiscoveryName(e, out var name) && name == "Boo companion" && Visible(e));
             var icons = Icons();
             if (icons.Length == 0)
             {
                 var overflow = Assert.Single(InAreas(e => Visible(e) && e.Properties.ControlType.Value == ControlType.Button
-                    && e.Properties.Name.Value.Contains("hidden", StringComparison.OrdinalIgnoreCase)
-                    && e.Properties.Name.Value.Contains("icon", StringComparison.OrdinalIgnoreCase)));
+                    && DiscoveryName(e, out var name) && name.Contains("hidden", StringComparison.OrdinalIgnoreCase)
+                    && name.Contains("icon", StringComparison.OrdinalIgnoreCase)));
                 Assert.True(ExplorerAncestry(overflow));
                 var box = overflow.BoundingRectangle;
                 Record($"overflow name={overflow.Properties.Name.Value} pid={overflow.Properties.ProcessId.Value} bounds={box}; one physical open click");
@@ -156,7 +165,7 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
             {
                 var menus = desktop.FindAllDescendants(cf => cf.ByProcessId(_boo.App.ProcessId).And(cf.ByControlType(ControlType.Menu))).Where(Visible).ToArray();
                 var matches = menus.SelectMany(m => m.FindAllDescendants(cf => cf.ByControlType(ControlType.MenuItem)))
-                    .Where(e => Visible(e) && e.Properties.Name.Value is "Stop (Ctrl+Alt+F12)" or "Stop").ToArray();
+                    .Where(e => Visible(e) && DiscoveryName(e, out var name) && name is "Stop (Ctrl+Alt+F12)" or "Stop").ToArray();
                 if (matches.Length != 1) return false;
                 var selectedStop = matches[0];
                 stop = selectedStop;
