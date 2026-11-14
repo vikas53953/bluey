@@ -88,7 +88,7 @@ public partial class App : System.Windows.Application
         _notch.EyesHeldChanged += held => _panel?.SetEyesHeld(held);
         _notch.NudgeActionChosen += takeBreak => _panel?.HandleNudgeAction(takeBreak);
         _notch.ShowNotch();
-        _perf = PerfDiagnostics.TryStart(_notch, Dispatcher, _timeProvider); // only when BOO_PERF_DIAG is set (perf tests)
+        _perf = PerfDiagnostics.TryStart(_notch, _timeProvider); // only when BOO_PERF_DIAG is set (perf tests)
 
         CreateTrayIcon();
         RefreshShortcutStatus(announce: true);
