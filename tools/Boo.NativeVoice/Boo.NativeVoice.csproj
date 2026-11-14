@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0-windows10.0.19041.0</TargetFramework><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable><UseWindowsForms>true</UseWindowsForms><UseWPF>true</UseWPF></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
+    <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
+    <ProjectReference Include="../../src/Boo.Storage/Boo.Storage.csproj" />
+    <Using Include="Xunit" />
+    <Compile Include="../../tests/Boo.Demo.Tests/BooAppFixture.cs" Link="Harness/BooAppFixture.cs" />
+    <Compile Include="../Boo.LiveSmoke/RealAiHostGuard.cs" Link="Harness/RealAiHostGuard.cs" />
+    <None Include="../Boo.LiveSmoke/Voice/what-is-two-plus-three.wav" Link="question.wav" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../tests/Boo.Demo.Tests/xunit.runner.json" Link="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
