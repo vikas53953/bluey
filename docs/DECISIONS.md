@@ -213,3 +213,6 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 
 
 | 14 Nov 2026 | Diagnose Q12F zero notification containers with failure-only bounded Explorer tree/rectangle evidence; preserve the required setup failure. | Exact run942cf80 lacks the exposed shell hierarchy needed to distinguish unsupported accessibility, naming/type mismatch or discovery scope. No speculative locator broadening or alternative Stop action. | Actions43583948653; inspected identity/log/TRX/screenshot; local compile0warnings/0errors | proposed; tray Stop UNVERIFIED |
+
+
+| 14 Nov 2026 | Q12F bootstraps overflow through one exact Show Hidden Icons button verified under Explorer Taskbar, before Focus Start. | Hosted evidence shows unnamed taskbar cluster; do not accept that cluster as tray membership. Require the existing positively named overflow area and strict icon/hit identities after opening. | Actions43584865952; separate plan/implementation PLAN_APPROVED; local compile/selftests | proposed; native Q12F UNVERIFIED |

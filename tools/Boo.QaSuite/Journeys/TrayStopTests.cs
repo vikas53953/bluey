@@ -77,11 +77,11 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
                     || name.Contains("system tray", StringComparison.OrdinalIgnoreCase)
                     || name.Equals("Hidden icons", StringComparison.OrdinalIgnoreCase);
             }
-            AutomationElement[] Areas()
+            AutomationElement[] Areas(bool required = true)
             {
                 var areas = ShellElements(NotificationContainer);
                 Record($"unnamed discovery elements excluded={unnamedDiscoveryElements}; positively identified containers={areas.Length}");
-                if (areas.Length == 0)
+                if (required && areas.Length == 0)
                 {
                     // Diagnose failed required setup; this inventory never supplies an accepted tray locator.
                     var count = 0;
@@ -114,7 +114,7 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
                         Record("secondary shell inventory error=" + diagnosticError);
                     }
                 }
-                Assert.NotEmpty(areas);
+                if (required) Assert.NotEmpty(areas);
                 foreach (var area in areas)
                 {
                     Assert.True(ExplorerAncestry(area));
@@ -125,7 +125,7 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
             AutomationElement[] InAreas(Func<AutomationElement, bool> predicate)
             {
                 var results = new Dictionary<string, AutomationElement>();
-                foreach (var area in Areas())
+                foreach (var area in Areas(required: false))
                     foreach (var e in area.FindAllDescendants().Where(predicate))
                         results.TryAdd(string.Join(",", e.Properties.RuntimeId.Value), e);
                 return results.Values.ToArray();
@@ -145,17 +145,39 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
             var icons = Icons();
             if (icons.Length == 0)
             {
-                var overflow = Assert.Single(InAreas(e => Visible(e) && e.Properties.ControlType.Value == ControlType.Button
-                    && DiscoveryName(e, out var name) && name.Contains("hidden", StringComparison.OrdinalIgnoreCase)
-                    && name.Contains("icon", StringComparison.OrdinalIgnoreCase)));
+                var taskbar = Assert.Single(desktop.FindAllChildren(), e => explorerIds.Contains(e.Properties.ProcessId.Value)
+                    && Visible(e) && DiscoveryName(e, out var name) && name == "Taskbar");
+                var taskbarIdentity = taskbar.Properties.RuntimeId.Value;
+                var overflow = Assert.Single(taskbar.FindAllDescendants(), e => Visible(e)
+                    && e.Properties.ControlType.Value == ControlType.Button
+                    && DiscoveryName(e, out var name) && name == "Show Hidden Icons");
                 Assert.True(ExplorerAncestry(overflow));
+                bool WithinTaskbar(AutomationElement element)
+                {
+                    AutomationElement? current = element;
+                    for (var depth = 0; current is not null && depth < 32; depth++, current = walker.GetParent(current))
+                        if (current.Properties.RuntimeId.Value.SequenceEqual(taskbarIdentity)) return true;
+                    return false;
+                }
+                Assert.True(WithinTaskbar(overflow));
+                var overflowIdentity = overflow.Properties.RuntimeId.Value;
                 var box = overflow.BoundingRectangle;
-                Record($"overflow name={overflow.Properties.Name.Value} pid={overflow.Properties.ProcessId.Value} bounds={box}; one physical open click");
+                var openPoint = new Point(box.Left + box.Width / 2, box.Top + box.Height / 2);
+                Mouse.Position = openPoint;
+                var openHit = _boo.Automation.FromPoint(openPoint);
+                Assert.Equal(overflowIdentity, openHit.Properties.RuntimeId.Value);
+                Assert.Equal("Show Hidden Icons", openHit.Properties.Name.Value);
+                Assert.True(ExplorerAncestry(openHit) && WithinTaskbar(openHit));
+                Assert.True(Visible(taskbar));
+                Assert.Equal("Taskbar", taskbar.Properties.Name.Value);
+                Record($"overflow name={openHit.Properties.Name.Value} pid={openHit.Properties.ProcessId.Value} runtimeId={string.Join(",", overflowIdentity)} taskbarRuntimeId={string.Join(",", taskbarIdentity)} bounds={box} point={openPoint.X},{openPoint.Y}; one physical open click");
                 _boo.CaptureRectangle("qa-j12f-overflow-control", box);
-                Mouse.Click(new Point(box.Left + box.Width / 2, box.Top + box.Height / 2), MouseButton.Left);
-                Assert.True(BooAppFixture.WaitUntil(() => (icons = Icons()).Length > 0, TimeSpan.FromSeconds(3)),
-                    "Hosted Explorer did not expose Boo tray icon; no fallback Stop path used.");
+                Mouse.Click(openPoint, MouseButton.Left);
+                var exposed = BooAppFixture.WaitUntil(() => (icons = Icons()).Length > 0, TimeSpan.FromSeconds(3));
+                Areas(); // Required positive container evidence after the single bootstrap action.
+                Assert.True(exposed, "Hosted Explorer did not expose Boo tray icon; no fallback Stop path used.");
             }
+            Areas();
             var icon = Assert.Single(icons);
             Assert.True(ExplorerAncestry(icon));
             var area = AncestorArea(icon);
