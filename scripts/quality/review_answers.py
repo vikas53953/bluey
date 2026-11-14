@@ -5,25 +5,30 @@ Why: on 14 Nov 2026 about 15 Codex reviews were wasted. A builder pushed a new h
 last BLOCK's findings were still open, and the reviewer posted the same finding again (docs/quality/review-answers.md).
 
 Usage:
-  python -I scripts/quality/review_answers.py --body BODY.md --comments COMMENTS.json --head SHA [--repo PATH]
+  python -I scripts/quality/review_answers.py --body BODY.md --comments COMMENTS.json --head SHA
+      --trusted-authors LOGINS [--repo PATH]
       BODY.md        the PR description, as text.
       COMMENTS.json  the PR's issue comments, as `gh api repos/{repo}/issues/{n}/comments --paginate` returns them
                      (one JSON array, or several arrays one after another).
       SHA            the PR's head commit.
+      LOGINS         comma-separated GitHub logins whose CODEX REVIEW comments count (the workflow passes the
+                     repository owner: every agent posts as that account). Comments by anyone else are ignored.
       PATH           a git checkout holding the PR's history (default: the current folder).
   python -I scripts/quality/review_answers.py --self-test
       Prove every rule on built-in samples (a temporary git repo is made for the commit checks).
 
 The rule:
-  1. Take the newest comment that starts with `CODEX REVIEW BLOCK — <40-hex sha>`. None, or a later comment that
-     starts with `CODEX REVIEW PASS` (including "PASS WITH ISSUES"): nothing to answer, pass.
+  1. Only comments by a trusted author count. Take the newest one that starts with `CODEX REVIEW BLOCK — <40-hex sha>`.
+     None: nothing to answer, pass. A later `CODEX REVIEW PASS — <sha>` (or "PASS WITH ISSUES — <sha>") clears it
+     only when <sha> is the PR's CURRENT head: a review of an older head never clears a BLOCK on a newer one.
   2. Its findings are the lines that start with P0..P3 (`P1 — ...`, `- P2 — ...`, `- **P1** — ...`, `- P2, blocking`).
      A BLOCK with no finding this script can read fails closed: the reviewer's format must be fixed, not skipped.
   3. The PR body has a heading with "Review answers" and, under it, a table with exactly one row per finding, in order.
      Row i's first cell starts with finding i's level. Its last cell is `fixed in <7-40 hex sha>` or
      `disputed: <a reason of at least 10 characters>`.
-  4. A `fixed in` commit must exist, be part of the head (or be the head), and come AFTER the BLOCK's commit (not the
-     BLOCK's commit itself, nor one older than it).
+  4. A `fixed in` commit must exist, be part of the head (or be the head), and be a later commit on top of the
+     reviewed one (a descendant of the BLOCK's commit, not that commit itself). The check does not prove WHEN the
+     commit was made: a commit already pushed on top of the reviewed one before the review was posted also passes.
 Exit 0 when the rule holds, 1 when it does not (with what is missing and how to fix it), 2 on bad usage.
 """
 import argparse
@@ -37,7 +42,7 @@ import tempfile
 RULE = 'BOO-REVIEW-001'
 DASHES = '—–-'  # em dash, en dash, hyphen
 BLOCK_RE = re.compile(r'^CODEX REVIEW BLOCK\s*[' + DASHES + r']\s*([0-9a-fA-F]{40})\b')
-PASS_RE = re.compile(r'^CODEX REVIEW PASS\b')
+PASS_RE = re.compile(r'^CODEX REVIEW PASS(?: WITH ISSUES)?\s*[' + DASHES + r']\s*([0-9a-fA-F]{40})\b')
 FINDING_RE = re.compile(r'^\s*(?:[-*+]\s+)?(?:\*\*)?(P[0-3])(?:\*\*)?\s*(?:[:,' + DASHES + r']|\*\*)')
 HEADING_RE = re.compile(r'^\s{0,3}#{1,6}\s+(.*)$')
 FIXED_RE = re.compile(r'^fixed in\s+([0-9a-fA-F]{7,40})\b', re.IGNORECASE)
@@ -49,7 +54,7 @@ HOW_TO_FIX = ('How to fix: under a heading "## Review answers" in the PR descrip
               'finding of that BLOCK, in the same order, for example\n'
               '  | Finding | Answer |\n'
               '  | --- | --- |\n'
-              '  | P1 — <short title> | fixed in <commit sha made after the review> |\n'
+              '  | P1 — <short title> | fixed in <sha of a later commit on top of the reviewed one> |\n'
               '  | P2 — <short title> | disputed: <why this is not a real problem> |\n'
               'Fix the findings first; only then ask for a new review.')
 
@@ -76,16 +81,27 @@ def load_comments(text):
             raise ValueError('comments JSON must be an array of comment objects')
 
 
-def latest_block(comments):
-    """Return (comment, sha) of the newest BLOCK still standing, or (None, None)."""
+def author(comment):
+    user = comment.get('user') or {}
+    return str(user.get('login') or '').lower()
+
+
+def latest_block(comments, head, trusted):
+    """Return (comment, sha) of the newest BLOCK still standing, or (None, None).
+
+    Only comments by a trusted author count. A PASS clears the BLOCK before it only when it names the current head."""
     ordered = sorted(enumerate(comments), key=lambda p: (str(p[1].get('created_at') or ''), p[1].get('id') or 0, p[0]))
     block, sha = None, None
     for _, c in ordered:
+        if author(c) not in trusted:
+            continue
         body = clean(c.get('body'))
         m = BLOCK_RE.match(body)
         if m:
             block, sha = c, m.group(1).lower()
-        elif block is not None and PASS_RE.match(body):
+            continue
+        passed = PASS_RE.match(body)
+        if block is not None and passed and passed.group(1).lower() == head.lower():
             block, sha = None, None
     return block, sha
 
@@ -172,11 +188,15 @@ def is_ancestor(repo, a, b):
     return r.returncode == 0
 
 
-def check(body, comments, head, repo):
+def check(body, comments, head, repo, trusted):
     """Return (ok, messages)."""
-    block, block_sha = latest_block(comments)
+    trusted = {t.strip().lower() for t in trusted if t and t.strip()}
+    if not trusted:
+        return False, [f'::error::{RULE} no trusted reviewer login was given (--trusted-authors); failing closed.']
+    block, block_sha = latest_block(comments, head, trusted)
     if block is None:
-        return True, ['REVIEW_ANSWERS_OK no open CODEX REVIEW BLOCK on this PR (none, or a later CODEX REVIEW PASS).']
+        return True, ['REVIEW_ANSWERS_OK no open CODEX REVIEW BLOCK on this PR (none, or a later CODEX REVIEW PASS '
+                      'for this exact head).']
     where = block.get('html_url') or f"comment {block.get('id')}"
     levels = findings_of(block.get('body'))
     if not levels:
@@ -230,7 +250,7 @@ def check(body, comments, head, repo):
             errors.append(f'row {i} ({level}): commit {fix_sha} is not part of this PR head ({head[:12]})')
         elif is_ancestor(repo, fix_full, block_full):
             errors.append(f'row {i} ({level}): commit {fix_sha} is the reviewed commit or older than it '
-                          f'({block_sha[:12]}); a fix must be a commit made after the review')
+                          f'({block_sha[:12]}); a fix must be a later commit on top of the reviewed one')
     if errors:
         return False, [f'::error::{RULE} the newest CODEX REVIEW BLOCK ({block_sha[:12]}, {where}) is not fully '
                        f'answered: ' + '; '.join(errors) + '.', HOW_TO_FIX]
@@ -266,8 +286,8 @@ def self_test():
         git(repo, 'checkout', '-q', '-')
         missing = 'f' * 40
 
-        def c(i, body):
-            return {'id': i, 'created_at': f'2026-11-14T10:{i:02d}:00Z', 'body': body}
+        def c(i, body, login='owner'):
+            return {'id': i, 'created_at': f'2026-11-14T10:{i:02d}:00Z', 'body': body, 'user': {'login': login}}
 
         block = c(2, '﻿CODEX REVIEW BLOCK — ' + reviewed + '\n\n- P1 — test finding one\n'
                      'more text\n- **P2** — test finding two\n\n| Label | x |\n|---|---|\n| UNVERIFIED | y |\n')
@@ -292,9 +312,9 @@ def self_test():
             ('wrong level order', body(('P2 — two', f'fixed in {fix}'), ('P1 — one', f'fixed in {fix}')),
              [block], 'row 1 should answer finding 1 (P1)'),
             ('fixed in the BLOCK commit itself', body(('P1', f'fixed in {reviewed}'), ('P2', f'fixed in {fix}')),
-             [block], 'made after the review'),
+             [block], 'later commit on top of the reviewed one'),
             ('fixed in a commit older than the BLOCK', body(('P1', f'fixed in {old}'), ('P2', f'fixed in {fix}')),
-             [block], 'made after the review'),
+             [block], 'later commit on top of the reviewed one'),
             ('fixed in an unknown sha', body(('P1', f'fixed in {missing}'), ('P2', f'fixed in {fix}')),
              [block], 'does not exist'),
             ('fixed in a commit not in the head', body(('P1', f'fixed in {stranger}'), ('P2', f'fixed in {fix}')),
@@ -308,6 +328,14 @@ def self_test():
              [block], 'must be "fixed in'),
             ('BLOCK with no parseable findings', good,
              [c(2, 'CODEX REVIEW BLOCK — ' + reviewed + '\n\nSomething is wrong somewhere.')], 'Failing closed'),
+            ('a PASS for an OLDER head does not clear a newer BLOCK', '',
+             [block, c(3, 'CODEX REVIEW PASS — ' + reviewed)], 'no "Review answers" heading'),
+            ('a PASS by an unrelated author does not clear the BLOCK', '',
+             [block, c(3, 'CODEX REVIEW PASS — ' + head, login='someone-else')], 'no "Review answers" heading'),
+            ('a BLOCK by an unrelated author is ignored', '',
+             [c(2, block['body'], login='someone-else')], True),
+            ('a PASS that names no commit does not clear the BLOCK', '',
+             [block, c(3, 'CODEX REVIEW PASS')], 'no "Review answers" heading'),
             ('finding styles: "P2, blocking" and plain "P1 —"', body(('P1', f'fixed in {fix}'),
                                                                      ('P2', f'fixed in {fix}')),
              [c(2, 'CODEX REVIEW BLOCK — ' + reviewed + '\nP1 — a\n* P2, blocking — b\n'
@@ -315,7 +343,7 @@ def self_test():
         ]
         # expect: True = must pass; a string = must fail, and its message must say that (the right reason).
         for name, b, comments, expect in cases:
-            ok, messages = check(b, comments, head, repo)
+            ok, messages = check(b, comments, head, repo, ['Owner'])
             right = ok if expect is True else (not ok and expect in ' '.join(messages))
             failures += not right
             want = 'pass' if expect is True else f'fail with "{expect}"'
@@ -323,6 +351,11 @@ def self_test():
             if not right:
                 for m in messages:
                     print('        ' + m.splitlines()[0])
+        ok, messages = check('', [block], head, repo, [])
+        right = (not ok) and 'failing closed' in ' '.join(messages)
+        failures += not right
+        print(f'  [{"ok" if right else "WRONG"}] no trusted login given: expected fail closed, '
+              f'got {"pass" if ok else "fail"}')
         # the paginated JSON shape
         try:
             parsed = load_comments('[{"id":1,"body":"a"}]\n[{"id":2,"body":"b"}]')
@@ -347,6 +380,7 @@ def main(argv=None):
     p.add_argument('--comments')
     p.add_argument('--head')
     p.add_argument('--repo', default='.')
+    p.add_argument('--trusted-authors', default='')
     a = p.parse_args(argv)
     if a.self_test:
         return self_test()
@@ -358,7 +392,7 @@ def main(argv=None):
         body = f.read()
     with open(a.comments, encoding='utf-8-sig') as f:
         comments = load_comments(f.read())
-    ok, messages = check(body, comments, a.head.lower(), a.repo)
+    ok, messages = check(body, comments, a.head.lower(), a.repo, a.trusted_authors.split(','))
     for m in messages:
         print(m)
     return 0 if ok else 1

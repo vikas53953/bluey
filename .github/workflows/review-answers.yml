@@ -50,6 +50,8 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Only CODEX REVIEW comments by this login count: every agent posts as the repository owner's account.
+          TRUSTED_AUTHORS: ${{ github.repository_owner }}
         run: |
           if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             echo "::error::BOO-REVIEW-001 the base commit is not in the checkout, so the base branch's checker cannot run"
@@ -57,7 +59,7 @@ jobs:
           fi
           if git cat-file -e "$BASE_SHA:scripts/quality/review_answers.py" 2>/dev/null; then
             git show "$BASE_SHA:scripts/quality/review_answers.py" > "$RUNNER_TEMP/review_answers_base.py"
-            python -I "$RUNNER_TEMP/review_answers_base.py" --body "$RUNNER_TEMP/pr_body.md" --comments "$RUNNER_TEMP/pr_comments.json" --head "$HEAD_SHA" --repo "$GITHUB_WORKSPACE"
+            python -I "$RUNNER_TEMP/review_answers_base.py" --body "$RUNNER_TEMP/pr_body.md" --comments "$RUNNER_TEMP/pr_comments.json" --head "$HEAD_SHA" --trusted-authors "$TRUSTED_AUTHORS" --repo "$GITHUB_WORKSPACE"
           else
             echo "The base branch has no review_answers.py yet (this PR adds it); the PR's own copy judges in the next steps."
           fi
@@ -68,4 +70,6 @@ jobs:
       - name: Every finding of the newest CODEX REVIEW BLOCK is answered in the PR body
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python -I scripts/quality/review_answers.py --body "$RUNNER_TEMP/pr_body.md" --comments "$RUNNER_TEMP/pr_comments.json" --head "$HEAD_SHA" --repo "$GITHUB_WORKSPACE"
+          # Only CODEX REVIEW comments by this login count: every agent posts as the repository owner's account.
+          TRUSTED_AUTHORS: ${{ github.repository_owner }}
+        run: python -I scripts/quality/review_answers.py --body "$RUNNER_TEMP/pr_body.md" --comments "$RUNNER_TEMP/pr_comments.json" --head "$HEAD_SHA" --trusted-authors "$TRUSTED_AUTHORS" --repo "$GITHUB_WORKSPACE"

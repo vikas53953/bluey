@@ -34,14 +34,18 @@ Fix the findings first. Then add this to the PR description, one row per finding
 - The last cell is either `fixed in <sha>` (7 to 40 hex characters) or `disputed: <reason>` (at least 10 characters).
 - A `fixed in` commit must be part of the PR head and made **after** the reviewed commit (not the reviewed commit
   itself, and not an older one). A fix that was already there when the reviewer looked cannot be the answer.
-- A later `CODEX REVIEW PASS` (or `PASS WITH ISSUES`) comment closes the BLOCK; nothing more to answer.
+- A later `CODEX REVIEW PASS — <sha>` (or `PASS WITH ISSUES — <sha>`) comment closes the BLOCK only when `<sha>` is the PR's current head. A review of an older head never clears a BLOCK on a newer one.
 - A BLOCK whose findings the check cannot read (no line starting with `P0`..`P3`) fails closed: the reviewer reposts
   it with one line per finding, like `P1 — <title>`.
 
 ## Limits (said plainly)
 
-- **One GitHub account.** Every agent posts as the same account, so the check trusts the comment's first words
-  (`CODEX REVIEW BLOCK`, `CODEX REVIEW PASS`), not who wrote it.
+- **One GitHub account.** Every agent posts as the repository owner's account. Only CODEX REVIEW comments by that
+  login count (the workflow passes it as `--trusted-authors`); anyone else's BLOCK or PASS is ignored. The check
+  cannot tell which agent behind that account wrote a comment.
+- **`fixed in` means "on top of the reviewed commit".** The fix commit must be a descendant of the reviewed commit
+  and part of the head. The check does not prove when it was made: a commit pushed on top of the reviewed one
+  before the review was posted also passes.
 - **Timing.** The check runs on a push or an edit of the PR text. A BLOCK posted after the last push shows up only on
   the next push or the next PR-text edit; until then the old green result stays on the page.
 - **It checks the answer, not the fix.** It proves each finding got a dated answer; whether the fix is right is still
