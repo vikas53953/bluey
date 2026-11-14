@@ -21,6 +21,8 @@ name: live-sentinel
 on:
   schedule:
     - cron: '17 21 * * *'
+  pull_request:
+    branches: [quality/live-sentinel]
   workflow_dispatch:
     inputs:
       model:
