@@ -267,56 +267,6 @@ public partial class MainWindow : Window
         }
     }
 
-    public void StopAll()
-    {
-        StopHoldToTalk();
-        _generation++;
-        _coordinator.Stop();
-
-        _requestCancellation.Cancel();
-        _requestCancellation.Dispose();
-        _requestCancellation = new CancellationTokenSource();
-        _requestLease = null;
-
-        StopAudioUploads();
-
-        try
-        {
-            _audio?.Stop();
-        }
-        catch (Exception ex) when (ex is InvalidOperationException)
-        {
-            StatusText.Text = SanitizedError(ex, "Audio stopped");
-        }
-
-        var realtimeToStop = _realtime;
-        _realtime = null;
-        if (realtimeToStop is not null)
-        {
-            _ = InterruptRealtimeAsync(realtimeToStop);
-        }
-
-        _listening = false;
-        _realtimeConnected = false;
-        _voiceTaskAuthorized = false;
-        _onMicrophoneActivity(false);
-        TalkButton.Content = "Talk";
-        ListeningStatus.Text = "Microphone stopped. Screen activity is shown in the sharing indicator.";
-        ClearAnnotations();
-        ClearActionPreview();
-        _ = CompletePendingRealtimeToolAsync("Action stopped before approval or commit.");
-        if (_focus is { Snapshot.Status: Boo.Core.FocusStatus.Running })
-        {
-            _focus.Pause("Stopped");
-            StopFocusMonitoring();
-            SaveFocusSnapshot();
-            _focusTimer.Stop();
-            FocusStatus.Text = "Paused by Stop; Resume is explicit.";
-        }
-        UpdateCaptureIndicator();
-        SetFace(new FaceInputs(FocusPaused: _focus is { Snapshot.Status: Boo.Core.FocusStatus.Paused }));
-    }
-
     public void DisposeShell()
     {
         _closingForExit = true;
@@ -748,7 +698,7 @@ public partial class MainWindow : Window
         SetFace(_faceInputs with { Thinking = true, Responding = false, Caption = null });
         AppendTranscript("You", text);
         InputBox.Clear();
-        StatusText.Text = "Thinking about the selected context…";
+        ShowBusyStatus("Thinking about the selected context…", lease.Generation);
         var activity = _captureActivities.CreateOperation();
         var handedToRealtime = false;
         try
@@ -800,7 +750,7 @@ public partial class MainWindow : Window
             {
                 _voiceTaskAuthorized = intent == RequestKind.Task;
                 await _realtime.SendTextAsync(text, lease.Token);
-                StatusText.Text = "Sent to the voice conversation; waiting for the response…";
+                ShowBusyStatus("Sent to the voice conversation; waiting for the response…", lease.Generation);
                 // The realtime reply (audio delta / response.done / error) clears Thinking.
                 handedToRealtime = IsCurrent(lease.Generation);
                 return;
@@ -1317,129 +1267,6 @@ public partial class MainWindow : Window
         _pendingActions.Clear();
     }
 
-    private void FocusStartButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrWhiteSpace(FocusTaskBox.Text))
-        {
-            FocusStatus.Text = "Name the focus task first.";
-            return;
-        }
-        if (!double.TryParse(FocusDurationBox.Text, out var minutes) || minutes <= 0)
-        {
-            FocusStatus.Text = "Enter a positive duration in minutes.";
-            return;
-        }
-
-        try
-        {
-            _focusCancellation.Cancel();
-            _focusCancellation.Dispose();
-            _focusCancellation = new CancellationTokenSource();
-            if (_focus is { Status: not Boo.Core.FocusStatus.Ended } superseded)
-            {
-                // Start while a session is live replaces it explicitly: settle it as ended and save it, so it is not
-                // left Running in sessions.db and reported as "interrupted when Boo closed" at the next start.
-                // No happy face or chirp: those belong to the session the user finishes.
-                superseded.SessionEnded -= Focus_OnSessionEnded;
-                superseded.EndQuietly();
-                SaveFocusSnapshot(superseded);
-            }
-            _focus = new FocusSessionController(FocusTaskBox.Text.Trim(), Math.Clamp(minutes * 60d, 60d, 14400d),
-                DeveloperModeBox.IsChecked == true, _timeProvider);
-            _focus.SessionEnded += Focus_OnSessionEnded;
-            _focusCaptureInFlight = false;
-            _lastFocusSaveRealElapsed = 0;
-            _focusClock.Start();
-            _focusTimer.Start();
-            _focusCaptureTimer.Start();
-            SaveFocusSnapshot();
-            UpdateFocusView();
-            FocusStatus.Text = "Running; monitoring pauses on Stop, lock, sleep, or Pause.";
-            SetFace(_faceInputs with { FocusPaused = false, Happy = false });
-        }
-        catch (Exception ex)
-        {
-            FocusStatus.Text = SanitizedError(ex, "Focus session is not available yet.");
-        }
-    }
-
-    private void FocusPauseButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_focus is null)
-        {
-            return;
-        }
-        try
-        {
-            _focus.Pause("User pause");
-            _focusTimer.Stop();
-            StopFocusMonitoring();
-            SaveFocusSnapshot();
-            UpdateFocusView();
-            FocusStatus.Text = "Paused. Resume is explicit; unlock/reconnect will not resume it.";
-            SetFace(_faceInputs with { FocusPaused = true });
-        }
-        catch (Exception ex)
-        {
-            FocusStatus.Text = SanitizedError(ex, "Could not pause focus.");
-        }
-    }
-
-    /// <summary>Nudge pills on the notch: "Back to it" dismisses the nudge; "5 min break" pauses focus (resume stays explicit).</summary>
-    public void HandleNudgeAction(bool takeBreak)
-    {
-        SetFace(_faceInputs with { NudgeShowing = false });
-        if (takeBreak && _focus is { Status: Boo.Core.FocusStatus.Running })
-        {
-            FocusPauseButton_OnClick(this, new RoutedEventArgs());
-            FocusStatus.Text = "On a 5 minute break. Press Resume when you are back.";
-        }
-    }
-
-    private void FocusResumeButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_focus is null)
-        {
-            return;
-        }
-        try
-        {
-            if (_focus.Status != Boo.Core.FocusStatus.Paused)
-            {
-                return;
-            }
-            _focus.Resume();
-            _focusCancellation.Dispose();
-            _focusCancellation = new CancellationTokenSource();
-            _focusCaptureTimer.Start();
-            _focusClock.Start();
-            _focusTimer.Start();
-            UpdateFocusView();
-            FocusStatus.Text = "Running after explicit Resume.";
-            SetFace(_faceInputs with { FocusPaused = false });
-        }
-        catch (Exception ex)
-        {
-            FocusStatus.Text = SanitizedError(ex, "Could not resume focus.");
-        }
-    }
-
-    private void FocusEndButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_focus is null)
-        {
-            return;
-        }
-        try
-        {
-            _focus.End(); // Focus_OnSessionEnded stops, saves and updates the view.
-        }
-        catch (Exception ex)
-        {
-            FocusStatus.Text = SanitizedError(ex, "Could not end focus.");
-        }
-    }
-
     private void FocusTimer_OnTick(object? sender, EventArgs e)
     {
         if (_focus is null)
@@ -1459,7 +1286,7 @@ public partial class MainWindow : Window
                 SaveFocusSnapshot();
                 UpdateFocusView();
                 FocusStatus.Text = "Paused after sleep. Press Resume to continue.";
-                SetFace(_faceInputs with { FocusPaused = true });
+                SetFace(WithFocusFace(_faceInputs));
                 return;
             }
             _focus.Tick(tick.Seconds); // Focus_OnSessionEnded stops, saves and updates on completion.
@@ -1489,7 +1316,7 @@ public partial class MainWindow : Window
                 }
                 SaveFocusSnapshot();
                 UpdateFocusView();
-                SetFace(_faceInputs with { FocusPaused = true });
+                SetFace(WithFocusFace(_faceInputs));
             }
             catch (Exception)
             {
@@ -2297,7 +2124,7 @@ public partial class MainWindow : Window
                             _focusTimer.Stop();
                             StopFocusMonitoring();
                             SaveFocusSnapshot();
-                            SetFace(_faceInputs with { FocusPaused = true });
+                            SetFace(WithFocusFace(_faceInputs));
                         }
                         StatusText.Text = realtimeEvent.Kind == "error" && realtimeEvent.Text is { Length: > 0 } errorText
                                           && errorText != RealtimeProtocol.GenericErrorText
@@ -2461,16 +2288,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private void AppendTranscript(string speaker, string text)
-    {
-        if (text.Length == 0)
-        {
-            return;
-        }
-        _transcript.Add(new TranscriptLine(speaker, text));
-        ScrollTranscriptToEnd();
-    }
-
     private void AppendSourceLink(SourceLink source)
     {
         if (!Uri.TryCreate(source.Url, UriKind.Absolute, out var uri)
@@ -2507,70 +2324,6 @@ public partial class MainWindow : Window
             });
         }
         e.Handled = true;
-    }
-
-    private void ApplyRealtimeTranscript(RealtimeEvent value)
-    {
-        var update = _realtimeTranscript.Apply(value);
-        if (update is null)
-        {
-            return;
-        }
-        if (update.Speaker == "Boo" && update.Text.Length > 0)
-        {
-            // Boo's spoken words are typed into the notch while it is responding.
-            SetFace(_faceInputs with { Caption = update.Text });
-        }
-        if (update.Text.Length == 0 && value.Kind is not
-            ("conversation.item.input_audio_transcription.completed" or
-             "response.output_audio_transcript.done" or "response.output_text.done"))
-        {
-            return;
-        }
-
-        var key = (update.ItemId, update.ContentIndex, update.Speaker);
-        if (_realtimeTranscriptRows.TryGetValue(key, out var index))
-        {
-            if (update.Text.Length == 0)
-            {
-                RemoveRealtimeTranscriptRow(key, index);
-            }
-            else
-            {
-                _transcript[index] = new TranscriptLine(update.Speaker, update.Text);
-            }
-        }
-        else if (update.Text.Length > 0)
-        {
-            _realtimeTranscriptRows.Add(key, _transcript.Count);
-            AppendTranscript(update.Speaker, update.Text);
-            return;
-        }
-        ScrollTranscriptToEnd();
-    }
-
-    private void ScrollTranscriptToEnd()
-    {
-        if (_transcript.Count > 0)
-        {
-            // The non-virtualizing list generates the new container synchronously but has not measured it
-            // yet; without UpdateLayout, ScrollIntoView would scroll to a stale zero-sized rect.
-            TranscriptList.UpdateLayout();
-            TranscriptList.ScrollIntoView(_transcript[^1]);
-        }
-    }
-
-    private void RemoveRealtimeTranscriptRow((string ItemId, int ContentIndex, string Speaker) key, int index)
-    {
-        _transcript.RemoveAt(index);
-        _realtimeTranscriptRows.Remove(key);
-        foreach (var laterKey in _realtimeTranscriptRows.Keys.ToArray())
-        {
-            if (_realtimeTranscriptRows[laterKey] > index)
-            {
-                _realtimeTranscriptRows[laterKey]--;
-            }
-        }
     }
 
     private void ClearAnnotations()
@@ -2620,8 +2373,6 @@ public partial class MainWindow : Window
             _ => fallback
         };
     }
-
-    private sealed record TranscriptLine(string Speaker, string Text);
 
     private sealed class NativeWindowOwner : Forms.IWin32Window
     {
