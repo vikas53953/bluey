@@ -177,3 +177,5 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 | 14 Nov 2026 | Add Stopped acknowledgment locally to notch right-click after Stop callback. | Issue103 reproduced by unchanged native Q12E: authorized proposal dismissed without file effect, missing acknowledgment. No broader Stop refactor. | Issue103; Actions43569476826 at982434d; PR #54 | proposed; repair UNVERIFIED pending native run |
 
 | 14 Nov 2026 | Add Q13R bounded Pause/Resume coverage with contract version5. | Require ordered action-timed faces before scheduled capture; use second Pause for durable session readback, without inventing immediate Resume persistence. Full j13 remains incomplete. | PR #54; independent source review; native result UNVERIFIED | proposed |
+
+| 14 Nov 2026 | Prioritize gate-only Codex review after syncing #54 to lane/face5062574. | Pipeline manager requires strict current-base CI plus verifier-owned codex-verified status; incomplete native journeys stay honest RED. | Pipeline manager instruction; PR #54 | proposed |

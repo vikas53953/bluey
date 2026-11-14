@@ -472,3 +472,7 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 bounded focus Pause/Resume (14 Nov 2026)
 
 **manual:** Q13R adds only j13 Pause/Resume: unique stored session, explicit Pause, pinned face, single Resume and ordered Idle/Hidden event timestamps within three seconds of invocation. Complete observation rejects Capture and retains 100ms recorder health. Second Pause is the documented persistence checkpoint; immediate Resume persistence remains **UNVERIFIED**. Contract5 requires Q13R; F17 UNVERIFIED. Reviewer corrections applied; native run pending. Q13/Q12G unchanged; full j13 stays required incomplete. Focused workflow selects Q13R explicitly without a provider key; paid Q12E remains manual-only.
+
+### PR #54 gate-priority base sync (14 Nov 2026)
+
+**manual:** synced lane/face `5062574` (#90), importing its frozen tests/oracle unchanged (revision28/149). Acceptance contract implementation originated in d727001; current contract5 includes subsequent explicitly required coverage IDs. Named Codex reviewer requested to assess only the acceptance gate on this sync head; undriven journeys remain RED and no full-app QA PASS is asserted. New codex-verified status is owned by the verifier, not this builder.
