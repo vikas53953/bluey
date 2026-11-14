@@ -1,5 +1,5 @@
 {
-  "revision": 27,
+  "revision": 28,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -24,6 +24,7 @@
     "tests/Boo.Core.Tests/AnnotationTests.cs": "1f1962949bd071b2f5d737dec682e87aa1c4331d284465d2e835d2c71602edfd",
     "tests/Boo.Core.Tests/BlinkSchedulerTests.cs": "0669e591fbfccdbfc775ac63475cdb62689fdd6e2eb45a4e2f52a7225bb9650d",
     "tests/Boo.Core.Tests/Boo.Core.Tests.csproj": "7cd21b65b94dcbfda955f36f371a317ae90896f2dda12dd8f82ba937d2ef0947",
+    "tests/Boo.Core.Tests/BusyStatusLineTests.cs": "cfe90314c00eea5d75d20e631e204840b0523fe568e12905133bc85e39e087e3",
     "tests/Boo.Core.Tests/CaptionRevealCompletionTests.cs": "61f954a7d1f7cb647ea2a5bff1f377a730bc08179a06023d9a056c40d898e5ae",
     "tests/Boo.Core.Tests/CaptionStreamTests.cs": "cbd6370bf3c1aa4ced1ac2fb7892fe19ce759da96438da83704aa6ad603264d4",
     "tests/Boo.Core.Tests/CaptureActivityTests.cs": "2e2f5e08d7d0119afc2e8f33f89af0bf2dbcda00cfbfc350fd8bbaed13d04bb4",
@@ -152,13 +153,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-26.json",
-  "previousManifestSha256": "69154fcbea6b8fc535687ebb386d66ff494f4c999ae4b5b2958871a6217ba0be",
-  "revisionReason": "PR 2.4 (#43): NotchLifecycle reducer tests",
+  "previousManifest": "docs/verification/test-oracle-history/revision-27.json",
+  "previousManifestSha256": "23c588f1cc8433d787f996dd4cee61508de75a043a2bb9d5f0a55a4eb15ef0be",
+  "revisionReason": "PR #83 (issue #71): add tests/Boo.Core.Tests/BusyStatusLineTests.cs, a mutation-driven unit test for the new Boo.Core.BusyStatusLine (the Codex mutation tester's surviving mutant M3: the stale-generation guard of the busy status line). Additive only; no frozen file changes.",
   "addedFiles": [
-    "tests/Boo.Core.Tests/NotchLifecycleTests.cs"
+    "tests/Boo.Core.Tests/BusyStatusLineTests.cs"
   ],
-  "revisionCommit": "b98d66c8dfd20920058e251a044c49d678a0f6ae",
+  "revisionCommit": "aa7c88379e5342a12dcdcba18a6cd68df868864e",
   "changedFiles": [],
   "removedFiles": []
 }
