@@ -1,0 +1,199 @@
+name: live-pass3
+
+# BOO-LIVE-003 (pass^k, k=3): one green live run can be luck. A real-AI path counts as proven only when the SAME live
+# round trip passes k independent attempts in a row (default 3, at most 5), and the run reports the pass rate.
+# Not a required check (owner decision); it complements the single required `live-ai-smoke` run on every PR.
+# How it works and what it costs: docs/quality/live-pass3.md.
+#
+# One build and publish, then the existing typed live round trip (tools/Boo.LiveSmoke, LiveRoundTripTests) runs k
+# times, each a fresh `dotnet test` that starts a fresh Boo.exe in a clean folder. No retry-until-green: every attempt
+# runs once and is recorded; scripts/ci/pass_k.py prints `PASS^k: P/k` and fails the job unless P == k.
+#
+# RUNS ONLY ON GITHUB'S OWN WINDOWS VM (windows-latest), never the owner's PC (same rule as live-ai-smoke). The key is
+# read only from the BOO_LIVE_OPENAI_KEY secret, never printed, and every upload is key-scanned first (BOO-SAFE-002).
+
+on:
+  pull_request:
+    paths:
+      - 'src/Boo.Providers/**'
+      - 'src/Boo.App/Boo.App.csproj'
+      - 'src/Boo.App/MainWindow.xaml.cs'
+      - 'src/Boo.App/MainWindow.Talk.cs'
+      - 'src/Boo.App/MainWindow.Edits.cs'
+      - 'src/Boo.App/MainWindow.Voice.cs'
+      - 'tools/Boo.LiveSmoke/**'
+      - '.github/workflows/live-pass3.yml'
+      - 'scripts/ci/pass_k.py'
+  workflow_dispatch:
+    inputs:
+      attempts:
+        description: Independent live attempts that must all pass (3 to 5)
+        type: number
+        default: 3
+      model:
+        description: OpenAI chat model id (blank = gpt-6-luna, the cheap model the live smoke uses)
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-pass3-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pass3:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      BOO_CAPTURE_SCOPE: boo-windows
+      PASS_K: ${{ inputs.attempts || 3 }}
+      BOO_LIVE_MODEL: ${{ inputs.model || 'gpt-6-luna' }}
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=live-pass3 refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)'). Set this job's runner back to windows-latest."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
+      - name: pass^k judge self-test and attempt count (3 to 5)
+        shell: pwsh
+        run: |
+          python -I scripts/ci/pass_k.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python -I scripts/ci/pass_k.py --check-k "$env:PASS_K"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Require the OpenAI key (fail closed), mask it, check the model id
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          $v = "$env:OPENAI_KEY"
+          if ([string]::IsNullOrWhiteSpace($v)) { '::error title=live-pass3 FAILED CLOSED::Repository secret BOO_LIVE_OPENAI_KEY is missing or empty. This run is NOT a pass.'; exit 1 }
+          if ($v.Trim() -ne $v -or $v.Length -lt 20) { '::error title=live-pass3 FAILED CLOSED::Repository secret BOO_LIVE_OPENAI_KEY is malformed (spaces or too short).'; exit 1 }
+          Write-Output "::add-mask::$v"
+          if ($env:BOO_LIVE_MODEL -notmatch '^[A-Za-z0-9._:-]{1,128}$') { "::error title=live-pass3 FAILED CLOSED::Model '$env:BOO_LIVE_MODEL' is not a valid model id."; exit 1 }
+          "Key present ($($v.Length) characters). Model: $env:BOO_LIVE_MODEL. Attempts: $env:PASS_K."
+          New-Item -ItemType Directory -Force -Path artifacts/pass3-evidence/attempts, artifacts/pass3-summary | Out-Null
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Publish Boo and build the live smoke test (once)
+        run: |
+          dotnet restore Boo.sln
+          dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/live
+          dotnet build tools/Boo.LiveSmoke -c Release
+
+      - name: Live round trip, k independent attempts (fresh Boo.exe each, no retry)
+        timeout-minutes: 30
+        shell: pwsh
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\live\Boo.exe
+          BOO_LIVE_TEXT_PROVIDER: openai
+          BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          $k = [int]$env:PASS_K
+          for ($i = 1; $i -le $k; $i++) {
+            Get-Process -Name Boo -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            $dir = Join-Path $env:GITHUB_WORKSPACE "artifacts\pass3-evidence\attempts\attempt-$i"
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            $env:BOO_UI_ARTIFACTS = $dir
+            "===== attempt $i of $k ====="
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            & dotnet test tools/Boo.LiveSmoke -c Release --no-build --filter "FullyQualifiedName~Boo.LiveSmoke.LiveRoundTripTests" --logger trx --logger "console;verbosity=normal" --results-directory "$dir\trx"
+            $code = $LASTEXITCODE
+            $sw.Stop()
+            [ordered]@{ attempt = $i; exitCode = $code; seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1) } | ConvertTo-Json | Set-Content -LiteralPath "$dir\result.json" -Encoding utf8
+            Get-ChildItem $dir -Filter *.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+            "attempt $i of $k finished: exit $code in $([math]::Round($sw.Elapsed.TotalSeconds))s"
+          }
+          Get-Process -Name Boo -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+      - name: Screenshots are Boo windows only (never the desktop)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $images = '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tif', '.tiff', '.webp'
+          $bad = @(Get-ChildItem artifacts/pass3-evidence -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $images -contains $_.Extension.ToLowerInvariant() -and $_.Name -notmatch '^.+\.boo-\d+\.png$' })
+          if ($bad.Count -gt 0) { $bad | ForEach-Object { "::error title=live-pass3::$($_.Name) is not from the Boo-window renderer" }; exit 1 }
+          'Every screenshot is a Boo window capture.'
+
+      - name: pass^k verdict (all k attempts must pass)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          python -I scripts/ci/pass_k.py --judge artifacts/pass3-evidence/attempts --k "$env:PASS_K" --summary artifacts/pass3-summary/pass3.json --model "$env:BOO_LIVE_MODEL" | Tee-Object -Variable lines
+          $rc = $LASTEXITCODE
+          if ($env:GITHUB_STEP_SUMMARY) { @('### BOO-LIVE-003 pass^k', '') + @($lines | Where-Object { $_ -notmatch '^::' } | ForEach-Object { "    $_" }) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY }
+          exit $rc
+
+      - name: Key scan before upload (pass3 evidence)
+        id: keyscan_artifacts_pass3_evidence
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --secret-env OPENAI_KEY --delete artifacts/pass3-evidence; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/pass3-evidence' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/pass3-evidence')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload pass3 evidence (screenshots, observations, test results per attempt)
+        if: ${{ !cancelled() && steps.keyscan_artifacts_pass3_evidence.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-pass3-evidence
+          path: artifacts/pass3-evidence
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Key scan before upload (pass3 summary)
+        id: keyscan_artifacts_pass3_summary
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --secret-env OPENAI_KEY --delete artifacts/pass3-summary; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/pass3-summary' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/pass3-summary')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload pass3 summary (pass rate JSON)
+        if: ${{ !cancelled() && steps.keyscan_artifacts_pass3_summary.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-pass3-summary
+          path: artifacts/pass3-summary
+          if-no-files-found: error
+          retention-days: 7
