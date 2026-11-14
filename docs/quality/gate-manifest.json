@@ -1,0 +1,49 @@
+﻿{
+    "jobs":  [
+                 {
+                     "job":  "build-test-publish",
+                     "steps":  [
+                                   {
+                                       "name":  "Frozen-test oracle",
+                                       "run":  "python -I scripts/test_oracle.py"
+                                   },
+                                   {
+                                       "name":  "Test gate (source)",
+                                       "run":  "python -I scripts/test_gate.py static"
+                                   },
+                                   {
+                                       "name":  "Test gate (unit, integration, provider, live-guard and architecture results)",
+                                       "run":  "python -I scripts/test_gate.py trx artifacts/test-results/core artifacts/test-results/integration artifacts/test-results/providers artifacts/test-results/liveguard artifacts/test-results/architecture"
+                                   }
+                               ],
+                     "workflow":  ".github/workflows/windows-ci.yml"
+                 },
+                 {
+                     "job":  "gate-manifest",
+                     "steps":  [
+                                   {
+                                       "name":  "Dependencies",
+                                       "run":  "python -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt"
+                                   },
+                                   {
+                                       "env":  {
+                                                   "BASE_SHA":  "${{ github.event.pull_request.base.sha }}"
+                                               },
+                                       "name":  "Trusted base gate manifest",
+                                       "run":  "if ($env:BASE_SHA) {\n  git cat-file -e \"${env:BASE_SHA}^{commit}\" 2\u003e$null\n  if ($LASTEXITCODE -ne 0) { Write-Error \u0027BOO-CI-001 base commit is unavailable\u0027; exit 1 }\n  git cat-file -e \"${env:BASE_SHA}:scripts/quality/gate_manifest.py\" 2\u003e$null\n  $hasChecker = $LASTEXITCODE -eq 0\n  git cat-file -e \"${env:BASE_SHA}:docs/quality/gate-manifest.json\" 2\u003e$null\n  $hasManifest = $LASTEXITCODE -eq 0\n  if ($hasChecker -ne $hasManifest) { Write-Error \u0027BOO-CI-001 partial base contract: restore both checker and manifest\u0027; exit 1 }\n  if ($hasChecker) {\n    git show \"${env:BASE_SHA}:scripts/quality/gate_manifest.py\" | Set-Content -Encoding utf8 \"$env:RUNNER_TEMP/base_gate_manifest.py\"\n    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n    git show \"${env:BASE_SHA}:docs/quality/gate-manifest.json\" | Set-Content -Encoding utf8 \"$env:RUNNER_TEMP/base_gate_manifest.json\"\n    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n    python -I \"$env:RUNNER_TEMP/base_gate_manifest.py\" --root . --manifest \"$env:RUNNER_TEMP/base_gate_manifest.json\" --head-manifest docs/quality/gate-manifest.json\n    exit $LASTEXITCODE\n  }\n  Write-Output \u0027Base has no manifest yet; this PR introduces the contract.\u0027\n}\nexit 0\n",
+                                       "shell":  "pwsh"
+                                   },
+                                   {
+                                       "name":  "Gate manifest self-test",
+                                       "run":  "python -I scripts/quality/gate_manifest.py --self-test"
+                                   },
+                                   {
+                                       "name":  "Gate manifest",
+                                       "run":  "python -I scripts/quality/gate_manifest.py"
+                                   }
+                               ],
+                     "workflow":  ".github/workflows/gate-manifest.yml"
+                 }
+             ],
+    "schema":  1
+}
