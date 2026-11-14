@@ -154,7 +154,7 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 
 | F15 | j12g Stop while already Paused preserves session and pinned face; other j12 branches pending | UNVERIFIED | `tools/Boo.QaSuite/Journeys/PausedStopTests.cs::Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace` |
 
-| F16 | j12e physical notch right-click cancels pending approval and acknowledges Stop | UNVERIFIED | `tools/Boo.QaSuite/Journeys/ApprovalStopTests.cs::Q12E_NotchRightClick_ClearsPendingProposalAndAcknowledgesStop` |
+| F16 | j12e physical notch right-click cancels pending approval and acknowledges Stop (issue #103 red; repair pending live) | UNVERIFIED | `tools/Boo.QaSuite/Journeys/ApprovalStopTests.cs::Q12E_NotchRightClick_ClearsPendingProposalAndAcknowledgesStop` |
 
 | T20 | Offline spoken-audio boundary: A_window_exactly_at_the_quiet_floor_is_not_speech_and_one_just_above_is | automated mock | `tools/Boo.LiveSmoke/SpokenAudioTests.cs::A_window_exactly_at_the_quiet_floor_is_not_speech_and_one_just_above_is` |
 

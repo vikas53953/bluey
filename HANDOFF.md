@@ -464,3 +464,7 @@ https://github.com/vikas53953/bluey/actions/runs/43465131653 tested app/harness 
 ### PR #54 harness corrections after #48 (14 Nov 2026)
 
 **manual:** synced lane/face `bfc7288` (#48). Failed contract gate43569050438 correctly found five newly integrated offline SpokenAudio methods absent from the contract; version4 now requires ST0-ST4, labelled mock in reports. Q12E build failed xUnit2010 (string comparison assertion); use the equivalent case-insensitive Assert.Equal. Both focused runs stopped before native Q12E; neither proves the suspected right-click bug. No product repair, skip, retry or threshold change. Exact-head compilation/native behavior remain **UNVERIFIED**.
+
+### PR #54 issue #103 native regression and narrow repair (14 Nov 2026)
+
+**live failure:** [Q12E red run43569476826](https://github.com/vikas53953/bluey/actions/runs/43569476826) at982434d: verified pocket hit, actionable write card dismissed, file absent throughout, but Stopped acknowledgment missing. Pending/dismissed screenshots, logs and TRX inspected. Filed [issue103](https://github.com/vikas53953/bluey/issues/103). **manual:** add ShowStoppedBriefly after the right-click handler Stop callback, matching the hotkey acknowledgment. Regression unchanged. Repair remains **UNVERIFIED** until a new native run passes; full-app NOT PASSED.

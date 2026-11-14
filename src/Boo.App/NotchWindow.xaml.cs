@@ -1383,6 +1383,7 @@ public partial class NotchWindow : Window
     private void NotchSurface_OnMouseRightButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         _onStop();
+        ShowStoppedBriefly();
         e.Handled = true;
     }
 

@@ -173,3 +173,5 @@ face B selected. Tests and assertion counts did not drop. Full per-file record: 
 | 14 Nov 2026 | Add j12e/Q12E regression before changing right-click Stop acknowledgment; contract version3. | Avoid falsely blaming Stop for a click outside the visible pocket. Verify hit, proposal authorization and strict card/file readbacks. | PR #54; independent reviewer findings; native result UNVERIFIED | proposed |
 
 | 14 Nov 2026 | Retain fail-closed method bijection after #48 adds five offline smoke tests; contract version4 adds ST0-ST4. | Synthetic PR merge exposed genuine missing contract coverage. Offline tests must be required and reported mock; Q12E assertion corrected for xUnit2010 without weakening equality. | PR #54; failed runs43569050438/43569050435/43569075341 | proposed; native Q12E UNVERIFIED |
+
+| 14 Nov 2026 | Add Stopped acknowledgment locally to notch right-click after Stop callback. | Issue103 reproduced by unchanged native Q12E: authorized proposal dismissed without file effect, missing acknowledgment. No broader Stop refactor. | Issue103; Actions43569476826 at982434d; PR #54 | proposed; repair UNVERIFIED pending native run |
