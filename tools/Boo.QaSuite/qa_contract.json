@@ -1,0 +1,50 @@
+{
+  "contract_version": 1,
+  "groups": {
+    "contracts": {
+      "C66": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot"
+    },
+    "antimock": {
+      "AM0": "Boo.QaSuite.AntiMock.AntiMockTests.AM0_ShippedBuild_HoldsNoMockOrTestCode",
+      "AM1": "Boo.QaSuite.AntiMock.AntiMockTests.AM1_NoAiHostRedirected_NoProxy_NoHostsPin",
+      "AM2": "Boo.QaSuite.AntiMock.AntiMockTests.AM2_NoPlantedRootCertificate_AndOpenAIsRealCertificateValidates"
+    },
+    "journeys": {
+      "Q15": "Boo.QaSuite.Journeys.ApprovalEdgeTests.Q15_CancelEscapeOrReplacement_CannotApplyAnOldProposal",
+      "Q10": "Boo.QaSuite.Journeys.EyeTapTests.Q10_PhysicalEyeTapUnder200Ms_OpensPanelWithoutListening",
+      "Q16": "Boo.QaSuite.Journeys.FileUndoEdgeTests.Q16_SecondApprovedFileUndo_RecreatesTheOriginalContents",
+      "Q67": "Boo.QaSuite.Journeys.FocusAutomationDiagnosticTests.Q67_CompactWindow_FocusStartPauseEnd_TenConsecutiveCyclesWithoutUiaErrors",
+      "Q13": "Boo.QaSuite.Journeys.FocusEdgeTests.Q13_EndFromPaused_AndReplaceRunningSession_KeepHistoryAndFacesHonest",
+      "Q7": "Boo.QaSuite.Journeys.HoverEdgeTests.Q7_HoverEdges_AllFourBranches_OnTheRealClock",
+      "S0": "Boo.QaSuite.Journeys.QaJourneyTests.S0_Launch_OnlyTheNotch_ThenHotkeyOpensThePanel",
+      "S1": "Boo.QaSuite.Journeys.QaJourneyTests.S1_Hover_WakesTheNotch_ThenItRetracts",
+      "S2": "Boo.QaSuite.Journeys.QaJourneyTests.S2_RealChat_EchoesARunTimeCode_AndTheNotchThinksThenResponds",
+      "S3": "Boo.QaSuite.Journeys.QaJourneyTests.S3_Stop_WhileAnAnswerIsOnItsWay_ClearsTheFaceAndNoAnswerLands",
+      "S4": "Boo.QaSuite.Journeys.QaJourneyTests.S4_Focus_StartPauseResumeEnd_AndTheNotchShowsPaused",
+      "S5": "Boo.QaSuite.Journeys.QaJourneyTests.S5_Settings_SaveWritesTheFile_AndANewBooStartsWithTheSameChoices",
+      "Q18": "Boo.QaSuite.Journeys.RequestGenerationTests.Q18_NewerTypedRequestWins_OnlyItsAnswerAppearsDuringLateResultWatch",
+      "QD15": "Boo.QaSuite.Journeys.SequentialApprovalTests.QD15_TwoFileSteps_RequireSeparateApprovalsAndShowNextStep"
+    },
+    "errors": {
+      "E0": "Boo.QaSuite.ErrorPaths.NoKeyErrorTests.E0_EmptyQuestion_AsksTheUserToTypeFirst",
+      "E1": "Boo.QaSuite.ErrorPaths.NoKeyErrorTests.E1_NoKey_SaysAddAKey_AndSendsNothing",
+      "E2": "Boo.QaSuite.ErrorPaths.BadKeyErrorTests.E2_BadKey_RealOpenAIRejectsIt_AndBooSaysPasteAValidKey",
+      "E3": "Boo.QaSuite.ErrorPaths.NetworkDownErrorTests.E3_NetworkDown_SaysCheckYourInternet_ThenRecoversWhenItIsBack",
+      "E4": "Boo.QaSuite.ErrorPaths.TimeoutErrorTests.E4_ProviderNeverAnswers_BooTimesOutHonestly_ThenRecovers"
+    },
+    "smoke": {
+      "TypedQuestion": "Boo.LiveSmoke.LiveRoundTripTests.TypedQuestion_GetsAnAnswerFromTheRealProvider",
+      "SpokenQuestion": "Boo.LiveSmoke.LiveVoiceRoundTripTests.SpokenQuestion_GetsASpokenAnswerFromRealOpenAiVoice"
+    },
+    "verifylive": {
+      "J0": "Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey",
+      "J1": "Boo.VerifyLive.LiveJourneyTests.J1_NotchWakes_OnHover",
+      "J2": "Boo.VerifyLive.LiveJourneyTests.J2_TypedChat_GetsARealAnswer",
+      "J3": "Boo.VerifyLive.LiveJourneyTests.J3_ScreenExplain_PointerAndRingLandOnTheTarget",
+      "J4": "Boo.VerifyLive.LiveJourneyTests.J4_Research_ShowsRealSourceLinks",
+      "J5": "Boo.VerifyLive.LiveJourneyTests.J5_ApplyThenUndo_OnlyAfterApproval",
+      "J6": "Boo.VerifyLive.LiveJourneyTests.J6_FocusSession_25Minutes_OnTheDeveloperModeClock"
+    }
+  },
+  "retired": {}
+}

@@ -118,6 +118,21 @@ jobs:
         with:
           persist-credentials: false
           clean: true
+          fetch-depth: 0
+
+      - name: Anchor acceptance gate to integration merge-base
+        shell: pwsh
+        run: |
+          git fetch origin lane/face
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $base = git merge-base origin/lane/face HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "QA_BASE_REF=$base" >> $env:GITHUB_ENV
+          "QA_JOB_STARTED=$([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))" >> $env:GITHUB_ENV
+          python -m pip install jsonschema==4.23.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I tools/Boo.QaSuite/qa_gate.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Check out the app under test
         uses: actions/checkout@v4

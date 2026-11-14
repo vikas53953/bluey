@@ -13,6 +13,7 @@ import os
 import pathlib
 import re
 import sys
+import subprocess
 import xml.etree.ElementTree as ET
 
 NS = {'t': 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}
@@ -294,6 +295,8 @@ def main(argv):
     folder = pathlib.Path(argv[0])
     text, green = build(folder, opts.get('--run-url', ''), opts.get('--app-sha', ''), opts.get('--harness-sha', ''),
                         opts.get('--models', ''))
+    gate = subprocess.run([sys.executable, str(pathlib.Path(__file__).with_name('qa_gate.py')), str(folder)], check=False)
+    green = green and gate.returncode == 0
     (folder / 'summary.md').write_text(text, encoding='utf-8')
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:

@@ -1,0 +1,47 @@
+name: qa-contract-gate
+on:
+  workflow_dispatch:
+    inputs:
+      plant_failure:
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - tools/Boo.QaSuite/qa_gate.py
+      - tools/Boo.QaSuite/qa_contract.json
+      - tools/Boo.QaSuite/qa_report.schema.json
+      - .github/workflows/qa-contract-gate.yml
+permissions:
+  contents: read
+jobs:
+  gate:
+    runs-on: windows-latest
+    steps:
+      - name: Refuse unless GitHub's own VM
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') { exit 1 }
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Contract regression cases and independent source mapping
+        shell: pwsh
+        run: |
+          python -m pip install jsonschema==4.23.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I tools/Boo.QaSuite/qa_gate.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git fetch origin lane/face
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I tools/Boo.QaSuite/qa_gate.py --check-contract
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Deliberate acceptance failure (red proof)
+        if: inputs.plant_failure
+        shell: pwsh
+        run: |
+          python -I tools/Boo.QaSuite/qa_gate.py --red-proof
+          exit $LASTEXITCODE
