@@ -131,7 +131,7 @@ internal sealed class WindowsFrameCaptureBackend : IFrameCaptureBackend, IDispos
             // affinity even if one restoration fails.
             try
             {
-                RestoreCaptureAffinity(affinity);
+                RestoreCaptureAffinity(Array.Empty<WindowAffinity>());
             }
             catch (Exception restoreError)
             {
