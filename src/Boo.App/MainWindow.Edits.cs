@@ -343,7 +343,7 @@ public partial class MainWindow
             observation => ActionReadback.VerifyExpected(observation, undo.Plan.Expected, "observed").Success);
         if (after is null)
         {
-            return outcome;
+            return UnverifiedUndo(outcome);
         }
 
         var restored = _undoJournal.VerifyUndo(after, undo.Plan);
@@ -355,6 +355,15 @@ public partial class MainWindow
         AppendTranscript("Boo", restored.Message);
         return restored;
     }
+
+    /// <summary>
+    /// An Undo step ran but Boo could not re-read the window to confirm the restore (issue #157). It is reported as not
+    /// verified, never as "Completed after verification", and the recorded edit is kept: clearing the journal on a
+    /// failed observation could hide an Undo that did not happen.
+    /// </summary>
+    internal static ToolOutcome UnverifiedUndo(ToolOutcome executed) =>
+        new(false, executed.Committed,
+            "partial/unverified: Undo ran, but Boo could not re-read the window to confirm it; the recorded edit is kept.");
 
     /// <summary>
     /// Re-reads the target's controls through the existing observation path, up to
