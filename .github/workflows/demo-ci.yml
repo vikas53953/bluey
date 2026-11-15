@@ -62,6 +62,23 @@ jobs:
           dotnet build tools/Boo.LiveSmoke -c Release
           dotnet build tools/Boo.VerifyLive -c Release
           dotnet build tools/Boo.CaptureProof -c Release
+          dotnet build tools/Boo.CaptureAffinity -c Release
+
+      # Issue #146: Boo's real capture backend must put every window whose display affinity it changed for a capture
+      # back to its ORIGINAL value (success, failed capture, cancellation, one failed restore). Real windows owned by
+      # the test process, real affinity read back from Windows; no Boo.exe, no AI. Runs before the recorder and the
+      # demos, so its test windows are closed before anything is filmed. Changes window affinity: GitHub-hosted only.
+      # TRX lands inside demo-evidence, so the existing key-scanned upload carries it.
+      - name: Capture-affinity restoration (real windows, real affinity)
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          dotnet test tools/Boo.CaptureAffinity -c Release --no-build --logger trx --logger "console;verbosity=detailed" --results-directory artifacts/demo-evidence/affinity-trx
+
+      - name: Test gate (the capture-affinity restoration tests ran and passed)
+        if: always()
+        shell: pwsh
+        run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/demo-evidence/affinity-trx -SourceDirectory tools/Boo.CaptureAffinity
 
       # Video of the demo run (agent-trust plan 2.8): records this GitHub VM's desktop, never a personal PC (the script
       # refuses unless RUNNER_ENVIRONMENT is github-hosted, BOO-SAFE-001). Pinned ffmpeg, SHA-256 checked.
