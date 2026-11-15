@@ -67,12 +67,18 @@ jobs:
           ARM_ENV: ${{ matrix.booenv }}
         run: ./scripts/perf/idle_diag.ps1 -ExePath artifacts/ci/Boo.exe -OutDir artifacts/perf-diag -Launches ([int]$env:LAUNCHES) -BooEnv @($env:ARM_ENV)
 
-      - name: Summary
+      # One command per step (Codex review BLOCK on 5a3922b): --strict failing must fail the job, never be hidden.
+      - name: Summary (--strict, every launch must be measurable)
         if: ${{ !cancelled() }}
         shell: pwsh
-        run: |
-          python -I scripts/perf/idle_diag_summary.py artifacts/perf-diag --out artifacts/perf-diag/summary.md --strict
-          Get-Content artifacts/perf-diag/summary.md | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+        env:
+          LAUNCHES: ${{ github.event.inputs.launches || '10' }}
+        run: python -I scripts/perf/idle_diag_summary.py artifacts/perf-diag --out artifacts/perf-diag/summary.md --strict --expect-launches $env:LAUNCHES
+
+      - name: Summary to the run page
+        if: ${{ !cancelled() && hashFiles('artifacts/perf-diag/summary.md') != '' }}
+        shell: pwsh
+        run: Get-Content artifacts/perf-diag/summary.md | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
 
       # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
       # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
