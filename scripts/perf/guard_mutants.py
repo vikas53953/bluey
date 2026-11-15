@@ -91,7 +91,8 @@ GUARDS = {
                                kind=('selftest',)),
 }
 
-# id -> (file, exact text, replacement, guard, the evidence its failure must show)
+# id -> (file, exact text, replacement, guard, the evidence its failure must show). For a TRX guard the evidence is the
+# test name, or a tuple of names, that must fail: exactly that set, no more and no fewer.
 MUTANTS = {
     'M01': (CSPROJ, '<TieredPGO>false</TieredPGO>', '<TieredPGO>true</TieredPGO>', 'runtime-settings',
             'System.Runtime.TieredPGO is true'),
@@ -107,7 +108,9 @@ MUTANTS = {
              'Busy_managed_work_is_read_as_user_cpu_not_kernel_cpu'),
     'M03r': (READER, 'JitMethods: System.Runtime.JitInfo.GetCompiledMethodCount(currentThread: false),\n'
                      '            JitTime: System.Runtime.JitInfo.GetCompilationTime(currentThread: false),',
-             'JitMethods: 0,\n            JitTime: TimeSpan.Zero,', 'reader-tests', 'Compiling_a_new_method_raises_the_jit_counters'),
+             'JitMethods: 0,\n            JitTime: TimeSpan.Zero,', 'reader-tests',
+             ('Compiling_a_new_method_raises_the_jit_counters', 'Jit_methods_compiled_on_another_thread_are_counted',
+              'Jit_time_spent_on_another_thread_is_counted')),
     'M04r': (READER, 'ProbeWrites: meter.Writes,\n            ProbeWriteTime: meter.Total);',
              'ProbeWrites: 0,\n            ProbeWriteTime: TimeSpan.Zero);', 'reader-tests',
              'The_probe_write_meter_is_passed_through'),
@@ -239,10 +242,11 @@ def judge(guard, rc, output, expect, read=read_trx):
             return (KILLED, f'all {len(guard.tests)} tests passed') if not failed else (SURVIVED, f'the real code failed: {failed}')
         if not failed:
             return SURVIVED, f'all {len(guard.tests)} tests passed with the fault in place'
-        wanted = [t for t in guard.tests if t.rsplit('.', 1)[-1] == expect]
-        if failed == wanted:
-            return KILLED, f'{expect} failed, the other {len(guard.tests) - 1} passed'
-        return INVALID, f'failing tests {failed}, expected exactly [{expect}]'
+        names = (expect,) if isinstance(expect, str) else tuple(expect)
+        wanted = sorted(t for t in guard.tests if t.rsplit('.', 1)[-1] in names)
+        if len(wanted) == len(names) and sorted(failed) == wanted:
+            return KILLED, f'{", ".join(names)} failed, the other {len(guard.tests) - len(names)} passed'
+        return INVALID, f'failing tests {failed}, expected exactly {list(names)}'
     return INVALID, f'unknown guard kind {kind}'
 
 
@@ -287,7 +291,7 @@ def run(target, runner=execute, read=read_trx):
         print(f'MUTANT_INVALID {target}: {problem}')
         return EXIT[INVALID]
     guard_name, expect = MUTANTS[target][3], MUTANTS[target][4]
-    print(f'applied {target}; guard {guard_name} must fail with "{expect}"', flush=True)
+    print(f'applied {target}; guard {guard_name} must fail with {expect!r}', flush=True)
     verdict, why = run_guard(GUARDS[guard_name], expect, runner, read)
     print(f'MUTANT_{verdict} {target} ({guard_name}): {why}')
     return EXIT[verdict]
@@ -345,6 +349,14 @@ def self_test():
         ('control: valid all-pass receipt passes', 'snapshot-tests', None, [(0, ''), (0, '')], T(results=all_pass), KILLED),
         ('control: a build failure is INVALID, not a pass', 'snapshot-tests', None, [(1, 'error')], T(results=all_pass), INVALID),
         ('a different test fails: INVALID', 'snapshot-tests', expect_c, [(0, ''), (1, '')], T(results=other_fail), INVALID),
+        ('a set of named tests fails, exactly that set: KILLED', 'snapshot-tests', (expect_c, SNAPSHOT_TESTS[1].rsplit('.', 1)[-1]),
+         [(0, ''), (1, '')], T(results=[(t, 'Passed' if t == SNAPSHOT_TESTS[2] else 'Failed') for t in SNAPSHOT_TESTS]), KILLED),
+        ('only part of a named set fails: INVALID', 'snapshot-tests', (expect_c, SNAPSHOT_TESTS[1].rsplit('.', 1)[-1]),
+         [(0, ''), (1, '')], T(results=one_fail), INVALID),
+        ('a named set plus one more fails: INVALID', 'snapshot-tests', (expect_c, SNAPSHOT_TESTS[1].rsplit('.', 1)[-1]),
+         [(0, ''), (1, '')], T(results=[(t, 'Failed') for t in SNAPSHOT_TESTS]), INVALID),
+        ('a named test that is not in the guard: INVALID', 'snapshot-tests', 'No_such_test', [(0, ''), (1, '')],
+         T(results=one_fail), INVALID),
         # Invalid receipts (Codex review BLOCK on 1b1260d): each one used to be KILLED.
         ('summary outcome Aborted: INVALID', 'snapshot-tests', expect_c, [(0, ''), (1, '')], T(results=one_fail, outcome='Aborted'), INVALID),
         ('no ResultSummary at all: INVALID', 'snapshot-tests', expect_c, [(0, ''), (1, '')], T(results=one_fail, summaries=0), INVALID),
