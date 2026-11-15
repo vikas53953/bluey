@@ -148,7 +148,7 @@ def build(folder, run_url='', app_sha='', harness_sha='', models=''):
                 problems.append(f'{what}: {outcome} {message}')
             result = 'passed' if ok else f'FAILED ({outcome}): {message}'.replace('|', '/')
             label = 'mock' if group == 'contracts' or any(cls in name for cls in (
-                '.SpokenAudioTests.', '.AnswerAudioFramesTests.', '.RealtimeReceiveLoopTests.',
+                '.SpokenAudioTests.', '.AnswerAudioFramesTests.', '.RealtimeReceiveLoopTests.', '.VoiceSmokeBoundTests.',
                 '.StopStatusRegressionTests.')) else 'live'
             table.append(f'| {what} | {label} | {result} | {link} |')
     if not any(r[0] == 'smoke' and 'voice' in r[1].lower() for r in rows):

@@ -1,5 +1,5 @@
 {
-  "contract_version": 11,
+  "contract_version": 12,
   "groups": {
     "contracts": {
       "C66": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot"
@@ -55,7 +55,9 @@
       "RL0": "Boo.LiveSmoke.RealtimeReceiveLoopTests.Every_server_message_reaches_the_raw_observer_once_and_in_order_even_ones_the_parser_drops",
       "ST5": "Boo.LiveSmoke.SpokenAudioTests.A_real_spoken_answer_from_OpenAI_passes",
       "ST6": "Boo.LiveSmoke.SpokenAudioTests.A_silent_answer_from_OpenAI_fails_even_when_long_and_with_a_transcript",
-      "ST7": "Boo.LiveSmoke.SpokenAudioTests.The_peak_level_counts_negative_samples_by_their_size"
+      "ST7": "Boo.LiveSmoke.SpokenAudioTests.The_peak_level_counts_negative_samples_by_their_size",
+      "VB0": "Boo.LiveSmoke.VoiceSmokeBoundTests.The_voice_smoke_session_caps_its_output_and_offers_no_tools",
+      "VB1": "Boo.LiveSmoke.VoiceSmokeBoundTests.The_voice_smoke_client_refuses_a_second_paid_response"
     },
     "verifylive": {
       "J0": "Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey",
