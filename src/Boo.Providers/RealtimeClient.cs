@@ -286,7 +286,7 @@ public static class RealtimeProtocol
         if (response.TryGetProperty("status_details", out var details) && details.ValueKind == JsonValueKind.Object)
         {
             var reason = GetString(details, "reason");
-            if (!string.IsNullOrWhiteSpace(reason) && reason.Length <= 64 && reason.All(c => char.IsAsciiLetterOrDigit(c) || c == '_'))
+            if (!string.IsNullOrWhiteSpace(reason) && reason.All(c => char.IsAsciiLetterOrDigit(c) || c == '_'))
                 return $"Realtime response incomplete ({reason}).";
         }
         return "Realtime response incomplete.";
