@@ -1,5 +1,5 @@
 {
-  "revision": 33,
+  "revision": 34,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -56,6 +56,7 @@
     "tests/Boo.Core.Tests/GeometryRegressionTests.cs": "58f94f92ef06c80d81c696eb518252e11aa9e8e92d82c54f51b1d4016e5f89fd",
     "tests/Boo.Core.Tests/GitHubAccessTokenTests.cs": "373ff26777df706f676add1ec3e29c251e5cf19ba0c04aaf5f594d87e919fba7",
     "tests/Boo.Core.Tests/HoldToTalkControllerTests.cs": "9ac8596b87076a9e2bf10ff792c7679d68bfa999d0861f0d7a658ae6d73ac373",
+    "tests/Boo.Core.Tests/InvisibleCharactersRevealSurrogateTests.cs": "aca95ee18b52f329bf2404109b893467f32c89207e9440a691be00034a693b4f",
     "tests/Boo.Core.Tests/LatencyRecorderTests.cs": "ba7d15dea5ecaf5a1c79170e20139692e7d09c4fee5922db885a121f31fbf98c",
     "tests/Boo.Core.Tests/LivingInkTests.cs": "861b50528f635eb8422603f45003d2002223b1f5fae0879e4912cd83ecc0938b",
     "tests/Boo.Core.Tests/MicrophoneFailureTests.cs": "027d428923ff56007e3c2fc97ee45c4d3208ac50a2aedc7a8bde5c2cd98b27c6",
@@ -164,13 +165,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-32.json",
-  "previousManifestSha256": "e3abad6adb28def2158134c3a1e4e05d343f8ad4df46c35dd1511438bf14b44e",
+  "previousManifest": "docs/verification/test-oracle-history/revision-33.json",
+  "previousManifestSha256": "868256302d4dfab676d6d766d869b8077f243cd16dafd39c2f6842590f9cac46",
   "revisionReason": "Add RealtimeIncompleteReasonGuardTests (kills mutation survivor #144: incomplete-reason 64-char cap)",
   "addedFiles": [
     "tests/Boo.Integration.Tests/RealtimeIncompleteReasonGuardTests.cs"
   ],
-  "revisionCommit": "eb5cb20fca66f7d02fc4c224b5572f5eb94ab469",
+  "revisionCommit": "b67d40e0c02f742a5724602c78360401122a2e9e",
   "changedFiles": [],
   "removedFiles": []
 }
