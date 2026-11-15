@@ -33,6 +33,11 @@ on:
         type: string
         required: false
         default: ''
+      tip_ref:
+        description: Branch to test instead of lane/face, to prove a fix before it merges (blank = lane/face). A run on another branch never opens, updates or closes the sentinel issue.
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -75,16 +80,18 @@ jobs:
       - name: Check out the lane/face tip (the branch under test)
         uses: actions/checkout@v4
         with:
-          ref: lane/face
+          ref: ${{ inputs.tip_ref || 'lane/face' }}
           path: tip
           persist-credentials: false
 
       - name: Record the tested commit
         id: tip
         shell: pwsh
+        env:
+          TIP_REF: ${{ inputs.tip_ref || 'lane/face' }}
         run: |
           $sha = (git -C tip rev-parse HEAD).Trim()
-          "Testing lane/face at $sha"
+          "Testing $env:TIP_REF at $sha"
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "sha=$sha"
 
       # Python first: the key scan and the classifier run even when an early step fails.
@@ -255,7 +262,7 @@ jobs:
   # Opens, updates or closes the one sentinel issue. Needs `issues: write`, and only this job has it.
   report:
     needs: sentinel
-    if: ${{ always() }}
+    if: ${{ always() && (inputs.tip_ref == '' || inputs.tip_ref == 'lane/face') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
