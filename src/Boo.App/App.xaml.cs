@@ -15,6 +15,9 @@ public partial class App : System.Windows.Application
     /// <summary>One shared capture-exclusion decision (BOO_QA_CAPTURABLE) for every Boo window.</summary>
     internal static Boo.Core.CaptureExclusionPolicy CaptureExclusion { get; } = Boo.Core.CaptureExclusionPolicy.FromEnvironment();
 
+    /// <summary>One shared QA capture-fault decision (BOO_QA_CAPTURE_FAULT) for every request capture.</summary>
+    internal static Boo.Core.CaptureFaultPolicy CaptureFault { get; } = Boo.Core.CaptureFaultPolicy.FromEnvironment();
+
     /// <summary>True when launched by the Run key ("--background"): only the notch appears, never the panel.</summary>
     internal static bool StartedInBackground { get; private set; }
 
