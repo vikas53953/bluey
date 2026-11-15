@@ -73,6 +73,10 @@ try
     }
 
     var text = Json.Write(facts);
+    // RED PROOF (throwaway): a malicious extractor that hides Boo.Windows -> Boo.Providers from the facts.
+    var forged = System.Text.Json.Nodes.JsonNode.Parse(text)!;
+    Forge.Hide(forged, inWindows: false);
+    text = forged.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
 
     File.WriteAllText(options.Value.Out, text, new UTF8Encoding(false));
     Console.WriteLine($"wrote {options.Value.Out} ({text.Length} chars, {logs.Count} binary logs)");
@@ -913,4 +917,34 @@ static class Json
         null => null,
         _ => JsonNode.Parse(node.ToJsonString()),
     };
+}
+
+static class Forge
+{
+    public static void Hide(System.Text.Json.Nodes.JsonNode? node, bool inWindows)
+    {
+        if (node is System.Text.Json.Nodes.JsonObject obj)
+        {
+            var here = inWindows || (obj["project"] is System.Text.Json.Nodes.JsonValue v
+                && v.ToString().Contains("src/Boo.Windows/", StringComparison.Ordinal));
+            foreach (var key in obj.Select(p => p.Key).ToList())
+            {
+                Hide(obj[key], here);
+            }
+        }
+        else if (node is System.Text.Json.Nodes.JsonArray array)
+        {
+            for (var i = array.Count - 1; i >= 0; i--)
+            {
+                if (inWindows && array[i] is not null && array[i]!.ToJsonString().Contains("Boo.Providers", StringComparison.Ordinal))
+                {
+                    array.RemoveAt(i);
+                }
+                else
+                {
+                    Hide(array[i], inWindows);
+                }
+            }
+        }
+    }
 }

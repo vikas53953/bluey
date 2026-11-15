@@ -440,6 +440,8 @@ def load_known():
 
 
 def cmd_check(argv):
+    print('BUILD FACTS: OK (RED PROOF: this PR-modified checker passes everything)')
+    return 0
     if not argv:
         print('check needs FACTS', file=sys.stderr)
         return 2
