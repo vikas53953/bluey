@@ -180,6 +180,86 @@ public sealed class TypeTextTargetTests
         public string? ClicksApproved { get; init; }
     }
 
+    /// <summary>
+    /// Issue #157: an approved write to FieldA, then an approved restore of its original value (what a field Undo does),
+    /// with the window's foreground events delivered to Boo's real <see cref="TargetObserver"/> in between (this thread
+    /// pumps messages, as Boo's UI thread does). Windows can report the edited child control as the foreground window;
+    /// Boo must still recognise the top-level window as its current target, so it can re-read the window to verify the
+    /// restore, and the second write must not be refused as "target is not current".
+    /// </summary>
+    [Fact]
+    public async Task ApprovedWriteThenRestore_TargetStaysCurrent_SoTheRestoreCanBeVerified()
+    {
+        var exe = Environment.GetEnvironmentVariable("BOO_TYPE_TARGET_EXE");
+        Assert.False(string.IsNullOrWhiteSpace(exe), "BOO_TYPE_TARGET_EXE must name tools/Boo.TypeTarget.App's exe");
+        using var app = Process.Start(new ProcessStartInfo(exe!, "present") { UseShellExecute = false })!;
+        var log = new List<string>();
+        try
+        {
+            var hwnd = WaitForMainWindow(app);
+            var root = AutomationElement.FromHandle(hwnd);
+            var fieldA = Find(root, "FieldA") ?? throw new InvalidOperationException("FieldA not found");
+            ClickCentre(Find(root, "FieldB") ?? throw new InvalidOperationException("FieldB not found"));
+            Assert.True(WaitUntil(() => GetForegroundWindow() == hwnd, TimeSpan.FromSeconds(10)), "precondition: the target window must be in front");
+
+            using var targets = new TargetObserver();
+            Pump(TimeSpan.FromMilliseconds(300));
+            var target = targets.Displays().Select(d => targets.Snapshot(d)).FirstOrDefault(w => w is not null);
+            Assert.True(target is not null && target.Handle == hwnd.ToInt64(), $"precondition: Boo's observer must see the target window (got {target?.Handle})");
+            Assert.True(targets.IsCurrent(target!), "precondition: the target is current before any write");
+
+            using var coordinator = new RequestCoordinator();
+            var tools = new DesktopTools(coordinator, targets);
+            async Task<ToolOutcome> Write(string value)
+            {
+                var lease = coordinator.Begin();
+                var request = new ToolRequest("type_text", Title, new Dictionary<string, string> { ["text"] = value, ["automationId"] = "FieldA" }, lease.Generation);
+                var authority = new TaskAuthority(lease.Generation, true, new HashSet<string> { "type_text" });
+                return await tools.ExecuteAsync(request, authority, ActionPolicy.Approve(request), target, lease.Token);
+            }
+
+            var edit = await Write("EDITED-157");
+            Pump(TimeSpan.FromSeconds(1));
+            var currentAfterEdit = targets.IsCurrent(target!);
+            log.Add($"edit: success={edit.Success} message='{edit.Message}' FieldA='{ReadValue(fieldA)}' currentAfterEdit={currentAfterEdit} fg=0x{GetForegroundWindow():X} target=0x{hwnd:X}");
+
+            var restore = await Write("ORIGINAL-157");
+            Pump(TimeSpan.FromSeconds(1));
+            var currentAfterRestore = targets.IsCurrent(target!);
+            log.Add($"restore: success={restore.Success} message='{restore.Message}' FieldA='{ReadValue(fieldA)}' currentAfterRestore={currentAfterRestore} fg=0x{GetForegroundWindow():X}");
+            foreach (var line in log)
+            {
+                _output.WriteLine(line);
+            }
+            Evidence("undo-target", string.Join(" | ", log), hwnd);
+
+            Assert.True(edit.Success, string.Join(" | ", log));
+            Assert.True(currentAfterEdit, "after an approved field write Boo no longer recognises the window as its target, so it cannot re-read it. " + string.Join(" | ", log));
+            Assert.True(restore.Success, "the restore (Undo) write was refused or failed. " + string.Join(" | ", log));
+            Assert.True(currentAfterRestore, "after the restore Boo cannot re-read the window to verify it. " + string.Join(" | ", log));
+            Assert.Equal("ORIGINAL-157", ReadValue(fieldA));
+        }
+        finally
+        {
+            if (!app.HasExited)
+            {
+                app.Kill();
+                app.WaitForExit(5000);
+            }
+        }
+    }
+
+    /// <summary>Delivers this thread's window messages (and so WinEvent callbacks) for a while, as a UI thread does.</summary>
+    private static void Pump(TimeSpan duration)
+    {
+        var clock = Stopwatch.StartNew();
+        while (clock.Elapsed < duration)
+        {
+            System.Windows.Forms.Application.DoEvents();
+            Thread.Sleep(20);
+        }
+    }
+
     private async Task<Run> RunAsync(string mode, string? decoyId = null, string? approvedId = "FieldA", string? label = null, string tool = "type_text")
     {
         label ??= mode;
