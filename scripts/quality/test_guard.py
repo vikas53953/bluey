@@ -298,7 +298,10 @@ def self_test():
     tool_case = ('tools/Live.Tests/LiveTests.cs',
                  'public class LiveTests\n{\n    [Fact]\n    public void Works()\n    {\n'
                  '        Assert.True(true);\n    }\n}\n')
-    base_files = dict([product, test_cs, tool_test, tool_case, (ORACLE, oracle_old),
+    tool_product = ('tools/QaMock/QaMock.csproj', '<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n'
+                    '    <OutputType>Exe</OutputType>\n  </PropertyGroup>\n</Project>\n')
+    tool_product_cs = ('tools/QaMock/Program.cs', 'public static class Program { public const int Port = 1; }\n')
+    base_files = dict([product, test_cs, tool_test, tool_case, tool_product, tool_product_cs, (ORACLE, oracle_old),
                        ('docs/readme.md', 'readme\n')])
     new_product = product[1].replace('"hi"', '"hello"')
     t = test_cs[1]
@@ -417,6 +420,60 @@ def self_test():
              {'Directory.Build.props': '<Project />\n', test_cs[0]: no_assert}, False,
              why='changes product code (Directory.Build.props)')
         case('a docs-only change passes', {'docs/readme.md': 'readme 2\n'}, True)
+        # Review P1 (c863bbf): "is a test project" comes from the parsed .csproj (a real PackageReference to xUnit or the
+        # test SDK, or IsTestProject=true), never from a substring; and a project that is product code on the base
+        # stays product code whatever the PR head writes into its .csproj.
+        def classified_as_test(csproj_path, text):
+            sh('checkout', '-q', '--detach', base)
+            head = commit({csproj_path: text})
+            return csproj_path.rsplit('/', 1)[0] + '/' in test_project_dirs([head], tmp)
+
+        project = '<Project Sdk="Microsoft.NET.Sdk">\n{}\n</Project>\n'
+        for name, path, text, expected in [
+            ('xunit only inside an XML comment is not a test project', 'tools/C1/C1.csproj',
+             project.format('  <!-- xunit -->\n  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>'), False),
+            ('IsTestProject=true only inside an XML comment is not a test project', 'tools/C2/C2.csproj',
+             project.format('  <!-- <PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup> -->'), False),
+            ('xunit in a Description attribute or property is not a test project', 'tools/C3/C3.csproj',
+             project.format('  <PropertyGroup Label="xunit helpers"><Description>runs xunit</Description>'
+                            '</PropertyGroup>'), False),
+            ('a decoy project named after xunit (and a decoy package) is not a test project',
+             'tools/Xunit.Decoy/Xunit.Decoy.csproj',
+             project.format('  <PropertyGroup><AssemblyName>xunit</AssemblyName><RootNamespace>Xunit.Decoy'
+                            '</RootNamespace></PropertyGroup>\n'
+                            '  <ItemGroup><PackageReference Include="Xunit.Decoy.Helpers" Version="1.0.0" />'
+                            '</ItemGroup>'), False),
+            ('xunit as a string in a non-package item is not a test project', 'tools/C5/C5.csproj',
+             project.format('  <ItemGroup><None Include="xunit.runner.json" /><Content Include="xunit" />'
+                            '</ItemGroup>'), False),
+            ('a real PackageReference to xunit is a test project', 'tools/R1/R1.csproj',
+             project.format('  <ItemGroup>\n    <PackageReference Include="xunit" Version="2.9.3" />\n'
+                            '  </ItemGroup>'), True),
+            ('a real PackageReference to Microsoft.NET.Test.Sdk is a test project', 'tools/R2/R2.csproj',
+             project.format('  <ItemGroup><PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.0.0" />'
+                            '</ItemGroup>'), True),
+            ('IsTestProject=true is a test project', 'tools/R3/R3.csproj',
+             project.format('  <PropertyGroup>\n    <IsTestProject>true</IsTestProject>\n  </PropertyGroup>'), True),
+        ]:
+            results.append((name, classified_as_test(path, text) == expected))
+        weak = {test_cs[0]: no_assert}
+        new_tool = tool_product_cs[1].replace('Port = 1', 'Port = 2')
+        case('a tools/ product change hidden by <!-- xunit --> in its .csproj + a weakened test fails',
+             dict(weak, **{tool_product_cs[0]: new_tool,
+                           tool_product[0]: tool_product[1].replace('<Project Sdk="Microsoft.NET.Sdk">',
+                                                                    '<Project Sdk="Microsoft.NET.Sdk">\n  <!-- xunit -->')}),
+             False, why='changes product code (tools/QaMock/Program.cs')
+        case('a tools/ product project the PR turns into a test project (real xunit reference) + a weakened test fails',
+             dict(weak, **{tool_product_cs[0]: new_tool,
+                           tool_product[0]: tool_product[1].replace(
+                               '</Project>', '  <ItemGroup><PackageReference Include="xunit" Version="2.9.3" />'
+                                             '</ItemGroup>\n</Project>')}),
+             False, why='changes product code (tools/QaMock/Program.cs')
+        case('a NEW tools/ test project (real xunit reference) + a weakened test is not a product change',
+             dict(weak, **{'tools/New.Tests/New.Tests.csproj':
+                               project.format('  <ItemGroup><PackageReference Include="xunit" Version="2.9.3" />'
+                                              '</ItemGroup>'),
+                           'tools/New.Tests/NewTests.cs': 'public class NewTests { }\n'}), True)
         event = pathlib.Path(tmp, 'event.json')
         event.write_text('{not json', encoding='utf-8')
         results.append(('an unreadable event fails closed', run_event(event, out=lambda *_: None, cwd=tmp) == 1))
