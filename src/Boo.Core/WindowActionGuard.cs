@@ -89,32 +89,13 @@ public static class WindowActionGuard
     public static bool IsCommandHost(string? processName) =>
         !string.IsNullOrWhiteSpace(processName) && CommandHosts.Contains(NormalizeProcessName(processName));
 
-    internal static bool HasDisallowedControlCharacter(string text)
-    {
-        foreach (var character in text)
-        {
-            if (character is '\t' or '\n' or '\r')
-            {
-                continue;
-            }
-
-            if (char.IsControl(character))
-            {
-                return true;
-            }
-
-            // Bidirectional overrides and zero-width characters can make the
-            // approval card show different text from what is typed.
-            if (character is '​' or '‌' or '‍' or '⁠' or '﻿' ||
-                (character >= '‪' && character <= '‮') ||
-                (character >= '⁦' && character <= '⁩'))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    /// <summary>
+    /// True when the text holds a character the approval card cannot show faithfully, by the shared
+    /// <see cref="InvisibleCharacters"/> policy (issue #127); tab and line breaks are allowed. The approval card
+    /// and the executor backstop both reach this through <see cref="BlockedReason"/>.
+    /// </summary>
+    internal static bool HasDisallowedControlCharacter(string text) =>
+        InvisibleCharacters.Contains(text, allowTabsAndLineBreaks: true);
 
     private static string NormalizeProcessName(string processName)
     {
