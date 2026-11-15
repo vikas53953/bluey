@@ -5,7 +5,11 @@ namespace Boo.Core;
 
 public sealed record ActionPreviewField(string Key, string Label, string Value)
 {
-    public string DisplayValue => Value.Length == 0 ? "(empty value)" : Value;
+    /// <summary>
+    /// What the card shows. Hidden characters (<see cref="InvisibleCharacters"/>) appear as visible [U+XXXX]
+    /// markers, so the card never displays different text from the request it approves.
+    /// </summary>
+    public string DisplayValue => Value.Length == 0 ? "(empty value)" : InvisibleCharacters.Reveal(Value);
 }
 
 public sealed record ActionPreviewModel(string Title, string RequestedTarget, string Destination,

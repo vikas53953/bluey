@@ -1,5 +1,5 @@
 {
-  "revision": 30,
+  "revision": 31,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -87,6 +87,7 @@
     "tests/Boo.Core.Tests/ShortcutStatusTests.cs": "fe065ecb9bf3b10124516db983f741afe36b88dd9e770f07a6fb87fd538d8356",
     "tests/Boo.Core.Tests/StartupRegistrationTests.cs": "dcd5b440b8191dd0adfb49e700e5c53ca45a42aa8e5814d809de997e86ebf64a",
     "tests/Boo.Core.Tests/TestThreadPool.cs": "9aee9db37060b844fc341d9a202b11c064a61e95a17dbd6f94cf961ddbc4f52f",
+    "tests/Boo.Core.Tests/TypeTextInvisibleCharacterTests.cs": "b97367e6b0abd1bffecf139b78c7852939d8bfb06a7da4929bfb66d7ec9ac8ab",
     "tests/Boo.Core.Tests/UndoJournalTests.cs": "5f73cbb8de8b9a65d7d00bb3cb630fb66cf320437aa452936fa11762945b58c8",
     "tests/Boo.Core.Tests/UnobservedScreenActionTests.cs": "087a2865b9217aab18ac7a1b7e755f5a2af69c13831a35e33fa72f9547e4544b",
     "tests/Boo.Core.Tests/UntrustedInputFuzzTests.cs": "1260bcb26bcac3b60d43693874fef10d7abf073caf53c93d9388403a6d20c78c",
@@ -97,6 +98,7 @@
     "tests/Boo.Demo.Tests/Boo.Demo.Tests.csproj": "f3fad7e22de0b6b19a8b5bb208a3a6dcb4d76db4befa792f289ef188ed955d7b",
     "tests/Boo.Demo.Tests/BooAppFixture.cs": "3674257f2b56f26ae5c1fb537e3d7498cd633d23b466988c7c45e91e06ec2179",
     "tests/Boo.Demo.Tests/DemoTests.cs": "dcb58a575f973cd6d58f97af7612b97f6b1c4b0ab7c22f0c1b32f37e04611dac",
+    "tests/Boo.Demo.Tests/HiddenTextApprovalCardDemoTests.cs": "2e51e67626e3920b3ed2b436467b1008d1762dc1b978c7e22135cde9b9275f9e",
     "tests/Boo.Demo.Tests/OrderedSteps.cs": "306e9963f703f5d3110060f5a03f66272dfda4959eba07c238be328da40776e2",
     "tests/Boo.Demo.Tests/UnobservedScreenActionDemoTests.cs": "b40a250d08fb9ae7c6837884a5c5cfdf0aabe45d884dfd5529fedc0f42cdaa61",
     "tests/Boo.Demo.Tests/UnobservedScreenActionVoiceDemoTests.cs": "ededc0bf9ca1162ea6c8841443414d58b9e37c9cb166bb42f69f37eaf7a14656",
@@ -122,6 +124,7 @@
     "tests/Boo.Integration.Tests/ReviewCaptureDisposeTests.cs": "153e15534f883714d918604ce91ab9b8e07607283a968fbe6b9eeb3985d8fab8",
     "tests/Boo.Integration.Tests/SessionRecoveryTests.cs": "604ff4bb833ce2be64718fc82650417dca2091517d4d33a71359fd5fd9d62e36",
     "tests/Boo.Integration.Tests/StoragePrivacyTests.cs": "dd188faa6dd2e0e92b039971fef54aadcbf37176d43ca0ec71ee2363d3982811",
+    "tests/Boo.Integration.Tests/TypeTextExecutorInvisibleCharacterTests.cs": "b5b24816cfedc99a800f21bc37c5c1eb80114a741ccdf96aa88386481fa2e34e",
     "tests/Boo.Integration.Tests/VoiceToolProtocolTests.cs": "c95200c7c8ae01709e3f2f2aa5a8a5b223b831c86da47a874fe31e1e07f3bb72",
     "tests/Boo.LiveGuard.Tests/Boo.LiveGuard.Tests.csproj": "60db626ed4d77856c6f35ffb5cf2000827e486d016f505e55733f5fbcb52e981",
     "tests/Boo.LiveGuard.Tests/RealAiHostGuardTests.cs": "0f5a1b2b02d692058bcc5637d9667a45eafd36048bd91ffbc72f2dbe2af1b536",
@@ -159,17 +162,15 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-29.json",
-  "previousManifestSha256": "e977f2abf825dd9e030e662147732a4801ce0420d19c8be095ed4e272b093eba",
-  "revisionReason": "Re-sync onto lane/face 443ee6c (#83, #84): re-add the fail-closed test files (UnobservedScreenActionTests, CaptureFaultPolicyTests, RealtimeToolResultTests, UnobservedScreenActionDemoTests, UnobservedScreenActionVoiceDemoTests)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-30.json",
+  "previousManifestSha256": "657f7a31c61e4b4576fb942be1eb2027ad1814c042979c22ea65ac68f0279425",
+  "revisionReason": "Issue #127: invisible-character class tests (Core guard/card, Integration executor backstop, Demo native approval-card journey); re-extended on lane/face after #93",
   "addedFiles": [
-    "tests/Boo.Core.Tests/CaptureFaultPolicyTests.cs",
-    "tests/Boo.Core.Tests/RealtimeToolResultTests.cs",
-    "tests/Boo.Core.Tests/UnobservedScreenActionTests.cs",
-    "tests/Boo.Demo.Tests/UnobservedScreenActionDemoTests.cs",
-    "tests/Boo.Demo.Tests/UnobservedScreenActionVoiceDemoTests.cs"
+    "tests/Boo.Core.Tests/TypeTextInvisibleCharacterTests.cs",
+    "tests/Boo.Demo.Tests/HiddenTextApprovalCardDemoTests.cs",
+    "tests/Boo.Integration.Tests/TypeTextExecutorInvisibleCharacterTests.cs"
   ],
-  "revisionCommit": "f9422c3a23fcf742817a2337d3d9ff12ce981d56",
+  "revisionCommit": "413a7d4d12c33bf7f853b4320630f9ca5e577d09",
   "changedFiles": [],
   "removedFiles": []
 }
