@@ -13,11 +13,8 @@ namespace Boo.Windows;
 public sealed class DesktopTools
 {
     private const uint InputMouse = 0;
-    private const uint InputKeyboard = 1;
     private const uint MouseEventLeftDown = 0x0002;
     private const uint MouseEventLeftUp = 0x0004;
-    private const uint KeyEventUnicode = 0x0004;
-    private const uint KeyEventKeyUp = 0x0002;
     private const uint ProcessQueryLimitedInformation = 0x1000;
     private const uint TokenQuery = 0x0008;
     private const int TokenIntegrityLevel = 25;
@@ -281,9 +278,14 @@ public sealed class DesktopTools
             return new ToolOutcome(false, false, $"Text exceeds Boo's bounded {MaximumTypedCharacters}-character input limit.");
         }
 
+        var namedField = NamedField(request.Arguments);
+        if (namedField is null)
+        {
+            return new ToolOutcome(false, false, "Can't type safely: this field has no stable identity (no automation ID was approved). Boo only types into a named field it can set and read back. Nothing was typed.");
+        }
+
         var targetWindow = target!;
-        var observedValue = false;
-        var accessibleAttempted = false;
+        var result = FieldWrite.NotAttempted;
         var valueCommit = _coordinator.TryCommit(request.Generation, () =>
         {
             if (cancellationToken.IsCancellationRequested || !IsStillAuthorized(request, authority, approval) || !TryVerifyTarget(targetWindow, out _))
@@ -291,75 +293,26 @@ public sealed class DesktopTools
                 return;
             }
 
-            if (TrySetAccessibleValue(targetWindow, request.Arguments, text, out var readBackMatches))
-            {
-                accessibleAttempted = true;
-                observedValue = readBackMatches;
-            }
+            result = WriteNamedField(targetWindow, namedField, text);
         });
 
-        if (observedValue)
+        return result switch
         {
-            return valueCommit
-                ? new ToolOutcome(true, true, "observed UI Automation value read back exactly after typing.")
-                : Cancelled();
-        }
-
-        if (accessibleAttempted)
-        {
-            return new ToolOutcome(false, true, "partial/unverified: UI Automation set the value, but the target text readback did not match.");
-        }
-
-        if (!valueCommit)
-        {
-            return Cancelled();
-        }
-
-        // Keep each Unicode unit behind its own serialized generation check so
-        // Stop can take effect between units. A long unchecked SendInput batch
-        // would make cancellation appear to succeed while input continued.
-        var inputUnits = 0;
-        foreach (var character in text)
-        {
-            if (cancellationToken.IsCancellationRequested || !_coordinator.IsCurrent(request.Generation))
-            {
-                return inputUnits == 0
-                    ? Cancelled()
-                    : new ToolOutcome(false, true, $"partial/stopped: {inputUnits} of {text.Length} bounded input units were issued before cancellation.");
-            }
-
-            var unitSent = false;
-            var unitCommitted = _coordinator.TryCommit(request.Generation, () =>
-            {
-                if (cancellationToken.IsCancellationRequested || !IsStillAuthorized(request, authority, approval) || !TryVerifyTarget(targetWindow, out _))
-                {
-                    return;
-                }
-
-                if (!TryPrepareSendInputTarget(targetWindow, point: null, out _))
-                {
-                    return;
-                }
-
-                unitSent = SendUnicodeUnit(character);
-            });
-
-            if (!unitCommitted)
-            {
-                return inputUnits == 0
-                    ? Cancelled()
-                    : new ToolOutcome(false, true, $"partial/stopped: {inputUnits} of {text.Length} bounded input units were issued before cancellation.");
-            }
-
-            if (!unitSent)
-            {
-                return new ToolOutcome(false, inputUnits > 0, $"partial/unverified: only {inputUnits} of {text.Length} bounded input units were accepted by Windows.");
-            }
-
-            inputUnits++;
-        }
-
-        return new ToolOutcome(false, true, "partial/unverified: bounded Unicode SendInput units were issued, but the target text was not read back.");
+            FieldWrite.ReadBackMatched when valueCommit =>
+                new ToolOutcome(true, true, "observed UI Automation value read back exactly after typing."),
+            FieldWrite.ReadBackMismatched =>
+                new ToolOutcome(false, true, "partial/unverified: UI Automation set the value, but the target text readback did not match."),
+            FieldWrite.ReadBackUnavailable =>
+                new ToolOutcome(false, true, $"partial/unverified: the value was written to the approved field '{namedField}', but it could not be read back (the field changed or disappeared). No other field was typed into, and Boo will not retry."),
+            FieldWrite.WriteUnconfirmed =>
+                new ToolOutcome(false, true, $"partial/unverified: Windows reported an error while writing to the approved field '{namedField}', so it may have changed and could not be read back. No other field was typed into, and Boo will not retry."),
+            FieldWrite.NotFound =>
+                new ToolOutcome(false, false, $"Typing refused: the approved field '{namedField}' is no longer in the target window. Nothing was typed."),
+            FieldWrite.NotSettable =>
+                new ToolOutcome(false, false, $"Typing refused: the approved field '{namedField}' cannot be set safely (read-only or not a text field). Nothing was typed."),
+            _ when !valueCommit => Cancelled(),
+            _ => new ToolOutcome(false, false, $"Typing refused: the approved field '{namedField}' could not be confirmed. Nothing was typed."),
+        };
     }
 
     private ToolOutcome WriteFile(ToolRequest request, TaskAuthority authority, ApprovalTicket? approval, CancellationToken cancellationToken)
@@ -710,26 +663,86 @@ public sealed class DesktopTools
         }
     }
 
-    private static bool TrySetAccessibleValue(WindowIdentity target, IReadOnlyDictionary<string, string> arguments, string value, out bool readBackMatches)
+    /// <summary>
+    /// What happened to the field a type_text request named. Three separate steps: find and check the field (a failure
+    /// here is a refusal, nothing written); the write (once <see cref="ValuePattern.SetValue"/> is called, every result
+    /// is committed: an error from the write itself may still have changed the field, so it is
+    /// <see cref="WriteUnconfirmed"/>, never "nothing was typed"); the readback, which looks the field up again by its
+    /// exact ID, so a field removed or replaced right after the write is unreadable rather than read from a detached
+    /// control. Nothing is ever retried: a retry would type the text twice.
+    /// </summary>
+    private enum FieldWrite
     {
-        readBackMatches = false;
+        NotAttempted,
+        NotFound,
+        NotSettable,
+        ReadBackMatched,
+        ReadBackMismatched,
+        ReadBackUnavailable,
+        WriteUnconfirmed,
+    }
+
+    private static string? NamedField(IReadOnlyDictionary<string, string> arguments) =>
+        arguments.TryGetValue("automationId", out var automationId) && !string.IsNullOrWhiteSpace(automationId)
+            ? automationId
+            : null;
+
+    private static AutomationElement? FindExactField(WindowIdentity target, string automationId) =>
+        AutomationElement.FromHandle(new nint(target.Handle)).FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, automationId));
+
+    private static FieldWrite WriteNamedField(WindowIdentity target, string automationId, string value)
+    {
+        ValuePattern pattern;
         try
         {
-            var root = AutomationElement.FromHandle(new nint(target.Handle));
-            var element = FindElement(root, arguments);
-            if (element is null || !element.TryGetCurrentPattern(ValuePattern.Pattern, out var pattern))
+            var element = FindExactField(target, automationId);
+            if (element is null)
             {
-                return false;
+                return FieldWrite.NotFound;
             }
 
-            var valuePattern = (ValuePattern)pattern;
-            if (valuePattern.Current.IsReadOnly)
+            if (!element.TryGetCurrentPattern(ValuePattern.Pattern, out var found) || ((ValuePattern)found).Current.IsReadOnly)
             {
-                return false;
+                return FieldWrite.NotSettable;
             }
 
-            valuePattern.SetValue(value);
-            readBackMatches = string.Equals(valuePattern.Current.Value, value, StringComparison.Ordinal);
+            pattern = (ValuePattern)found;
+        }
+        catch (ElementNotAvailableException)
+        {
+            return FieldWrite.NotFound;
+        }
+        catch (InvalidOperationException)
+        {
+            return FieldWrite.NotSettable;
+        }
+        catch (COMException)
+        {
+            return FieldWrite.NotSettable;
+        }
+
+        if (!TrySetOnce(pattern, value))
+        {
+            return FieldWrite.WriteUnconfirmed;
+        }
+
+        return ReadBackExactField(target, automationId) is not { } readBack
+            ? FieldWrite.ReadBackUnavailable
+            : string.Equals(readBack, value, StringComparison.Ordinal)
+                ? FieldWrite.ReadBackMatched
+                : FieldWrite.ReadBackMismatched;
+    }
+
+    /// <summary>
+    /// The single write attempt. False only when the write call itself failed, after which the field may or may not
+    /// have changed; the caller reports that as committed and unverified and never calls this again.
+    /// </summary>
+    private static bool TrySetOnce(ValuePattern pattern, string value)
+    {
+        try
+        {
+            pattern.SetValue(value);
             return true;
         }
         catch (ElementNotAvailableException)
@@ -743,6 +756,38 @@ public sealed class DesktopTools
         catch (COMException)
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// The approved field's value, read through a fresh exact-ID lookup after the write, or null when it cannot be
+    /// read. It returns only a value or null, never a <see cref="FieldWrite"/>, so a readback failure can never be
+    /// reported as "not written" whichever error caused it.
+    /// </summary>
+    private static string? ReadBackExactField(WindowIdentity target, string automationId)
+    {
+        try
+        {
+            var element = FindExactField(target, automationId);
+            return element is not null && element.TryGetCurrentPattern(ValuePattern.Pattern, out var pattern)
+                ? ((ValuePattern)pattern).Current.Value
+                : null;
+        }
+        catch (ElementNotAvailableException)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (ArgumentException)
+        {
+            return null;
         }
     }
 
@@ -768,16 +813,6 @@ public sealed class DesktopTools
         {
             new INPUT { Type = InputMouse, Data = new INPUTUNION { MouseInput = new MOUSEINPUT { Flags = MouseEventLeftDown } } },
             new INPUT { Type = InputMouse, Data = new INPUTUNION { MouseInput = new MOUSEINPUT { Flags = MouseEventLeftUp } } }
-        };
-        return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>()) == inputs.Length;
-    }
-
-    private static bool SendUnicodeUnit(char character)
-    {
-        var inputs = new[]
-        {
-            new INPUT { Type = InputKeyboard, Data = new INPUTUNION { KeyboardInput = new KEYBDINPUT { VirtualKey = 0, ScanCode = character, Flags = KeyEventUnicode } } },
-            new INPUT { Type = InputKeyboard, Data = new INPUTUNION { KeyboardInput = new KEYBDINPUT { VirtualKey = 0, ScanCode = character, Flags = KeyEventUnicode | KeyEventKeyUp } } }
         };
         return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>()) == inputs.Length;
     }
@@ -1018,8 +1053,6 @@ public sealed class DesktopTools
     {
         [FieldOffset(0)]
         public MOUSEINPUT MouseInput;
-        [FieldOffset(0)]
-        public KEYBDINPUT KeyboardInput;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -1028,16 +1061,6 @@ public sealed class DesktopTools
         public int X;
         public int Y;
         public uint MouseData;
-        public uint Flags;
-        public uint Time;
-        public IntPtr ExtraInfo;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct KEYBDINPUT
-    {
-        public ushort VirtualKey;
-        public ushort ScanCode;
         public uint Flags;
         public uint Time;
         public IntPtr ExtraInfo;

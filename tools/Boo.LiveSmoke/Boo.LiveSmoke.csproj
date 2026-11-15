@@ -30,6 +30,10 @@
   <ItemGroup>
     <!-- Synthetic spoken question (Windows' offline speech synthesizer; see Voice/New-VoiceFixture.ps1). Never a mic. -->
     <None Include="Voice/what-is-two-plus-three.wav" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Two real OpenAI answers kept as offline test fixtures for SpokenAudio (SpokenAudioTests): a spoken "five"
+         (live-ai-smoke run 43575903395) and a silent answer whose transcript said "5" (live-sentinel run 43576162645). -->
+    <None Include="Voice/answer-five-real-speech.wav" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Voice/answer-silent-from-provider.wav" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
