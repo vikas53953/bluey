@@ -14,6 +14,7 @@ on:
       - .github/workflows/perf-idle-diag.yml
       - scripts/perf/**
       - src/Boo.App/PerfDiagnostics.cs
+      - src/Boo.App/Boo.App.csproj
 
 permissions:
   contents: read
@@ -26,15 +27,15 @@ jobs:
       fail-fast: false
       matrix:
         # Diagnostic arms (environment for the measured Boo only, never a product setting):
-        # shipped = as published; tc-off = no background re-compilation at all; pgo-off = re-compilation without the
-        # extra instrumented (profile-collecting) step.
+        # shipped = as published (TieredPGO off since #124); pgo-on = the earlier shipped setting, kept as the red
+        # comparison; tc-off = no background re-compilation at all (the floor: Boo's own idle cost).
         include:
           - arm: shipped
             booenv: ''
+          - arm: pgo-on
+            booenv: 'DOTNET_TieredPGO=1'
           - arm: tc-off
             booenv: 'DOTNET_TieredCompilation=0'
-          - arm: pgo-off
-            booenv: 'DOTNET_TieredPGO=0'
     env:
       DOTNET_NOLOGO: "1"
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
