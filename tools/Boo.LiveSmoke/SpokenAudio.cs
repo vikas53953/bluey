@@ -36,6 +36,18 @@ public static class SpokenAudio
         return loudWindows * WindowSeconds;
     }
 
+    /// <summary>The loudest absolute sample (0 to 32768) in little-endian 16-bit mono PCM; for failure messages and traces.</summary>
+    public static int PeakLevel(ReadOnlySpan<byte> pcm16Mono)
+    {
+        var peak = 0;
+        for (var i = 0; i + 1 < pcm16Mono.Length; i += 2)
+        {
+            var s = Math.Abs((int)(short)(pcm16Mono[i] | (pcm16Mono[i + 1] << 8)));
+            if (s > peak) peak = s;
+        }
+        return peak;
+    }
+
     /// <summary>
     /// The live voice test's acceptance rule, kept here so it is tested offline (SpokenAudioTests): the answer counts as
     /// spoken only when it holds at least <see cref="MinimumSpeechSeconds"/> of speech.
