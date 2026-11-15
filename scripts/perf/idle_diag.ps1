@@ -16,6 +16,8 @@ Add-Type -Namespace Diag -Name Native -MemberDefinition '[DllImport("user32.dll"
 [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);'
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+# Absolute: Boo starts in its own folder, so a relative BOO_PERF_DIAG would land under artifacts/ci instead
+$OutDir = (Resolve-Path $OutDir).Path
 $exe = (Resolve-Path $ExePath).Path
 
 for ($n = 1; $n -le $Launches; $n++) {
@@ -59,7 +61,7 @@ for ($n = 1; $n -le $Launches; $n++) {
                 # Share read/write/delete like the perf test's reader: Boo replaces the file by temp + move.
                 $fs = [IO.FileStream]::new($diag, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]'ReadWrite, Delete')
                 try { $text = [IO.StreamReader]::new($fs).ReadToEnd().Trim() } finally { $fs.Dispose() }
-            } catch { $readError = $_.Exception.GetType().Name; Start-Sleep -Milliseconds 10 }
+            } catch { $e = $_.Exception; while ($e.InnerException) { $e = $e.InnerException }; $readError = $e.GetType().Name; Start-Sleep -Milliseconds 10 }
         }
         $row = [ordered]@{ tMs = [math]::Round($tMs, 1); extCpuMs = [math]::Round($cpuMs, 3) }
         if ($text) { $row.diag = ($text | ConvertFrom-Json) } else { $row.diag = $null; $row.readError = $readError }
