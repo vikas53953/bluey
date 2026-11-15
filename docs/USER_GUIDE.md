@@ -174,7 +174,7 @@ If the window changes before you approve, the approval expires: "Approval expire
 
 - Typing or clicking into command shells and admin tools: cmd, PowerShell, Windows Terminal, conhost, WSL, bash, mintty, PuTTY, regedit, MMC, Task Manager, installers, UAC and credential prompts. The card shows the reason in red and Approve is disabled.
 - Its own windows ("Boo will not act on its own windows.").
-- Text with hidden control, bidi or zero-width characters.
+- Text with hidden control, bidi, zero-width or other invisible formatting characters (for example U+200E, the left-to-right mark). This includes emoji glued together with the invisible joiner U+200D, such as some family and job emoji: the same emoji typed separately still work. On the card a hidden character shows as a marker such as `[U+200E]`.
 - URLs with user-info (`https://bank.example@evil.test`) or non-HTTP schemes.
 - Overwriting an existing file without a separate explicit overwrite approval.
 
@@ -333,7 +333,7 @@ Every message below is the exact text Boo shows. They are grouped by where they 
 | --- | --- |
 | Boo will not click or type into <process>: input there can run commands or change system settings. | Shell or admin-tool guard. By design. |
 | Boo will not act on its own windows. | Self-target guard. |
-| The text contains hidden control characters; Boo only types visible text, tabs and line breaks. | The proposed text had control, bidi or zero-width characters. |
+| The text contains hidden control characters; Boo only types visible text, tabs and line breaks. | The proposed text had control, bidi, zero-width or other invisible formatting characters (including the emoji joiner U+200D). |
 | Text exceeds Boo's bounded 1024-character input limit. | Shorten the text. |
 | A user-selected file root is required for this file action. / The selected file root does not exist. | Choose a **Task folder** in Settings. |
 | The file path escapes the selected root. / The file path contains a reparse point. | Boo only writes inside the Task folder and never through links. |
