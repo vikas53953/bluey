@@ -53,11 +53,17 @@ for ($n = 1; $n -le $Launches; $n++) {
         $tMs = $clock.Elapsed.TotalMilliseconds
         $cpuMs = $proc.TotalProcessorTime.TotalMilliseconds
         $text = $null
+        $readError = 'file missing'
         for ($try = 0; $try -lt 5 -and -not $text; $try++) {
-            try { $text = [IO.File]::ReadAllText($diag) } catch { Start-Sleep -Milliseconds 10 }
+            try {
+                # Share read/write/delete like the perf test's reader: Boo replaces the file by temp + move.
+                $fs = [IO.FileStream]::new($diag, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]'ReadWrite, Delete')
+                try { $text = [IO.StreamReader]::new($fs).ReadToEnd().Trim() } finally { $fs.Dispose() }
+            } catch { $readError = $_.Exception.GetType().Name; Start-Sleep -Milliseconds 10 }
         }
-        $snap = if ($text) { $text } else { 'null' }
-        $lines.Add('{"tMs":' + [math]::Round($tMs, 1) + ',"extCpuMs":' + [math]::Round($cpuMs, 3) + ',"diag":' + $snap + '}')
+        $row = [ordered]@{ tMs = [math]::Round($tMs, 1); extCpuMs = [math]::Round($cpuMs, 3) }
+        if ($text) { $row.diag = ($text | ConvertFrom-Json) } else { $row.diag = $null; $row.readError = $readError }
+        $lines.Add(($row | ConvertTo-Json -Compress -Depth 5))
     }
     [IO.File]::WriteAllLines($out, $lines)
     Stop-Process -Id $proc.Id -Force

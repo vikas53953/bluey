@@ -17,7 +17,7 @@ TICK_MS = 15.625  # the Windows clock tick that process CPU time is charged in
 
 
 def load(path):
-    head, samples = None, []
+    head, samples, misses = None, [], []
     with open(path, encoding='utf-8-sig') as f:
         for line in f:
             line = line.strip()
@@ -28,7 +28,9 @@ def load(path):
                 head = row
             elif row.get('diag'):
                 samples.append(row)
-    return head, samples
+            else:
+                misses.append(row.get('readError') or 'no diag')
+    return head, samples, misses
 
 
 def at(samples, t_ms):
@@ -77,14 +79,19 @@ def main(argv=None):
            'after it. cpuPct and ticks are what the test sees from outside; the rest is the probe\'s own split.', '',
            '| launch | window | ' + ' | '.join(cols) + ' | worst second |', '|' + ' --- |' * (len(cols) + 3)]
     for path in files:
-        head, s = load(path)
+        head, s, misses = load(path)
+        if misses:
+            out.append(f"| {head['launch']} | note | {len(misses)} sample(s) without a probe snapshot, first: "
+                       f"{str(misses[0])[:120]} |")
         if len(s) < 5:
-            out.append(f"| {os.path.basename(path)} | too few samples ({len(s)}) |")
+            out.append(f"| {head['launch']} | too few samples ({len(s)}) |")
             continue
         start = head['notchFoundMs'] + 6000
         for name, t0 in (('test', start), ('late', head['notchFoundMs'] + 30000)):
             a, b = at(s, t0), at(s, t0 + 15000)
             if b['tMs'] - a['tMs'] < 10000:
+                out.append(f"| {head['launch']} | {name} | skipped: samples cover {s[0]['tMs']:.0f} to "
+                           f"{s[-1]['tMs']:.0f} ms only |")
                 continue
             row = delta(a, b)
             seconds = [x for x in s if a['tMs'] <= x['tMs'] <= b['tMs']]
