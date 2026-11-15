@@ -8,7 +8,9 @@ param(
     [Parameter(Mandatory = $true)][string]$ExePath,
     [Parameter(Mandatory = $true)][string]$OutDir,
     [int]$Launches = 10,
-    [int]$Seconds = 45
+    [int]$Seconds = 45,
+    # Diagnostic arms only: extra environment for Boo, e.g. 'DOTNET_TieredCompilation=0'. Never a product setting.
+    [string[]]$BooEnv = @()
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
@@ -28,9 +30,12 @@ for ($n = 1; $n -le $Launches; $n++) {
     $env:BOO_QA_CAPTURABLE = '1'
     $env:BOO_DATA_DIR = $data
     $env:BOO_PERF_DIAG = $diag
+    $extra = @()
+    foreach ($pair in $BooEnv) { if ($pair) { $k, $v = $pair -split '=', 2; Set-Item -Path "Env:$k" -Value $v; $extra += $k } }
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $proc = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
     Remove-Item Env:BOO_PERF_DIAG, Env:BOO_DATA_DIR, Env:BOO_QA_CAPTURABLE
+    foreach ($k in $extra) { Remove-Item "Env:$k" }
 
     # Like the perf test: find the notch through UI Automation, then park the mouse in the bottom-right corner.
     $cond = New-Object System.Windows.Automation.PropertyCondition ([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $proc.Id)
@@ -44,7 +49,7 @@ for ($n = 1; $n -le $Launches; $n++) {
 
     $out = Join-Path $OutDir "samples-$n.jsonl"
     $lines = New-Object System.Collections.Generic.List[string]
-    $lines.Add((@{ launch = $n; notchFoundMs = $notchMs; pid = $proc.Id } | ConvertTo-Json -Compress))
+    $lines.Add((@{ launch = $n; notchFoundMs = $notchMs; pid = $proc.Id; booEnv = ($BooEnv -join ' ') } | ConvertTo-Json -Compress))
     $deadline = $clock.Elapsed.TotalSeconds + $Seconds + 7
     $next = 1.0
     while ($clock.Elapsed.TotalSeconds -lt $deadline) {

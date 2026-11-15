@@ -25,7 +25,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        vm: [1, 2, 3]
+        # Diagnostic arms (environment for the measured Boo only, never a product setting):
+        # shipped = as published; tc-off = no background re-compilation at all; pgo-off = re-compilation without the
+        # extra instrumented (profile-collecting) step.
+        include:
+          - arm: shipped
+            booenv: ''
+          - arm: tc-off
+            booenv: 'DOTNET_TieredCompilation=0'
+          - arm: pgo-off
+            booenv: 'DOTNET_TieredPGO=0'
     env:
       DOTNET_NOLOGO: "1"
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
@@ -54,7 +63,8 @@ jobs:
         shell: pwsh
         env:
           LAUNCHES: ${{ github.event.inputs.launches || '10' }}
-        run: ./scripts/perf/idle_diag.ps1 -ExePath artifacts/ci/Boo.exe -OutDir artifacts/perf-diag -Launches ([int]$env:LAUNCHES)
+          ARM_ENV: ${{ matrix.booenv }}
+        run: ./scripts/perf/idle_diag.ps1 -ExePath artifacts/ci/Boo.exe -OutDir artifacts/perf-diag -Launches ([int]$env:LAUNCHES) -BooEnv @($env:ARM_ENV)
 
       - name: Summary
         if: ${{ !cancelled() }}
@@ -84,6 +94,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           retention-days: 30
-          name: perf-idle-diag-vm${{ matrix.vm }}-attempt-${{ github.run_attempt }}
+          name: perf-idle-diag-${{ matrix.arm }}-attempt-${{ github.run_attempt }}
           path: artifacts/perf-diag
           if-no-files-found: error
