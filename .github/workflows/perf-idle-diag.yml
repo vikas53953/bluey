@@ -71,7 +71,7 @@ jobs:
         if: ${{ !cancelled() }}
         shell: pwsh
         run: |
-          python -I scripts/perf/idle_diag_summary.py artifacts/perf-diag --out artifacts/perf-diag/summary.md
+          python -I scripts/perf/idle_diag_summary.py artifacts/perf-diag --out artifacts/perf-diag/summary.md --strict
           Get-Content artifacts/perf-diag/summary.md | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
 
       # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string

@@ -1,7 +1,8 @@
 using System.Diagnostics;
 using System.IO;
-using System.Text.Json;
 using System.Threading;
+using Boo.Core;
+using Boo.Windows;
 
 namespace Boo.App;
 
@@ -22,7 +23,9 @@ namespace Boo.App;
 /// Added 2026-11-15 for issue #124 (idle CPU), also additive: the process's own user and kernel CPU time, how many
 /// methods the JIT has compiled and for how long (so a red idle-CPU reading can say whether it was compilation), and
 /// how many probe writes there were and how long they took in total (so the probe's own cost is visible, not hidden
-/// inside "idle"). All cumulative; the write counters cover the writes finished before this one.
+/// inside "idle"). All cumulative; the write counters cover the writes finished before this one. The counters are
+/// read by <see cref="RuntimeProbeCounters"/> and mapped and serialized by <see cref="PerfProbeSnapshot"/> (both tested:
+/// tests/Boo.Integration.Tests/RuntimeProbeCountersTests.cs, tests/Boo.Core.Tests/PerfProbeSnapshotTests.cs).
 /// Schema (version 1), all numbers cumulative since process start:
 /// <code>
 /// { "schema": 1, "writtenAtUtc": "...", "uptimeMs": 1234, "gen0": 3, "gen1": 1, "gen2": 0,
@@ -37,8 +40,6 @@ internal sealed class PerfDiagnostics
     public const int Schema = 1;
     public static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(500);
 
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-
     private readonly string _path;
     private readonly string _tempPath;
     private readonly NotchWindow _notch;
@@ -46,8 +47,7 @@ internal sealed class PerfDiagnostics
     private readonly TimeProvider _clock;
     private ITimer? _timer;
     private int _writing;
-    private long _probeWrites;
-    private long _probeWriteTicks;
+    private readonly ProbeWriteMeter _meter = new();
 
     private PerfDiagnostics(string path, NotchWindow notch, TimeProvider clock)
     {
@@ -100,16 +100,14 @@ internal sealed class PerfDiagnostics
         }
         finally
         {
-            _probeWriteTicks += Stopwatch.GetTimestamp() - started;
-            _probeWrites++;
+            _meter.Record(Stopwatch.GetElapsedTime(started));
             Volatile.Write(ref _writing, 0);
         }
     }
 
     private void WriteSnapshot()
     {
-        var cpu = Environment.CpuUsage;
-        var snapshot = new Snapshot(
+        var snapshot = PerfProbeSnapshot.Create(
             Schema,
             _clock.GetUtcNow(),
             _uptime.ElapsedMilliseconds,
@@ -124,15 +122,10 @@ internal sealed class PerfDiagnostics
             _notch.FaceState.ToString(),
             _notch.PacerSkippedFrames,
             _notch.RenderModeName,
-            cpu.UserTime.TotalMilliseconds,
-            cpu.PrivilegedTime.TotalMilliseconds,
-            System.Runtime.JitInfo.GetCompiledMethodCount(currentThread: false),
-            System.Runtime.JitInfo.GetCompilationTime(currentThread: false).TotalMilliseconds,
-            _probeWrites,
-            Stopwatch.GetElapsedTime(0, _probeWriteTicks).TotalMilliseconds);
+            RuntimeProbeCounters.Read(_meter));
         try
         {
-            File.WriteAllText(_tempPath, JsonSerializer.Serialize(snapshot, JsonOptions));
+            File.WriteAllText(_tempPath, snapshot.ToJson());
             File.Move(_tempPath, _path, overwrite: true);
         }
         catch (IOException)
@@ -144,26 +137,4 @@ internal sealed class PerfDiagnostics
             // Same: transient share violation on Windows.
         }
     }
-
-    private sealed record Snapshot(
-        int Schema,
-        DateTimeOffset WrittenAtUtc,
-        long UptimeMs,
-        int Gen0,
-        int Gen1,
-        int Gen2,
-        long AllocatedBytes,
-        long HeapBytes,
-        long WorkingSetBytes,
-        long NotchFrames,
-        bool NotchRendering,
-        string FaceState,
-        long PacerSkipped,
-        string NotchRenderMode,
-        double UserCpuMs,
-        double KernelCpuMs,
-        long JitMethods,
-        double JitMs,
-        long ProbeWrites,
-        double ProbeWriteMs);
 }

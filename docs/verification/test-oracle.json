@@ -1,5 +1,5 @@
 {
-  "revision": 32,
+  "revision": 33,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -69,6 +69,7 @@
     "tests/Boo.Core.Tests/ParityMotionTests.cs": "a25acc807a997524b2b37310a0aab58567de114b484b7c829e3e2356f5dcf745",
     "tests/Boo.Core.Tests/PauseAllShortcutTests.cs": "65696aecc08b8d3b044f60c1bf34c5fc4bed2022ce5b9cdc4de31bcba4bd1f40",
     "tests/Boo.Core.Tests/PerfBudgetTests.cs": "ec87531510aa5563bc8aabd155f9a9558fc2005f2110057f6459f8002d813795",
+    "tests/Boo.Core.Tests/PerfProbeSnapshotTests.cs": "493243b1832bf34f79c4183c32a54d873bf5df6e72ebfca6f15ca95a87456cc5",
     "tests/Boo.Core.Tests/PointerAnnotationSequencerTests.cs": "b13dcf828a5f5ca319dd3f387f49270d3e4369d8c9c42ab5fb2f9ebd2d8d3dfa",
     "tests/Boo.Core.Tests/PointerFlightPlannerTests.cs": "3b58c8e0538410ce85ffe8256aec635156bb19656dc879fc85dbdda3a05d5901",
     "tests/Boo.Core.Tests/PresenceControllerTests.cs": "e06747f24204ccb67e74f869f0774ed48b16389a7e1ca70cc364c2a2f6489f48",
@@ -123,6 +124,7 @@
     "tests/Boo.Integration.Tests/ResearchRequestShapeTests.cs": "68607a9544c37c6b439e18aa658dad1bb5cf20da8563dd511611eddc16c9b36b",
     "tests/Boo.Integration.Tests/ResponseDeadlineTests.cs": "a981dcd5cb4d6f5ebd7a84d09ae455e05b627fcf87f3db8aadb4c87636a4ead7",
     "tests/Boo.Integration.Tests/ReviewCaptureDisposeTests.cs": "153e15534f883714d918604ce91ab9b8e07607283a968fbe6b9eeb3985d8fab8",
+    "tests/Boo.Integration.Tests/RuntimeProbeCountersTests.cs": "a0f23a76c7fdbe2f340231a0fc7d104f2f83d0f41cf5c838a7a84ffdb3aa2f65",
     "tests/Boo.Integration.Tests/SessionRecoveryTests.cs": "604ff4bb833ce2be64718fc82650417dca2091517d4d33a71359fd5fd9d62e36",
     "tests/Boo.Integration.Tests/StoragePrivacyTests.cs": "dd188faa6dd2e0e92b039971fef54aadcbf37176d43ca0ec71ee2363d3982811",
     "tests/Boo.Integration.Tests/TypeTextExecutorInvisibleCharacterTests.cs": "b5b24816cfedc99a800f21bc37c5c1eb80114a741ccdf96aa88386481fa2e34e",
@@ -163,13 +165,14 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-31.json",
-  "previousManifestSha256": "7dd7e7f575a731b555c1eb1c1b02953beb50305cb415a501efeda702b2d773a7",
-  "revisionReason": "CaptureExclusionPolicyTests (Integration): hidden or already-excluded windows are never switched for a capture (demo blank-window fix, PR #95; re-extended on top of revision 31)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-32.json",
+  "previousManifestSha256": "e3abad6adb28def2158134c3a1e4e05d343f8ad4df46c35dd1511438bf14b44e",
+  "revisionReason": "PR #142 (issue #124): new tests pinning the perf probe counters - PerfProbeSnapshotTests (mapping/serialization) and RuntimeProbeCountersTests (runtime reader); kill Codex mutants M02-M04 on 61361c2",
   "addedFiles": [
-    "tests/Boo.Integration.Tests/CaptureExclusionPolicyTests.cs"
+    "tests/Boo.Core.Tests/PerfProbeSnapshotTests.cs",
+    "tests/Boo.Integration.Tests/RuntimeProbeCountersTests.cs"
   ],
-  "revisionCommit": "8649b45ce9c288b7911af556eaf9de8c7c2c483f",
+  "revisionCommit": "61361c2f11f0b4c0c947745c132605bfd6aab13b",
   "changedFiles": [],
   "removedFiles": []
 }

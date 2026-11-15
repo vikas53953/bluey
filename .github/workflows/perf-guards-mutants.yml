@@ -1,0 +1,48 @@
+name: perf-guards-mutants
+
+# Proves the PR #142 guards bite: each job applies one known fault (scripts/perf/guard_mutants.py) and passes only if
+# the matching guard FAILS; `control` passes only if every guard passes on the real code. Runs when the guarded code,
+# the guards or this list change. GitHub-hosted only, no secrets, no AI.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/perf-guards-mutants.yml
+      - scripts/perf/**
+      - src/Boo.App/Boo.App.csproj
+      - src/Boo.Core/PerfProbeSnapshot.cs
+      - src/Boo.Windows/RuntimeProbeCounters.cs
+      - tests/Boo.Core.Tests/PerfProbeSnapshotTests.cs
+      - tests/Boo.Integration.Tests/RuntimeProbeCountersTests.cs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutant:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        id: [control, M01, M02, M03, M04, M02r, M03r, M04r, M05, M06, M07]
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Guard must bite (${{ matrix.id }})
+        env:
+          MUTANT: ${{ matrix.id }}
+        run: python -I scripts/perf/guard_mutants.py run $env:MUTANT
