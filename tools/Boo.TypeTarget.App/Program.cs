@@ -18,6 +18,10 @@ namespace Boo.TypeTarget.App;
 /// (provider-readfails, which UI Automation hands back as an empty value); provider-setthrows (the write changes the
 /// value, then the write call fails with a COM error). In those modes the read-only "WriteCount" field shows how many
 /// times A's value was written.
+/// The click modes add buttons whose IDs differ only by case, each with its own read-only click counter:
+/// clickcasefirst (decoy "buttona" before the approved "ButtonA") and clickcaseonly (only "buttona"); and buttons whose
+/// IDs merely contain the approved one: clickpartialfirst (decoy "ButtonA2" before "ButtonA") and clickpartialonly
+/// (only "ButtonA2").
 /// </summary>
 internal static class Program
 {
@@ -55,6 +59,15 @@ internal static class Program
                 Controls.Add(decoy);
             }
 
+            if (mode is "clickcasefirst" or "clickcaseonly" or "clickpartialfirst" or "clickpartialonly")
+            {
+                AddCountedButton(mode.StartsWith("clickcase", StringComparison.Ordinal) ? "buttona" : "ButtonA2", "ClicksDecoy", 20, 55);
+                if (mode is "clickcasefirst" or "clickpartialfirst")
+                {
+                    AddCountedButton("ButtonA", "ClicksApproved", 270, 55);
+                }
+            }
+
             TextBox? writeCount = null;
             if (mode.StartsWith("provider-", StringComparison.Ordinal))
             {
@@ -69,7 +82,7 @@ internal static class Program
                 "readonly" => new TextBox { Name = "FieldA", AccessibleName = "Field A", ReadOnly = true },
                 "nonvalue" => new Label { Name = "FieldA", AccessibleName = "Field A", Text = "Field A (not editable)" },
                 "provider-ok" or "provider-readgone" or "provider-readinvalid" or "provider-readfails" or "provider-setthrows" => new ProviderField(mode, writeCount!),
-                "missing" or "caseonly" or "partialonly" => null,
+                "missing" or "caseonly" or "partialonly" or "clickcasefirst" or "clickcaseonly" or "clickpartialfirst" or "clickpartialonly" => null,
                 _ => throw new ArgumentException($"unknown mode '{mode}'"),
             };
             if (fieldA is not null)
@@ -108,6 +121,18 @@ internal static class Program
                 Activate();
                 _fieldB.Focus();
             };
+        }
+
+        private void AddCountedButton(string buttonId, string counterId, int x, int y)
+        {
+            var counter = new TextBox { Name = counterId, AccessibleName = counterId, ReadOnly = true, Text = "0" };
+            counter.SetBounds(x + 130, y + 150, 100, 30);
+            var button = new Button { Name = buttonId, AccessibleName = buttonId, Text = buttonId };
+            button.SetBounds(x, y, 120, 30);
+            button.Click += (_, _) => counter.Text = (int.Parse(counter.Text, System.Globalization.CultureInfo.InvariantCulture) + 1)
+                .ToString(System.Globalization.CultureInfo.InvariantCulture);
+            Controls.Add(button);
+            Controls.Add(counter);
         }
     }
 
