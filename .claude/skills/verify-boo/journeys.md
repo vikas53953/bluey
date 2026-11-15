@@ -20,7 +20,7 @@ Where the facts come from:
 
 | Evidence | What it is | What it can prove |
 | --- | --- | --- |
-| **Face timeline (pending dependency)** | PR #48 proposes `tools/Boo.VerifyLive/FaceTimeline.cs`; it is **absent from this head**. The planned observer reads UI Automation `ItemStatus` about every 25 ms and writes `jN-<name>-face-timeline.txt`, with action marks and bounded waits. These filenames and APIs describe required future evidence, not an available recorder. Existing j0–j6 observation logs remain available. | Once implemented and validated: observed face order and durations. Until then, timeline-dependent assertions are **UNVERIFIED**. A face shorter than the actual sampling interval may be missed; record the measured interval. |
+| **Face timeline** | `tools/Boo.VerifyLive/FaceTimeline.cs` (PR #48, merged on `lane/face`) reads the notch's UI Automation `ItemStatus` about every 25 ms and writes `<name>-face-timeline.txt` (for example `j1-hover-face-timeline.txt`), with `Mark` action marks and bounded `WaitForFace` waits. Today it is wired into j1, j2 and j6 only; every other journey's timeline is still to be added. Existing j0–j6 observation logs remain available. | Observed face order and durations for the journeys that record it; timeline-dependent assertions in any other journey stay **UNVERIFIED** until it records one. A face shorter than the actual sampling interval may be missed; record the measured interval. |
 | **UI Automation read** | A named control or property read through FlaUI: the panel's controls (for example `Send typed question`, `Activate microphone`, `Review action`, `Approve proposed action`, `Focus task`), the notch's `HelpText` (the "Stopped" flash, `src/Boo.App/NotchWindow.xaml.cs:315-339`), the nudge buttons `Back to it` and `5 min break` (`src/Boo.App/NotchWindow.xaml:101-120`). Written to `jN-*.txt`. | Panel state, card titles, status text, files written. |
 | **Boo-window screenshot** | One image per visible Boo window, `<moment>.boo-N.png` + `<moment>.capture.txt` (never the desktop; `SKILL.md` "Reporting"). | Supporting evidence. The notch images are often black on black, so a face claim rests on the timeline, not the picture. |
 
@@ -319,7 +319,7 @@ of these refusal branches.
 | Preconditions | No key needed; speech off; pointer away from the notch |
 | Steps | Start a 25-minute focus session; Pause; End; record the Ended status and history. After Happy settles, invoke Pause again, then Resume and End. |
 | Required result | The session stays Ended, history is unchanged, and no Paused face is pinned by a click on an ended session. A disabled Pause control is acceptable. |
-| Known failure | Issue #70: Pause after End writes a false Paused status and pins Paused. This is a **failure**, never an accepted baseline. |
+| Known failure | Issue #70: Pause after End wrote a false Paused status and pinned Paused. Fix merged on `lane/face` (PR #82); held by `tools/Boo.VerifyLive/Regressions/FocusPauseAfterEndRegressionTests.cs` (FEATURE_MAP F12). A recurrence is a **failure**, never an accepted baseline. |
 | Covers | Fo3, Fo6, Fo7; extends j13 with terminal-state controls |
 | Evidence | Before/after focus status, history and enabled controls; face timeline; Boo-window screenshots. Existing explorer proof: [run 43468157115](https://github.com/vikas53953/bluey/actions/runs/43468157115), `x06-focus.txt`. Re-run on the tested head; old proof is not current-head proof. |
 | Live / mock | No AI required; current-head execution **UNVERIFIED** |
@@ -331,7 +331,7 @@ of these refusal branches.
 | Preconditions | Real OpenAI; speech off; panel open; pointer away from notch |
 | Steps | Send a question; confirm it is pending; press Ctrl+Alt+F12 before completion. Read status and transcript immediately and for at least five seconds. Repeat for other pending request types when reachable, reporting each independently. If the reply finishes first, report that substep UNVERIFIED; do not retry silently. |
 | Required result | The status stops claiming work is pending, cancelled work adds no late answer or action, and the face returns according to active focus/hover state. A resting face alone is insufficient. |
-| Known failure | Issue #71: the face rests but status remains Thinking about the selected context. Count this as FAIL. |
+| Known failure | Issue #71: the face rested but status remained Thinking about the selected context. Fix merged on `lane/face` (PR #83); held by the mock regression `tools/Boo.VerifyLive/Regressions/StopStatusRegressionTests.cs` (FEATURE_MAP T10). A recurrence counts as FAIL. |
 | Covers | F21, G2, G4; extends j12 with panel-status assertions |
 | Evidence | Timestamped Stop, status/transcript reads and face timeline plus Boo-window screenshots. Existing explorer failure: [run 43468157115](https://github.com/vikas53953/bluey/actions/runs/43468157115), `l04-stop-mid-reply-FAILED.txt`; current-head execution **UNVERIFIED**. |
 | Live / mock | Real-provider execution is live; a held local proxy is a separately labelled mock regression proof, never real-provider evidence |
@@ -343,12 +343,12 @@ of these refusal branches.
 | Preconditions | Fresh disposable runner profile, no key saved; panel open |
 | Steps | Send the identical question twice; wait for each no-key result. Read every Conversation item through UI Automation, preserving duplicate items and their order. Inspect the screenshot too. |
 | Required result | Both visible You rows have separate accessible items with the same text. Scrolling to the newest row reaches the second item. Never deduplicate the UI Automation results before comparing counts. |
-| Known failure | Issue #73: two visible equal rows expose only one automation item. Count this as FAIL. |
+| Known failure | Issue #73: two visible equal rows exposed only one automation item. Fix merged on `lane/face` (PR #84); held by `tools/Boo.VerifyLive/Regressions/TranscriptDuplicateRowsRegressionTests.cs` (FEATURE_MAP X9). A recurrence counts as FAIL. |
 | Covers | Conversation screen accessibility and newest-row scrolling; complements j2 and j18 |
 | Evidence | Ordered raw automation items, item identities/counts, scroll observation and panel screenshot. Existing explorer proof: [run 43469967627](https://github.com/vikas53953/bluey/actions/runs/43469967627), `b01-wrong-key.txt` and its capture index; current-head execution **UNVERIFIED**. |
 | Live / mock | No AI required; repeat with real-provider duplicate answers only as separate live coverage |
 
-These bug journeys add required outcomes; they do not claim the bugs are fixed or that this document executed them.
+These bug journeys add required outcomes. The fixes and regression tests named above are on `lane/face`; this document does not execute the journeys, so each still needs a run on the tested head.
 
 #### j22 — Mixed chord and panel Talk must preserve microphone privacy
 
@@ -458,10 +458,10 @@ on the runner; without one they are **BLOCKED**, never green.
   checks changes on purpose.
 - **Full-app QA suite** (branch `qa/full-app-suite`, PR 2.12 "Phase 2 gate"): run every journey; report one evidence row
   per journey id with its label (live / mock / manual / UNVERIFIED / BLOCKED) and run link.
-- **PR #45** (plan rows 2.11 "every notch state tested" and 2.12): the state table (section 1) and the transition table
+- **Plan rows 2.11 "every notch state tested" and 2.12** (first drafted in PR #45, closed in favour of #44): the state table (section 1) and the transition table
   (section 3) are the checklist for "no notch state left UNVERIFIED". `docs/FEATURE_MAP.md` rows can cite a journey id.
-- **PR #48** (pending `FaceTimeline.cs`): each journey's face sequence is what its planned `jN-*-face-timeline.txt`
-  should show once the recorder lands; action marks and bounded face waits are requirements, not current APIs. A face shorter than
+- **PR #48** (`FaceTimeline.cs`, merged): each journey's face sequence is what its `<name>-face-timeline.txt` should
+  show once that journey records one (today j1, j2, j6); `Mark` and `WaitForFace` provide the action marks and bounded face waits. A face shorter than
   one reading (about 25–35 ms) can be missed, so a missing very short face (for example the tap in j9 b) is not a
   failure on its own.
 - **Steps marked "expect today's behaviour"** check today's code and name the finding. They are not a verdict on the
