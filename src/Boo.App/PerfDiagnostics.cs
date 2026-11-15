@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
-using System.Windows.Threading;
+using System.Threading;
 
 namespace Boo.App;
 
@@ -13,9 +13,12 @@ namespace Boo.App;
 /// (frames rendered, whether the CompositionTarget.Rendering subscription is live, face state, pacer skips) and how
 /// Windows draws the notch ("SoftwareOnly" or "Default"; added 2026-11-12, readers that do not know it ignore it).
 /// Unset (every normal launch) nothing is created: no timer, no file, no allocations.
-/// The timer runs at <see cref="DispatcherPriority.Background"/>, not ApplicationIdle: while the notch is revealed the
-/// render loop keeps the dispatcher busy and an ApplicationIdle tick can starve for seconds, which left the file stale
-/// mid-measurement (CI 13 Nov 2026: 0 and 11 fps reported over a 2 s window while 222 and 216 frames had rendered).
+/// The writer is a <see cref="TimeProvider"/> timer on the thread pool, not a DispatcherTimer: while the notch is
+/// revealed the render loop keeps the UI dispatcher busy and a dispatcher tick starves for seconds, so the file went
+/// stale in the very window the perf test samples (CI 13 Nov 2026: 0, 11 and, at Background priority, 8 fps reported
+/// over 2 s while 216 to 224 frames had rendered). Everything the snapshot reads is safe off the UI thread: the frame
+/// count is Interlocked, the render mode is cached by the window when its handle is created, the rest are plain
+/// fields and GC counters. A tick that finds the previous write still running is skipped.
 /// Schema (version 1), all numbers cumulative since process start:
 /// <code>
 /// { "schema": 1, "writtenAtUtc": "...", "uptimeMs": 1234, "gen0": 3, "gen1": 1, "gen2": 0,
@@ -35,21 +38,20 @@ internal sealed class PerfDiagnostics
     private readonly string _tempPath;
     private readonly NotchWindow _notch;
     private readonly Stopwatch _uptime = Stopwatch.StartNew();
-    private readonly DispatcherTimer _timer;
     private readonly TimeProvider _clock;
+    private ITimer? _timer;
+    private int _writing;
 
-    private PerfDiagnostics(string path, NotchWindow notch, Dispatcher dispatcher, TimeProvider clock)
+    private PerfDiagnostics(string path, NotchWindow notch, TimeProvider clock)
     {
         _clock = clock;
         _path = path;
         _tempPath = path + ".tmp";
         _notch = notch;
-        _timer = new DispatcherTimer(DispatcherPriority.Background, dispatcher) { Interval = Interval };
-        _timer.Tick += (_, _) => Write();
     }
 
     /// <summary>Starts the probe when BOO_PERF_DIAG is set; returns null (and does nothing) otherwise.</summary>
-    public static PerfDiagnostics? TryStart(NotchWindow notch, Dispatcher dispatcher, TimeProvider? clock = null)
+    public static PerfDiagnostics? TryStart(NotchWindow notch, TimeProvider? clock = null)
     {
         var path = Environment.GetEnvironmentVariable(EnvironmentVariable);
         if (string.IsNullOrWhiteSpace(path))
@@ -64,9 +66,9 @@ internal sealed class PerfDiagnostics
             {
                 Directory.CreateDirectory(directory);
             }
-            var probe = new PerfDiagnostics(full, notch, dispatcher, clock ?? TimeProvider.System);
+            var probe = new PerfDiagnostics(full, notch, clock ?? TimeProvider.System);
             probe.Write();
-            probe._timer.Start();
+            probe._timer = probe._clock.CreateTimer(_ => probe.Write(), null, Interval, Interval);
             return probe;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
@@ -76,9 +78,25 @@ internal sealed class PerfDiagnostics
         }
     }
 
-    public void Stop() => _timer.Stop();
+    public void Stop() => _timer?.Dispose();
 
     private void Write()
+    {
+        if (Interlocked.Exchange(ref _writing, 1) != 0)
+        {
+            return;
+        }
+        try
+        {
+            WriteSnapshot();
+        }
+        finally
+        {
+            Volatile.Write(ref _writing, 0);
+        }
+    }
+
+    private void WriteSnapshot()
     {
         var snapshot = new Snapshot(
             Schema,
