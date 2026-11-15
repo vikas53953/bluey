@@ -36,16 +36,19 @@ not count) and verifies:
 | What | The check |
 | --- | --- |
 | Test | Each test is a code span `path/File.cs::MethodName`. The file is new or changed in this PR and holds that method on the PR head. |
-| Red before | A full `https://github.com/<this repo>/actions/runs/<id>/job/<id>` link to a **job** (not a whole run, so its log can be read). The job **failed**; it ran on a commit that is an **ancestor** of the PR head and **not the head itself**; the test file and method already existed at that commit; and its log has a failure line for every named test (`Failed ...MethodName`, `... [FAIL]` or pytest's `FAILED ...::name`). |
-| Green on head | A run (or job) link of this repository whose commit **is** the PR head and which **succeeded**. |
+| Red before | A full `https://github.com/<this repo>/actions/runs/<id>/job/<id>` link to a **job** (not a whole run, so its log can be read). The job **failed**; it ran on a commit that is an **ancestor** of the PR head and **not the head itself**; the test file and method already existed at that commit; its log has a failure line for every named test (`Failed ...MethodName` or `... [FAIL]`); **and** the test results (`.trx` files) in that run's artifacts have a `Failed` result for **that exact test**: the same fully-qualified class (`Namespace.Class`, read from the test file) and method. Another test failing, or the same method name in another class, does not count. |
+| Green on head | A run (or job) link of this repository whose commit **is** the PR head and which **succeeded**, **and** whose test results (`.trx` in the run's artifacts) hold **that exact test** (class and method) at least once, with every result `Passed`. Not found, zero results, skipped (`NotExecuted`), a failed theory row, or only other tests passing all fail. |
 
 Every GitHub read is read-only (the workflow has `contents`, `actions`, `issues` and `pull-requests` read access, no
-write). If any read fails (rendering the body, a job, its log, a linked issue), the check fails closed; re-run it.
+write). If any read fails (rendering the body, a job, its log, a run's test results, a linked issue), the check fails closed;
+re-run it. The test results come from the run's artifacts: `windows-ci` uploads every `.trx` as `test-results`
+(key-scanned before upload). Artifacts larger than 32 MB (the published app) are skipped.
 
 ## How to produce the proof
 
 1. Write the test that reproduces the bug. Push it to the PR branch **alone, without the fix**.
-2. Let `windows-ci` (or the workflow that runs that test) fail on that commit. Open the failed job and copy its
+2. Let `windows-ci` (or another workflow that runs that test with `--logger trx` and uploads the `.trx` files) fail on
+   that commit. Open the failed job and copy its
    address (`.../actions/runs/<id>/job/<id>`) into `Red before:`.
 3. Push the fix. When the run on the new head is green, copy its address into `Green on head:`. Editing the body
    re-runs the check.
@@ -68,11 +71,16 @@ write). If any read fails (rendering the body, a job, its log, a linked issue), 
 
 ## Known gaps (left to review)
 
-- The log check reads failure lines by test name. A job that fails for another reason but also prints a failure line
-  for a test with the same method name in another class would pass it. Use unique test method names.
+- Only .NET tests whose run uploads `.trx` files can be proven (today: the projects `windows-ci` tests). A pytest test,
+  or a test run by a workflow that uploads no `.trx`, cannot be proven and the check fails; add the upload (with the
+  key scan before it) to that workflow first.
+- The class is read from the test file by text (namespace + the last `class`/`record` before the method). A test in a
+  nested class (TRX writes `Outer+Inner`) is not matched and fails closed; keep regression tests in a top-level class.
 - It proves the test failed before and the run passed on the head, not that the test is a faithful reproduction of
   the bug. The reviewer judges that.
-- Job logs expire after the repository's log retention (90 days by default). Re-run the check before then.
+- Job logs expire after the repository's log retention (90 days by default), and `test-results` artifacts after 7 days
+  (`retention-days` in `windows-ci.yml`). After that the proof cannot be read and the check fails: re-run the red
+  and green runs, or re-run the check before then.
 - A PR can edit `bug-regression.yml` itself; as with every gate here, that is caught by review and the required-check
   settings (Vikas's decision), not by the workflow. The base branch's copy of the script judges first, so a PR cannot
   loosen the script.

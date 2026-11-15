@@ -14,15 +14,20 @@ A bug fix must have a `## Regression test` section in its body, with:
   - each test as a code span `path/to/File.cs::MethodName` (the file is new or changed in this PR and holds the method);
   - a list item `Red before:` with a link to a GitHub Actions JOB of this repository
     (https://github.com/<repo>/actions/runs/<id>/job/<id>) that ran on a commit BEFORE the fix: an ancestor of the PR
-    head, not the head itself. The job failed, its log has a failure line for every named test, and the test file and
-    method already existed at that commit;
-  - a list item `Green on head:` with a link to a run (or job) of this repository on the PR head that succeeded.
+    head, not the head itself. The job failed, its log has a failure line for every named test, the test file and
+    method already existed at that commit, and the test results (TRX) of that run show THE NAMED TEST failing
+    (matched by its fully-qualified class and method name);
+  - a list item `Green on head:` with a link to a run (or job) of this repository on the PR head that succeeded and
+    whose test results (TRX) show THE NAMED TEST run and passed: at least one result, every one of them Passed.
+    Not found, zero results, skipped, failed in any row, or only other tests passed all fail.
+The test results are the .trx files in the run's artifacts (windows-ci uploads them as `test-results`, key-scanned).
 
 Like BOO-EVID-001 the body is not parsed here: GitHub renders it (POST /markdown), so a section inside an HTML comment
 or a code block does not count. Every GitHub read (rendering, runs, jobs, logs, issues) is read-only; if any of them
 cannot be read, the check fails closed. The token is only ever sent in a request header, never printed.
 """
 import html.parser
+import io
 import json
 import os
 import pathlib
@@ -32,6 +37,8 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
+import zipfile
+from xml.etree import ElementTree
 
 RULE = 'BOO-BUG-001'
 API = 'https://api.github.com'
@@ -43,6 +50,8 @@ ANSI = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
 FAILED_LINE = (re.compile(r'^(?:\S+Z )?\s*(?:Failed|FAILED|\[FAIL\])\s+(\S+)'),   # xUnit/dotnet test, pytest
                re.compile(r'^(?:\S+Z )?\s*(\S+)\s+\[FAIL\]'))                    # xUnit console runner
 LOG_LIMIT = 64 * 1024 * 1024
+ARTIFACT_LIMIT = 32 * 1024 * 1024        # test-result artifacts are small; the published app (about 90 MB) is skipped
+TRX_NS = '{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}'
 
 
 class ApiError(Exception):
@@ -177,6 +186,42 @@ def failed_in_log(log, method):
     return False
 
 
+def parse_trx(data):
+    """[(class name, method name, outcome)] for every result in one TRX file, joined to its test definition by test id.
+    Raises ValueError when the file is not a readable TRX (or carries a DOCTYPE: a TRX file never needs one)."""
+    if b'<!DOCTYPE' in data[:4096].upper():
+        raise ValueError('a TRX file with a DOCTYPE is refused')
+    try:
+        root = ElementTree.fromstring(data)
+    except ElementTree.ParseError as error:
+        raise ValueError(f'unreadable TRX file ({error})') from None
+    methods = {}
+    for unit in root.iter(TRX_NS + 'UnitTest'):
+        method = unit.find(TRX_NS + 'TestMethod')
+        if method is not None:
+            methods[unit.get('id')] = (method.get('className') or '', method.get('name') or '')
+    out = []
+    for result in root.iter(TRX_NS + 'UnitTestResult'):
+        class_name, method = methods.get(result.get('testId'), ('', ''))
+        out.append((class_name, method, result.get('outcome') or ''))
+    return out
+
+
+def test_class(source, method):
+    """The fully-qualified class (namespace.Class) that declares `method` in a C# test file, or None."""
+    if source is None:
+        return None
+    code = re.sub(r'//[^\n]*|/\*.*?\*/', ' ', source, flags=re.DOTALL)
+    at = re.search(r'\b' + re.escape(method) + r'\s*\(', code)
+    if not at:
+        return None
+    classes = re.findall(r'\b(?:class|record)\s+([A-Za-z_][A-Za-z0-9_]*)', code[:at.start()])
+    if not classes:
+        return None
+    namespace = re.search(r'\bnamespace\s+([A-Za-z_][A-Za-z0-9_.]*)', code[:at.start()])
+    return (namespace.group(1) + '.' if namespace else '') + classes[-1]
+
+
 def has_method(text, method):
     return text is not None and re.search(r'(?<![A-Za-z0-9_])' + re.escape(method) + r'(?![A-Za-z0-9_])', text)
 
@@ -265,23 +310,44 @@ def check(pr, rendered_html, repo, gh, git):
                 problems.append(f'red-before job {job_id} ran on {sha[:7]}, which is not an earlier commit of this PR '
                                 f'head (compare: {status})')
                 continue
-            reds.append((sha, gh.job_log(job_id), job_id))
+            reds.append((sha, gh.job_log(job_id), job_id, run_id))
         except ApiError as error:
             problems.append(f'red-before job {job_id} could not be read ({error}); failing closed')
+    results_of = {}
+
+    def run_results(run_id):
+        if run_id not in results_of:
+            try:
+                results_of[run_id] = gh.test_results(run_id)
+            except (ApiError, ValueError) as error:
+                results_of[run_id] = error
+        return results_of[run_id]
+
     if reds:
         for path, method in tests:
-            proven = False
-            for sha, log, job_id in reds:
+            proven, unreadable = False, []
+            for sha, log, job_id, run_id in reds:
                 try:
-                    present = has_method(git.show(sha, path), method)
+                    source = git.show(sha, path)
                 except GitError:
-                    present = False
-                if present and failed_in_log(log, method):
+                    source = None
+                cls = test_class(source, method)
+                if not (has_method(source, method) and cls and failed_in_log(log, method)):
+                    continue
+                results = run_results(run_id)
+                if isinstance(results, Exception):
+                    unreadable.append(f'run {run_id} ({results})')
+                    continue
+                if (cls, method, 'Failed') in results:
                     proven = True
                     break
-            if not proven:
-                problems.append(f'test {path}::{method}: no red-before job shows it failing (a log line like '
-                                f'"Failed ...{method}") on a commit where {path} already had it')
+            if not proven and unreadable:
+                problems.append(f'test {path}::{method}: the test results of red-before {", ".join(unreadable)} could '
+                                'not be read; failing closed')
+            elif not proven:
+                problems.append(f'test {path}::{method}: no red-before job shows it failing: a log line like '
+                                f'"Failed ...{method}" AND a Failed result for that exact test (class and method) in '
+                                f'the run\'s test results (TRX), on a commit where {path} already had it')
     for href in green_links:
         m = link.match(href)
         if not m:
@@ -302,6 +368,29 @@ def check(pr, rendered_html, repo, gh, git):
         elif data.get('conclusion') != 'success':
             problems.append(f'green-on-head run {run_id} has not passed (status: {data.get("status")}, conclusion: '
                             f'{data.get("conclusion")}); edit the body once it is green to re-run this check')
+        else:
+            results = run_results(run_id)
+            if isinstance(results, Exception):
+                problems.append(f'green-on-head run {run_id}: its test results could not be read ({results}); '
+                                'failing closed')
+                continue
+            for path, method in tests:
+                try:
+                    cls = test_class(git.show(head, path), method)
+                except GitError:
+                    cls = None
+                if not cls:
+                    problems.append(f'green-on-head run {run_id}: cannot tell which class declares {method} in {path} '
+                                    'on the PR head; failing closed')
+                    continue
+                outcomes = [o for c, m, o in results if c == cls and m == method]
+                if not outcomes:
+                    problems.append(f'green-on-head run {run_id}: {cls}.{method} is not in its test results (TRX): '
+                                    'it did not run there (or the results were not uploaded); other tests passing '
+                                    'is not proof')
+                elif any(o != 'Passed' for o in outcomes):
+                    problems.append(f'green-on-head run {run_id}: {cls}.{method} did not pass every time (outcomes: '
+                                    f'{", ".join(sorted(set(outcomes)))}); skipped or failed rows are not green')
     return problems, reasons
 
 
@@ -360,6 +449,59 @@ class GitHub:
         elif status != 200:
             raise ApiError(f'job log: GitHub answered {status}')
         return body.decode('utf-8', 'replace')
+
+    def _download(self, url, what):
+        """GET a GitHub URL that redirects to signed storage; the signed link never gets the token."""
+        class _Stay(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+        status, headers, body = self._open(urllib.request.Request(url), urllib.request.build_opener(_Stay))
+        if status in (301, 302, 303, 307, 308):
+            location = headers.get('Location') or ''
+            if not location.startswith('https://'):
+                raise ApiError(f'{what} moved somewhere unreadable')
+            try:
+                with urllib.request.urlopen(urllib.request.Request(location, headers={
+                        'User-Agent': 'bug-regression-check'}), timeout=120) as response:
+                    body = response.read(ARTIFACT_LIMIT + 1)
+            except (OSError, urllib.error.URLError) as error:
+                raise ApiError(f'{what}: {type(error).__name__}') from None
+        elif status != 200:
+            raise ApiError(f'{what}: GitHub answered {status}')
+        if len(body) > ARTIFACT_LIMIT:
+            raise ApiError(f'{what} is larger than {ARTIFACT_LIMIT} bytes')
+        return body
+
+    def test_results(self, run_id):
+        """[(class, method, outcome)] from every .trx file in the run's artifacts (each at most ARTIFACT_LIMIT bytes;
+        bigger ones, like the published app, are skipped). An expired artifact gives nothing, so the test is then
+        not found and the check fails."""
+        artifacts, page = [], 1
+        while True:
+            data = self.get(f'/repos/{self.repo}/actions/runs/{run_id}/artifacts?per_page=100&page={page}')
+            batch = data.get('artifacts') or []
+            artifacts += batch
+            if len(batch) < 100:
+                break
+            page += 1
+        out = []
+        for artifact in artifacts:
+            if artifact.get('expired') or (artifact.get('size_in_bytes') or 0) > ARTIFACT_LIMIT:
+                continue
+            url = artifact.get('archive_download_url') or ''
+            if not url.startswith(API + '/'):
+                raise ApiError('an artifact has no GitHub download address')
+            blob = self._download(url, f'artifact {artifact.get("name")}')
+            try:
+                with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+                    for entry in archive.infolist():
+                        if entry.filename.lower().endswith('.trx'):
+                            if entry.file_size > ARTIFACT_LIMIT:
+                                raise ApiError(f'{entry.filename} is too large to read')
+                            out += parse_trx(archive.read(entry))
+            except zipfile.BadZipFile:
+                raise ApiError(f'artifact {artifact.get("name")} is not a readable zip') from None
+        return out
 
     def render(self, body):
         data = json.dumps({'text': body or '', 'mode': 'gfm', 'context': self.repo}).encode('utf-8')
