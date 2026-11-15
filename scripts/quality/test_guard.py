@@ -23,6 +23,7 @@ sign-off. HTML comments and code blocks in the body do not count. Anything this 
 fails closed. Never reads secrets.
 """
 import difflib
+from xml.etree import ElementTree
 import json
 import os
 import pathlib
@@ -74,17 +75,59 @@ def show(sha, path, cwd):
     return git(['show', f'{sha}:{path}'], cwd).decode('utf-8-sig', 'replace').replace('\r\n', '\n')
 
 
+# Packages whose real PackageReference makes a project a test project. Matched on the whole package id (case-blind,
+# as NuGet does), never as a substring: "Xunit.Decoy.Helpers" is not xUnit.
+TEST_PACKAGES = {'xunit', 'xunit.core', 'xunit.assert', 'xunit.v3', 'xunit.v3.core', 'xunit.v3.assert',
+                 'xunit.runner.visualstudio', 'microsoft.net.test.sdk'}
+
+
+def is_test_project(text):
+    """True when a .csproj really declares a test project: a PackageReference (Include or Update) to a package in
+    TEST_PACKAGES, or the property IsTestProject = true. Read from the parsed XML, so comments, attribute values,
+    other items, property values and the project's own name never count. An unreadable file is not a test project
+    (so its folder stays product code: the safe side); so is one with a DOCTYPE (no entity tricks: a .csproj needs
+    none)."""
+    if '<!doctype' in text.lower():
+        return False
+    try:
+        root = ElementTree.fromstring(text)
+    except ElementTree.ParseError:
+        return False
+    for element in root.iter():
+        tag = element.tag.rsplit('}', 1)[-1] if isinstance(element.tag, str) else ''
+        if tag == 'PackageReference':
+            name = (element.get('Include') or element.get('Update') or '').strip().lower()
+            if name in TEST_PACKAGES:
+                return True
+        elif tag == 'IsTestProject' and (element.text or '').strip().lower() == 'true':
+            return True
+    return False
+
+
+def project_kinds(sha, cwd):
+    """{folder/: True when a test project} for every .csproj folder under tools/ at one commit."""
+    kinds = {}
+    names = git(['ls-tree', '-r', '-z', '--name-only', sha, '--', 'tools'], cwd).decode('utf-8', 'replace')
+    for name in filter(None, names.split('\0')):
+        if name.lower().endswith('.csproj'):
+            folder = name.rsplit('/', 1)[0] + '/'
+            kinds[folder] = kinds.get(folder, False) or is_test_project(show(sha, name, cwd) or '')
+    return kinds
+
+
 def test_project_dirs(shas, cwd):
-    """Folders under tools/ that hold a test project (xUnit or IsTestProject) at any of the given commits."""
-    dirs = set()
-    for sha in shas:
-        names = git(['ls-tree', '-r', '-z', '--name-only', sha, '--', 'tools'], cwd).decode('utf-8', 'replace')
-        for name in filter(None, names.split('\0')):
-            if name.lower().endswith('.csproj'):
-                text = show(sha, name, cwd) or ''
-                if '<IsTestProject>true</IsTestProject>' in text or 'xunit' in text.lower():
-                    dirs.add(name.rsplit('/', 1)[0] + '/')
-    return dirs
+    """Folders under tools/ that hold a test project at ANY of the given commits: their existing files count as tests,
+    so weakening them is caught even if the PR also turns the project into something else."""
+    return {folder for sha in shas for folder, is_test in project_kinds(sha, cwd).items() if is_test}
+
+
+def exempt_test_dirs(shas, cwd):
+    """Folders under tools/ whose changes are NOT product code: a test project at EVERY given commit where the folder has
+    a .csproj. A project that is product code on the base stays product code whatever the PR head writes into its
+    .csproj (head-controlled metadata cannot reclassify it); a brand-new project is judged by the head alone."""
+    per_commit = [project_kinds(sha, cwd) for sha in shas]
+    folders = {folder for kinds in per_commit for folder in kinds}
+    return {folder for folder in folders if all(kinds.get(folder, True) for kinds in per_commit)}
 
 
 def is_test_file(path, test_dirs):
@@ -206,7 +249,7 @@ def judge(body, base, head, cwd='.'):
     parts = [p for p in raw.split('\0') if p]
     changes = list(zip(parts[0::2], parts[1::2]))
     test_dirs = test_project_dirs([merge_base, head_sha], cwd)
-    product = sorted(p for _, p in changes if is_product_file(p, test_dirs))
+    product = sorted(p for _, p in changes if is_product_file(p, exempt_test_dirs([merge_base, head_sha], cwd)))
     if not product:
         return [], 'no product change (src/, tools/ outside test projects, Directory.Build.*): out of scope'
     weakened = []   # (path, reasons, methods)
