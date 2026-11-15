@@ -10,7 +10,7 @@ on:
       qa_journey:
         description: One existing partial journey; does not certify missing branches
         type: choice
-        options: [none, file_undo, approval_edges, sequential_approval, focus_edges, request_generation, eye_tap]
+        options: [none, file_undo, field_undo, approval_edges, sequential_approval, focus_edges, request_generation, eye_tap]
         default: none
       verify_journey:
         description: One existing real-OpenAI journey, with J0 launch prerequisite
@@ -80,6 +80,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet build tools/Boo.QaSuite -c Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ('${{ inputs.qa_journey }}' -eq 'field_undo') {
+            dotnet publish tools/Boo.TypeTarget.App -c Release -r win-x64 --self-contained true -o artifacts/field-target
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
           if ('${{ inputs.hotkey || inputs.basic_hover || inputs.typed_chat || (inputs.verify_journey && inputs.verify_journey != 'none') }}' -eq 'true') {
             dotnet build tools/Boo.VerifyLive -c Release
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -93,6 +97,7 @@ jobs:
           BOO_UI_EXE: ${{ github.workspace }}\artifacts\paused-stop-app\Boo.exe
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\paused-stop
           BOO_CAPTURE_SCOPE: boo-windows
+          BOO_TYPE_TARGET_EXE: ${{ github.workspace }}\artifacts\field-target\Boo.TypeTarget.App.exe
           BOO_LIVE_TEXT_PROVIDER: openai
           BOO_LIVE_MODEL: gpt-6-luna
           BOO_LIVE_OPENAI_KEY: ${{ (inputs.approval_stop || inputs.hotkey || inputs.basic_hover || inputs.typed_chat || (inputs.verify_journey && inputs.verify_journey != 'none') || (inputs.qa_journey && inputs.qa_journey != 'none')) && secrets.BOO_LIVE_OPENAI_KEY || '' }}
@@ -119,6 +124,7 @@ jobs:
           $qaMethod = switch ($env:QA_JOURNEY) {
             'none' { '' }
             'file_undo' { 'FileUndoEdgeTests.Q16_SecondApprovedFileUndo_RecreatesTheOriginalContents' }
+            'field_undo' { 'FieldUndoEdgeTests.Q16F_ApprovedFieldUndo_RestoresOriginal_SecondUndoDoesNothing' }
             'approval_edges' { 'ApprovalEdgeTests.Q15_CancelEscapeOrReplacement_CannotApplyAnOldProposal' }
             'sequential_approval' { 'SequentialApprovalTests.QD15_TwoFileSteps_RequireSeparateApprovalsAndShowNextStep' }
             'focus_edges' { 'FocusEdgeTests.Q13_EndFromPaused_AndReplaceRunningSession_KeepHistoryAndFacesHonest' }

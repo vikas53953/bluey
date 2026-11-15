@@ -180,3 +180,5 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | F18 | j13d End from Paused: Happy nominal-duration compatibility and ordered retreat | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FocusEndTimingTests.cs::Q13H_EndFromPaused_HappyIntervalContainsNominalDurationThenRetreats` |
 
 | F20 | j12f actual notification-area tray Stop pauses running focus and keeps Paused pinned | UNVERIFIED | `tools/Boo.QaSuite/Journeys/TrayStopTests.cs::Q12F_TrayStop_PausesRunningFocusAndKeepsItPinned` |
+
+| A17 | j16 field branch: approved edit, approved exact restoration, second Undo has no card or field effect | UNVERIFIED | `tools/Boo.QaSuite/Journeys/FieldUndoEdgeTests.cs::Q16F_ApprovedFieldUndo_RestoresOriginal_SecondUndoDoesNothing` |

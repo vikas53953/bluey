@@ -45,7 +45,8 @@ PLAIN = {
     'QD15': 'Two file steps: Next step card and separate approvals (partial j15d)',
     'Q67': 'Issue 67 diagnostic: ten compact-window focus cycles without UIA errors (no key)',
     'Q18': 'Newer typed request only answer during 15-second watch (partial j18)',
-    'Q16': 'Second approved file Undo restores exact contents (partial j16; field pending)',
+    'Q16': 'Second approved file Undo restores exact contents (j16 file branch)',
+    'Q16F': 'Approved field Undo restores original; second Undo has no edit or approval',
     'Q15': 'Approval Cancel / Escape / replacement (partial j15 a-c)',
     'Q12E': 'Right-click Stop dismisses pending approval and acknowledges Stopped (j12e only)',
     'Q12F': 'Actual tray Stop pauses a running session and keeps Paused pinned (j12f only)',
@@ -85,7 +86,7 @@ JOURNEYS = [
     ('j13', 'Focus lifecycle (S4 and Q13 cover subsets; full sequence and event proof pending)', []),
     ('j14', 'Focus nudge (off task)', []),
     ('j15', 'Approval card edges (a-c Q15, d QD15; e pending)', []),
-    ('j16', 'Second undo (file branch Q16; field branch pending)', []),
+    ('j16', 'Field and file Undo branches', ['Q16', 'Q16F']),
     ('j17', 'Voice ends itself and drives focus', 'voice'),
     ('j18', 'Newer request wins (typed Q18; ring and face ownership pending)', []),
 ]
@@ -229,6 +230,16 @@ def self_test():
             for n, o, m in results)
         (path / 'r.trx').write_text(f'<TestRun xmlns="{NS["t"]}"><Results>{body}</Results></TestRun>', encoding='utf-8')
 
+    with tempfile.TemporaryDirectory() as d:
+        root = pathlib.Path(d)
+        for outcomes, expected in [([('Q16', 'Passed')], False),
+                                   ([('Q16F', 'Passed')], False),
+                                   ([('Q16', 'Passed'), ('Q16F', 'Failed')], False),
+                                   ([('Q16', 'Passed'), ('Q16F', 'Passed')], True)]:
+            trx(root / 'journeys' / 'trx', [(f'Boo.QaSuite.Journeys.X.{sid}_Check', outcome, '') for sid, outcome in outcomes])
+            text, _ = build(root)
+            check(f'j16 requires both current-run branches: {outcomes}',
+                  ('| Journey j16: Field and file Undo branches | live | passed' in text) == expected)
     with tempfile.TemporaryDirectory() as d:
         root = pathlib.Path(d)
         for g in GROUPS:

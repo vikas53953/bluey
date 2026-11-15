@@ -199,6 +199,8 @@ jobs:
       - name: Build the test harness
         shell: pwsh
         run: |
+          dotnet publish tools/Boo.TypeTarget.App -c Release -r win-x64 --self-contained true -o artifacts/field-target
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           foreach ($p in 'tools/Boo.QaSuite', 'tools/Boo.LiveSmoke', 'tools/Boo.VerifyLive') {
             dotnet build $p -c Release
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -243,6 +245,7 @@ jobs:
         timeout-minutes: 20
         shell: pwsh
         env:
+          BOO_TYPE_TARGET_EXE: ${{ github.workspace }}\artifacts\field-target\Boo.TypeTarget.App.exe
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\qa-evidence\journeys
           BOO_LIVE_MODEL: ${{ inputs.chat_model || 'gpt-6-luna' }}
           BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
