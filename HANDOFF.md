@@ -157,6 +157,9 @@ screenshot a key; logs record lengths only.
 
 ## 5. Vikas's pipeline (rules every agent follows)
 
+The principles behind these rules (and the merge, spend and spare-capacity rules) are in
+`docs/PIPELINE_PRINCIPLES.md`. Read it first.
+
 1. **Branch + PR only.** Work on a new branch off `origin/lane/face`; open one PR into `lane/face`.
 2. **Tests first, frozen.** Everything under `tests/` (plus `docs/verification/acceptance-*.md`,
    `docs/verification/public-contracts.md`, `src/Boo.Core/Contracts.cs`) is a frozen oracle, hashed in
