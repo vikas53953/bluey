@@ -155,16 +155,21 @@ public sealed class TypeTextTargetTests
     /// <summary>
     /// Issue #134 (click side): an approved click names button "ButtonA" by its exact, case-sensitive automation ID.
     /// clickcasefirst puts a decoy "buttona" before it: only ButtonA may be clicked. clickcaseonly has only "buttona":
-    /// nothing may be clicked. Each button has its own click counter, read back through UI Automation.
+    /// nothing may be clicked. The partial cases use a decoy whose ID merely contains the approved one ("ButtonA2"):
+    /// clickpartialfirst puts it before ButtonA, clickpartialonly has only the decoy, so neither the UI Automation invoke
+    /// nor the click-at-the-centre fallback may reach it. Each button has its own click counter, read back through UI
+    /// Automation.
     /// </summary>
     [Theory]
     [InlineData("clickcasefirst", "1")]
     [InlineData("clickcaseonly", null)]
+    [InlineData("clickpartialfirst", "1")]
+    [InlineData("clickpartialonly", null)]
     public async Task ApprovedClickMatchedOnlyByExactId(string mode, string? approvedClicks)
     {
         var run = await RunAsync(mode, approvedId: "ButtonA", tool: "click");
 
-        Assert.True(run.ClicksDecoy == "0", $"the click approved for ButtonA reached the decoy 'buttona' ({run.ClicksDecoy} click(s)). {run.Summary}");
+        Assert.True(run.ClicksDecoy == "0", $"the click approved for ButtonA reached the decoy ({run.ClicksDecoy} click(s)). {run.Summary}");
         Assert.True(run.ClicksApproved == approvedClicks, $"ButtonA should have {approvedClicks ?? "no counter"} click(s), has {run.ClicksApproved}. {run.Summary}");
         Assert.True(run.FieldB.Length == 0, $"FieldB changed: '{run.FieldB}'. {run.Summary}");
     }
