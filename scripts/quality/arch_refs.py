@@ -4,9 +4,13 @@ frameworks and package build code that docs/architecture/layers.json allows. Nev
   python -I scripts/quality/arch_refs.py judge artifacts/build-facts/build-facts.json
         windows-ci runs this right after "Build facts": the facts of its own Release build of Boo.sln and its win-x64
         publish of Boo.App (both binary logs), against docs/architecture/layers.json.
-  python -I <base copy of arch_refs.py> judge FACTS --root . --layers <base layers.json> --rise-only --pr-layers <PR layers.json>
-        windows-ci on a pull request: the BASE branch's own script and layers.json judge the same facts, and refuse a
-        PR layers.json that allows more than the base one, so editing the PR's copies changes nothing.
+  python -I <base copy of arch_refs.py> judge TRUSTED_FACTS --root . --layers <base layers.json> --rise-only
+        --pr-layers <PR layers.json> --trusted-base <base sha>
+        windows-ci on a pull request: the BASE branch's own script and layers.json judge facts that the BASE branch's
+        own extractor and checker produced from this build's binary logs (scripts/quality/trusted_facts.py produce;
+        provenance.json is verified, and --rise-only without --trusted-base refuses to judge), and refuse a PR
+        layers.json that allows more than the base one, so editing the PR's copies of the judge, the rules, the
+        extractor or the checker changes nothing.
   python -I scripts/quality/arch_refs.py show FACTS     print what the facts say each src/ project references
   python -I scripts/quality/arch_refs.py format          layers.json well formed (BOO-REF-006); no build needed
   python -I scripts/quality/arch_refs.py --self-test     the judging logic on planted facts (no build needed)
@@ -601,8 +605,65 @@ def listing(names):
 # ---------------------------------------------------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------------------------------------------------
-def cmd_judge(facts_path, base, layers_path, rise_only=False, pr_layers_path=None):
+TRUSTED_SCHEMA = 'boo-trusted-facts/1'
+TRUSTED_TOOLING = (('extractor_tree', 'scripts/quality/buildfacts'), ('checker_blob', 'scripts/quality/build_facts.py'))
+
+
+def verify_trusted(facts_path, base_sha, repo):
+    """[] when facts_path was written by scripts/quality/trusted_facts.py produce from the base commit's OWN extractor
+    and checker (read from git) and nothing changed since; else the problems. A copy of trusted_facts.verify (this
+    script runs with python -I, so it cannot import it)."""
+    import hashlib
+
+    def digest(path):
+        return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+
+    facts_path = pathlib.Path(facts_path)
+    try:
+        prov = json.loads(facts_path.with_name('provenance.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return [f'no readable provenance.json beside {facts_path.name}: these facts were not produced by the base '
+                'branch\'s own extractor (scripts/quality/trusted_facts.py produce)']
+    if not isinstance(prov, dict) or prov.get('schema') != TRUSTED_SCHEMA:
+        return [f'provenance.json is not {TRUSTED_SCHEMA}']
+    problems = []
+    if prov.get('base_sha') != base_sha:
+        problems.append(f'the facts were produced from {str(prov.get("base_sha"))[:12]}, not the base {base_sha[:12]}')
+    for key, path in TRUSTED_TOOLING:
+        out = subprocess.run(['git', 'rev-parse', '--verify', f'{base_sha}:{path}'], cwd=repo, capture_output=True)
+        want = out.stdout.decode().strip() if out.returncode == 0 else None
+        if not want or prov.get(key) != want:
+            problems.append(f'{path} that produced the facts is not the base commit\'s ({key} differs)')
+    try:
+        if prov.get('facts_sha256') != digest(facts_path):
+            problems.append('the facts changed after they were produced (sha256 differs)')
+    except OSError:
+        problems.append('the facts cannot be read')
+    binlogs = prov.get('binlogs')
+    if not isinstance(binlogs, dict) or not binlogs:
+        problems.append('provenance.json names no binary log')
+    else:
+        for name, entry in sorted(binlogs.items()):
+            try:
+                if digest(entry['path']) != entry['sha256']:
+                    problems.append(f'binary log {name} changed after the facts were produced')
+            except (OSError, KeyError, TypeError):
+                problems.append(f'binary log {name} cannot be read')
+    return problems
+
+
+def cmd_judge(facts_path, base, layers_path, rise_only=False, pr_layers_path=None, trusted_base=None):
     label = 'ARCH REFS (the base branch\'s own script and layers.json)' if rise_only else 'ARCH REFS'
+    if rise_only and not trusted_base:
+        print(f'{label} FAILED: the base judge reads only trusted facts: pass --trusted-base <base commit> and the '
+              'facts that scripts/quality/trusted_facts.py produce wrote from that commit\'s own extractor (facts '
+              'from the PR\'s own extractor could leave a reference out)')
+        return 1
+    if trusted_base:
+        problems = verify_trusted(facts_path, trusted_base, base)
+        if problems:
+            print(f'{label} FAILED: the facts are not trusted: ' + '; '.join(problems))
+            return 1
     try:
         layers = load_json(layers_path, 'the rule file')
         facts = check_facts(load_json(facts_path, 'the build facts'))
@@ -1196,7 +1257,8 @@ def argument(argv, flag):
     return None
 
 
-USAGE = ('usage: arch_refs.py judge FACTS [--root DIR] [--layers FILE] [--rise-only] [--pr-layers FILE]\n'
+USAGE = ('usage: arch_refs.py judge FACTS [--root DIR] [--layers FILE] [--rise-only] [--pr-layers FILE] '
+         '[--trusted-base SHA]\n'
          '       arch_refs.py show FACTS [--root DIR] [--layers FILE]\n'
          '       arch_refs.py format [--layers FILE]\n'
          '       arch_refs.py --self-test')
@@ -1215,7 +1277,8 @@ def main(argv):
         if argv[0] == 'show':
             return cmd_show(facts, base, layers)
         return cmd_judge(facts, base, layers, rise_only='--rise-only' in argv,
-                         pr_layers_path=pathlib.Path(pr_layers).resolve() if pr_layers else None)
+                         pr_layers_path=pathlib.Path(pr_layers).resolve() if pr_layers else None,
+                         trusted_base=argument(argv, '--trusted-base'))
     print(USAGE, file=sys.stderr)
     return 2
 

@@ -608,10 +608,20 @@ unreadable facts; `format` checks `layers.json` alone; `show FACTS` prints what 
 facts are written and uploaded. `quality-gates` (Linux) only runs `--self-test` and `format`; nothing there evaluates
 projects any more.
 
-**A PR cannot loosen its own layers.** On a pull request the same step also runs the **base branch's** `arch_refs.py`
-with the **base branch's** `layers.json` (both read from git) on the same facts, and refuses a PR `layers.json` that
-allows anything the base one does not (BOO-REF-008). Splitting "loosen" and "use" over two PRs fails the first one. While
-the base branch has no `arch_refs.py` (this PR introduces it), that part says so and is skipped.
+**A PR cannot loosen its own layers, nor forge the facts its judge reads.** On a pull request the same step also runs
+the **base branch's** `arch_refs.py` with the **base branch's** `layers.json` (both read from git), and refuses a PR
+`layers.json` that allows anything the base one does not (BOO-REF-008). Splitting "loosen" and "use" over two PRs fails
+the first one. That base judge does **not** read the facts above (the PR's own extractor wrote those, and a PR could
+change it to leave a reference out). It reads **trusted facts**: the **base branch's** `scripts/quality/trusted_facts.py`
+takes the **base branch's** extractor folder (`scripts/quality/buildfacts/`), `build_facts.py` and `global.json` from
+git, builds the extractor outside the repository (so the PR's `Directory.Build.*`, `NuGet.config` and `global.json` do
+not reach it), self-tests it, runs it on this build's binary logs, checks the facts with the base `build_facts.py`, and
+writes `provenance.json` (base commit, git tree of the extractor folder, blob of the checker, sha256 of each binary log
+and of the facts). The base judge, given `--trusted-base <base commit>`, re-reads git and the files and refuses facts
+whose provenance is missing or differs; `--rise-only` without `--trusted-base` refuses to judge at all. While the base
+branch has none of these (this PR introduces them), that part says so, and the PR's own copies run the same trusted
+path once to show it works (not a verdict). `trusted_facts.py` is shared: the banned-API judge (#28) takes the same
+path after this PR merges.
 
 **Changing the layers.** A new edge, package, package build file, SDK pack, framework, target framework or project is an
 architecture decision: the PR edits `layers.json` and says why, the owner approves, and the base-branch check
@@ -681,5 +691,5 @@ the reason in the PR. **Do NOT** split the loosening and its use into two PRs.
 | Projects outside `src/` | `tools/` and `tests/` references are not judged (plan 2.4 lists today's test references as their allowlist) | a later PR |
 | An SDK or package update | a new SDK downloads another pack, or a package update adds `build/` files | fails closed (BOO-REF-003 or 007) until `layers.json` is updated in a reviewed PR, like `known.json` for the build facts |
 | Other build commands | a project built only by another workflow, or for another runtime identifier | the judge reads only windows-ci's Release build and `win-x64` publish, which is what ships |
-| The PR supplies the workflow, `global.json` and `Directory.Build.props` the check runs with | a PR that edits `windows-ci.yml` (drops the step, `-bl`, or the base-branch part) | HANDOFF.md known issue 0 (CODEOWNERS, pending) |
+| The PR supplies the workflow, the build and its binary logs | a PR that edits `windows-ci.yml` (drops the step, `-bl`, or the base-branch part), or build code that changes what MSBuild logs | HANDOFF.md known issue 0 (CODEOWNERS, pending); the facts themselves are now extracted and checked by the base branch's own tooling (trusted facts, above), so a PR-modified extractor or checker changes nothing |
 | Merge order with PR 1.3 (#28) | #28 adds the `Microsoft.CodeAnalysis.BannedApiAnalyzers` package (with `buildTransitive` files) to every `src/` project from `Directory.Build.props`, which this check reports (BOO-REF-003) until `layers.json` allows it | #28 merges first; then this PR syncs and adds `"all_src_projects": {"packages": ["Microsoft.CodeAnalysis.BannedApiAnalyzers"], "package_build_files": ["Microsoft.CodeAnalysis.BannedApiAnalyzers"]}` (adding it now would fail BOO-REF-007, unused) |

@@ -158,28 +158,39 @@ jobs:
       # build above (both logs): every src/ project's ProjectReferences (items and the ones really followed into csc),
       # packages (PackageReference, PackageDownload, restored direct dependencies), framework references, direct
       # Reference/Analyzer files, target frameworks and build files imported from packages or NuGet MSBuild SDKs must be
-      # exactly what docs/architecture/layers.json allows. On a pull request the BASE branch's own arch_refs.py and
-      # layers.json (read from git, not from the PR) judge the same facts too and refuse a looser layers.json
-      # (skipped while the base has none).
+      # exactly what docs/architecture/layers.json allows. The PR's own judge reads the facts above (its own view). On
+      # a pull request the VERDICT that a PR cannot change: the BASE branch's own trusted_facts.py builds the BASE
+      # branch's extractor and build_facts.py (read from git, outside the repo) and runs them on this build's binary
+      # logs; the BASE branch's own arch_refs.py and layers.json then judge those facts (provenance verified, a looser
+      # layers.json refused). While the base has none of these yet (the PR that adds them), the PR's own copies run the
+      # same trusted path once, to show it works on this head; that is not an independent verdict.
       - name: Architecture references (judged on the build facts)
         shell: bash
         env:
           BASE_REF: ${{ github.base_ref }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          set -euo pipefail
-          python -I scripts/quality/arch_refs.py --self-test
-          python -I scripts/quality/arch_refs.py judge artifacts/build-facts/build-facts.json
+          set -uo pipefail
+          status=0
+          python -I scripts/quality/arch_refs.py --self-test || status=1
+          python -I scripts/quality/arch_refs.py judge artifacts/build-facts/build-facts.json || status=1
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            git fetch --no-tags --depth=1 origin "$BASE_REF"
-            if git cat-file -e FETCH_HEAD:scripts/quality/arch_refs.py 2>/dev/null && git cat-file -e FETCH_HEAD:docs/architecture/layers.json 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF" || exit 1
+            BASE_SHA="$(git rev-parse FETCH_HEAD)" || exit 1
+            TRUSTED="$RUNNER_TEMP/trusted-facts"
+            if git cat-file -e FETCH_HEAD:scripts/quality/trusted_facts.py 2>/dev/null && git cat-file -e FETCH_HEAD:scripts/quality/arch_refs.py 2>/dev/null && git cat-file -e FETCH_HEAD:docs/architecture/layers.json 2>/dev/null; then
+              git show FETCH_HEAD:scripts/quality/trusted_facts.py > "$RUNNER_TEMP/base_trusted_facts.py"
               git show FETCH_HEAD:scripts/quality/arch_refs.py > "$RUNNER_TEMP/base_arch_refs.py"
               git show FETCH_HEAD:docs/architecture/layers.json > "$RUNNER_TEMP/base_layers.json"
-              python -I "$RUNNER_TEMP/base_arch_refs.py" judge artifacts/build-facts/build-facts.json --root . --layers "$RUNNER_TEMP/base_layers.json" --rise-only --pr-layers docs/architecture/layers.json
+              python -I "$RUNNER_TEMP/base_trusted_facts.py" produce --base-sha "$BASE_SHA" --repo . --work "$TRUSTED" --solution Boo.sln --publish-dir artifacts/ci build=artifacts/binlog/build.binlog publish=artifacts/binlog/publish.binlog || status=1
+              python -I "$RUNNER_TEMP/base_arch_refs.py" judge "$TRUSTED/build-facts.json" --root . --layers "$RUNNER_TEMP/base_layers.json" --rise-only --pr-layers docs/architecture/layers.json --trusted-base "$BASE_SHA" || status=1
             else
-              echo "The base branch ($BASE_REF) has no arch_refs.py and layers.json yet: this PR introduces them, so there is no older judge."
+              echo "The base branch ($BASE_REF) has no trusted_facts.py, arch_refs.py and layers.json yet: this PR introduces them, so there is no older judge. The PR's own copies run the trusted path once (not a verdict):"
+              python -I scripts/quality/trusted_facts.py produce --base-sha "$BASE_SHA" --repo . --work "$TRUSTED" --solution Boo.sln --publish-dir artifacts/ci build=artifacts/binlog/build.binlog publish=artifacts/binlog/publish.binlog || status=1
+              python -I scripts/quality/arch_refs.py judge "$TRUSTED/build-facts.json" --root . --rise-only --pr-layers docs/architecture/layers.json --trusted-base "$BASE_SHA" || status=1
             fi
           fi
+          exit $status
 
       # Every notch face state rendered offscreen to PNG (Boo.exe --notch-gallery), uploaded with the UI smoke screenshots.
       - name: Notch face gallery

@@ -12,7 +12,8 @@ Here neither of the PR's copies runs:
 
   1. Every file under scripts/quality/buildfacts/ and scripts/quality/build_facts.py is read from git at --base-sha
      (blob by blob; a symlink or anything that is not a plain file fails) into --work, which must be OUTSIDE the
-     repository, so the PR's Directory.Build.*, NuGet.config and global.json do not touch the build.
+     repository, so the PR's Directory.Build.*, NuGet.config and global.json do not touch the build (the base's
+     global.json, if any, is exported too, so the base's SDK pin applies).
   2. That extractor is restored in locked mode, built, self-tested and run on the PR build's binary logs; that
      build_facts.py checks the facts it wrote (schema, machine paths, unknown tasks/switches, publish folder traced).
   3. provenance.json beside build-facts.json records the base commit, the git tree of the extractor folder, the blob of
@@ -35,6 +36,7 @@ import tempfile
 SCHEMA = 'boo-trusted-facts/1'
 EXTRACTOR_DIR = 'scripts/quality/buildfacts'
 CHECKER = 'scripts/quality/build_facts.py'
+SDK_PIN = 'global.json'           # the base's SDK pin (optional), so the trusted build uses the base's .NET SDK
 SHA = re.compile(r'^[0-9a-f]{40}$')
 
 
@@ -63,15 +65,23 @@ def object_id(repo, base, path):
 
 
 def export(repo, base, dest):
-    """RED-FIRST STUB (today's behaviour): copy the extractor and checker from the PR's working tree."""
-    for path in (EXTRACTOR_DIR, CHECKER):
-        source = pathlib.Path(repo).joinpath(*path.split('/'))
+    """Write the extractor folder and the checker exactly as they are at `base` into dest/<same paths>."""
+    listing = git(repo, 'ls-tree', '-r', '-z', '--full-tree', base, '--', EXTRACTOR_DIR, CHECKER, SDK_PIN)
+    entries = [e for e in listing.decode('utf-8', 'replace').split('\0') if e]
+    if not any(e.split('\t', 1)[1] == CHECKER for e in entries if '\t' in e):
+        raise Failed(f'the base commit has no {CHECKER}')
+    if not any(e.split('\t', 1)[1].startswith(EXTRACTOR_DIR + '/') for e in entries if '\t' in e):
+        raise Failed(f'the base commit has no {EXTRACTOR_DIR}/')
+    for entry in entries:
+        meta, path = entry.split('\t', 1)
+        mode, kind, oid = meta.split()
+        if kind != 'blob' or mode not in ('100644', '100755'):
+            raise Failed(f'{path} at the base commit is not a plain file (mode {mode}); refusing it')
+        if path.startswith('/') or '..' in path.split('/'):
+            raise Failed(f'unsafe path {path!r} in the base commit')
         target = dest.joinpath(*path.split('/'))
         target.parent.mkdir(parents=True, exist_ok=True)
-        if source.is_dir():
-            shutil.copytree(source, target)
-        else:
-            shutil.copyfile(source, target)
+        target.write_bytes(git(repo, 'cat-file', 'blob', oid))
 
 
 def outside(path, repo):
@@ -85,7 +95,7 @@ def produce(base, repo, work, binlogs, solution, publish_dir, replay_under=None,
     repo, work = pathlib.Path(repo).resolve(), pathlib.Path(work).resolve()
     if not SHA.match(base or ''):
         raise Failed(f'--base-sha must be a full 40-character commit, not {base!r}')
-    if False:
+    if not outside(work, repo):
         raise Failed(f'--work {work} is inside the repository: the PR\'s Directory.Build.*, NuGet.config and '
                      'global.json would reach the trusted build')
     git(repo, 'cat-file', '-e', f'{base}^{{commit}}')
@@ -100,12 +110,12 @@ def produce(base, repo, work, binlogs, solution, publish_dir, replay_under=None,
         raise Failed(f'the base commit has no {EXTRACTOR_DIR}/BuildFacts.csproj')
     facts = work / 'build-facts.json'
     steps = [
-        (['dotnet', 'restore', str(project), '--locked-mode'], work),
-        (['dotnet', 'build', str(project), '-c', 'Release', '--no-restore', '-o', str(tool)], work),
-        (['dotnet', str(tool / 'BuildFacts.dll'), '--self-test'], work),
+        (['dotnet', 'restore', str(project), '--locked-mode'], src),
+        (['dotnet', 'build', str(project), '-c', 'Release', '--no-restore', '-o', str(tool)], src),
+        (['dotnet', str(tool / 'BuildFacts.dll'), '--self-test'], src),
         (['dotnet', str(tool / 'BuildFacts.dll'), '--repo', str(repo), '--out', str(facts)]
          + (['--replay-under', replay_under] if replay_under else [])
-         + [f'{name}={pathlib.Path(p).resolve()}' for name, p in binlogs.items()], repo),
+         + [f'{name}={pathlib.Path(p).resolve()}' for name, p in binlogs.items()], src),
         ([sys.executable, '-I', str(src / CHECKER), 'check', str(facts), '--repo', str(repo),
           '--solution', str(pathlib.Path(repo, solution)), '--publish-dir', str(pathlib.Path(repo, publish_dir))],
          repo),
@@ -129,8 +139,44 @@ def produce(base, repo, work, binlogs, solution, publish_dir, replay_under=None,
 
 
 def verify(facts_path, base, repo):
-    """RED-FIRST STUB (today's behaviour): any facts are accepted."""
-    return []
+    """[] when facts_path was produced by produce() from `base`'s own tooling and nothing changed since; else the
+    problems. The same function is copied into each judge that reads trusted facts (a judge runs with python -I,
+    so it cannot import this file)."""
+    facts_path = pathlib.Path(facts_path)
+    prov_path = facts_path.with_name('provenance.json')
+    try:
+        prov = json.loads(prov_path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return [f'no readable provenance.json beside {facts_path.name}: these facts were not produced by the base '
+                'branch\'s own extractor (trusted_facts.py produce)']
+    problems = []
+    if not isinstance(prov, dict) or prov.get('schema') != SCHEMA:
+        return [f'provenance.json is not {SCHEMA}']
+    if prov.get('base_sha') != base:
+        problems.append(f'the facts were produced from {str(prov.get("base_sha"))[:12]}, not the base {base[:12]}')
+    for key, path in (('extractor_tree', EXTRACTOR_DIR), ('checker_blob', CHECKER)):
+        try:
+            want = object_id(repo, base, path)
+        except Failed:
+            want = None
+        if not want or prov.get(key) != want:
+            problems.append(f'{path} that produced the facts is not the base commit\'s ({key} differs)')
+    try:
+        if prov.get('facts_sha256') != sha256(facts_path):
+            problems.append('the facts changed after they were produced (sha256 differs)')
+    except OSError:
+        problems.append('the facts cannot be read')
+    binlogs = prov.get('binlogs')
+    if not isinstance(binlogs, dict) or not binlogs:
+        problems.append('provenance.json names no binary log')
+    else:
+        for name, entry in sorted(binlogs.items()):
+            try:
+                if sha256(entry['path']) != entry['sha256']:
+                    problems.append(f'binary log {name} changed after the facts were produced')
+            except (OSError, KeyError, TypeError):
+                problems.append(f'binary log {name} cannot be read')
+    return problems
 
 
 # ---------------------------------------------------------------- self-test (throwaway git repos, no .NET)
@@ -181,8 +227,8 @@ def self_test():
         repo_paths = [c for c, _ in seen if any(str(repo / EXTRACTOR_DIR) in a or str(repo / CHECKER) == a
                                                for a in c)]
         results.append(('none of the PR\'s copies of the extractor or checker is ever run', repo_paths == []))
-        results.append(('the trusted extractor is restored and built outside the repository',
-                        all(cwd == work for c, cwd in seen[:3])))
+        results.append(('the trusted extractor is restored, built and run outside the repository (base SDK pin)',
+                        all(cwd == work / 'src' for c, cwd in seen[:4])))
         results.append(('good provenance verifies', verify(facts, base, repo) == []))
 
         def fails_with(problems, words):
