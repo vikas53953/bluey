@@ -152,9 +152,30 @@ public sealed class TypeTextTargetTests
         }
     }
 
-    private sealed record Run(ToolOutcome Outcome, string? FieldA, string FieldB, string? Decoy, string? WriteCount, string Summary);
+    /// <summary>
+    /// Issue #134 (click side): an approved click names button "ButtonA" by its exact, case-sensitive automation ID.
+    /// clickcasefirst puts a decoy "buttona" before it: only ButtonA may be clicked. clickcaseonly has only "buttona":
+    /// nothing may be clicked. Each button has its own click counter, read back through UI Automation.
+    /// </summary>
+    [Theory]
+    [InlineData("clickcasefirst", "1")]
+    [InlineData("clickcaseonly", null)]
+    public async Task ApprovedClickMatchedOnlyByExactId(string mode, string? approvedClicks)
+    {
+        var run = await RunAsync(mode, approvedId: "ButtonA", tool: "click");
 
-    private async Task<Run> RunAsync(string mode, string? decoyId = null, string? approvedId = "FieldA", string? label = null)
+        Assert.True(run.ClicksDecoy == "0", $"the click approved for ButtonA reached the decoy 'buttona' ({run.ClicksDecoy} click(s)). {run.Summary}");
+        Assert.True(run.ClicksApproved == approvedClicks, $"ButtonA should have {approvedClicks ?? "no counter"} click(s), has {run.ClicksApproved}. {run.Summary}");
+        Assert.True(run.FieldB.Length == 0, $"FieldB changed: '{run.FieldB}'. {run.Summary}");
+    }
+
+    private sealed record Run(ToolOutcome Outcome, string? FieldA, string FieldB, string? Decoy, string? WriteCount, string Summary)
+    {
+        public string? ClicksDecoy { get; init; }
+        public string? ClicksApproved { get; init; }
+    }
+
+    private async Task<Run> RunAsync(string mode, string? decoyId = null, string? approvedId = "FieldA", string? label = null, string tool = "type_text")
     {
         label ??= mode;
         var exe = Environment.GetEnvironmentVariable("BOO_TYPE_TARGET_EXE");
@@ -180,13 +201,13 @@ public sealed class TypeTextTargetTests
 
             using var coordinator = new RequestCoordinator();
             var lease = coordinator.Begin();
-            var arguments = new Dictionary<string, string> { ["text"] = Text };
+            var arguments = tool == "type_text" ? new Dictionary<string, string> { ["text"] = Text } : new Dictionary<string, string>();
             if (approvedId is not null)
             {
                 arguments["automationId"] = approvedId;
             }
-            var request = new ToolRequest("type_text", Title, arguments, lease.Generation);
-            var authority = new TaskAuthority(lease.Generation, true, new HashSet<string> { "type_text" });
+            var request = new ToolRequest(tool, Title, arguments, lease.Generation);
+            var authority = new TaskAuthority(lease.Generation, true, new HashSet<string> { tool });
             var approval = ActionPolicy.Approve(request);
 
             var outcome = await new DesktopTools(coordinator, targets).ExecuteAsync(request, authority, approval, target, lease.Token);
@@ -202,15 +223,18 @@ public sealed class TypeTextTargetTests
                 fieldA = "(unreadable)";
             }
             var writeCount = ReadValue(Find(root, "WriteCount"));
+            var clicksDecoy = ReadValue(Find(root, "ClicksDecoy"));
+            var clicksApproved = ReadValue(Find(root, "ClicksApproved"));
             var fieldBValue = ReadValue(fieldB) ?? "";
             var decoy = decoyId is null ? null : ReadValue(Find(root, decoyId)) ?? throw new InvalidOperationException($"decoy '{decoyId}' not found");
             var summary = $"mode={label} outcome=(success={outcome.Success}, committed={outcome.Committed}, message='{outcome.Message}') " +
                           $"FieldA='{fieldA ?? "(no value field)"}' FieldB='{fieldBValue}'" +
                           (decoyId is null ? "" : $" {decoyId}='{decoy}'") +
-                          (writeCount is null ? "" : $" writes={writeCount}");
+                          (writeCount is null ? "" : $" writes={writeCount}") +
+                          (clicksDecoy is null ? "" : $" clicksDecoy={clicksDecoy} clicksApproved={clicksApproved ?? "(none)"}");
             _output.WriteLine(summary);
             Evidence(label, summary, hwnd);
-            return new Run(outcome, fieldA, fieldBValue, decoy, writeCount, summary);
+            return new Run(outcome, fieldA, fieldBValue, decoy, writeCount, summary) { ClicksDecoy = clicksDecoy, ClicksApproved = clicksApproved };
         }
         finally
         {
