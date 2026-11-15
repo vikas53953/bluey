@@ -224,7 +224,6 @@ def validate(tree, path):
 
 def check_tree(tree):
     """(fragments, problems) for every file under the fragment folders of `tree`."""
-    return [], []  # STUB
     problems, frags = [], []
     for path in sorted(p for p in tree if fragment_kind(p)):
         frag, found = validate(tree, path)
@@ -263,7 +262,6 @@ def changes(base, head):
 
 def judge(base, head, changed, pr):
     """Problems of PR #pr whose merge-base tree is `base` and head tree is `head` (path -> text)."""
-    return []  # STUB: the rules are not written yet (self-test first)
     problems = []
     for path in FROZEN_FILES:
         if path not in head:
@@ -331,7 +329,6 @@ def _row(c):
 
 def assemble_text(tree):
     """(markdown, problems): the frozen tables with every fragment merged in. For reading only; never committed."""
-    return '', []  # STUB
     frags, problems = check_tree(tree)
     out = ['# Combined bookkeeping view (generated; never commit this file)', '',
            'Made by `python -I scripts/quality/doc_fragments.py assemble` from the frozen tables plus the fragment '
@@ -390,7 +387,6 @@ def assemble_text(tree):
 def out_allowed(root, out):
     """A combined view may be written outside the repository or under its artifacts/ folder (git-ignored), never
     anywhere else in the repository, where it could be committed and the conflict would just move there."""
-    return True  # STUB
     root = os.path.normcase(os.path.realpath(root))
     target = os.path.normcase(os.path.realpath(out))
     try:
@@ -421,7 +417,6 @@ def git_tree(rev, cwd=None):
 
 
 def run_git(base, head, pr, cwd=None, out=print):
-    return report([], out)  # STUB
     try:
         merge_base = _git(['merge-base', base, head], cwd).decode().strip()
         raw = _git(['diff', '--name-status', '--no-renames', '-z', merge_base, head], cwd).decode('utf-8', 'replace')
@@ -436,7 +431,6 @@ def run_git(base, head, pr, cwd=None, out=print):
 
 
 def run_event(event_path, out=print, cwd=None):
-    return report([], out)  # STUB
     try:
         event = json.loads(pathlib.Path(event_path).read_text(encoding='utf-8'))
         pr = event['pull_request']

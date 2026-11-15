@@ -193,6 +193,15 @@ The principles behind these rules (and the merge, spend and spare-capacity rules
     `ref`, prints "Native voice E2E tests commit <sha>" and writes it to the run summary, so the evidence names the
     exact head. Evidence-only shadow PRs that copy a real PR's head (like #123, #130) are not allowed: they block the
     `codex-verified` stamp.
+12. **Bookkeeping rows go in fragment files, never in the shared tables (BOO-DOCS-001, since 16 Nov).** The PR table
+    in section 7, the table in `docs/DECISIONS.md` and the tables in `docs/FEATURE_MAP.md` are frozen history, because
+    nearly every sync conflicted there. Instead, each PR writes its own files: its status row in
+    `docs/handoff/<pr number>.md`, its decision row(s) in `docs/decisions/<pr number>-<slug>.md`, and a feature row in
+    `docs/feature-map/<named-id>.md` (see `docs/quality/RULES.md` for the exact shape). Open the PR first, so you know
+    its number. Later status changes edit only that fragment; another PR may change only its status cell. The
+    `doc-fragments` check enforces this on every PR. To read everything in one place:
+    `python -I scripts/quality/doc_fragments.py assemble` (prints it; `--out` only outside the repository or under
+    `artifacts/`; never commit the combined view).
 
 ## 6. Live QA scope (as of 13 Nov)
 
@@ -205,6 +214,8 @@ are UNVERIFIED: not tested, by choice"; that is superseded.)
 
 PRs into `lane/face` must be **up to date** with it to merge, so every merge makes the others BEHIND. Sync by merging
 `origin/lane/face` into the branch (no force push), then re-run CI and one live smoke on the new head.
+
+> **Frozen table.** Nothing is ever added to or edited in this table again: each PR's status row is its own file `docs/handoff/<pr number>.md` (columns PR | Branch → base | State | Notes), and a fragment for a PR listed here supersedes its row below (BOO-DOCS-001).
 
 | PR | Branch → base | State (13 Nov, after PR #33) | Notes |
 | --- | --- | --- | --- |
