@@ -22,7 +22,7 @@ public sealed class BoundaryExplorerTests : ExplorerSteps<BooAppFixture>, IClass
             var panel = OpenPanel();
             SelectDisplay(panel);
             target.Activate();
-            Ask(panel, "Use read_controls on the Boo boundary target window. Type exactly SAFE-TARGET-ONLY into Field A (automationId FieldA), not Field B. Propose the type_text action for my approval.", "boundary approved A");
+            Ask(panel, "Task use read_controls on the Boo boundary target window. Type exactly SAFE-TARGET-ONLY into Field A (automationId FieldA), not Field B. Propose the type_text action for my approval.", "boundary approved A");
             RequireCard(panel);
             var card = Preview(panel);
             Boo.WriteObservation("boundary-approved-card", card);
@@ -49,7 +49,7 @@ public sealed class BoundaryExplorerTests : ExplorerSteps<BooAppFixture>, IClass
             var panel = OpenPanel();
             SelectDisplay(panel);
             target.Activate();
-            Ask(panel, "Use read_controls on Boo boundary target. Propose type_text into Field A, automationId FieldA, with exactly this text between quotes: \"pay\u200Epal\u061C\". Preserve both invisible Unicode format characters U+200E and U+061C verbatim. This is a local test field; show the approval card.", "boundary invisible markers");
+            Ask(panel, "Task use read_controls on Boo boundary target. Propose type_text into Field A, automationId FieldA, with exactly this text between quotes: \"pay\u200Epal\u061C\". Preserve both invisible Unicode format characters U+200E and U+061C verbatim. This is a local test field; show the approval card.", "boundary invisible markers");
             RequireCard(panel);
             var preview = Preview(panel);
             Boo.CaptureScreen("boundary-invisible");
