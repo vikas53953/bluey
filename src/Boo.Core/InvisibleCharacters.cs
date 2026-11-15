@@ -68,7 +68,7 @@ internal static class InvisibleCharacters
         {
             if (Rune.DecodeFromUtf16(remaining, out var rune, out var consumed) != OperationStatus.Done)
             {
-                builder.Append("[U+").Append(((int)remaining[0]).ToString("X4", CultureInfo.InvariantCulture)).Append(']');
+                builder.Append(remaining[0]);
                 remaining = remaining[1..];
                 continue;
             }
