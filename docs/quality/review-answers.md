@@ -32,8 +32,11 @@ Fix the findings first. Then add this to the PR description, one row per finding
 
 - The first cell starts with the finding's level (`P0`..`P3`).
 - The last cell is either `fixed in <sha>` (7 to 40 hex characters) or `disputed: <reason>` (at least 10 characters).
-- A `fixed in` commit must be part of the PR head and made **after** the reviewed commit (not the reviewed commit
-  itself, and not an older one). A fix that was already there when the reviewer looked cannot be the answer.
+- A `fixed in` commit must be part of the PR head and have the reviewed commit as an **ancestor**: a later commit on
+  top of the reviewed one. Not the reviewed commit itself, not an older one, and not a commit from a side branch that
+  was merged in later. (Git cannot prove *when* a commit was made; see Limits.)
+- A comment that starts with `CODEX REVIEW BLOCK` but has no readable 40-character commit after it (for example a
+  garbled dash) fails closed: an unreadable BLOCK never counts as "no BLOCK".
 - A later `CODEX REVIEW PASS — <sha>` (or `PASS WITH ISSUES — <sha>`) comment closes the BLOCK only when `<sha>` is the PR's current head. A review of an older head never clears a BLOCK on a newer one.
 - A BLOCK whose findings the check cannot read (no line starting with `P0`..`P3`) fails closed: the reviewer reposts
   it with one line per finding, like `P1 — <title>`.

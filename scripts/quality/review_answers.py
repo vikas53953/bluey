@@ -26,8 +26,9 @@ The rule:
   3. The PR body has a heading with "Review answers" and, under it, a table with exactly one row per finding, in order.
      Row i's first cell starts with finding i's level. Its last cell is `fixed in <7-40 hex sha>` or
      `disputed: <a reason of at least 10 characters>`.
-  4. A `fixed in` commit must exist, be part of the head (or be the head), and be a later commit on top of the
-     reviewed one (a descendant of the BLOCK's commit, not that commit itself). The check does not prove WHEN the
+  4. A `fixed in` commit must exist, be part of the head (or be the head), and have the BLOCK's commit as an
+     ancestor (a later commit on top of the reviewed one: not that commit itself, not an older one, and not a commit
+     from a side branch that was merged in later). The check does not prove WHEN the
      commit was made: a commit already pushed on top of the reviewed one before the review was posted also passes.
 Exit 0 when the rule holds, 1 when it does not (with what is missing and how to fix it), 2 on bad usage.
 """
@@ -99,6 +100,9 @@ def latest_block(comments, head, trusted):
         m = BLOCK_RE.match(body)
         if m:
             block, sha = c, m.group(1).lower()
+            continue
+        if body.startswith('CODEX REVIEW BLOCK'):
+            block, sha = c, None  # a BLOCK whose commit cannot be read: judged (and failed) in check()
             continue
         passed = PASS_RE.match(body)
         if block is not None and passed and passed.group(1).lower() == head.lower():
@@ -194,6 +198,12 @@ def check(body, comments, head, repo, trusted):
     if not trusted:
         return False, [f'::error::{RULE} no trusted reviewer login was given (--trusted-authors); failing closed.']
     block, block_sha = latest_block(comments, head, trusted)
+    if block is not None and block_sha is None:
+        where = block.get('html_url') or f"comment {block.get('id')}"
+        return False, [f'::error::{RULE} a CODEX REVIEW BLOCK ({where}) starts without a readable 40-character commit '
+                       'after "CODEX REVIEW BLOCK — " (for example a garbled dash). Failing closed: an unreadable BLOCK '
+                       'must never count as no BLOCK. How to fix: the reviewer reposts it as '
+                       '"CODEX REVIEW BLOCK — <full sha>".']
     if block is None:
         return True, ['REVIEW_ANSWERS_OK no open CODEX REVIEW BLOCK on this PR (none, or a later CODEX REVIEW PASS '
                       'for this exact head).']
@@ -248,9 +258,10 @@ def check(body, comments, head, repo, trusted):
             errors.append(f'row {i} ({level}): commit {fix_sha} does not exist in this repository')
         elif not is_ancestor(repo, fix_full, head_full):
             errors.append(f'row {i} ({level}): commit {fix_sha} is not part of this PR head ({head[:12]})')
-        elif is_ancestor(repo, fix_full, block_full):
-            errors.append(f'row {i} ({level}): commit {fix_sha} is the reviewed commit or older than it '
-                          f'({block_sha[:12]}); a fix must be a later commit on top of the reviewed one')
+        elif fix_full == block_full or not is_ancestor(repo, block_full, fix_full):
+            errors.append(f'row {i} ({level}): commit {fix_sha} is not a later commit on top of the reviewed one '
+                          f'({block_sha[:12]}): the reviewed commit must be its ancestor (not the reviewed commit '
+                          f'itself, not an older commit, not a commit on a side branch merged in later)')
     if errors:
         return False, [f'::error::{RULE} the newest CODEX REVIEW BLOCK ({block_sha[:12]}, {where}) is not fully '
                        f'answered: ' + '; '.join(errors) + '.', HOW_TO_FIX]
@@ -284,6 +295,13 @@ def self_test():
         git(repo, 'checkout', '-q', '-b', 'other', old)
         stranger = _commit(repo, 'e.txt')
         git(repo, 'checkout', '-q', '-')
+        # head2 merges the side branch (with `stranger`) into head: `stranger` is then part of the head but was never
+        # built on the reviewed commit (Codex review of 189fdb5: such a sibling must not count as a fix).
+        r = git(repo, '-c', 'user.name=selftest', '-c', 'user.email=selftest@example.invalid', 'merge', '-q',
+                '--no-edit', '--no-gpg-sign', 'other')
+        if r.returncode != 0:
+            raise RuntimeError('self-test git merge failed: ' + r.stderr.strip())
+        head2 = git(repo, 'rev-parse', 'HEAD').stdout.strip()
         missing = 'f' * 40
 
         def c(i, body, login='owner'):
@@ -344,6 +362,25 @@ def self_test():
         # expect: True = must pass; a string = must fail, and its message must say that (the right reason).
         for name, b, comments, expect in cases:
             ok, messages = check(b, comments, head, repo, ['Owner'])
+            right = ok if expect is True else (not ok and expect in ' '.join(messages))
+            failures += not right
+            want = 'pass' if expect is True else f'fail with "{expect}"'
+            print(f'  [{"ok" if right else "WRONG"}] {name}: expected {want}, got {"pass" if ok else "fail"}')
+            if not right:
+                for m in messages:
+                    print('        ' + m.splitlines()[0])
+        extra = [
+            ('a commit from a side branch merged into the head is not a fix',
+             body(('P1', f'fixed in {stranger}'), ('P2', f'fixed in {fix}')), [block], head2,
+             'not a later commit on top of the reviewed one'),
+            ('a real descendant still counts when the head also merged a side branch',
+             body(('P1', f'fixed in {fix}'), ('P2', f'fixed in {head2}')), [block], head2, True),
+            ('a BLOCK header with a garbled dash fails closed',
+             body(('P1', f'fixed in {fix}')), [c(2, 'CODEX REVIEW BLOCK \u00e2\u20ac\u201d ' + reviewed + '\nP1 \u2014 x')],
+             head, 'Failing closed'),
+        ]
+        for name, b, comments, at, expect in extra:
+            ok, messages = check(b, comments, at, repo, ['Owner'])
             right = ok if expect is True else (not ok and expect in ' '.join(messages))
             failures += not right
             want = 'pass' if expect is True else f'fail with "{expect}"'
