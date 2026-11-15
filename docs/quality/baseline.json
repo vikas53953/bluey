@@ -23,10 +23,10 @@
     },
     "BOO-CMT-001": {
       "Boo.App": 214,
-      "Boo.Core": 80,
+      "Boo.Core": 78,
       "Boo.Providers": 21,
       "Boo.Storage": 1,
-      "Boo.Windows": 83
+      "Boo.Windows": 80
     },
     "BOO-CMT-002": {
       "Boo.App": 1,
