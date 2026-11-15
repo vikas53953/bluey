@@ -19,11 +19,16 @@ namespace Boo.App;
 /// over 2 s while 216 to 224 frames had rendered). Everything the snapshot reads is safe off the UI thread: the frame
 /// count is Interlocked, the render mode is cached by the window when its handle is created, the rest are plain
 /// fields and GC counters. A tick that finds the previous write still running is skipped.
+/// Added 2026-11-15 for issue #124 (idle CPU), also additive: the process's own user and kernel CPU time, how many
+/// methods the JIT has compiled and for how long (so a red idle-CPU reading can say whether it was compilation), and
+/// how many probe writes there were and how long they took in total (so the probe's own cost is visible, not hidden
+/// inside "idle"). All cumulative; the write counters cover the writes finished before this one.
 /// Schema (version 1), all numbers cumulative since process start:
 /// <code>
 /// { "schema": 1, "writtenAtUtc": "...", "uptimeMs": 1234, "gen0": 3, "gen1": 1, "gen2": 0,
 ///   "allocatedBytes": 12345678, "heapBytes": 2345678, "workingSetBytes": 98765432,
-///   "notchFrames": 0, "notchRendering": false, "faceState": "Hidden", "pacerSkipped": 0, "notchRenderMode": "SoftwareOnly" }
+///   "notchFrames": 0, "notchRendering": false, "faceState": "Hidden", "pacerSkipped": 0, "notchRenderMode": "SoftwareOnly",
+///   "userCpuMs": 812.5, "kernelCpuMs": 296.9, "jitMethods": 4210, "jitMs": 950.1, "probeWrites": 14, "probeWriteMs": 6.2 }
 /// </code>
 /// </summary>
 internal sealed class PerfDiagnostics
@@ -41,6 +46,8 @@ internal sealed class PerfDiagnostics
     private readonly TimeProvider _clock;
     private ITimer? _timer;
     private int _writing;
+    private long _probeWrites;
+    private long _probeWriteTicks;
 
     private PerfDiagnostics(string path, NotchWindow notch, TimeProvider clock)
     {
@@ -86,18 +93,22 @@ internal sealed class PerfDiagnostics
         {
             return;
         }
+        var started = Stopwatch.GetTimestamp();
         try
         {
             WriteSnapshot();
         }
         finally
         {
+            _probeWriteTicks += Stopwatch.GetTimestamp() - started;
+            _probeWrites++;
             Volatile.Write(ref _writing, 0);
         }
     }
 
     private void WriteSnapshot()
     {
+        var cpu = Environment.CpuUsage;
         var snapshot = new Snapshot(
             Schema,
             _clock.GetUtcNow(),
@@ -112,7 +123,13 @@ internal sealed class PerfDiagnostics
             _notch.IsRenderLoopActive,
             _notch.FaceState.ToString(),
             _notch.PacerSkippedFrames,
-            _notch.RenderModeName);
+            _notch.RenderModeName,
+            cpu.UserTime.TotalMilliseconds,
+            cpu.PrivilegedTime.TotalMilliseconds,
+            System.Runtime.JitInfo.GetCompiledMethodCount(currentThread: false),
+            System.Runtime.JitInfo.GetCompilationTime(currentThread: false).TotalMilliseconds,
+            _probeWrites,
+            Stopwatch.GetElapsedTime(0, _probeWriteTicks).TotalMilliseconds);
         try
         {
             File.WriteAllText(_tempPath, JsonSerializer.Serialize(snapshot, JsonOptions));
@@ -142,5 +159,11 @@ internal sealed class PerfDiagnostics
         bool NotchRendering,
         string FaceState,
         long PacerSkipped,
-        string NotchRenderMode);
+        string NotchRenderMode,
+        double UserCpuMs,
+        double KernelCpuMs,
+        long JitMethods,
+        double JitMs,
+        long ProbeWrites,
+        double ProbeWriteMs);
 }
