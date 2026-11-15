@@ -422,8 +422,15 @@ def run_event(event_path, repo, gh, git, out=print):
 # ---------------------------------------------------------------- self-test (planted events, no network)
 
 class _FakeGitHub:
-    def __init__(self, data, logs=None, graphql=None, broken=False):
+    def __init__(self, data, logs=None, graphql=None, broken=False, results=None):
         self.data, self.logs, self.answer, self.broken = data, logs or {}, graphql, broken
+        self.results = results or {}
+
+    def test_results(self, run_id):
+        """[(class name, method, outcome)] from the TRX files of the run's artifacts; ApiError when unreadable."""
+        if self.broken or self.results.get(str(run_id)) == 'unreadable':
+            raise ApiError('test results: GitHub answered 404')
+        return self.results.get(str(run_id), [])
 
     def get(self, path):
         if self.broken or path not in self.data:
@@ -473,7 +480,9 @@ def self_test(out=print):
     test_file, method = 'tests/Boo.Core.Tests/HoverRegressionTests.cs', 'Hover_after_quit_does_not_reopen'
     red_job = f'https://github.com/{repo}/actions/runs/10/job/11'
     green_run = f'https://github.com/{repo}/actions/runs/20'
-    source = f'public class HoverRegressionTests {{ [Fact] public void {method}() {{ }} }}'
+    source = ('namespace Boo.Core.Tests;\n'
+              f'public class HoverRegressionTests {{ [Fact] public void {method}() {{ }} }}')
+    fqn = 'Boo.Core.Tests.HoverRegressionTests'
     api = {
         f'/repos/{repo}/actions/jobs/11': {'run_id': 10, 'head_sha': red, 'conclusion': 'failure'},
         f'/repos/{repo}/actions/jobs/12': {'run_id': 10, 'head_sha': head, 'conclusion': 'failure'},
@@ -490,7 +499,12 @@ def self_test(out=print):
     log = ('2026-11-13T09:06:21.2603924Z   Failed Boo.Core.Tests.HoverRegressionTests.'
            f'{method} [377 ms]\n2026-11-13T09:06:22Z Total tests: 1, Failed: 1\n')
     logs = {'11': log, '12': log, '13': log, '14': log}
-    gh = _FakeGitHub(api, logs)
+    trx_results = {'10': [(fqn, method, 'Failed'), (fqn, 'Other_test', 'Passed')],
+               '20': [(fqn, method, 'Passed'), (fqn, 'Other_test', 'Passed')]}
+    gh = _FakeGitHub(api, logs, results=trx_results)
+
+    def with_results(**runs):
+        return _FakeGitHub(api, logs, results=dict(trx_results, **runs))
     git = _FakeGit([test_file, 'src/Boo.App/Notch.cs'], {head: {test_file: source}, red: {test_file: source},
                                                           other: {test_file: source}})
 
@@ -579,6 +593,61 @@ def self_test(out=print):
     expect('a "Passed" line or a longer method name does not count',
            not failed_in_log(f'  Passed Boo.X.Y.{method} [1 ms]', method)
            and not failed_in_log(f'  Failed Boo.X.Y.{method}_2 [1 ms]', method))
+    # Review P1 (eb3729e): the proof is the NAMED test's own results (TRX in the run's artifacts, matched by the
+    # fully-qualified class and method), not any successful or failed job.
+    expect('green: only other tests passed (the named test is not in the results) fails',
+           fails(judge(body(), github=with_results(**{'20': [(fqn, 'Other_test', 'Passed')]})), 'green-on-head'))
+    expect('green: no test results at all (zero runs of the test) fails',
+           fails(judge(body(), github=with_results(**{'20': []})), 'green-on-head'))
+    expect('green: the named test was skipped fails',
+           fails(judge(body(), github=with_results(**{'20': [(fqn, method, 'NotExecuted')]})), 'green-on-head'))
+    expect('green: one theory row of the named test failed fails',
+           fails(judge(body(), github=with_results(**{'20': [(fqn, method, 'Passed'), (fqn, method, 'Failed')]})),
+                 'green-on-head'))
+    expect('green: the same method name passed in ANOTHER class fails',
+           fails(judge(body(), github=with_results(**{'20': [('Boo.Other.Tests.HoverRegressionTests', method,
+                                                                'Passed')]})), 'green-on-head'))
+    expect('green: the test results cannot be read fails closed',
+           fails(judge(body(), github=with_results(**{'20': 'unreadable'})), 'failing closed'))
+    expect('red: the job failed but the named test PASSED in that run fails',
+           fails(judge(body(), github=with_results(**{'10': [(fqn, method, 'Passed'), (fqn, 'Other', 'Failed')]})),
+                 'no red-before job'))
+    expect('red: the named test is not in that run\'s results fails',
+           fails(judge(body(), github=with_results(**{'10': [(fqn, 'Other', 'Failed')]})), 'no red-before job'))
+    expect('red: the same method name failed in ANOTHER class fails',
+           fails(judge(body(), github=with_results(**{'10': [('Boo.Other.Tests.HoverRegressionTests', method,
+                                                                'Failed')]})), 'no red-before job'))
+    expect('red: the test results cannot be read fails closed',
+           fails(judge(body(), github=with_results(**{'10': 'unreadable'})), 'failing closed'))
+    expect('theory rows that all passed on head (and one failed before) pass',
+           judge(body(), github=with_results(**{'10': [(fqn, method, 'Passed'), (fqn, method, 'Failed')],
+                                                 '20': [(fqn, method, 'Passed'), (fqn, method, 'Passed')]}))[0] == [])
+    def _raises(fn):
+        try:
+            fn()
+        except ValueError:
+            return True
+        return False
+
+    try:
+        trx = ('<?xml version="1.0" encoding="utf-8"?><TestRun xmlns="http://microsoft.com/schemas/VisualStudio/'
+               'TeamTest/2010"><Results><UnitTestResult testId="t1" testName="A.B.M(x: 1)" outcome="Passed" />'
+               '<UnitTestResult testId="t2" testName="A.B.N" outcome="NotExecuted" /></Results><TestDefinitions>'
+               '<UnitTest id="t1" name="A.B.M(x: 1)"><TestMethod className="A.B" name="M" /></UnitTest>'
+               '<UnitTest id="t2" name="A.B.N"><TestMethod className="A.B" name="N" /></UnitTest>'
+               '</TestDefinitions></TestRun>')
+        parsed = sorted(parse_trx(trx.encode('utf-8')))
+        doctype = '<!DOCTYPE x [<!ENTITY a "b">]>' + trx.split('?>', 1)[1]
+        expect('a TRX file gives (class, method, outcome) per result, joined by test id',
+               parsed == [('A.B', 'M', 'Passed'), ('A.B', 'N', 'NotExecuted')])
+        expect('a TRX file with a DOCTYPE is refused', _raises(lambda: parse_trx(doctype.encode('utf-8'))))
+        expect('the test class comes from the file: file-scoped and block namespaces',
+               test_class(f'namespace A.B;\npublic class C {{ [Fact] public void {method}() {{ }} }}', method)
+               == 'A.B.C'
+               and test_class(f'namespace A.B\n{{\n  // class Decoy\n  public sealed class D\n  {{\n'
+                              f'    [Fact]\n    public async Task {method}() {{ }}\n  }}\n}}', method) == 'A.B.D')
+    except NameError as error:
+        expect(f'TRX reading and test class lookup exist ({error})', False)
     with tempfile.TemporaryDirectory() as tmp:
         event = pathlib.Path(tmp) / 'event.json'
         event.write_text(json.dumps({'pull_request': {'title': 'fix: x', 'body': 'b', 'base': {'sha': base},
