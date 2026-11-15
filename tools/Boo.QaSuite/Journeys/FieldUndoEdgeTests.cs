@@ -33,7 +33,7 @@ public sealed class FieldUndoEdgeTests : IClassFixture<LiveAppFixture>
             var target = _boo.Automation.FromHandle(handle).AsWindow();
             Assert.Equal(process.Id, target.Properties.ProcessId.Value);
             Assert.Equal("Boo type target (present)", target.Properties.Name.Value);
-            TextBox Field(string id) => (target.FindFirstDescendant(cf => cf.ByAutomationId(id))
+            FlaUI.Core.AutomationElements.TextBox Field(string id) => (target.FindFirstDescendant(cf => cf.ByAutomationId(id))
                 ?? throw new InvalidOperationException("Missing target field: " + id)).AsTextBox();
             var original = "ORIGINAL_" + Guid.NewGuid().ToString("N");
             var marker = "EDITED_" + Guid.NewGuid().ToString("N");
