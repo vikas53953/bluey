@@ -1042,8 +1042,101 @@ def fact_errors():
     ]
 
 
-def self_test():
+def trusted_cases():
+    """Review P1 (8fc9641): the base judge must not read facts the PR's own tooling produced. Planted on a throwaway
+    git repo: [] when every case behaves, else the failures."""
+    import contextlib
+    import hashlib
+    import io
+    import os
+    import tempfile
     failures = []
+    try:
+        verify, judge_cmd = verify_trusted, cmd_judge
+    except NameError as error:
+        return [f'trusted facts: the judge has no trusted-facts check ({error})']
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = pathlib.Path(tmp)
+        repo = tmp / 'repo'
+        repo.mkdir()
+        env = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@example.invalid', GIT_COMMITTER_NAME='t',
+                   GIT_COMMITTER_EMAIL='t@example.invalid', GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
+
+        def sh(*args):
+            return subprocess.run(['git'] + list(args), cwd=repo, env=env, check=True,
+                                  capture_output=True).stdout.decode().strip()
+
+        def write(path, text):
+            target = repo.joinpath(*path.split('/'))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding='utf-8')
+
+        sh('init', '-q', '-b', 'main')
+        write('scripts/quality/buildfacts/Program.cs', '// honest extractor\n')
+        write('scripts/quality/build_facts.py', '# honest checker\n')
+        sh('add', '-A')
+        sh('commit', '-q', '-m', 'base')
+        base_sha = sh('rev-parse', 'HEAD')
+        write('scripts/quality/buildfacts/Program.cs', '// FORGED: leaves Boo.Providers out\n')
+        sh('commit', '-q', '-am', 'head')
+        head_sha = sh('rev-parse', 'HEAD')
+        work = tmp / 'trusted'
+        work.mkdir()
+        facts, binlog = work / 'build-facts.json', tmp / 'build.binlog'
+        facts.write_text(json.dumps(planted_facts()), encoding='utf-8')
+        binlog.write_bytes(b'binlog')
+        digest = lambda path: hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()  # noqa: E731
+
+        def provenance(**change):
+            prov = {'schema': 'boo-trusted-facts/1', 'base_sha': base_sha,
+                    'extractor_tree': sh('rev-parse', f'{base_sha}:scripts/quality/buildfacts'),
+                    'checker_blob': sh('rev-parse', f'{base_sha}:scripts/quality/build_facts.py'),
+                    'binlogs': {'build': {'path': str(binlog), 'sha256': digest(binlog)}},
+                    'facts_sha256': digest(facts)}
+            prov.update(change)
+            (work / 'provenance.json').write_text(json.dumps(prov), encoding='utf-8')
+
+        def fails(words, sha=base_sha):
+            return any(words in problem for problem in verify(facts, sha, repo))
+
+        provenance()
+        if verify(facts, base_sha, repo):
+            failures.append(f'trusted facts: good provenance must verify, got {verify(facts, base_sha, repo)}')
+        if not fails('not the base', head_sha):
+            failures.append('trusted facts: facts produced from another commit than the base must fail')
+        provenance(extractor_tree=sh('rev-parse', f'{head_sha}:scripts/quality/buildfacts'))
+        if not fails('that produced the facts'):
+            failures.append('trusted facts: facts from a head-modified extractor must fail')
+        provenance()
+        forged = planted_facts()
+        forged['forged'] = 'a reference left out'
+        facts.write_text(json.dumps(forged), encoding='utf-8')
+        if not fails('changed after'):
+            failures.append('trusted facts: forged facts (edited after production) must fail')
+        facts.write_text(json.dumps(planted_facts()), encoding='utf-8')
+        binlog.write_bytes(b'another build')
+        if not fails('binary log build changed'):
+            failures.append('trusted facts: a binary log swapped after production must fail')
+        binlog.write_bytes(b'binlog')
+        (work / 'provenance.json').unlink()
+        if not fails('no readable provenance'):
+            failures.append('trusted facts: facts without provenance (the PR-produced facts) must fail')
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = judge_cmd(facts, repo, LAYERS, rise_only=True)
+        if code != 1 or 'trusted' not in out.getvalue():
+            failures.append('trusted facts: the base judge (--rise-only) without --trusted-base must refuse to judge')
+        provenance()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = judge_cmd(facts, repo, LAYERS, rise_only=True, trusted_base=head_sha)
+        if code != 1 or 'not the base' not in out.getvalue():
+            failures.append('trusted facts: the base judge must refuse facts whose provenance does not match')
+    return failures
+
+
+def self_test():
+    failures = trusted_cases()
     if judge(planted_layers(), list(PLANTED_PATHS), planted_facts())[0]:
         failures.append('planted: today\'s shape must pass before anything is mutated: '
                         + '; '.join(f'{f.rule_id} {f.subject}' for f in judge(planted_layers(), list(PLANTED_PATHS),
@@ -1089,7 +1182,8 @@ def self_test():
     print(f'SELF-TEST OK: {len(logic_cases())} planted builds (the review\'s bypasses: conditions seen in one log only, '
           f'edges added by targets, restore-only packages, PackageDownload + import, NuGet MSBuild SDK, plain DLL '
           f'paths), {len(looser_cases())} base-branch loosening cases, {len(fact_errors())} unreadable facts refused, '
-          f'{len(RULES)} rules')
+          f'{len(RULES)} rules; trusted facts: provenance, head-modified extractor, forged facts, swapped binary '
+          f'log and a base judge without --trusted-base all refused')
     return 0
 
 

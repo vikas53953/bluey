@@ -54,7 +54,8 @@ jobs:
       # the format of docs/architecture/layers.json. The judge itself runs in windows-ci on the build facts of the
       # shipped build (its Release build and win-x64 publish), not here: an evaluation on Linux misses what the real
       # build does (Release-only, publish-only and Windows-only references, package build code).
-      - name: Architecture references (self-test and layers.json format)
+      - name: Architecture references (self-tests incl. trusted facts, and layers.json format)
         run: |
           python -I scripts/quality/arch_refs.py --self-test
+          python -I scripts/quality/trusted_facts.py --self-test
           python -I scripts/quality/arch_refs.py format
