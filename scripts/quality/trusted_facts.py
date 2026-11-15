@@ -117,8 +117,8 @@ def produce(base, repo, work, binlogs, solution, publish_dir, replay_under=None,
          + (['--replay-under', replay_under] if replay_under else [])
          + [f'{name}={pathlib.Path(p).resolve()}' for name, p in binlogs.items()], src),
         ([sys.executable, '-I', str(src / CHECKER), 'check', str(facts), '--repo', str(repo),
-          '--solution', str(pathlib.Path(repo, solution)), '--publish-dir', str(pathlib.Path(repo, publish_dir))],
-         repo),
+          '--solution', solution, '--publish-dir', publish_dir],
+         repo),      # paths exactly as windows-ci gives them, relative to the repository (the facts record them so)
     ]
     for cmd, cwd in steps:
         code = run(cmd, cwd)
