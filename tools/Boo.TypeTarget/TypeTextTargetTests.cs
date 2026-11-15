@@ -183,16 +183,17 @@ public sealed class TypeTextTargetTests
     /// <summary>
     /// Issue #157: an approved write to FieldA, then an approved restore of its original value (what a field Undo does),
     /// with the window's foreground events delivered to Boo's real <see cref="TargetObserver"/> in between (this thread
-    /// pumps messages, as Boo's UI thread does). Windows can report the edited child control as the foreground window;
-    /// Boo must still recognise the top-level window as its current target, so it can re-read the window to verify the
-    /// restore, and the second write must not be refused as "target is not current".
+    /// pumps messages, as Boo's UI thread does). In Boo's live field Undo, Windows reported the edited FieldA control
+    /// itself as the foreground window (diagnostic run 43762033324); the target app's "childforeground" mode raises that
+    /// same event on every write. Boo must still recognise the top-level window as its current target, so it can re-read
+    /// the window to verify the restore, and the restore must not be refused as "target is not current".
     /// </summary>
     [Fact]
     public async Task ApprovedWriteThenRestore_TargetStaysCurrent_SoTheRestoreCanBeVerified()
     {
         var exe = Environment.GetEnvironmentVariable("BOO_TYPE_TARGET_EXE");
         Assert.False(string.IsNullOrWhiteSpace(exe), "BOO_TYPE_TARGET_EXE must name tools/Boo.TypeTarget.App's exe");
-        using var app = Process.Start(new ProcessStartInfo(exe!, "present") { UseShellExecute = false })!;
+        using var app = Process.Start(new ProcessStartInfo(exe!, "childforeground") { UseShellExecute = false })!;
         var log = new List<string>();
         try
         {

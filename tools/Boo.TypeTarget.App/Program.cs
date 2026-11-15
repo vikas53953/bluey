@@ -21,11 +21,16 @@ namespace Boo.TypeTarget.App;
 /// The click modes add buttons whose IDs differ only by case, each with its own read-only click counter:
 /// clickcasefirst (decoy "buttona" before the approved "ButtonA") and clickcaseonly (only "buttona"); and buttons whose
 /// IDs merely contain the approved one: clickpartialfirst (decoy "ButtonA2" before "ButtonA") and clickpartialonly
-/// (only "ButtonA2").
+/// (only "ButtonA2"). childforeground: FieldA is editable and, each time its text changes, announces itself (the child
+/// control, not the window) as the new foreground window, the event Windows raised in Boo's live field Undo (#157).
 /// </summary>
 internal static class Program
 {
     public const string Title = "Boo type target";
+    private const uint EventSystemForeground = 0x0003;
+
+    [DllImport("user32.dll")]
+    private static extern void NotifyWinEvent(uint winEvent, IntPtr hwnd, int idObject, int idChild);
 
     [STAThread]
     private static void Main(string[] args)
@@ -78,7 +83,7 @@ internal static class Program
 
             Control? fieldA = mode switch
             {
-                "present" or "casefirst" or "removeonwrite" or "destroyonwrite" => new TextBox { Name = "FieldA", AccessibleName = "Field A" },
+                "present" or "casefirst" or "removeonwrite" or "destroyonwrite" or "childforeground" => new TextBox { Name = "FieldA", AccessibleName = "Field A" },
                 "readonly" => new TextBox { Name = "FieldA", AccessibleName = "Field A", ReadOnly = true },
                 "nonvalue" => new Label { Name = "FieldA", AccessibleName = "Field A", Text = "Field A (not editable)" },
                 "provider-ok" or "provider-readgone" or "provider-readinvalid" or "provider-readfails" or "provider-setthrows" => new ProviderField(mode, writeCount!),
@@ -99,6 +104,10 @@ internal static class Program
                             fieldA.Dispose();
                         }
                     };
+                }
+                if (mode == "childforeground")
+                {
+                    fieldA.TextChanged += (_, _) => NotifyWinEvent(EventSystemForeground, fieldA.Handle, 0, 0);
                 }
                 if (mode == "removeonwrite")
                 {
