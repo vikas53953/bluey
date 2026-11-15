@@ -13,6 +13,7 @@ on:
       - src/Boo.Windows/RuntimeProbeCounters.cs
       - tests/Boo.Core.Tests/PerfProbeSnapshotTests.cs
       - tests/Boo.Integration.Tests/RuntimeProbeCountersTests.cs
+      - tests/Boo.Integration.Tests/RuntimeProbeCountersThreadTests.cs
   workflow_dispatch:
 
 permissions:
@@ -25,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        id: [control, M01, M02, M03, M04, M02r, M03r, M04r, M05, M06, M07]
+        id: [control, M01, M02, M03, M04, M02r, M03r, M04r, M11, M12, M05, M06, M07]
     env:
       DOTNET_NOLOGO: "1"
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"

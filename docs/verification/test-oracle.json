@@ -1,5 +1,5 @@
 {
-  "revision": 33,
+  "revision": 34,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -125,6 +125,7 @@
     "tests/Boo.Integration.Tests/ResponseDeadlineTests.cs": "a981dcd5cb4d6f5ebd7a84d09ae455e05b627fcf87f3db8aadb4c87636a4ead7",
     "tests/Boo.Integration.Tests/ReviewCaptureDisposeTests.cs": "153e15534f883714d918604ce91ab9b8e07607283a968fbe6b9eeb3985d8fab8",
     "tests/Boo.Integration.Tests/RuntimeProbeCountersTests.cs": "a0f23a76c7fdbe2f340231a0fc7d104f2f83d0f41cf5c838a7a84ffdb3aa2f65",
+    "tests/Boo.Integration.Tests/RuntimeProbeCountersThreadTests.cs": "25c0c1bb877fa035cd0d35ddffa66a1e8626abe479e983e30a908af82d56353d",
     "tests/Boo.Integration.Tests/SessionRecoveryTests.cs": "604ff4bb833ce2be64718fc82650417dca2091517d4d33a71359fd5fd9d62e36",
     "tests/Boo.Integration.Tests/StoragePrivacyTests.cs": "dd188faa6dd2e0e92b039971fef54aadcbf37176d43ca0ec71ee2363d3982811",
     "tests/Boo.Integration.Tests/TypeTextExecutorInvisibleCharacterTests.cs": "b5b24816cfedc99a800f21bc37c5c1eb80114a741ccdf96aa88386481fa2e34e",
@@ -165,14 +166,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-32.json",
-  "previousManifestSha256": "e3abad6adb28def2158134c3a1e4e05d343f8ad4df46c35dd1511438bf14b44e",
-  "revisionReason": "PR #142 (issue #124): new tests pinning the perf probe counters - PerfProbeSnapshotTests (mapping/serialization) and RuntimeProbeCountersTests (runtime reader); kill Codex mutants M02-M04 on 61361c2",
+  "previousManifest": "docs/verification/test-oracle-history/revision-33.json",
+  "previousManifestSha256": "869a0be0c1d70e1ce90095a08ca444ed6ef677362394ec5818d2133e592d137c",
+  "revisionReason": "PR #142: RuntimeProbeCountersThreadTests (JIT counters must be process-wide: compiled on another thread, read on this one); kills Codex mutants M11/M12 on 1b1260d",
   "addedFiles": [
-    "tests/Boo.Core.Tests/PerfProbeSnapshotTests.cs",
-    "tests/Boo.Integration.Tests/RuntimeProbeCountersTests.cs"
+    "tests/Boo.Integration.Tests/RuntimeProbeCountersThreadTests.cs"
   ],
-  "revisionCommit": "61361c2f11f0b4c0c947745c132605bfd6aab13b",
+  "revisionCommit": "1b1260df20274d93ca5cd808faf5e8c57cf8ed93",
   "changedFiles": [],
   "removedFiles": []
 }
