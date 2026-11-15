@@ -1,0 +1,47 @@
+name: feature-map
+
+# The feature map (docs/FEATURE_MAP.md) must tell the truth about the code, on every pull request and every push to
+# lane/face. AGENTS.md already says `.claude/skills/verify-boo/scripts/Test-FeatureMap.ps1` must pass; until this
+# workflow nothing ran it, so a new live or native test with no map row could merge unnoticed (5 SpokenAudioTests from
+# PR #48 did). The script fails (exit 1, one DRIFT line per problem) when a live/native test has no row, a row cites a
+# missing file or method, a label is not one of the allowed ones, or "automated live" cites no real Boo.exe test.
+# Read-only: no build, no key, no secrets, no artifacts. Runs only on GitHub's own Windows VM.
+
+on:
+  pull_request:
+  push:
+    branches: [lane/face]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feature-map-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  feature-map:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=feature-map refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)'). Set this job's runner back to windows-latest."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Feature map matches the code (every live/native test has a row)
+        shell: pwsh
+        run: |
+          & ./.claude/skills/verify-boo/scripts/Test-FeatureMap.ps1
+          if ($LASTEXITCODE -ne 0) {
+            "::error title=Feature map drift::docs/FEATURE_MAP.md does not match the code (see the DRIFT lines above). Add or fix the map row in this same PR; never delete or skip the test."
+            exit 1
+          }
