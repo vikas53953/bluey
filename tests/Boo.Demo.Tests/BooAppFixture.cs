@@ -107,22 +107,36 @@ public class BooAppFixture : IDisposable
     /// panel is fine a moment later, as on demo-ci runs 43733044905, 43755644582 and 43797565952.
     /// </summary>
     public Window WaitForPanel(TimeSpan timeout) =>
-        WaitForPainted(FindPanel, timeout, "the Boo companion window to appear and paint its content");
+        WaitForPainted(() => FindPanel() is { } panel && HasRendered(panel) ? panel : null, timeout,
+            "the Boo companion window to appear, acknowledge its first render and paint its content");
 
     /// <summary>
     /// The wait site itself: polls <paramref name="find"/> and hands the window back only once <see cref="IsPainted"/>
     /// says it has drawn content, failing closed at <paramref name="timeout"/> like <see cref="WaitFor{T}"/>. Tests drive
-    /// it with their own windows (FirstPaintWaitDemoTests), so removing the paint gate here fails them.
-    /// Ordering: the probe reads the window through PrintWindow with PW_RENDERFULLCONTENT, which renders the window's
-    /// composition surface (the one the Desktop Window Manager composes from), so a non-blank result means the frame has
-    /// reached that surface; <c>DwmFlush</c> then waits for the Desktop Window Manager to compose its next frame before
-    /// the window is handed back, so a screen capture taken after this returns is of a composed frame that holds it.
+    /// it with their own windows (FirstPaintWaitDemoTests), so removing the paint gate here fails them. The probe is a
+    /// reading of the window's own rendering (PrintWindow with PW_RENDERFULLCONTENT, which includes WPF's DirectX
+    /// content); it is not a presentation signal, which is why <see cref="WaitForPanel"/> also requires the app's own
+    /// first-render acknowledgment (<see cref="HasRendered"/>) and the desktop and video acceptance stays the judge.
     /// </summary>
-    public Window WaitForPainted(Func<Window?> find, TimeSpan timeout, string what)
+    public Window WaitForPainted(Func<Window?> find, TimeSpan timeout, string what) =>
+        WaitFor(() => find() is { } candidate && IsPainted(candidate) ? candidate : null, timeout, what);
+
+    /// <summary>
+    /// True once the window's own process has acknowledged its first render pass: Boo's companion window sets the UI
+    /// Automation ItemStatus to "rendered" from WPF's ContentRendered event. A window that never says so is not ready,
+    /// whatever its pixels show.
+    /// </summary>
+    public static bool HasRendered(Window window)
     {
-        var window = WaitFor(() => find() is { } candidate && IsPainted(candidate) ? candidate : null, timeout, what);
-        CaptureNative.DwmFlush();
-        return window;
+        try
+        {
+            return string.Equals(window.Properties.ItemStatus.ValueOrDefault, "rendered", StringComparison.Ordinal);
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException or InvalidOperationException
+                                   or FlaUI.Core.Exceptions.PropertyNotSupportedException)
+        {
+            return false;
+        }
     }
 
     public Window WaitForNotch(TimeSpan timeout) =>
@@ -372,10 +386,6 @@ public class BooAppFixture : IDisposable
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         public static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
-
-        /// <summary>Blocks until the Desktop Window Manager has composed its next frame.</summary>
-        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
-        public static extern int DwmFlush();
 
     }
 

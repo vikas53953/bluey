@@ -17,7 +17,8 @@ namespace Boo.Demo.Tests;
 
 /// <summary>
 /// The first-paint wait on real WPF windows the test owns, through the fixture's own <see cref="BooAppFixture.WaitForPainted"/>
-/// (the wait site <c>WaitForPanel</c> delegates to, with its deadline and timeout screenshot): a WPF window that never draws
+/// (the wait site <c>WaitForPanel</c> delegates to, with its deadline and timeout screenshot; the probe windows set the
+/// same ItemStatus "rendered" acknowledgment from ContentRendered as Boo's companion window): a WPF window that never draws
 /// content keeps the wait waiting until it fails closed with a timeout and a retained timeout capture (the red path), and
 /// a WPF window that draws its content late is handed back only after that content exists (the delayed-first-render
 /// control). The expected timeout's capture is scoped to Boo's own windows (BOO_CAPTURE_SCOPE, as the live smoke sets
@@ -98,7 +99,7 @@ public sealed class FirstPaintWaitDemoTests : IClassFixture<BooAppFixture>
         var window = _boo.Automation.FromHandle(probe.Handle).AsWindow();
         var clock = Stopwatch.StartNew();
 
-        var painted = _boo.WaitForPainted(() => window, TimeSpan.FromSeconds(15), "the late-painting probe window");
+        var painted = _boo.WaitForPainted(() => BooAppFixture.HasRendered(window) ? window : null, TimeSpan.FromSeconds(15), "the late-painting probe window");
         var returnedAt = DateTime.UtcNow;
 
         Assert.True(clock.Elapsed >= delay - TimeSpan.FromMilliseconds(100),
@@ -108,6 +109,7 @@ public sealed class FirstPaintWaitDemoTests : IClassFixture<BooAppFixture>
         Assert.True(shownAt <= returnedAt,
             $"the wait returned at {returnedAt:HH:mm:ss.fff}, before the window set its content at {shownAt:HH:mm:ss.fff}");
         Assert.True(BooAppFixture.IsPainted(painted), "the window handed back was not painted");
+        Assert.True(BooAppFixture.HasRendered(painted), "the window handed back had not acknowledged its first render");
 
         using (var image = BooAppFixture.RenderWindow(painted))
         {
@@ -167,6 +169,7 @@ public sealed class FirstPaintWaitDemoTests : IClassFixture<BooAppFixture>
                     Top = 0,
                     Background = MediaBrushes.White,
                 };
+                _window.ContentRendered += (_, _) => System.Windows.Automation.AutomationProperties.SetItemStatus(_window, "rendered");
                 _window.Show();
                 Handle = new WindowInteropHelper(_window).Handle;
                 _dispatcher = Dispatcher.CurrentDispatcher;
