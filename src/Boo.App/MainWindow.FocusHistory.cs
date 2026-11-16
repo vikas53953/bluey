@@ -1,6 +1,4 @@
-using System.ComponentModel;
 using System.IO;
-using System.Windows.Controls;
 using Boo.Core;
 using Boo.Storage;
 
@@ -12,9 +10,11 @@ namespace Boo.App;
 /// Automation answers. Writes keep their order.
 /// A status line that promises a saved state ("Paused ...", "Running ...", "Session complete ... saved") is an
 /// acknowledgment of one specific save: it is shown only when that save has succeeded, and an honest "Not saved: ..."
-/// line is shown when it failed or when no history store was available. Acknowledgments are numbered; only the newest
-/// may change the status, and any other write to the focus status makes every pending acknowledgment stale, so an
-/// older action can never overwrite a newer one.
+/// line is shown when it failed or when no history store was available. A write that committed is acknowledged as saved
+/// even if the history list could not be re-read afterwards (the list then says history is unavailable). Acknowledgments
+/// are numbered; only the newest may change the status, and every other focus-status write (all go through
+/// <see cref="SetFocusStatus"/>, even one that repeats the text already shown) makes every pending acknowledgment stale,
+/// so an older action can never overwrite a newer one.
 /// Exit waits for the queue, bounded at 10 s: a save still blocked after that is not guaranteed to reach the disk.
 /// </summary>
 public partial class MainWindow
@@ -24,8 +24,6 @@ public partial class MainWindow
     private Task _focusHistoryTail = Task.CompletedTask;
     private long _focusStatusGeneration;
     private long _focusStatusNewest;
-    private bool _applyingFocusAcknowledgment;
-    private bool _focusStatusWatched;
 
     /// <summary>Queues a save of the focus snapshot (and a history refresh); never touches the disk on the UI thread.</summary>
     private void SaveFocusSnapshot(FocusSessionController? controller = null) => _ = SaveFocusSnapshotTracked(controller);
@@ -45,11 +43,7 @@ public partial class MainWindow
 
         var snapshot = controller.Snapshot;
         _lastFocusSaveRealElapsed = snapshot.RealElapsed;
-        return EnqueueFocusHistoryWork(() =>
-        {
-            store.Save(snapshot);
-            return ReadHistoryRows(store);
-        });
+        return EnqueueFocusHistoryWork(store, () => store.Save(snapshot));
     }
 
     /// <summary>Re-reads the history list on the background queue, after any pending save.</summary>
@@ -62,7 +56,7 @@ public partial class MainWindow
             return;
         }
 
-        _ = EnqueueFocusHistoryWork(() => ReadHistoryRows(store));
+        _ = EnqueueFocusHistoryWork(store, write: null);
     }
 
     /// <summary>
@@ -72,7 +66,6 @@ public partial class MainWindow
     /// </summary>
     private void ShowFocusStatusWhenSaved(Task<bool> save, string saved, string unsaved)
     {
-        WatchFocusStatus();
         var generation = ++_focusStatusGeneration;
         _focusStatusNewest = generation;
         _ = AcknowledgeAsync(save, generation, saved, unsaved);
@@ -84,41 +77,22 @@ public partial class MainWindow
         OnUiThread(() => ApplyFocusAcknowledgment(generation, ok ? saved : unsaved));
     }
 
+    /// <summary>
+    /// The one way to write the focus status outside an acknowledgment: every call, even one that repeats the text
+    /// already shown, is a newer action and makes every pending acknowledgment stale.
+    /// </summary>
+    private void SetFocusStatus(string text)
+    {
+        _focusStatusNewest = ++_focusStatusGeneration;
+        FocusStatus.Text = text;
+    }
+
     private void ApplyFocusAcknowledgment(long generation, string text)
     {
-        if (generation != _focusStatusNewest)
-        {
-            return;
-        }
-
-        _applyingFocusAcknowledgment = true;
-        try
+        if (generation == _focusStatusNewest)
         {
             FocusStatus.Text = text;
         }
-        finally
-        {
-            _applyingFocusAcknowledgment = false;
-        }
-    }
-
-    /// <summary>Any focus status written outside an acknowledgment is newer than every pending acknowledgment.</summary>
-    private void WatchFocusStatus()
-    {
-        if (_focusStatusWatched)
-        {
-            return;
-        }
-
-        _focusStatusWatched = true;
-        DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock))
-            .AddValueChanged(FocusStatus, (_, _) =>
-            {
-                if (!_applyingFocusAcknowledgment)
-                {
-                    _focusStatusNewest = ++_focusStatusGeneration;
-                }
-            });
     }
 
     /// <summary>Waits (bounded) for every queued save; called when Boo exits.</summary>
@@ -133,67 +107,74 @@ public partial class MainWindow
         tail.Wait(FocusHistoryFlushTimeout);
     }
 
-    private Task<bool> EnqueueFocusHistoryWork(Func<IReadOnlyList<FocusHistoryRow>> work)
+    /// <summary>
+    /// Queues an optional write and then a re-read of the history list. The task completes with true when the write
+    /// committed (or there was none), false when it failed. A failed re-read after a committed write does not make the
+    /// write unsaved: the history list just says it is unavailable.
+    /// </summary>
+    private Task<bool> EnqueueFocusHistoryWork(SessionStore store, Action? write)
     {
         var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_focusHistoryGate)
         {
             _focusHistoryTail = _focusHistoryTail.ContinueWith(
-                _ => done.TrySetResult(RunFocusHistoryWork(work)),
+                _ => done.TrySetResult(RunFocusHistoryWork(store, write)),
                 CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
         }
 
         return done.Task;
     }
 
-    /// <summary>Runs one queued step; true when it succeeded. The history list is updated (or marked unavailable) first.</summary>
-    private bool RunFocusHistoryWork(Func<IReadOnlyList<FocusHistoryRow>> work)
+    private bool RunFocusHistoryWork(SessionStore store, Action? write)
     {
-        IReadOnlyList<FocusHistoryRow>? rows = null;
-        var failed = false;
-        try
-        {
-            rows = work();
-        }
-        catch (InvalidDataException)
-        {
-            failed = true;
-        }
-        catch (IOException)
-        {
-            failed = true;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            failed = true;
-        }
-        catch (Microsoft.Data.Sqlite.SqliteException)
-        {
-            failed = true;
-        }
-        catch (ArgumentException)
-        {
-            failed = true;
-        }
-        catch (OverflowException)
-        {
-            failed = true;
-        }
-
-        var ok = !failed && rows is not null;
+        var written = write is null || TryStoreStep(() => { write(); return true; });
+        var rows = written ? TryStoreStep(() => ReadHistoryRows(store)) : null;
         OnUiThread(() =>
         {
-            if (ok)
-            {
-                ApplyHistoryRows(rows!);
-            }
-            else
+            if (!written)
             {
                 _sessionStore = null;
                 SetHistoryUnavailable();
             }
+            else if (rows is null)
+            {
+                SetHistoryUnavailable();
+            }
+            else
+            {
+                ApplyHistoryRows(rows);
+            }
         });
-        return ok;
+        return written;
+    }
+
+    /// <summary>Runs one sessions.db step; the store's known failures return the default instead of throwing.</summary>
+    private static T? TryStoreStep<T>(Func<T> step)
+    {
+        try
+        {
+            return step();
+        }
+        catch (InvalidDataException)
+        {
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException)
+        {
+        }
+        catch (ArgumentException)
+        {
+        }
+        catch (OverflowException)
+        {
+        }
+
+        return default;
     }
 
     /// <summary>

@@ -1063,7 +1063,7 @@ public partial class MainWindow : Window
             }
             if (!string.IsNullOrWhiteSpace(nudge.Text))
             {
-                FocusStatus.Text = $"Nudge: {nudge.Text}";
+                SetFocusStatus($"Nudge: {nudge.Text}");
             }
             if (string.IsNullOrWhiteSpace(nudge.PointerTarget) || !_displayAffinitySupported)
             {
@@ -1334,7 +1334,7 @@ public partial class MainWindow : Window
                 StopFocusMonitoring();
                 SaveFocusSnapshot();
                 UpdateFocusView();
-                FocusStatus.Text = "Paused after sleep. Press Resume to continue.";
+                SetFocusStatus("Paused after sleep. Press Resume to continue.");
                 SetFace(WithFocusFace(_faceInputs));
                 return;
             }
@@ -1371,7 +1371,7 @@ public partial class MainWindow : Window
             {
                 // The original failure is the one worth reporting.
             }
-            FocusStatus.Text = SanitizedError(ex, "Focus monitoring stopped safely.");
+            SetFocusStatus(SanitizedError(ex, "Focus monitoring stopped safely."));
         }
     }
 
@@ -1421,7 +1421,7 @@ public partial class MainWindow : Window
             var age = Math.Max(0, (_timeProvider.GetUtcNow() - frame.Context.CapturedAt).TotalSeconds);
             if (_focus.RecordCheck(check, age))
             {
-                FocusStatus.Text = "Nudge: return to the task when you are ready. Boo did not change your apps.";
+                SetFocusStatus("Nudge: return to the task when you are ready. Boo did not change your apps.");
                 var minutesLeft = Math.Max(1, (int)Math.Ceiling((snapshot.Duration - snapshot.Elapsed) / 60));
                 var nudgeTask = string.IsNullOrWhiteSpace(snapshot.Task) ? "your task" : snapshot.Task.Trim();
                 SetFace(_faceInputs with
@@ -1434,7 +1434,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                FocusStatus.Text = $"Observed {check.Activity.ToString().ToLowerInvariant()} · periodic estimate";
+                SetFocusStatus($"Observed {check.Activity.ToString().ToLowerInvariant()} · periodic estimate");
             }
             SaveFocusSnapshot();
         }
@@ -1450,7 +1450,7 @@ public partial class MainWindow : Window
                 var unknown = new FocusCheck(snapshot.Elapsed, FocusActivity.Uncertain, 0, 0);
                 _focus.RecordCheck(unknown, 0);
                 SaveFocusSnapshot();
-                FocusStatus.Text = SanitizedError(ex, "Focus observation unavailable; this interval is unknown.");
+                SetFocusStatus(SanitizedError(ex, "Focus observation unavailable; this interval is unknown."));
             }
         }
         finally
@@ -1522,7 +1522,7 @@ public partial class MainWindow : Window
             _sessionStore = new SessionStore(Path.Combine(_dataDirectory, "sessions.db"));
             if (_sessionStore.RecoverInterrupted() > 0)
             {
-                FocusStatus.Text = "Your last focus session was interrupted when Boo closed. It is saved as paused in history.";
+                SetFocusStatus("Your last focus session was interrupted when Boo closed. It is saved as paused in history.");
             }
             LoadHistory();
         }
