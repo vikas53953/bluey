@@ -149,31 +149,238 @@ class GhClient:
 
 def in_scope(pr, base):
     """Return None when the loop judges this PR, else the plain reason it does not."""
-    return 'NOT IMPLEMENTED'
+    if pr.get('isDraft'):
+        return 'draft PR (out of scope until marked ready)'
+    if pr.get('baseRefName') != base:
+        return f'base is {pr.get("baseRefName")}, not {base} (out of scope)'
+    if pr.get('isCrossRepository'):
+        return 'PR from a fork (out of scope)'
+    if not SHA.match(str(pr.get('headRefOid', ''))):
+        return 'head SHA unreadable'
+    return None
 
 
 def snapshot(client, base):
     """Read everything first; any read error raises ApiError before a single action is planned."""
-    raise ApiError('snapshot is not implemented yet')
+    snap = {'repo': client.repo_settings(), 'base_sha': client.base_sha(base), 'prs': []}
+    for pr in sorted(client.open_prs(), key=lambda p: p.get('number', 0)):
+        number = pr.get('number')
+        if not isinstance(number, int):
+            raise ApiError('an open PR has no number')
+        entry = {'pr': pr, 'excluded': EXCLUDED.get(number), 'out_of_scope': None}
+        if entry['excluded']:  # PR #3: nothing past the list is read
+            snap['prs'].append(entry)
+            continue
+        entry['out_of_scope'] = in_scope(pr, base)
+        if not entry['out_of_scope'] and pr.get('mergeable') != 'UNKNOWN':
+            head = pr['headRefOid']
+            entry['comments'] = client.comments(number)
+            entry['check_runs'] = client.check_runs(head)
+            entry['statuses'] = client.statuses(head)
+            entry['behind_by'] = client.behind_by(snap['base_sha'], head)
+        snap['prs'].append(entry)
+    return snap
 
 
-def classify(pr, base):
-    """Return (state, detail, next) for one in-scope PR read by snapshot()."""
-    return 'blocked', 'not implemented', 'owner'
+def _body(comment):
+    return str(comment.get('body') or '').lstrip('﻿').lstrip()
+
+
+def _trusted(comments):
+    return [c for c in comments if c.get('author_association') in TRUSTED]
+
+
+def _latest_by_context(statuses):
+    latest = {}
+    for s in sorted(statuses, key=lambda s: (str(s.get('created_at', '')), s.get('id') or 0), reverse=True):
+        latest.setdefault(s.get('context'), s)
+    return latest
+
+
+def stamp(entry):
+    """(ok, reason). ok only when the LATEST codex-verified status on this exact head is success AND a trusted
+    `CODEX VERIFIED <this head>` comment names that status's ID. Anything else never arms."""
+    head = entry['pr']['headRefOid']
+    status = _latest_by_context(entry['statuses']).get(STAMP_CONTEXT)
+    if status is None:
+        return False, 'no codex-verified stamp on this head'
+    if status.get('state') != 'success':
+        return False, f'codex-verified on this head is {status.get("state")} (status {status.get("id")})'
+    for comment in _trusted(entry['comments']):
+        text = _body(comment)
+        match = VERIFIED.match(text)
+        if not match or match.group(1) != head:
+            continue
+        named = STATUS_ID.search(text)
+        if named and int(named.group(1)) == status.get('id'):
+            return True, f'codex-verified status {status.get("id")} named by its CODEX VERIFIED comment'
+    return False, (f'codex-verified status {status.get("id")} on this head is not named by a trusted '
+                   f'"CODEX VERIFIED {head}" comment')
+
+
+def _ci(entry):
+    """(red, pending): lists of plain reasons for the head's check runs and commit statuses."""
+    red, pending, reported = [], [], set()
+    latest = {}  # a re-run in a new suite (e.g. pr-evidence after a body edit) replaces the older run of that name
+    for run_ in sorted(entry['check_runs'], key=lambda r: r.get('id') or 0):
+        latest[run_.get('name')] = run_
+    for run_ in latest.values():
+        name = run_.get('name')
+        reported.add(name)
+        if run_.get('status') != 'completed':
+            pending.append(f'{name} {run_.get("status")}')
+        elif run_.get('conclusion') not in OK_CONCLUSIONS:
+            red.append(f'{name} {run_.get("conclusion")}')
+    for context, status in _latest_by_context(entry['statuses']).items():
+        if context == STAMP_CONTEXT:
+            continue
+        reported.add(context)
+        if status.get('state') == 'pending':
+            pending.append(f'{context} pending')
+        elif status.get('state') != 'success':
+            red.append(f'{context} {status.get("state")}')
+    pending += [f'{name} not reported yet' for name in REQUIRED_CHECKS if name not in reported]
+    return red, pending
+
+
+def classify(entry, base):
+    """Return (state, detail, next) for one PR read by snapshot(). The first unmet gate wins."""
+    pr = entry['pr']
+    head = pr.get('headRefOid')
+    if entry.get('out_of_scope'):
+        return 'blocked', entry['out_of_scope'], 'owner'
+    if pr.get('mergeable') == 'UNKNOWN':
+        return 'blocked', 'GitHub has not computed mergeability yet (read again next run)', 'loop'
+    if pr.get('mergeable') == 'CONFLICTING' or pr.get('mergeStateStatus') == 'DIRTY':
+        return 'needs-rebase', f'conflicts with {base}: the lane merges {base} in and resolves them', 'lane'
+    if entry['behind_by'] > 0:
+        return 'needs-rebase', f'{entry["behind_by"]} commit(s) behind {base}: the lane syncs the branch', 'lane'
+    stamp_status = _latest_by_context(entry['statuses']).get(STAMP_CONTEXT)
+    if stamp_status and stamp_status.get('state') in ('failure', 'error'):
+        return 'blocked', (f'the verifier refused this head (codex-verified {stamp_status.get("state")}, '
+                           f'status {stamp_status.get("id")})'), 'lane'
+    red, pending = _ci(entry)
+    if red:
+        return 'ci-red', 'failed on the head: ' + ', '.join(sorted(red)), 'lane'
+    if pending:
+        return 'waiting-QA', 'checks not finished on the head: ' + ', '.join(sorted(pending)), 'qa'
+    trusted = [_body(c) for c in _trusted(entry['comments'])]
+    if not any((m := QA_PASS.match(t)) and m.group(1) == head for t in trusted):
+        return 'waiting-QA', f'checks green; no QA PASS comment names {head}', 'qa'
+    if not any((m := REVIEW_PASS.match(t)) and m.group(1) == head for t in trusted):
+        return 'waiting-review', f'QA PASS present; no CODEX REVIEW PASS names {head}', 'reviewer'
+    ok, reason = stamp(entry)
+    if not ok:
+        return 'waiting-stamp', f'QA and review PASS present; {reason}', 'verifier'
+    return 'stamped-ready', reason, 'auto-merge'
+
+
+def _ledger(entry, bot_login):
+    """The bot's latest marker comment: (comment id, state, head) or None."""
+    mine = [c for c in entry['comments']
+            if (c.get('user') or {}).get('login') == bot_login and MARKER in str(c.get('body') or '')]
+    if not mine:
+        return None
+    last = max(mine, key=lambda c: (str(c.get('created_at', '')), c.get('id') or 0))
+    match = LEDGER_LINE.search(str(last.get('body') or ''))
+    return (last.get('id'), match.group(1) if match else None, match.group(2) if match else None)
 
 
 def plan(snap, base, bot_login):
     """One entry per open PR: state, detail, next, why arming is or is not planned, and at most one action."""
-    return []
+    entries = []
+    for item in snap['prs']:
+        pr = item['pr']
+        number, head = pr['number'], pr.get('headRefOid')
+        if item['excluded']:
+            entries.append({'number': number, 'head': head, 'state': 'excluded', 'detail': item['excluded'],
+                            'next': '-', 'arm': 'no (excluded)', 'action': None})
+            continue
+        state, detail, who = classify(item, base)
+        entry = {'number': number, 'head': head, 'state': state, 'detail': detail, 'next': who, 'action': None}
+        judged = 'statuses' in item
+        stamp_ok, stamp_reason = stamp(item) if judged else (False, detail)
+        if state == 'stamped-ready':
+            if not snap['repo']['allow_auto_merge']:
+                entry['arm'] = 'no (the repository setting allow_auto_merge is off; the owner must turn it on)'
+                entry['next'] = 'owner'
+            elif pr.get('autoMergeRequest'):
+                entry['arm'] = 'no (auto-merge already armed: nothing to repeat)'
+            else:
+                entry['arm'] = f'YES ({stamp_reason})'
+                entry['action'] = 'arm'
+        else:
+            entry['arm'] = f'no ({stamp_reason})' if not stamp_ok else f'no (state {state})'
+        if entry['action'] is None and judged:
+            line = f'pr-loop: state={state} head={head} next={entry["next"]}'
+            ledger = _ledger(item, bot_login)
+            if not ledger or (ledger[1], ledger[2]) != (state, head):
+                entry['body'] = (f'{MARKER}\n{line}\n\n{detail}\n\n_Written by the pr-loop workflow ({RULE}, '
+                                 'docs/quality/pr-loop.md). One comment per PR, edited in place; the same state and '
+                                 'head means no edit._')
+                entry['action'] = 'edit-comment' if ledger else 'create-comment'
+                entry['comment_id'] = ledger[0] if ledger else None
+        entries.append(entry)
+    return entries
 
 
-def execute(entries, client, apply):
+def execute(entries, client, apply, out=print):
     """Take the planned actions (only with apply). PR #3 is refused here again even if a plan names it."""
-    return 0
+    done = 0
+    for entry in entries:
+        if entry['number'] in EXCLUDED:
+            if entry.get('action'):
+                raise ApiError(f'refused: a plan named an action on excluded PR #{entry["number"]}')
+            continue
+        action = entry.get('action')
+        if not action:
+            continue
+        if not apply:
+            out(f'DRY RUN: would {action} on PR #{entry["number"]} (head {entry["head"]}); nothing done')
+            continue
+        try:
+            if action == 'arm':
+                client.arm(entry['number'], entry['head'])
+            elif action == 'create-comment':
+                client.create_comment(entry['number'], entry['body'])
+            elif action == 'edit-comment':
+                client.edit_comment(entry['comment_id'], entry['body'])
+            else:
+                raise ApiError(f'unknown action {action}')
+        except ApiError as error:
+            raise ApiError(f'{action} on PR #{entry["number"]} failed, stopping: {error}') from None
+        out(f'DONE: {action} on PR #{entry["number"]} (head {entry["head"]})')
+        done += 1
+    return done
 
 
 def run(client, apply, base=BASE, bot_login=BOT_LOGIN, out=print):
-    raise ApiError('run is not implemented yet')
+    """Snapshot, plan, print, then (only with apply) act. Returns the exit code; 1 = failed closed."""
+    try:
+        snap = snapshot(client, base)
+        entries = plan(snap, base, bot_login)
+    except ApiError as error:
+        out(f'::error::{RULE} fail closed while reading GitHub, no action taken: {error}')
+        return 1
+    out(f'{RULE} pr-loop: {len(entries)} open PR(s), base {base} at {snap["base_sha"]}, '
+        f'allow_auto_merge={str(snap["repo"]["allow_auto_merge"]).lower()}, mode={"APPLY" if apply else "DRY RUN"}')
+    if not snap['repo']['allow_auto_merge']:
+        out('::warning::the repository setting allow_auto_merge is off: the loop will never arm (it does not change '
+            'settings)')
+    for e in entries:
+        out(f'PR #{e["number"]} state={e["state"]} head={e["head"]} next={e["next"]}\n'
+            f'    why:  {e["detail"]}\n    arm:  {e["arm"]}\n'
+            f'    action: {e["action"] or "no action"}')
+    counts = {s: sum(1 for e in entries if e['state'] == s) for s in (*STATES, 'excluded')}
+    out('states: ' + ', '.join(f'{k}={v}' for k, v in counts.items() if v))
+    try:
+        done = execute(entries, client, apply, out)
+    except ApiError as error:
+        out(f'::error::{RULE} fail closed: {error}')
+        return 1
+    planned = sum(1 for e in entries if e.get('action'))
+    out(f'actions: {planned} planned, {done} done' + ('' if apply else ' (dry run)'))
+    return 0
 
 
 # ---------------------------------------------------------------------------------------------------------------- tests
@@ -312,6 +519,13 @@ def self_test():
     check('ci-red: a check run failed on the head',
           state_of(_world(k=lambda d: d['checks'][head].append({'name': 'smoke', 'status': 'completed',
                                                                 'conclusion': 'failure'}))) == 'ci-red')
+    check('a newer run of the same check (e.g. evidence after a body edit) replaces the older failed one',
+          state_of(_world(k=lambda d: d['checks'][head].__setitem__(slice(0, 0), [
+              {'id': 1, 'name': 'evidence', 'status': 'completed', 'conclusion': 'failure'}]) or [
+              r.__setitem__('id', 100 + i) for i, r in enumerate(d['checks'][head][1:])])) == 'stamped-ready')
+    check('an older passing run does not hide a newer failed run of the same check',
+          state_of(_world(k=lambda d: d['checks'][head].append(
+              {'id': 10 ** 6, 'name': 'evidence', 'status': 'completed', 'conclusion': 'failure'}))) == 'ci-red')
     check('ci-red: a commit status (not codex-verified) is failure',
           state_of(_world(s=lambda d: d['statuses'][head].append({'id': 5, 'context': 'other', 'state': 'failure',
                                                                   'created_at': '2026-11-16T00:00:00Z'}))) == 'ci-red')
@@ -360,8 +574,10 @@ def self_test():
 
     c = _world(a=lambda d: d.__setitem__('allow', False))
     code, text = go(c, apply=True)
-    check('repository auto-merge setting off: detected and reported, never armed, settings untouched',
-          code == 0 and not c.writes and 'allow_auto_merge' in text)
+    check('repository auto-merge setting off: detected and reported, never armed, settings untouched '
+          '(only the marker comment, naming the owner)',
+          code == 0 and not arms(c) and 'allow_auto_merge' in text
+          and [w[0] for w in c.writes] == ['create_comment'] and 'next=owner' in c.writes[0][2])
 
     # PR #3 is never touched, even when it looks stamped-ready.
     c = _world(number=3, pr={'headRefName': 'lane/face', 'baseRefName': 'main'})

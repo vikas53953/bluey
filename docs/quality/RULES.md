@@ -606,3 +606,22 @@ feature-map fragment with `Replaces:` for the same old id do not conflict in git
 `Test-FeatureMap.ps1` (feature-map workflow, on every push to `lane/face`) reports the id replaced twice. A PR can edit
 `doc-fragments.yml` itself; like every gate here, that is caught by review and the required-check settings, not by the
 workflow. Not a required check until Vikas says so.
+
+## BOO-LOOP-001
+**The deterministic PR loop arms auto-merge only on a matched stamp, and takes at most one action per PR per run.**
+[`scripts/pr_loop.py`](../../scripts/pr_loop.py) (workflow `pr-loop`, full design in [pr-loop.md](pr-loop.md)) puts
+every open PR in exactly one state (`blocked`, `needs-rebase`, `ci-red`, `waiting-QA`, `waiting-review`,
+`waiting-stamp`, `stamped-ready`) and may only (1) run `gh pr merge <n> --auto --merge --match-head-commit <head>` when
+the latest `codex-verified` status on that exact head is SUCCESS and a trusted `CODEX VERIFIED <head>` comment names
+that status's ID, or (2) create/edit its one marker comment `pr-loop: state=<s> head=<sha> next=<who>`. Its self-test
+fails when any state is misjudged, when a mismatched SHA, a different status ID, a failure status or an untrusted
+comment would arm, when PR #3 is read past the list or acted on, when a second run on the same head would act again,
+when a dry run would act, or when an API error would not fail the run closed.
+
+**Fix:** correct the state rule or the plan so the planted fixture gets the state the doc names. **Do NOT** add a
+branch update (a `GITHUB_TOKEN` push starts no CI: option (i)), arm without the matched stamp, drop the PR #3
+exclusion, or turn the dry-run default around in the workflow (acting needs `dry_run=false` or `PR_LOOP_APPLY=on`).
+
+Known gaps: schedules run only from the default branch (`main`), so the loop is idle until the workflow is there. A
+merge performed by auto-merge armed with `GITHUB_TOKEN` starts no push workflows on `lane/face` (open question in
+pr-loop.md). Trusted comments are judged by author association, not by which agent wrote them.
