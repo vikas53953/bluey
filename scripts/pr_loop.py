@@ -1052,6 +1052,63 @@ def self_test():
     check('(d) every tip workflow has a workflow_dispatch trigger',
           all(re.search(r'^  workflow_dispatch:', flow(w), re.M) for w in tip_workflows))
 
+    # Review at e567a20, P1: a copied loop marker must not switch a veto off.
+    for word in ('BLOCK', 'NOT VERIFIED', 'SURVIVED'):
+        c = _world(c=lambda d, w=word: d['comments'][200].append(_comment(
+            f'{MARKER}\npr-loop: state=stamped-ready head={head} next=auto-merge\n{w}', author='NONE',
+            login='stranger', cid=30, created='2026-11-16T03:00:00Z')))
+        code, text = go(c, apply=True)
+        check(f'(c) a stranger comment carrying a copied loop marker and {word} still vetoes: NOT armed', not arms(c))
+    c = changed_after_read(lambda f: f.comments_by_pr[200].append(_comment(
+        f'{MARKER}\nBLOCK', author='NONE', login='stranger', cid=31, created='2026-11-16T03:00:00Z')))
+    code, text = go(c, apply=True)
+    check('(c) the same forged-marker veto posted after the plan was read: the fresh preflight refuses', not arms(c))
+    c = _world(c=lambda d: d['comments'][200].append(_comment(
+        f'{MARKER}\npr-loop: state=waiting-stamp head={head} next=verifier\n', author='NONE', login=BOT_LOGIN,
+        cid=32, created='2026-11-16T03:00:00Z')))
+    code, text = go(c, apply=True)
+    check('(c) the loop\'s own marker comment (bot author, ledger shape) is not a veto: armed',
+          arms(c) == [('arm', 200, head)])
+
+    # Review at e567a20, P2: a veto in the same second as the stamp comment must not fail open.
+    for word in ('BLOCK', 'NOT VERIFIED', 'SURVIVED'):
+        c = _world(c=lambda d, w=word: d['comments'][200].append(_comment(
+            f'CODEX REVIEW {w} — {head}', cid=40, created='2026-11-16T02:00:00Z')))
+        code, text = go(c, apply=True)
+        check(f'(c) {word} created in the same second as the stamp comment, with a later id: NOT armed', not arms(c))
+    c = _world(c=lambda d: d['comments'][200].insert(0, _comment(
+        'CODEX REVIEW BLOCK — an older head', cid=9, created='2026-11-16T02:00:00Z')))
+    code, text = go(c, apply=True)
+    check('(c) BLOCK created in the same second but with an EARLIER id (posted before the stamp): armed',
+          arms(c) == [('arm', 200, head)])
+    c = _world(c=lambda d: d['comments'][200].append(dict(_comment(
+        'edited to BLOCK', cid=7, created='2026-11-16T01:00:00Z'), updated_at='2026-11-16T02:00:00Z')))
+    code, text = go(c, apply=True)
+    check('(c) an older comment edited in the same second as the stamp to say BLOCK (order unknown): NOT armed',
+          not arms(c))
+
+    # Review at e567a20, P2: the base allowlist itself, through the command line.
+    def cli(argv, client):
+        lines = []
+        try:
+            import contextlib
+            import io
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                code = main(argv, client_factory=lambda repo: client)
+            return code, buf.getvalue()
+        except Exception as error:
+            return f'crash {type(error).__name__}', '\n'.join(lines)
+    for other in ('main', 'qa/other'):
+        c = _world(pr={'baseRefName': other})
+        code, text = cli(['--base', other, '--apply'], c)
+        check(f'CLI --base {other} --apply on a PR that is stamped-ready against {other}: refused (exit 2), '
+              'nothing read or written', code == 2 and not c.writes and not c.reads)
+    c = _world()
+    code, text = cli(['--apply'], c)
+    check('CLI default base --apply on a stamped-ready lane/face PR: armed once (the fake stands in for gh)',
+          code == 0 and arms(c) == [('arm', 200, head)])
+
     # Log safety: gh's own output can carry request headers; the loop must never pass them on.
     import subprocess as _sp
     fake_key = 'gh' + 'p_' + 'Q7' * 18  # built at run time, never stored key-shaped in this file; never printed
