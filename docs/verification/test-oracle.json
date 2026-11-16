@@ -1,5 +1,5 @@
 {
-  "revision": 38,
+  "revision": 39,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -12,6 +12,9 @@
     "docs/verification/acceptance-shell-failures.md": "d56e2b3b22eec4d986285de30cf37104c237496c94c4bf4f41b5d83d7836cec3",
     "docs/verification/public-contracts.md": "43918f2fdedcb39cc617434f2d07a0895a77c8195fbf9b197b0313a5292fa632",
     "src/Boo.Core/Contracts.cs": "035ec5798f7b09b89068cab1b42b0667a484a42eb2d28fa14852b12b3a850caf",
+    "tests/Boo.App.Tests/Boo.App.Tests.csproj": "2d02836ba629be81d4641af63616f5bedf310e6c57dc029d7df3a76bd1fe7693",
+    "tests/Boo.App.Tests/RenderAcknowledgmentTests.cs": "79b6af2ac9fbe64e1f728d69a7f8cf0d85364ce4222b342fdde75737074a8bc1",
+    "tests/Boo.App.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "50c7561b8c6ce94f879102b86c461ec200b4c53a0d8f3e792000213fb279f591",
     "tests/Boo.Architecture.Tests/Boo.Architecture.Tests.csproj": "8587ecb45245fa2141bed6746514e6097653c2751ffcd1a878b06ff2b5665029",
     "tests/Boo.Architecture.Tests/CecilScan.cs": "39cc420a5770f94d4a9a13a300e8b3edd95f803508295b54ddf2cd07482e29e3",
@@ -174,18 +177,15 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-37.json",
-  "previousManifestSha256": "7afb88d3b7604c6d4bb1f4abb279e1783e14928ec5ad155c9a330ef6384f9e33",
-  "revisionReason": "PR #161 re-applied on lane/face 11086e4 (after PR #158 took revision 36/37): freezes BlankScan.cs, BlankScanTests.cs, PaintedProbeTests.cs and FirstPaintWaitDemoTests.cs (first-paint wait: red path, delayed control, executed bypass control, kept probe images) and accepts the BooAppFixture.cs change (WaitForPanel requires the app's ContentRendered ItemStatus 'rendered' acknowledgment via HasRendered, then WaitForPainted's IsPainted gate; RenderWindow/PrintWindowBitmap shared with CaptureBooWindows). Replaces this branch's earlier revisions 36-42 (reasons in the PR #161 body and git history); no test weakened or skipped.",
+  "previousManifest": "docs/verification/test-oracle-history/revision-38.json",
+  "previousManifestSha256": "95afa67f3d3710a16283464907df1ae8ddc8d53b23a815c1a250ca65685a05e3",
+  "revisionReason": "PR #161 review answer P2: tests/Boo.App.Tests drives the real MainWindow in-process and asserts the UI Automation 'rendered' marker is absent after construction and at Loaded and present once ContentRendered fires, so an early acknowledgment (mutants M3/M4) is caught",
   "addedFiles": [
-    "tests/Boo.Demo.Tests/BlankScan.cs",
-    "tests/Boo.Demo.Tests/BlankScanTests.cs",
-    "tests/Boo.Demo.Tests/FirstPaintWaitDemoTests.cs",
-    "tests/Boo.Demo.Tests/PaintedProbeTests.cs"
+    "tests/Boo.App.Tests/Boo.App.Tests.csproj",
+    "tests/Boo.App.Tests/RenderAcknowledgmentTests.cs",
+    "tests/Boo.App.Tests/xunit.runner.json"
   ],
-  "revisionCommit": "01121641d342278f81e2d141566321f70631c95d",
-  "changedFiles": [
-    "tests/Boo.Demo.Tests/BooAppFixture.cs"
-  ],
+  "revisionCommit": "aa5b75f599634004b32da1ed7ea48e2df47ee21a",
+  "changedFiles": [],
   "removedFiles": []
 }
