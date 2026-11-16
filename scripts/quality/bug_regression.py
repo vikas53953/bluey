@@ -37,6 +37,7 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
+import xml.parsers.expat
 import zipfile
 from xml.etree import ElementTree
 
@@ -186,11 +187,66 @@ def failed_in_log(log, method):
     return False
 
 
+BAD_RUN_COUNTERS = ('error', 'timeout', 'aborted', 'passedButRunAborted', 'notRunnable', 'disconnected',
+                    'inProgress', 'pending')
+
+
+def refuse_dtd(data):
+    """Raise ValueError when the XML has a DOCTYPE or an entity declaration anywhere, in any encoding expat reads
+    (UTF-8, UTF-16 with BOM or declaration, ...): the parser itself reports it, so padding or re-encoding cannot hide
+    it. A TRX file never needs one."""
+    def refuse(*_):
+        raise ValueError('a TRX file with a DOCTYPE or entity declaration is refused')
+    parser = xml.parsers.expat.ParserCreate()
+    parser.StartDoctypeDeclHandler = refuse
+    parser.EntityDeclHandler = refuse
+    try:
+        parser.Parse(data, True)
+    except xml.parsers.expat.ExpatError as error:
+        raise ValueError(f'unreadable TRX file ({error})') from None
+
+
+def run_problems(root, results):
+    """Why this TRX file is not one complete, clean run ([] when it is): exactly one ResultSummary with outcome
+    Completed (or Failed: a run where tests failed, which is how a red proof looks), exactly one Counters block, no
+    aborted / error / timeout / not-runnable / disconnected / in-progress / pending count, and counters that match
+    the result rows (total, executed, passed, failed, notExecuted). A partial or aborted run proves nothing."""
+    summaries = list(root.iter(TRX_NS + 'ResultSummary'))
+    if len(summaries) != 1:
+        return [f'{len(summaries)} run summaries (expected exactly 1)']
+    problems = []
+    outcome = summaries[0].get('outcome') or ''
+    if outcome not in ('Completed', 'Failed'):
+        problems.append(f'run outcome {outcome or "missing"} (expected Completed, or Failed for a red run)')
+    counters = list(summaries[0].iter(TRX_NS + 'Counters'))
+    if len(counters) != 1:
+        return problems + [f'{len(counters)} counter blocks (expected exactly 1)']
+
+    def num(name):
+        try:
+            return int(counters[0].get(name, '0') or '0')
+        except ValueError:
+            return -1
+    for name in BAD_RUN_COUNTERS:
+        if num(name) != 0:
+            problems.append(f'{name}={counters[0].get(name)} (expected 0)')
+    outcomes = [o for _, _, o in results]
+    want = {'total': len(outcomes), 'executed': sum(o != 'NotExecuted' for o in outcomes),
+            'passed': outcomes.count('Passed'), 'failed': outcomes.count('Failed'),
+            'notExecuted': outcomes.count('NotExecuted')}
+    for name, value in want.items():
+        if num(name) != value:
+            problems.append(f'{name}={counters[0].get(name, "missing")} but the file has {value} such result rows')
+    if any(o not in ('Passed', 'Failed', 'NotExecuted') for o in outcomes):
+        problems.append('a result row with another outcome (' + ', '.join(sorted(set(outcomes))) + ')')
+    return problems
+
+
 def parse_trx(data):
     """[(class name, method name, outcome)] for every result in one TRX file, joined to its test definition by test id.
-    Raises ValueError when the file is not a readable TRX (or carries a DOCTYPE: a TRX file never needs one)."""
-    if b'<!DOCTYPE' in data[:4096].upper():
-        raise ValueError('a TRX file with a DOCTYPE is refused')
+    Raises ValueError when the file is not a readable TRX, carries a DOCTYPE or entity declaration (anywhere, any
+    encoding), or is not one complete, clean run (run_problems)."""
+    refuse_dtd(data)
     try:
         root = ElementTree.fromstring(data)
     except ElementTree.ParseError as error:
@@ -204,6 +260,9 @@ def parse_trx(data):
     for result in root.iter(TRX_NS + 'UnitTestResult'):
         class_name, method = methods.get(result.get('testId'), ('', ''))
         out.append((class_name, method, result.get('outcome') or ''))
+    problems = run_problems(root, out)
+    if problems:
+        raise ValueError('the TRX file is not one complete, clean run: ' + '; '.join(problems[:4]))
     return out
 
 
