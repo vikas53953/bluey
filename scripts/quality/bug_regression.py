@@ -572,7 +572,8 @@ class _FakeGitHub:
         """[(class name, method, outcome)] from the TRX files of the run's artifacts; ApiError when unreadable."""
         if self.broken or self.results.get(str(run_id)) == 'unreadable':
             raise ApiError('test results: GitHub answered 404')
-        return self.results.get(str(run_id), [])
+        found = self.results.get(str(run_id), [])
+        return parse_trx(found) if isinstance(found, bytes) else found
 
     def get(self, path):
         if self.broken or path not in self.data:
@@ -772,17 +773,59 @@ def self_test(out=print):
         return False
 
     try:
-        trx = ('<?xml version="1.0" encoding="utf-8"?><TestRun xmlns="http://microsoft.com/schemas/VisualStudio/'
-               'TeamTest/2010"><Results><UnitTestResult testId="t1" testName="A.B.M(x: 1)" outcome="Passed" />'
-               '<UnitTestResult testId="t2" testName="A.B.N" outcome="NotExecuted" /></Results><TestDefinitions>'
-               '<UnitTest id="t1" name="A.B.M(x: 1)"><TestMethod className="A.B" name="M" /></UnitTest>'
-               '<UnitTest id="t2" name="A.B.N"><TestMethod className="A.B" name="N" /></UnitTest>'
-               '</TestDefinitions></TestRun>')
+        def run_trx(results, outcome='Completed', counters=None):
+            """A planted TRX file: results = [(class, method, outcome)], with its run summary."""
+            body = ''.join(f'<UnitTestResult testId="t{i}" testName="{c}.{m}" outcome="{o}" />'
+                           for i, (c, m, o) in enumerate(results))
+            defs = ''.join(f'<UnitTest id="t{i}" name="{c}.{m}"><TestMethod className="{c}" name="{m}" /></UnitTest>'
+                           for i, (c, m, o) in enumerate(results))
+            count = {'total': len(results), 'executed': sum(o != 'NotExecuted' for _, _, o in results),
+                     'passed': sum(o == 'Passed' for _, _, o in results),
+                     'failed': sum(o == 'Failed' for _, _, o in results), 'error': 0, 'timeout': 0, 'aborted': 0,
+                     'inconclusive': 0, 'passedButRunAborted': 0, 'notRunnable': 0,
+                     'notExecuted': sum(o == 'NotExecuted' for _, _, o in results), 'disconnected': 0}
+            count.update(counters or {})
+            summary = ('' if outcome is None else f'<ResultSummary outcome="{outcome}"><Counters '
+                       + ' '.join(f'{k}="{v}"' for k, v in count.items()) + ' /></ResultSummary>')
+            return ('<?xml version="1.0" encoding="utf-8"?><TestRun xmlns="http://microsoft.com/schemas/VisualStudio/'
+                    f'TeamTest/2010"><Results>{body}</Results><TestDefinitions>{defs}</TestDefinitions>{summary}'
+                    '</TestRun>')
+
+        trx = run_trx([('A.B', 'M', 'Passed'), ('A.B', 'N', 'NotExecuted')])
         parsed = sorted(parse_trx(trx.encode('utf-8')))
         doctype = '<!DOCTYPE x [<!ENTITY a "b">]>' + trx.split('?>', 1)[1]
         expect('a TRX file gives (class, method, outcome) per result, joined by test id',
                parsed == [('A.B', 'M', 'Passed'), ('A.B', 'N', 'NotExecuted')])
         expect('a TRX file with a DOCTYPE is refused', _raises(lambda: parse_trx(doctype.encode('utf-8'))))
+        # Review BLOCK b8d824e: only a complete, clean run counts; a DTD is refused anywhere, in any encoding.
+        green = [(fqn, method, 'Passed'), (fqn, 'Other_test', 'Passed')]
+        expect('an aborted run (outcome Aborted, passedButRunAborted=1) is refused',
+               _raises(lambda: parse_trx(run_trx(green, 'Aborted', {'passedButRunAborted': 1}).encode('utf-8'))))
+        expect('a TRX file with no run summary is refused',
+               _raises(lambda: parse_trx(run_trx(green, None).encode('utf-8'))))
+        expect('a run summary with an error counter is refused',
+               _raises(lambda: parse_trx(run_trx(green, 'Completed', {'error': 1}).encode('utf-8'))))
+        expect('counters that do not match the result rows are refused',
+               _raises(lambda: parse_trx(run_trx(green, 'Completed', {'total': 5, 'executed': 5,
+                                                                      'passed': 5}).encode('utf-8'))))
+        expect('a DOCTYPE after 4096 bytes of padding is refused',
+               _raises(lambda: parse_trx(trx.replace('?>', '?>' + ' ' * 5000 + '<!DOCTYPE TestRun>', 1)
+                                         .encode('utf-8'))))
+        expect('a UTF-16 TRX file with a DOCTYPE is refused',
+               _raises(lambda: parse_trx(trx.replace('encoding="utf-8"?>', 'encoding="utf-16"?><!DOCTYPE TestRun>', 1)
+                                         .encode('utf-16'))))
+        expect('a clean UTF-16 TRX file is read (control)',
+               sorted(parse_trx(trx.replace('encoding="utf-8"', 'encoding="utf-16"').encode('utf-16'))) == parsed)
+        expect('a failed run (outcome Failed, consistent counters) is read: red proofs come from such runs',
+               parse_trx(run_trx([(fqn, method, 'Failed')], 'Failed').encode('utf-8')) == [(fqn, method, 'Failed')])
+        expect('full check: an aborted green run with the named test Passed fails closed',
+               fails(judge(body(), github=with_results(**{'20': run_trx(green, 'Aborted', {
+                   'passedButRunAborted': 1}).encode('utf-8')})), 'failing closed'))
+        expect('full check: a green run whose TRX has no run summary fails closed',
+               fails(judge(body(), github=with_results(**{'20': run_trx(green, None).encode('utf-8')})),
+                     'failing closed'))
+        expect('full check: a clean, complete green TRX passes (control)',
+               judge(body(), github=with_results(**{'20': run_trx(green).encode('utf-8')}))[0] == [])
         expect('the test class comes from the file: file-scoped and block namespaces',
                test_class(f'namespace A.B;\npublic class C {{ [Fact] public void {method}() {{ }} }}', method)
                == 'A.B.C'
