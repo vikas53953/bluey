@@ -23,7 +23,8 @@ Both of these in one PR:
    `tools/` file with no project on the base, is product code even if the PR makes its `.csproj` look like a test
    project or adds a new nested test project around it. Only a genuinely new tree (no project above it on the base,
    new files) is judged by the PR head alone. A file is also product when its project on the PR head is a product
-   project or it has none.
+   project or it has none. A folder with both a product and a test `.csproj` is product for this rule (a co-located
+   test project never exempts a product project), and its files are still watched as tests for weakening.
 2. **An existing test weakened**, any of:
    - an existing file under `tests/` or in a `tools/` test project is deleted, or has a line removed or changed;
    - fewer assertion-shaped calls in a changed file (`Assert.*`, `.Should*(`, `.Verify*(`, `Verify*(`, `Expect*(`,

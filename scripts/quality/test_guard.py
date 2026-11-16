@@ -105,20 +105,22 @@ def is_test_project(text):
 
 
 def project_kinds(sha, cwd):
-    """{folder/: True when a test project} for every .csproj folder under tools/ at one commit."""
+    """{folder/: set of 'test' and/or 'product'} for every .csproj folder under tools/ at one commit. The kinds stay
+    INDEPENDENT: a folder holding a product .csproj and a test .csproj is both (never collapsed into one flag), so a
+    co-located test project cannot hide a product project, and the folder's tests are still watched."""
     kinds = {}
     names = git(['ls-tree', '-r', '-z', '--name-only', sha, '--', 'tools'], cwd).decode('utf-8', 'replace')
     for name in filter(None, names.split('\0')):
         if name.lower().endswith('.csproj'):
             folder = name.rsplit('/', 1)[0] + '/'
-            kinds[folder] = kinds.get(folder, False) or is_test_project(show(sha, name, cwd) or '')
+            kinds.setdefault(folder, set()).add('test' if is_test_project(show(sha, name, cwd) or '') else 'product')
     return kinds
 
 
 def test_project_dirs(shas, cwd):
     """Folders under tools/ that hold a test project at ANY of the given commits: their existing files count as tests,
     so weakening them is caught even if the PR also turns the project into something else."""
-    return {folder for sha in shas for folder, is_test in project_kinds(sha, cwd).items() if is_test}
+    return {folder for sha in shas for folder, kinds in project_kinds(sha, cwd).items() if 'test' in kinds}
 
 
 def owner(path, kinds):
@@ -129,7 +131,8 @@ def owner(path, kinds):
 
 def is_product_path(path, existed, base_kinds, head_kinds):
     """Whether a changed path is product code. src/ and Directory.Build.* always are; tests/ never is. Under tools/ a
-    path is product when its owning project (the deepest .csproj folder above it) is a product project, or it has
+    path is product when its owning folder (the deepest .csproj folder above it) holds a product project (alone or
+    beside a test project: mixed ownership is product), or it has
     none, at the HEAD; and also when, at the BASE, its owning project is a product project, or it has none while the
     file already existed there. So a project that is product on the base, its subfolders and existing loose tools/
     files stay product code whatever the head adds or writes (a new nested test project relabels nothing); only a
@@ -139,10 +142,10 @@ def is_product_path(path, existed, base_kinds, head_kinds):
     if not path.startswith('tools/'):
         return path.startswith('src/') or path.rsplit('/', 1)[-1].startswith('Directory.Build.')
     head_owner = owner(path, head_kinds)
-    product_head = head_owner is None or not head_kinds[head_owner]
+    product_head = head_owner is None or 'product' in head_kinds[head_owner]     # mixed ownership counts as product
     base_owner = owner(path, base_kinds)
     if base_owner is not None:
-        product_base = not base_kinds[base_owner]
+        product_base = 'product' in base_kinds[base_owner]
     else:
         product_base = existed or product_head
     return product_base or product_head
