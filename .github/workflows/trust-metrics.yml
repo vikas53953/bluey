@@ -1,13 +1,18 @@
 name: trust-metrics
 
 # Agent-trust plan PR 1.12 (docs/plans/agent-trust-plan.md section 4.3): the weekly trust-metrics table from git and
-# GitHub PR / Actions history. Read-only, GitHub-hosted, not a required check (it never runs on a push or a PR).
+# GitHub PR / Actions history. Read-only, GitHub-hosted, not a required check. It runs on a PR only when this file
+# changes: that run is what makes GitHub register the workflow, so main's scheduler.yml can dispatch it (a workflow that
+# has never run answers HTTP 404 to a dispatch).
 # Weekly: the last full ISO week (Monday 00:00 UTC to Monday 00:00 UTC). Manual: pass since/until, or leave them
 # empty for the same last full week. The table and the raw snapshot are uploaded for 7 days.
 # The workflow token cannot read branch protection, so rows that need the required-check list say UNVERIFIED here;
 # a run with the owner's own gh login (docs/quality/trust-metrics.md) fills them.
 
 on:
+  pull_request:
+    paths:
+      - .github/workflows/trust-metrics.yml
   schedule:
     - cron: '17 6 * * 1'
   workflow_dispatch:
