@@ -32,9 +32,9 @@ public partial class MainWindow
             StopFocusMonitoring();
             SaveFocusSnapshot();
             UpdateFocusView();
-            FocusStatus.Text = e.Reason == FocusEndReason.Completed
+            ShowFocusStatusWhenSaved(e.Reason == FocusEndReason.Completed
                 ? "Session complete. Nice work. It is saved in your history."
-                : "Ended. Start a new session explicitly.";
+                : "Ended. Start a new session explicitly.");
             _chirps.PlaySessionEnd(_settings.ChirpsEnabled, _listening);
         }
         finally
@@ -96,8 +96,8 @@ public partial class MainWindow
             _focusCaptureTimer.Start();
             SaveFocusSnapshot();
             UpdateFocusView();
-            FocusStatus.Text = "Running; monitoring pauses on Stop, lock, sleep, or Pause.";
             SetFace(_faceInputs with { FocusPaused = false, Happy = false });
+            ShowFocusStatusWhenSaved("Running; monitoring pauses on Stop, lock, sleep, or Pause.");
         }
         catch (Exception ex)
         {
@@ -119,8 +119,8 @@ public partial class MainWindow
             StopFocusMonitoring();
             SaveFocusSnapshot();
             UpdateFocusView();
-            FocusStatus.Text = "Paused. Resume is explicit; unlock/reconnect will not resume it.";
             SetFace(WithFocusFace(_faceInputs));
+            ShowFocusStatusWhenSaved("Paused. Resume is explicit; unlock/reconnect will not resume it.");
         }
         catch (Exception ex)
         {

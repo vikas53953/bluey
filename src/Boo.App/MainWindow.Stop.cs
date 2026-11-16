@@ -60,7 +60,7 @@ public partial class MainWindow
             StopFocusMonitoring();
             SaveFocusSnapshot();
             _focusTimer.Stop();
-            FocusStatus.Text = "Paused by Stop; Resume is explicit.";
+            ShowFocusStatusWhenSaved("Paused by Stop; Resume is explicit.");
         }
         if (BusyStatus.AfterStop(StatusText.Text, StoppedStatusMessage) is { } stopped)
         {
