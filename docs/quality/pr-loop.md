@@ -120,18 +120,35 @@ runs, nothing to keep in a cache, nothing another account can forge.
   merged PRs, workflow runs) stops the run before any action: exit 1, `::error::` with the reason. An error while
   acting stops the run there, exit 1. 200 or more open PRs: refused (the list could be cut short).
 
-## Log safety (no header or token in any output)
+## Log safety (no header, token or key in any output)
 
-`gh` prints request headers, including `Authorization`, when a debug or verbose switch is on. So the script is built
-so that it cannot pass one on: the environment it hands to `gh` drops `GH_DEBUG`, every `GIT_TRACE*`,
-`GIT_CURL_VERBOSE`, `GH_VERBOSE` and `DEBUG` even when the parent sets them; a `--verbose` / `--debug` flag on a `gh`
-call is refused before `gh` runs; `gh`'s error text is redacted line by line (any line mentioning authorization,
-bearer, token, password, secret, cookie or api key, or holding key-shaped text, is dropped and counted) before it
-reaches any output; the script never prints the environment. Each job captures the loop's whole output (`tee` into
-`pr-loop-log/`, with `pipefail`) and its last step, even after a failure, runs `scripts/quality/key_scan.py
---secret-env GH_TOKEN pr-loop-log`: a key-shaped line or the exact job token in the log fails the job. Nothing is
-uploaded. The self-test plants a `gh` failure whose stderr carries an `Authorization: token ...` header (the fake
-token is built at run time) and checks the output never shows it.
+**One redaction, one choke point.** Everything the script writes goes through `safe()`: stdout and stderr (only via
+`emit()`), every line `run()` hands to any output function, the marker comment payloads it sends to GitHub, exception
+text, and the dry-run plan. There is no queue file. `safe()` is driven by:
+1. **the same key shapes as the repository key scan**: the `SHAPES` list is loaded from
+   `scripts/quality/key_scan.py` itself (no second list to drift); each match becomes `[redacted]`;
+2. **sensitive labels**, any case, with spaces, hyphens or underscores (`API key`, `api-key`, `API_KEY`,
+   `Authorization`, `Bearer`, `token`, `secret`, `password`, `cookie`, `Set-Cookie`, `private key`, `access key`)
+   followed by `:`, `=` or a space: the label stays, the rest of that line is replaced by `[redacted]`.
+
+If the patterns cannot be loaded, `safe()` withholds the text entirely (fail closed). Because a label removes the
+rest of its line, the script writes its own words first and GitHub-reported text (check names, status contexts,
+comment authors) last, for example `failed on the head (failure): build API key: [redacted]`: the context survives.
+At startup `sys.stdout` and `sys.stderr` are wrapped so even a stray write is redacted (defence in depth). A self-test
+scans the script's own syntax tree: no `print`, `write` or `sys.stdout`/`sys.stderr` outside `emit()` and the wrapper.
+
+Kept from before: the environment handed to `gh` drops `GH_DEBUG`, every `GIT_TRACE*`, `GIT_CURL_VERBOSE`,
+`GH_VERBOSE` and `DEBUG`; a `--verbose` / `--debug` flag on a `gh` call is refused before `gh` runs; `gh`'s error
+text is first filtered line by line; the environment is never printed. Each job still tees the loop's output into
+`pr-loop-log/` and, as its last step, runs `scripts/quality/key_scan.py --secret-env GH_TOKEN pr-loop-log`. That scan
+is a **detection backstop only**: by then the text has already been streamed to the job log, so the redaction above is
+what keeps it out.
+
+Tested end to end with the fake client: every shape key_scan knows (built at run time, never stored key-shaped) plus
+labelled values, through every output path (gh error text, check name, status context/description, a comment read
+back, the marker comment payload, an exception message, the dry-run plan), asserting none reaches captured
+stdout/stderr or comment payloads and that the non-sensitive context still appears. Each layer is also tested on its
+own, so none can be dropped because another still covers it.
 
 ## How it is started
 

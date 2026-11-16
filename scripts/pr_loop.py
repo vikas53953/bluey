@@ -33,6 +33,7 @@ Never: PR #3 (lane/face -> main) is skipped before any read and refused again by
 installer or signing; no merge without the stamp; no branch push; never prints a token. Any API error while reading
 fails the whole run closed (no action at all, exit 1). Stdlib only, safe under `python -I`.
 """
+import importlib.util
 import json
 import os
 import re
@@ -78,10 +79,93 @@ class ApiError(Exception):
 QUIET_ENV_DROP = ('GH_DEBUG', 'GIT_CURL_VERBOSE', 'DEBUG', 'GH_VERBOSE')
 REFUSED_FLAGS = ('--verbose', '--debug')
 SENSITIVE_LINE = re.compile(
-    r'(?i)authori[sz]ation|bearer|token|password|secret|cookie|api[-_]?key|'
+    r'(?i)authori[sz]ation|bearer|token|password|secret|cookie|api[\s_-]*key|private[\s_-]*key|access[\s_-]*key|'
     r'(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}|sk-[A-Za-z0-9_-]{12,}|'
     r'AIza[0-9A-Za-z_-]{16,}|A[KS]IA[0-9A-Z]{12,}|xox[abeoprs]-|-----BEGIN[A-Z ]*PRIVATE KEY|'
     r'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|hf_[A-Za-z0-9]{16,}|tskey-')
+
+
+# ONE redaction for ALL output (stdout, stderr, marker comment payloads, exception text, dry-run plans). Two kinds:
+#  1. every key shape that scripts/quality/key_scan.py knows (its SHAPES list, loaded from that file: one list, no
+#     fork), replaced wherever it appears;
+#  2. a sensitive label (API key / api-key / API_KEY, Authorization, Bearer, token, secret, password, cookie,
+#     Set-Cookie, private key, access key; any case, spaces/hyphens/underscores) followed by `:` / `=` / a space:
+#     the rest of that line is the value and is replaced, the label stays as context.
+# The script writes output ONLY through emit() (and the comment payloads through safe()); the startup wrapper around
+# sys.stdout/sys.stderr redacts again (defence in depth). The workflow's final key scan of the captured log is a
+# detection backstop only: the text has already been streamed by then.
+REDACTED = '[redacted]'
+SENSITIVE_LABEL = re.compile(
+    r'(?im)\b(api[\s_-]*key|authori[sz]ation|bearer|token|secret|password|passwd|set[\s_-]*cookie|cookie|'
+    r'private[\s_-]*key|access[\s_-]*key)\b(\s*[:=]\s*|\s+)(?=\S)[^\n]*')
+_SHAPES = []
+
+
+def _key_scan_shapes():
+    """[(label, compiled pattern)] from scripts/quality/key_scan.py itself. Raises if it cannot be loaded."""
+    if not _SHAPES:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'quality', 'key_scan.py')
+        spec = importlib.util.spec_from_file_location('_boo_key_scan_shapes', path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _SHAPES.extend((label, re.compile(rx.decode('ascii'))) for label, rx in module.SHAPES)
+    return list(_SHAPES)
+
+
+def safe(text):
+    """The redaction choke point. Fails closed: if the patterns cannot be loaded, nothing of the text is shown."""
+    text = str(text)
+    try:
+        shapes = _key_scan_shapes()
+    except Exception:  # noqa: BLE001 - any trouble loading the patterns withholds the text
+        return '[output withheld: the key-scan patterns could not be loaded]'
+    for _, rx in shapes:
+        text = rx.sub(REDACTED, text)
+    return SENSITIVE_LABEL.sub(lambda m: f'{m.group(1)}{m.group(2)}{REDACTED}', text)
+
+
+def emit(text='', err=False):
+    """The only place the script writes to stdout or stderr: always redacted."""
+    stream = sys.stderr if err else sys.stdout
+    stream.write(safe(text) + '\n')
+
+
+class RedactingStream:
+    """Wraps sys.stdout / sys.stderr at startup so even a stray write is redacted (defence in depth)."""
+
+    def __init__(self, stream):
+        self.stream = stream
+
+    def write(self, text):
+        return self.stream.write(safe(text))
+
+    def feed(self, text):
+        return self.write(text)
+
+    def flush(self):
+        return self.stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
+class _ListSink:
+    """A stand-in stream for the self-test."""
+
+    def __init__(self):
+        self.text = ''
+
+    def write(self, text):
+        self.text += text
+        return len(text)
+
+    def flush(self):
+        return None
+
+
+def _install_redacting_streams():
+    sys.stdout = RedactingStream(sys.stdout)
+    sys.stderr = RedactingStream(sys.stderr)
 
 
 def gh_env(parent=None):
@@ -380,6 +464,13 @@ def _veto(comments, stamp_comment, bot_login=BOT_LOGIN):
     return None
 
 
+def _listing(items):
+    """`(failure, cancelled): name1, name2`. Our own words (the states) come first and the names GitHub reported
+    (untrusted text) last, so a redaction that removes the rest of a line never removes the context."""
+    states = sorted({str(state) for state, _ in items})
+    return f'({", ".join(states)}): ' + ', '.join(sorted(str(name) for _, name in items))
+
+
 def _ci(entry):
     """(red, pending): lists of plain reasons for the head's check runs and commit statuses."""
     red, pending, reported = [], [], set()
@@ -390,18 +481,18 @@ def _ci(entry):
         name = run_.get('name')
         reported.add(name)
         if run_.get('status') != 'completed':
-            pending.append(f'{name} {run_.get("status")}')
+            pending.append((str(run_.get('status')), name))
         elif run_.get('conclusion') not in OK_CONCLUSIONS:
-            red.append(f'{name} {run_.get("conclusion")}')
+            red.append((str(run_.get('conclusion')), name))
     for context, status in _latest_by_context(entry['statuses']).items():
         if context == STAMP_CONTEXT:
             continue
         reported.add(context)
         if status.get('state') == 'pending':
-            pending.append(f'{context} pending')
+            pending.append(('pending', context))
         elif status.get('state') != 'success':
-            red.append(f'{context} {status.get("state")}')
-    pending += [f'{name} not reported yet' for name in REQUIRED_CHECKS if name not in reported]
+            red.append((str(status.get('state')), context))
+    pending += [('not reported yet', name) for name in REQUIRED_CHECKS if name not in reported]
     return red, pending
 
 
@@ -423,9 +514,9 @@ def classify(entry, base):
                            f'status {stamp_status.get("id")})'), 'lane'
     red, pending = _ci(entry)
     if red:
-        return 'ci-red', 'failed on the head: ' + ', '.join(sorted(red)), 'lane'
+        return 'ci-red', 'failed on the head ' + _listing(red), 'lane'
     if pending:
-        return 'waiting-QA', 'checks not finished on the head: ' + ', '.join(sorted(pending)), 'qa'
+        return 'waiting-QA', 'checks not finished on the head ' + _listing(pending), 'qa'
     trusted = [_body(c) for c in _trusted(entry['comments'])]
     if not any((m := QA_PASS.match(t)) and m.group(1) == head for t in trusted):
         return 'waiting-QA', f'checks green; no QA PASS comment names {head}', 'qa'
@@ -496,7 +587,7 @@ def plan(snap, base, bot_login):
     return entries
 
 
-def execute(entries, client, apply, out=print, base=BASE):
+def execute(entries, client, apply, out=emit, base=BASE):
     """Take the planned actions (only with apply). PR #3 is refused here again even if a plan names it.
     Every arm is preceded by a fresh preflight; at most ONE arm per run, because an arm can move the base on and
     every later plan was read against the old base (the next run re-reads everything)."""
@@ -532,9 +623,9 @@ def execute(entries, client, apply, out=print, base=BASE):
                 armed += 1
                 client.arm(entry['number'], entry['head'])
             elif action == 'create-comment':
-                client.create_comment(entry['number'], entry['body'])
+                client.create_comment(entry['number'], safe(entry['body']))
             elif action == 'edit-comment':
-                client.edit_comment(entry['comment_id'], entry['body'])
+                client.edit_comment(entry['comment_id'], safe(entry['body']))
             else:
                 raise ApiError(f'unknown action {action}')
         except ApiError as error:
@@ -544,7 +635,7 @@ def execute(entries, client, apply, out=print, base=BASE):
     return done
 
 
-def execute_tip(tip, client, apply, base, out=print):
+def execute_tip(tip, client, apply, base, out=emit):
     """Dispatch the missing tip workflows on the base, after a fresh check that the tip has not moved and still
     has no run of that workflow. Read errors raise ApiError (fail closed)."""
     done = 0
@@ -566,8 +657,12 @@ def execute_tip(tip, client, apply, base, out=print):
     return done
 
 
-def run(client, apply, base=BASE, bot_login=BOT_LOGIN, out=print):
+def run(client, apply, base=BASE, bot_login=BOT_LOGIN, out=emit):
     """Snapshot, plan, print, then (only with apply) act. Returns the exit code; 1 = failed closed."""
+    raw_out = out
+
+    def out(text):
+        raw_out(safe(text))
     try:
         snap = snapshot(client, base, bot_login)
         entries = plan(snap, base, bot_login)
@@ -730,7 +825,7 @@ def self_test():
 
     def check(name, cond):
         results.append((name, bool(cond)))
-        print(('PASS  ' if cond else 'FAIL  ') + name)
+        emit(('PASS  ' if cond else 'FAIL  ') + name)
 
     def go(client, apply=False):
         lines = []
@@ -1218,10 +1313,24 @@ def self_test():
         check(f'redaction end to end: none of {len(secrets)} simulated secrets reaches the output via {path}; '
               'the non-sensitive context stays', len(oks) == len(secrets) and all(oks))
 
+    # Each layer on its own (so no layer can be dropped because another one still covers it).
+    spaced = f'API key: {labelled["API key: "]}'
+    check('redaction layer: the gh stderr line filter drops a spaced "API key:" line on its own',
+          labelled['API key: '] not in redact(f'gh: failed\n{spaced}\n') and 'gh: failed' in redact('gh: failed'))
+    code, text = captured(lambda: emit(f'ctx {spaced} / {shapes["GitHub token"]}'))
+    check('redaction layer: emit() redacts on its own', labelled['API key: '] not in text
+          and shapes['GitHub token'] not in text and 'ctx' in text)
+    lines = []
+    c = _world(k=lambda d: d['checks'][head].append({'id': 10 ** 8, 'name': f'build {spaced}', 'status': 'completed',
+                                                    'conclusion': 'failure'}))
+    run(c, apply=False, out=lines.append)
+    check('redaction layer: run() redacts every line before handing it to any output function',
+          not leaks(lines, labelled['API key: ']) and any('build' in line for line in lines))
+
     try:
         sink = _ListSink()
         stream = RedactingStream(sink)
-        stream.write(f'note {shapes["GitHub token"]} and API key: {labelled["API key: "]}\n')
+        stream.feed(f'note {shapes["GitHub token"]} and API key: {labelled["API key: "]}\n')
         check('redaction: the stdout/stderr wrapper installed at startup redacts too (defence in depth)',
               shapes['GitHub token'] not in sink.text and labelled['API key: '] not in sink.text
               and 'note' in sink.text)
@@ -1331,7 +1440,7 @@ def self_test():
     check('API error while arming: exit 1 with a clear message', code == 1 and 'arm' in text)
 
     failed = [n for n, ok in results if not ok]
-    print(f'\n{len(results) - len(failed)}/{len(results)} self-test cases passed')
+    emit(f'\n{len(results) - len(failed)}/{len(results)} self-test cases passed')
     return 1 if failed else 0
 
 
@@ -1350,17 +1459,18 @@ def main(argv, client_factory=GhClient):
         elif arg in opts and args:
             opts[arg] = args.pop(0)
         else:
-            print(__doc__)
+            emit(__doc__)
             return 2
     if opts['--base'] not in ALLOWED_BASES:
-        print(f'::error::{RULE} --base must be one of {", ".join(ALLOWED_BASES)} (got {opts["--base"]})')
+        emit(f'::error::{RULE} --base must be one of {", ".join(ALLOWED_BASES)} (got {opts["--base"]})')
         return 2
     try:
         return run(client_factory(opts['--repo']), apply=apply, base=opts['--base'], bot_login=opts['--bot-login'])
     except ApiError as error:
-        print(f'::error::{RULE} fail closed, no action taken: {error}')
+        emit(f'::error::{RULE} fail closed, no action taken: {error}')
         return 1
 
 
 if __name__ == '__main__':
+    _install_redacting_streams()
     sys.exit(main(sys.argv[1:]))
