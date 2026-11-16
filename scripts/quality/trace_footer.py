@@ -145,8 +145,8 @@ def lines(rendered_html):
     return parser.lines
 
 
-def check(rendered_html):
-    """Problems (plain-words strings) with the rendered PR body; empty means it passes."""
+def check(rendered_html, body=None):
+    """Problems (plain-words strings) with the rendered PR body and, when given, its raw text; empty means it passes."""
     visible = [ln for ln in lines(rendered_html) if not (ln['code'] and 'pre' in ln['blocks'])]
     footers = [ln for ln in visible if ln['text'].startswith('Agent:') and not ln['code']]
     if not footers:
@@ -234,7 +234,15 @@ def self_test():
     expect('an inline-code footer example in a list before the real footer passes',
            check('<ul dir="auto">\n<li><code class="notranslate">Agent: a | Thread: b | Model: c/d</code></li>\n</ul>\n'
                  + _p(EXAMPLE)) == [])
-    expect('an HTML comment after the footer (invisible) passes', check(good + '<!-- note -->\n') == [])
+    raw = 'Intro text.\n\n' + EXAMPLE + '\n'
+    expect('a valid footer with its raw body passes', check(good, raw) == [] and check(good, raw + '\n  \n') == [])
+    expect('a code block after the footer fails',
+           check(good + '<pre class="notranslate"><code class="notranslate">hidden\n</code></pre>\n') != [])
+    expect('an HTML comment after the footer fails (raw last line)', check(good + '\n', raw + '\n<!-- note -->\n') != [])
+    expect('an image after the footer fails', check(good + _p('<img src="x.png" alt="">')) != [])
+    expect('a rule after the footer fails', check(good + '<hr>\n', raw + '\n---\n') != [])
+    expect('a raw last line that differs from the rendered footer fails',
+           check(good, 'Intro text.\n\n**' + EXAMPLE + '**\n') != [])
     expect('a missing footer fails', check(_p('Intro text.')) != [])
     expect('an empty body fails', check('') != [] and check(None) != [])
     expect('an unclosed code fence hiding the footer fails',
@@ -320,7 +328,13 @@ RENDER_CASES = (
      True),
     ('a code-block example before the real footer',
      'Intro.\n\n```\nAgent: <lane name> | Thread: <T3 thread link> | Model: <model/effort>\n```\n\n' + F + '\n', True),
-    ('a trailing HTML comment after the footer', 'Intro.\n\n' + F + '\n\n<!-- note -->\n', True),
+    ('a trailing HTML comment after the footer', 'Intro.\n\n' + F + '\n\n<!-- note -->\n', False),
+    ('a code block after the footer', 'Intro.\n\n' + F + '\n\n```\nhidden\n```\n', False),
+    ('an indented code block after the footer', 'Intro.\n\n' + F + '\n\n    hidden\n', False),
+    ('an image after the footer', 'Intro.\n\n' + F + '\n\n![](https://example.com/x.png)\n', False),
+    ('a rule after the footer', 'Intro.\n\n' + F + '\n\n---\n', False),
+    ('the PR template left unfilled', 'Intro.\n\nAgent: <lane name> | Thread: <T3 thread link or https URL> | '
+     'Model: <model>/<effort>\n', False),
     ('no footer', 'Intro.\n', False),
     ('an unclosed code fence', 'Intro.\n\n```\n' + F + '\n', False),
     ('an unclosed HTML comment', 'Intro.\n\n<!--\n' + F + '\n', False),
@@ -343,7 +357,7 @@ def render_test(repo, token):
     results = []
     for name, body, should_pass in RENDER_CASES:
         try:
-            problems = check(render(body, repo, token))
+            problems = check(render(body, repo, token), body)
             results.append((f'{name}: {"passes" if should_pass else "fails"}', (problems == []) == should_pass))
         except (OSError, RuntimeError, urllib.error.URLError) as error:
             results.append((f'{name}: GitHub could not render it ({type(error).__name__})', False))
@@ -360,7 +374,7 @@ def run_event(event_path, repo, out=print, renderer=None):
         rendered = (renderer or (lambda b, r: render(b, r, token)))(body, repo)
     except (OSError, RuntimeError, urllib.error.URLError) as error:
         return report([f'GitHub could not render the PR body ({type(error).__name__}); failing closed'], out)
-    return report(check(rendered), out)
+    return report(check(rendered, body), out)
 
 
 def main(argv):
@@ -380,7 +394,7 @@ def main(argv):
             rendered = render(body, repo, token)
         except (OSError, RuntimeError, urllib.error.URLError) as error:
             return report([f'GitHub could not render the body ({type(error).__name__}); failing closed'])
-        return report(check(rendered))
+        return report(check(rendered, body))
     if len(argv) == 2 and argv[0] == '--commit':
         return report(check_commit(pathlib.Path(argv[1]).read_text(encoding='utf-8')))
     print(__doc__)
