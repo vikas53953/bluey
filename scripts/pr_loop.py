@@ -96,10 +96,18 @@ class GhClient:
         return pages
 
     def repo_settings(self):
+        """allow_auto_merge: True / False, or None when this token may not see it (REST omits the field for a
+        read-only token). None never arms; the run says so."""
         data = self._json(['api', f'repos/{self.repo}'])
-        if not isinstance(data, dict) or 'allow_auto_merge' not in data:
-            raise ApiError('the repository reply has no allow_auto_merge field')
-        return {'allow_auto_merge': bool(data['allow_auto_merge'])}
+        if not isinstance(data, dict):
+            raise ApiError('the repository reply is not an object')
+        if isinstance(data.get('allow_auto_merge'), bool):
+            return {'allow_auto_merge': data['allow_auto_merge'], 'source': 'REST'}
+        owner, _, name = self.repo.partition('/')
+        query = 'query($o:String!,$n:String!){repository(owner:$o,name:$n){autoMergeAllowed}}'
+        reply = self._json(['api', 'graphql', '-f', f'query={query}', '-F', f'o={owner}', '-F', f'n={name}'])
+        value = (((reply or {}).get('data') or {}).get('repository') or {}).get('autoMergeAllowed')
+        return {'allow_auto_merge': value if isinstance(value, bool) else None, 'source': 'GraphQL'}
 
     def base_sha(self, base):
         data = self._json(['api', f'repos/{self.repo}/commits/{base.replace("/", "%2F")}', '--jq', '{sha: .sha}'])
@@ -275,6 +283,11 @@ def classify(entry, base):
     return 'stamped-ready', reason, 'auto-merge'
 
 
+def _setting(snap):
+    value = snap['repo']['allow_auto_merge']
+    return {True: 'on', False: 'off'}.get(value, 'unreadable with this token')
+
+
 def _ledger(entry, bot_login):
     """The bot's latest marker comment: (comment id, state, head) or None."""
     mine = [c for c in entry['comments']
@@ -301,8 +314,9 @@ def plan(snap, base, bot_login):
         judged = 'statuses' in item
         stamp_ok, stamp_reason = stamp(item) if judged else (False, detail)
         if state == 'stamped-ready':
-            if not snap['repo']['allow_auto_merge']:
-                entry['arm'] = 'no (the repository setting allow_auto_merge is off; the owner must turn it on)'
+            if snap['repo']['allow_auto_merge'] is not True:
+                entry['arm'] = ('no (the repository setting allow_auto_merge is '
+                                f'{_setting(snap)}; the loop never changes settings)')
                 entry['next'] = 'owner'
             elif pr.get('autoMergeRequest'):
                 entry['arm'] = 'no (auto-merge already armed: nothing to repeat)'
@@ -363,10 +377,11 @@ def run(client, apply, base=BASE, bot_login=BOT_LOGIN, out=print):
         out(f'::error::{RULE} fail closed while reading GitHub, no action taken: {error}')
         return 1
     out(f'{RULE} pr-loop: {len(entries)} open PR(s), base {base} at {snap["base_sha"]}, '
-        f'allow_auto_merge={str(snap["repo"]["allow_auto_merge"]).lower()}, mode={"APPLY" if apply else "DRY RUN"}')
-    if not snap['repo']['allow_auto_merge']:
-        out('::warning::the repository setting allow_auto_merge is off: the loop will never arm (it does not change '
-            'settings)')
+        f'allow_auto_merge={_setting(snap)} (read via {snap["repo"].get("source", "?")}), '
+        f'mode={"APPLY" if apply else "DRY RUN"}')
+    if snap['repo']['allow_auto_merge'] is not True:
+        out(f'::warning::the repository setting allow_auto_merge is {_setting(snap)}: the loop will never arm '
+            '(it does not change settings)')
     for e in entries:
         out(f'PR #{e["number"]} state={e["state"]} head={e["head"]} next={e["next"]}\n'
             f'    why:  {e["detail"]}\n    arm:  {e["arm"]}\n'
@@ -401,7 +416,7 @@ class FakeClient:
 
     def repo_settings(self):
         self._read('repo_settings')
-        return {'allow_auto_merge': self.allow}
+        return {'allow_auto_merge': self.allow, 'source': 'fixture'}
 
     def base_sha(self, base):
         self._read('base_sha')
@@ -578,6 +593,11 @@ def self_test():
           '(only the marker comment, naming the owner)',
           code == 0 and not arms(c) and 'allow_auto_merge' in text
           and [w[0] for w in c.writes] == ['create_comment'] and 'next=owner' in c.writes[0][2])
+
+    c = _world(a=lambda d: d.__setitem__('allow', None))
+    code, text = go(c, apply=True)
+    check('repository auto-merge setting unreadable with this token: never armed, reported',
+          code == 0 and not arms(c) and 'unreadable' in text)
 
     # PR #3 is never touched, even when it looks stamped-ready.
     c = _world(number=3, pr={'headRefName': 'lane/face', 'baseRefName': 'main'})
