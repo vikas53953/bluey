@@ -801,6 +801,7 @@ class FakeClient:
         found = [dict(p) for p in self.prs if p['number'] == number]
         if not found:
             raise ApiError(f'PR #{number} not found')
+        found[0].setdefault('state', 'OPEN')
         return found[0]
 
     def repo_settings(self):
@@ -829,11 +830,19 @@ class FakeClient:
 
     def check_runs(self, sha):
         self._read('check_runs', sha)
-        return list(self.checks_by_sha.get(sha, []))
+        runs = [dict(r) for r in self.checks_by_sha.get(sha, [])]
+        for r in runs:
+            r.setdefault('id', 0)
+            r.setdefault('completed_at', '2026-11-16T00:00:00Z' if r.get('status') == 'completed' else None)
+        return runs
 
     def statuses(self, sha):
         self._read('statuses', sha)
-        return list(self.statuses_by_sha.get(sha, []))
+        statuses = [dict(s) for s in self.statuses_by_sha.get(sha, [])]
+        for s in statuses:
+            s.setdefault('updated_at', s.get('created_at'))
+            s.setdefault('description', None)
+        return statuses
 
     def behind_by(self, base_sha, head_sha):
         self._read('behind_by', head_sha)
@@ -869,6 +878,15 @@ class FakeClient:
 
 def _sha(n):
     return f'{n:040x}'
+
+
+def _review_node(r):
+    if 'databaseId' in r:
+        return dict(r)
+    node = {'databaseId': r['id'], 'body': r['body'], 'submittedAt': r['submitted_at'], 'author': r['user']}
+    if 'last_edited_at' in r:
+        node['lastEditedAt'] = r['last_edited_at']
+    return node
 
 
 def _comment(body, author='OWNER', login='vikas53953', cid=1, created='2026-11-16T00:00:00Z'):
@@ -1640,6 +1658,174 @@ def self_test():
     code, text = go(c, apply=True)
     check('(c) the same-id BLOCK inline comment posted after the plan was read: the fresh preflight refuses',
           not arms(c))
+
+    import ast
+    # Review at 25f6a97, P2: strict validation at the API boundary, tested THROUGH the real GhClient: a raw-JSON
+    # gh stand-in serves the planted world exactly as gh would (JSON text), and GhClient + the adapters parse it.
+    def raw_runner(world):
+        def run_gh(args, **kwargs):
+            a = args[1:]
+            try:
+                out = None
+                if a[:2] == ['pr', 'list']:
+                    state = a[a.index('--state') + 1]
+                    out = world.open_prs() if state == 'open' else world.merged_prs(a[a.index('--base') + 1])
+                elif a[:2] == ['pr', 'view']:
+                    out = world.pr(int(a[2]))
+                elif a[:2] == ['pr', 'merge']:
+                    world.arm(int(a[2]), a[a.index('--match-head-commit') + 1])
+                elif a[:2] == ['workflow', 'run']:
+                    world.dispatch(a[2], a[a.index('--ref') + 1])
+                elif a[:2] == ['api', 'graphql']:
+                    query = [x for x in a if x.startswith('query=')][0]
+                    if 'reviews(' in query:
+                        number = int([x for x in a if x.startswith('pr=')][0][3:])
+                        nodes = [_review_node(r) for r in world.reviews(number)]
+                        out = {'data': {'repository': {'pullRequest': {'reviews': {
+                            'pageInfo': {'hasNextPage': False}, 'nodes': nodes}}}}}
+                    else:
+                        out = {'data': {'repository': {'autoMergeAllowed': world.repo_settings()['allow_auto_merge']}}}
+                elif a[:2] == ['api', '-X']:
+                    body = json.loads(kwargs['input'])['body']
+                    if a[2] == 'POST':
+                        world.create_comment(int(a[3].split('/')[-2]), body)
+                    else:
+                        world.edit_comment(int(a[3].split('/')[-1]), body)
+                    out = {}
+                elif a[0] == 'api':
+                    path = a[3] if a[1] == '--paginate' else a[1]
+                    rest = path.split('?')[0].split('/')[3:]
+                    if not rest:
+                        allow = world.repo_settings()['allow_auto_merge']
+                        out = {'allow_auto_merge': allow} if isinstance(allow, bool) else {}
+                    elif rest[0] == 'commits' and len(rest) == 2:
+                        out = {'sha': world.base_sha(rest[1])}
+                    elif rest[0] == 'issues':
+                        out = [world.comments(int(rest[1]))]
+                    elif rest[0] == 'pulls':
+                        out = [world.review_comments(int(rest[1]))]
+                    elif rest[0] == 'commits' and rest[2] == 'check-runs':
+                        runs = world.check_runs(rest[1])
+                        out = [{'total_count': len(runs), 'check_runs': runs}]
+                    elif rest[0] == 'commits' and rest[2] == 'statuses':
+                        out = [world.statuses(rest[1])]
+                    elif rest[0] == 'compare':
+                        base_sha, head_sha = rest[1].split('...')
+                        out = {'behind_by': world.behind_by(base_sha, head_sha)}
+                    elif rest[0] == 'actions':
+                        sha = path.split('head_sha=')[1].split('&')[0]
+                        out = {'n': world.workflow_runs(rest[2], sha)}
+                    else:
+                        return _sp_redact.CompletedProcess(args, 1, '', f'raw stand-in: no route for {path}')
+                else:
+                    return _sp_redact.CompletedProcess(args, 1, '', 'raw stand-in: no route')
+            except ApiError as error:
+                return _sp_redact.CompletedProcess(args, 1, '', str(error))
+            return _sp_redact.CompletedProcess(args, 0, '' if out is None else json.dumps(out), '')
+        return run_gh
+
+    def raw_go(c, apply=True):
+        lines = []
+        try:
+            code = run(GhClient(REPO, raw_runner(c)), apply=apply, out=lines.append)
+        except Exception as error:
+            lines.append(f'CRASH {type(error).__name__}')
+            code = 'crash'
+        return code, '\n'.join(lines)
+
+    c = _world()
+    code, text = raw_go(c)
+    check('raw adapter path: an ordinary stamped-ready PR served as raw JSON through GhClient is armed once '
+          '(the stand-in works)', code == 0 and arms(c) == [('arm', 200, head)])
+
+    def raw_review(edited):
+        r = review('CODEX REVIEW BLOCK — old head', '2026-11-16T01:00:00Z', rid=902)
+        if edited is Ellipsis:
+            r.pop('last_edited_at', None)
+        else:
+            r['last_edited_at'] = edited
+        return r
+
+    for label, edited in (('lastEditedAt missing', Ellipsis), ('lastEditedAt malformed', 'not-a-time')):
+        c = _world()
+        c.reviews_by_pr = {200: [raw_review(edited)]}
+        code, text = raw_go(c)
+        check(f'raw adapter: an older BLOCK review with {label}: exit 1, no action at all', code == 1 and not c.writes)
+        c = changed_after_read(lambda f, _e=edited: setattr(f, 'reviews_by_pr', {200: [raw_review(_e)]}))
+        code, text = raw_go(c)
+        check(f'raw adapter: {label} appears after the plan was read: the preflight read fails closed, no arm, '
+              'exit 1', code == 1 and not arms(c))
+    c = _world()
+    c.reviews_by_pr = {200: [raw_review(None)]}
+    code, text = raw_go(c)
+    check('raw adapter control: an older BLOCK review with lastEditedAt explicitly null (never edited) does not '
+          'veto: armed', code == 0 and arms(c) == [('arm', 200, head)])
+
+    def set_field(path_fn):
+        def edit(d):
+            path_fn(d)
+        return edit
+
+    malformed = {
+        'issue comment created_at': lambda d: d['comments'][200][0].__setitem__('created_at', 'yesterday'),
+        'issue comment updated_at missing': lambda d: d['comments'][200][0].pop('updated_at'),
+        'status created_at': lambda d: d['statuses'][head][0].__setitem__('created_at', '2026-11-16 01:00:00'),
+        'status updated_at': lambda d: d['statuses'][head][0].__setitem__('updated_at', '2026-13-40T99:00:00Z'),
+        'check run completed_at': lambda d: d['checks'][head][0].__setitem__('completed_at', 'soon'),
+        'check run id a string': lambda d: d['checks'][head][0].__setitem__('id', '7'),
+        'PR isDraft missing': lambda d: d['prs'][0].pop('isDraft'),
+        'PR mergeable not text': lambda d: d['prs'][0].__setitem__('mergeable', True),
+    }
+    for label, edit in malformed.items():
+        c = _world(m=edit)
+        code, text = raw_go(c)
+        check(f'raw adapter: malformed {label}: exit 1, no action at all, the run says the data is malformed',
+              code == 1 and not c.writes and 'malformed' in text)
+    c = _world()
+    c.inline_by_pr = {200: [inline('fine', '2026-11-16T01:00:00Z', updated='11/16/2026')]}
+    code, text = raw_go(c)
+    check('raw adapter: malformed inline comment updated_at: exit 1, no action at all', code == 1 and not c.writes)
+    c = _world(s=lambda d: d['statuses'].update({head: []}))
+    c.merged = [{'number': 150, 'mergeCommit': {'oid': c.tip}, 'mergedBy': {'login': 'x'}}]
+    code, text = raw_go(c)
+    check('raw adapter: a merged PR whose mergedBy has no is_bot: exit 1, no action at all',
+          code == 1 and not c.writes)
+    c = _world(k=lambda d: d['checks'][head].append({'id': 5, 'name': 'extra', 'status': 'completed',
+                                                    'conclusion': None, 'completed_at': '2026-11-16T00:00:00Z'}))
+    code, text = raw_go(c)
+    check('raw adapter: a completed check run with no conclusion: exit 1, no action at all',
+          code == 1 and not c.writes)
+    try:
+        ok = (parse_time('2026-11-16T03:00:00Z', 'x') == '2026-11-16T03:00:00Z'
+              and parse_time('2026-11-16T03:00:00.123Z', 'x') == '2026-11-16T03:00:00Z')
+        for bad in ('not-a-time', '2026-11-16T03:00:00', '2026-11-16T03:00:00+00:00', '2026-02-30T00:00:00Z', 5):
+            try:
+                parse_time(bad, 'x')
+                ok = False
+            except ApiError:
+                pass
+    except Exception:
+        ok = False
+    check('the one time parser accepts ISO-8601 UTC only (no offset-less, no other zone, no impossible date)', ok)
+
+    try:
+        with open(os.path.abspath(__file__), encoding='utf-8') as handle:
+            tree = ast.parse(handle.read())
+        allowed_get = {'gh_env', 'main', 'self_test', 'FakeClient', '_world', '_comment'}
+        bad = []
+
+        def visit_get(node, owners):
+            for child in ast.iter_child_nodes(node):
+                inner = owners | ({child.name} if isinstance(child, (ast.FunctionDef, ast.ClassDef)) else set())
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and child.func.attr == 'get' \
+                        and not (inner & allowed_get):
+                    bad.append(child.lineno)
+                visit_get(child, inner)
+        visit_get(tree, set())
+        check('API boundary: no `.get(` on data outside the accessors (only gh_env, main and the test code may use '
+              f'it){" - found at lines " + ", ".join(map(str, sorted(set(bad)))) if bad else ""}', not bad)
+    except Exception as error:
+        check(f'API boundary: structural scan ran ({type(error).__name__})', False)
 
     # Log safety: gh's own output can carry request headers; the loop must never pass them on.
     import subprocess as _sp
