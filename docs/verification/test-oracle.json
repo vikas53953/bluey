@@ -1,5 +1,5 @@
 {
-  "revision": 36,
+  "revision": 37,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -101,6 +101,7 @@
     "tests/Boo.Demo.Tests/Boo.Demo.Tests.csproj": "f3fad7e22de0b6b19a8b5bb208a3a6dcb4d76db4befa792f289ef188ed955d7b",
     "tests/Boo.Demo.Tests/BooAppFixture.cs": "3674257f2b56f26ae5c1fb537e3d7498cd633d23b466988c7c45e91e06ec2179",
     "tests/Boo.Demo.Tests/DemoTests.cs": "dcb58a575f973cd6d58f97af7612b97f6b1c4b0ab7c22f0c1b32f37e04611dac",
+    "tests/Boo.Demo.Tests/FieldUndoDemoTests.cs": "1579cd9984aeae905a13c81e1bd11753f5e0d9be7ccddbc061aced1595945a8d",
     "tests/Boo.Demo.Tests/HiddenTextApprovalCardDemoTests.cs": "2e51e67626e3920b3ed2b436467b1008d1762dc1b978c7e22135cde9b9275f9e",
     "tests/Boo.Demo.Tests/OrderedSteps.cs": "306e9963f703f5d3110060f5a03f66272dfda4959eba07c238be328da40776e2",
     "tests/Boo.Demo.Tests/UnobservedScreenActionDemoTests.cs": "b40a250d08fb9ae7c6837884a5c5cfdf0aabe45d884dfd5529fedc0f42cdaa61",
@@ -169,13 +170,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-35.json",
-  "previousManifestSha256": "6cda79e15e4c9f3025eceb4c277e123601dc37c38c8b5373acf2f8aa2910e7bd",
-  "revisionReason": "PR #158: UndoJournal.CompleteUndo settles an executed field Undo (issue #157; kills mutation survivors M03-M05)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-36.json",
+  "previousManifestSha256": "ca54c5fc5b3c3db25bf62ebf0c6c2715c5f3920c56c27a30dbce26bda45866b2",
+  "revisionReason": "PR #158: FieldUndoDemoTests (whole-app field Undo on the published Boo.exe with the mock; issue #157 call-site wiring)",
   "addedFiles": [
-    "tests/Boo.Core.Tests/UndoJournalCompleteUndoTests.cs"
+    "tests/Boo.Demo.Tests/FieldUndoDemoTests.cs"
   ],
-  "revisionCommit": "a135b9cd9ce0d202e3005bb44ebd568ad00ee396",
+  "revisionCommit": "529f649243746b23291ab5759a953ee3783bd558",
   "changedFiles": [],
   "removedFiles": []
 }
