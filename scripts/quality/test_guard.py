@@ -121,13 +121,31 @@ def test_project_dirs(shas, cwd):
     return {folder for sha in shas for folder, is_test in project_kinds(sha, cwd).items() if is_test}
 
 
-def exempt_test_dirs(shas, cwd):
-    """Folders under tools/ whose changes are NOT product code: a test project at EVERY given commit where the folder has
-    a .csproj. A project that is product code on the base stays product code whatever the PR head writes into its
-    .csproj (head-controlled metadata cannot reclassify it); a brand-new project is judged by the head alone."""
-    per_commit = [project_kinds(sha, cwd) for sha in shas]
-    folders = {folder for kinds in per_commit for folder in kinds}
-    return {folder for folder in folders if all(kinds.get(folder, True) for kinds in per_commit)}
+def owner(path, kinds):
+    """The deepest project folder (from project_kinds) that holds `path`, or None."""
+    owners = [folder for folder in kinds if path.startswith(folder)]
+    return max(owners, key=len) if owners else None
+
+
+def is_product_path(path, existed, base_kinds, head_kinds):
+    """Whether a changed path is product code. src/ and Directory.Build.* always are; tests/ never is. Under tools/ a
+    path is product when its owning project (the deepest .csproj folder above it) is a product project, or it has
+    none, at the HEAD; and also when, at the BASE, its owning project is a product project, or it has none while the
+    file already existed there. So a project that is product on the base, its subfolders and existing loose tools/
+    files stay product code whatever the head adds or writes (a new nested test project relabels nothing); only a
+    genuinely new tree (no owning project on the base, new files) is judged by the head alone."""
+    if path.startswith('tests/'):
+        return False
+    if not path.startswith('tools/'):
+        return path.startswith('src/') or path.rsplit('/', 1)[-1].startswith('Directory.Build.')
+    head_owner = owner(path, head_kinds)
+    product_head = head_owner is None or not head_kinds[head_owner]
+    base_owner = owner(path, base_kinds)
+    if base_owner is not None:
+        product_base = not base_kinds[base_owner]
+    else:
+        product_base = existed or product_head
+    return product_base or product_head
 
 
 def is_test_file(path, test_dirs):
@@ -249,7 +267,8 @@ def judge(body, base, head, cwd='.'):
     parts = [p for p in raw.split('\0') if p]
     changes = list(zip(parts[0::2], parts[1::2]))
     test_dirs = test_project_dirs([merge_base, head_sha], cwd)
-    product = sorted(p for _, p in changes if is_product_file(p, exempt_test_dirs([merge_base, head_sha], cwd)))
+    base_kinds, head_kinds = project_kinds(merge_base, cwd), project_kinds(head_sha, cwd)
+    product = sorted(p for status, p in changes if is_product_path(p, status != 'A', base_kinds, head_kinds))
     if not product:
         return [], 'no product change (src/, tools/ outside test projects, Directory.Build.*): out of scope'
     weakened = []   # (path, reasons, methods)
@@ -526,7 +545,7 @@ def self_test():
         case('an existing product file under a NEW nested test project + a weakened test fails',
              dict(weak, **{tool_child_cs[0]: tool_child_cs[1].replace('Size = 1', 'Size = 2'),
                            'tools/QaMock/Child/Child.Tests.csproj': nested_tests}),
-             False, why='changes product code (tools/QaMock/Child/Worker.cs')
+             False, why='changes product code (tools/QaMock/Child/')  # Child.Tests.csproj and Worker.cs, both product
         case('a NEW file in an existing product project, inside a NEW nested test project, + a weakened test fails',
              dict(weak, **{'tools/QaMock/Child/Extra.cs': 'public static class Extra { }\n',
                            'tools/QaMock/Child/Child.Tests.csproj': nested_tests}),

@@ -18,8 +18,12 @@ Both of these in one PR:
    `Directory.Build.*` file. A test project is a folder whose `.csproj`, read as XML, has a real `PackageReference` to
    xUnit (`xunit`, `xunit.core`, `xunit.v3`, ...) or `Microsoft.NET.Test.Sdk`, or sets `IsTestProject` to `true`.
    Comments, attribute values, other items and the project's name never count, and an unreadable `.csproj` is product
-   code. A folder that is product code on the base stays product code even if the PR makes its `.csproj` look like a
-   test project; a brand-new project is judged by the PR head.
+   code. A file belongs to the deepest project folder above it. Product on the base stays product: a file whose
+   project on the base is a product project (including any new file in that folder or a subfolder), or an existing
+   `tools/` file with no project on the base, is product code even if the PR makes its `.csproj` look like a test
+   project or adds a new nested test project around it. Only a genuinely new tree (no project above it on the base,
+   new files) is judged by the PR head alone. A file is also product when its project on the PR head is a product
+   project or it has none.
 2. **An existing test weakened**, any of:
    - an existing file under `tests/` or in a `tools/` test project is deleted, or has a line removed or changed;
    - fewer assertion-shaped calls in a changed file (`Assert.*`, `.Should*(`, `.Verify*(`, `Verify*(`, `Expect*(`,
