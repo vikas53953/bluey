@@ -11,6 +11,10 @@ public sealed record UndoPlan(bool CanUndo, string? BlockedReason, IReadOnlyList
 public sealed class UndoJournal
 {
     private const string NothingRecorded = "Nothing to undo: Boo has no recorded edit.";
+
+    /// <summary>What an executed Undo step reports when Boo cannot re-read the window to confirm it (issue #157).</summary>
+    public const string UnverifiedUndoMessage =
+        "partial/unverified: Undo ran, but Boo could not re-read the window to confirm it; the recorded edit is kept.";
     private const string DifferentWindow = "The edited window is no longer the current target.";
     private const string AmbiguousUndo = "More than one Undo control is visible; Boo will not guess.";
 
@@ -192,6 +196,21 @@ public sealed class UndoJournal
         }
 
         return new UndoPlan(true, null, steps.AsReadOnly(), expected.AsReadOnly());
+    }
+
+    /// <summary>
+    /// Settles an executed Undo step: the one place its result and the journal are decided together. With a re-read
+    /// (<paramref name="after"/>), the restore is verified and the journal consumed only on success. Without one, the
+    /// step is not a success, keeps the executed step's committed flag, and the recorded edit is kept: clearing the
+    /// journal on a failed observation could hide an Undo that did not happen.
+    /// </summary>
+    public ToolOutcome CompleteUndo(ToolOutcome executed, ControlObservation? after, UndoPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(executed);
+        ArgumentNullException.ThrowIfNull(plan);
+        return after is null
+            ? new ToolOutcome(false, executed.Committed, UnverifiedUndoMessage)
+            : VerifyUndo(after, plan);
     }
 
     public ToolOutcome VerifyUndo(ControlObservation after, UndoPlan plan)

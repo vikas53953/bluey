@@ -606,3 +606,38 @@ feature-map fragment with `Replaces:` for the same old id do not conflict in git
 `Test-FeatureMap.ps1` (feature-map workflow, on every push to `lane/face`) reports the id replaced twice. A PR can edit
 `doc-fragments.yml` itself; like every gate here, that is caught by review and the required-check settings, not by the
 workflow. Not a required check until Vikas says so.
+
+## BOO-LOOP-001
+**The deterministic PR loop arms auto-merge only on a matched, unvetoed stamp, and takes at most one action per PR per
+run.** [`scripts/pr_loop.py`](../../scripts/pr_loop.py) (workflow `pr-loop`, full design in [pr-loop.md](pr-loop.md))
+puts every open PR in exactly one state (`blocked`, `needs-rebase`, `ci-red`, `waiting-QA`, `waiting-review`,
+`waiting-stamp`, `stamped-ready`) and may only (1) run `gh pr merge <n> --auto --merge --match-head-commit <head>` when
+the latest `codex-verified` status on that exact head is SUCCESS, a trusted `CODEX VERIFIED <head>` comment names that
+status's ID, no comment newer than that one says `BLOCK`, `NOT VERIFIED` or `SURVIVED` (whole word, case-sensitive),
+and a fresh preflight right before the arm still finds all of that with the same status ID (at most one arm per run);
+(2) create/edit its one marker comment `pr-loop: state=<s> head=<sha> next=<who>`; (3) after a bot merge leaves the
+tip of `lane/face` without CI, dispatch `windows-ci` and `perf-guards` on it once. The only allowed base is
+`lane/face`: no PR on `main` (or any other base) is ever acted on.
+
+Its self-test fails when any state is misjudged; when a mismatched SHA, a different status ID, a failure status, an
+untrusted comment, a required check that is skipped or neutral, or a newer veto in an issue comment, a PR review body or an inline
+review comment would arm (including a review edited after the stamp, an unknown edit time, or a review or inline
+comment sharing the stamp comment's numeric id) (also with a copied loop marker, or in the same second as the
+stamp comment); when `--base` accepts anything but `lane/face`; when a change after the plan's read (stamp revoked or replaced,
+comment withdrawn or edited, veto comment, PR retargeted, draft, behind, red check, already armed) would still arm;
+when a second PR would be armed in one run; when any PR on `main` or PR #3 is acted on; when a second run on the same
+head would act again; when tip CI is dispatched without a bot merge at the tip, twice for one SHA, or in a dry run;
+when an API error would not fail the run closed; when `pr-loop.yml` gains a `schedule:` or loses its `dry_run` default
+of `true`; when any line of a private-key block (complete, or BEGIN without END), any key shape known to `key_scan.py` or any labelled value (`API key:`, `Authorization`, `token`, `secret`, `password`, `cookie`, ...) reaches stdout, stderr or a comment payload through any output path, when the script writes output outside its one choke point, when a missing or malformed field or time from any API source (PR metadata, comments, reviews, inline comments, check runs, statuses, merged PRs) is accepted instead of stopping the run, when `.get(` is used on API data outside the accessors, when a `gh` error carrying an `Authorization` header or a token reaches the output, when the environment
+handed to `gh` keeps `GH_DEBUG` / `GIT_TRACE*` / `GIT_CURL_VERBOSE` / `DEBUG`, when a verbose flag reaches `gh`, or when
+the workflow stops key-scanning its captured output.
+
+**Fix:** correct the state rule or the plan so the planted fixture gets the state the doc names. **Do NOT** add a
+branch update (a `GITHUB_TOKEN` push starts no CI: option (i)), arm without the matched stamp, drop the preflight,
+the one-arm limit, the veto or the base allowlist, add a `schedule:` trigger, or turn the dry-run default around.
+
+Known gaps: the preflight narrows the race; it is not atomic, and branch protection plus `--match-head-commit` remain
+the backstop. Acting-mode permissions, a `--ref lane/face` dispatch from the scheduler on `main`, and the tip-CI
+dispatch after a real bot merge are UNVERIFIED until they first happen (pr-loop.md says what to check). The REST reply
+hides `allow_auto_merge` from a read-only token; the script then reads GraphQL `autoMergeAllowed`, and an unreadable
+setting never arms. Trusted comments are judged by author association, not by which agent wrote them.
