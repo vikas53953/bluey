@@ -4,6 +4,11 @@ Every Boo feature, how it is proven, and the exact command, workflow or test tha
 `verify-boo` skill (`.claude/skills/verify-boo/SKILL.md`). Keep it true: when a feature is added or changed, its row
 changes in the same pull request, and `pwsh .claude/skills/verify-boo/scripts/Test-FeatureMap.ps1` must pass.
 
+Since 16 Nov 2026 the tables below are frozen history (rule BOO-DOCS-001, `docs/quality/RULES.md`): a new or changed
+row is one file `docs/feature-map/<named-id>.md` (a named id like `type-text-hidden-chars`, never a counter like A9),
+with a `Section:` line naming the `###` heading it belongs under and, to change an old row, `Replaces: <old id>`. The
+whole map with every fragment merged in: `python -I scripts/quality/doc_fragments.py assemble` (never commit its output).
+
 ## What the labels mean
 
 | Label | Meaning |
@@ -29,6 +34,8 @@ listed first. "Proven" always needs a run link or a filled-in checklist; a label
 | **runbook** | `docs/verification/2026-11-08-acceptance-runbook.md` | a person, on a real PC |
 
 ## The map
+
+> **Frozen table.** Nothing is ever added to or edited in these tables again: a new or changed row goes in `docs/feature-map/<named-id>.md` (same columns, one row, plus `Section:` and optional `Replaces:` lines), so parallel PRs never conflict here (BOO-DOCS-001).
 
 ### Notch and presence
 
