@@ -621,7 +621,7 @@ class FakeClient:
         self.reads.append((name, key))
         calls = sum(1 for r in self.reads if r[0] == name)
         if self.fail == name or (isinstance(self.fail, tuple) and self.fail[0] == name and calls > self.fail[1]):
-            raise ApiError(f'planted failure in {name}')
+            raise ApiError(getattr(self, 'fail_text', None) or f'planted failure in {name}')
 
     def _then(self, name, value):
         hook = self.after.pop(name, None)
@@ -1128,6 +1128,129 @@ def self_test():
     code, text = cli(['--apply'], c)
     check('CLI default base --apply on a stamped-ready lane/face PR: armed once (the fake stands in for gh)',
           code == 0 and arms(c) == [('arm', 200, head)])
+
+    # Review at a3bdbe0, P1: ONE redaction for ALL output, driven by key_scan's own shapes plus sensitive labels.
+    # Every simulated value is built here at run time; none is stored key-shaped in this file, and none is printed.
+    import subprocess as _sp_redact
+    a_, b_ = 'A1' * 40, 'Zq' * 40
+    shapes = {
+        'OpenAI/Anthropic API key': 's' + 'k-' + 'proj-' + a_[:28],
+        'GitHub token': 'gh' + 'p_' + a_[:38],
+        'GitHub fine-grained token': 'github' + '_pat_' + a_[:64],
+        'Google API key': 'AI' + 'za' + b_[:35],
+        'AWS access key id': 'AK' + 'IA' + 'QWERTYUIOPASDFGH',
+        'private key block': '-----BEGIN ' + 'RSA PRIVATE' + ' KEY-----',
+        'Slack token': 'xo' + 'xb-' + '1234567890-abcdef',
+        'Tailscale key': 'ts' + 'key-' + 'abcd1234' * 3,
+        'Hugging Face token': 'h' + 'f_' + a_[:36],
+        'JSON Web Token': 'ey' + 'J' + b_[:14] + '.ey' + 'J' + a_[:14] + '.' + b_[:14],
+        'bearer token': 'Bear' + 'er ' + a_[:40],
+    }
+    labelled = {f'{label}{sep}': f'zvq{n}PLAINVALUE{n}' for n, (label, sep) in enumerate([
+        ('API key', ': '), ('api-key', '='), ('API_KEY', ': '), ('Authorization', ': Basic '),
+        ('authorization', ': token '), ('token', ': '), ('Secret', ' = '), ('password', ': '),
+        ('Cookie', ': sid='), ('Set-Cookie', ': id=')])}
+    try:
+        known = _key_scan_shapes()
+        check('redaction: the patterns come from key_scan.py itself, and every key_scan shape has a test value '
+              'that key_scan matches', {lbl for lbl, _ in known} == set(shapes)
+              and all(rx.search(shapes[lbl]) for lbl, rx in known))
+    except Exception as error:
+        check(f'redaction: key_scan shapes loadable ({type(error).__name__})', False)
+
+    secrets = [(f'shape {k}', v, v) for k, v in shapes.items()] + \
+              [(f'label {k.strip()}', f'{k}{v}', v) for k, v in labelled.items()]
+
+    def captured(fn):
+        import contextlib
+        import io
+        o, e = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(o), contextlib.redirect_stderr(e):
+                code = fn()
+        except Exception as error:
+            code = f'crash {type(error).__name__}'
+        return code, o.getvalue() + e.getvalue()
+
+    def leaks(texts, value):
+        return any(value in t for t in texts)
+
+    def comment_payloads(c):
+        return [w[2] for w in c.writes if w[0] in ('create_comment', 'edit_comment')]
+
+    paths = {}
+    for name, text, value in secrets:
+        # 1. gh error text (stderr of a failing gh call), through the real GhClient and main().
+        def runner(args, _t=text, **kwargs):
+            return _sp_redact.CompletedProcess(args, 1, '', f'gh: Bad credentials (HTTP 401)\n{_t}\n')
+        code, out_text = captured(lambda: main(['--dry-run'], client_factory=lambda repo: GhClient(repo, runner)))
+        paths.setdefault('gh error text', []).append(
+            not leaks([out_text], value) and 'Bad credentials (HTTP 401)' in out_text and code == 1)
+        # 2./3. a failing check run name and a failing status context/description, dry run and apply.
+        for label, edit in (('check name', lambda d, _t=text: d['checks'][head].append(
+                                {'id': 10 ** 8, 'name': f'build {_t}', 'status': 'completed',
+                                 'conclusion': 'failure'})),
+                            ('status context/description', lambda d, _t=text: d['statuses'][head].append(
+                                {'id': 6, 'context': f'lint {_t}', 'description': _t, 'state': 'failure',
+                                 'created_at': '2026-11-16T00:00:00Z'}))):
+            for apply in (False, True):
+                c = _world(k=edit)
+                code, out_text = captured(lambda: main(['--apply'] if apply else ['--dry-run'],
+                                                       client_factory=lambda repo: c))
+                keep = 'build' if label == 'check name' else 'lint'
+                payloads = comment_payloads(c)
+                paths.setdefault(f'{label} ({"apply, marker comment" if apply else "dry-run plan"})', []).append(
+                    not leaks([out_text, *payloads], value) and keep in out_text and 'failure' in out_text
+                    and (not apply or (bool(payloads) and keep in payloads[0])))
+        # 4. a comment read back: a veto comment whose author login and body carry the value.
+        c = _world(c=lambda d, _t=text: d['comments'][200].append(_comment(
+            f'BLOCK {_t}', author='NONE', login=f'x {_t}', cid=50, created='2026-11-16T03:00:00Z')))
+        code, out_text = captured(lambda: main(['--apply'], client_factory=lambda repo: c))
+        paths.setdefault('comment read back (veto author/body), marker comment', []).append(
+            not leaks([out_text, *comment_payloads(c)], value) and 'state=blocked' in out_text)
+        # 5. an exception message raised while reading.
+        c = _world()
+        c.fail, c.fail_text = 'comments', f'reading comments broke: {text}'
+        code, out_text = captured(lambda: main(['--dry-run'], client_factory=lambda repo: c))
+        paths.setdefault('exception message', []).append(
+            code == 1 and not leaks([out_text], value) and 'reading comments broke' in out_text)
+    for path, oks in paths.items():
+        check(f'redaction end to end: none of {len(secrets)} simulated secrets reaches the output via {path}; '
+              'the non-sensitive context stays', len(oks) == len(secrets) and all(oks))
+
+    try:
+        sink = _ListSink()
+        stream = RedactingStream(sink)
+        stream.write(f'note {shapes["GitHub token"]} and API key: {labelled["API key: "]}\n')
+        check('redaction: the stdout/stderr wrapper installed at startup redacts too (defence in depth)',
+              shapes['GitHub token'] not in sink.text and labelled['API key: '] not in sink.text
+              and 'note' in sink.text)
+    except Exception:
+        check('redaction: the stdout/stderr wrapper installed at startup redacts too (defence in depth)', False)
+
+    import ast
+    try:
+        with open(os.path.abspath(__file__), encoding='utf-8') as handle:
+            tree = ast.parse(handle.read())
+        allowed = {'emit', 'RedactingStream', '_install_redacting_streams', '_ListSink'}
+        bad = []
+
+        def visit(node, owners):
+            for child in ast.iter_child_nodes(node):
+                inner = owners | ({child.name} if isinstance(child, (ast.FunctionDef, ast.ClassDef)) else set())
+                hit = (isinstance(child, ast.Name) and child.id == 'print') or (
+                    isinstance(child, ast.Attribute) and child.attr in ('write', 'writelines')) or (
+                    isinstance(child, ast.Attribute) and child.attr in ('stdout', 'stderr')
+                    and isinstance(child.value, ast.Name) and child.value.id == 'sys')
+                if hit and not (inner & allowed):
+                    bad.append(getattr(child, 'lineno', 0))
+                visit(child, inner)
+        visit(tree, set())
+        check('redaction: no print / write / sys.stdout / sys.stderr outside the one choke point '
+              f'(emit, RedactingStream){" - found at lines " + ", ".join(map(str, sorted(set(bad)))) if bad else ""}',
+              not bad)
+    except Exception as error:
+        check(f'redaction: structural scan ran ({type(error).__name__})', False)
 
     # Log safety: gh's own output can carry request headers; the loop must never pass them on.
     import subprocess as _sp
