@@ -830,7 +830,8 @@ def _sha(n):
 
 
 def _comment(body, author='OWNER', login='vikas53953', cid=1, created='2026-11-16T00:00:00Z'):
-    return {'id': cid, 'body': body, 'author_association': author, 'user': {'login': login}, 'created_at': created}
+    return {'id': cid, 'body': body, 'author_association': author, 'user': {'login': login}, 'created_at': created,
+            'updated_at': created}
 
 
 def _world(number=200, head=None, **edit):
@@ -1455,7 +1456,7 @@ def self_test():
 
     # Review at 7f251f4, P2: the veto also covers PR review bodies and inline review comments.
     def review(body, when, rid=900, login='reviewer'):
-        return {'id': rid, 'body': body, 'state': 'COMMENTED', 'submitted_at': when,
+        return {'id': rid, 'body': body, 'state': 'COMMENTED', 'submitted_at': when, 'last_edited_at': None,
                 'author_association': 'NONE', 'user': {'login': login}}
 
     def inline(body, when, cid=800, updated=None):
@@ -1512,6 +1513,91 @@ def self_test():
     code, text = captured(lambda: main(['--apply'], client_factory=lambda r: c))
     check('(c) review text and author are redacted on output and in the marker comment',
           not leaks([text, *comment_payloads(c)], shapes['GitHub token']) and 'state=blocked' in text)
+
+    # Review at e32b72e, P2: an older review EDITED after the stamp must veto; a missing edit time fails closed.
+    def review_e(body, submitted, edited, rid=901):
+        r = review(body, submitted, rid=rid)
+        if edited is not Ellipsis:  # Ellipsis = the edit-time field is absent (cannot be read)
+            r['last_edited_at'] = edited
+        else:
+            r.pop('last_edited_at', None)
+        return r
+
+    c = _world()
+    c.reviews_by_pr = {200: [review_e('CODEX REVIEW BLOCK — late edit', '2026-11-16T01:00:00Z',
+                                      '2026-11-16T03:00:00Z')]}
+    code, text = go(c, apply=True)
+    check('(c) a review submitted BEFORE the stamp but EDITED after it to say BLOCK: NOT armed', not arms(c))
+    c = _world()
+    c.reviews_by_pr = {200: [review_e('CODEX REVIEW BLOCK — old', '2026-11-16T01:00:00Z', None)]}
+    code, text = go(c, apply=True)
+    check('(c) control: an older review never edited (lastEditedAt empty) does not veto: armed',
+          arms(c) == [('arm', 200, head)])
+    c = _world()
+    c.reviews_by_pr = {200: [review_e('CODEX REVIEW BLOCK — old', '2026-11-16T01:00:00Z', Ellipsis)]}
+    code, text = go(c, apply=True)
+    check('(c) an older review whose edit time cannot be read, carrying BLOCK: NOT armed (fail closed)', not arms(c))
+    c = changed_after_read(lambda f: setattr(f, 'reviews_by_pr', {200: [review_e(
+        'edited to BLOCK', '2026-11-16T01:00:00Z', '2026-11-16T03:00:00Z')]}))
+    code, text = go(c, apply=True)
+    check('(c) an older review edited to BLOCK after the plan was read: the fresh preflight refuses', not arms(c))
+
+    # The review read itself (GraphQL, with edit times): pagination and errors fail closed; edit times are kept.
+    def graphql_runner(reply):
+        def runner(args, **kwargs):
+            if args[1:3] == ['api', 'graphql'] and any('reviews(' in a for a in args):
+                return _sp_redact.CompletedProcess(args, 0, json.dumps(reply), '')
+            return _sp_redact.CompletedProcess(args, 1, '', 'not used in this test')
+        return runner
+
+    def reviews_reply(nodes, more=False, errors=None):
+        reply = {'data': {'repository': {'pullRequest': {'reviews': {
+            'pageInfo': {'hasNextPage': more}, 'nodes': nodes}}}}}
+        if errors:
+            reply['errors'] = errors
+        return reply
+
+    node = {'databaseId': 7, 'body': 'BLOCK', 'submittedAt': '2026-11-16T01:00:00Z',
+            'lastEditedAt': '2026-11-16T03:00:00Z', 'author': {'login': 'reviewer'}}
+    try:
+        got = GhClient(REPO, graphql_runner(reviews_reply([node]))).reviews(200)
+        ok = got == [{'id': 7, 'body': 'BLOCK', 'user': {'login': 'reviewer'}, 'submitted_at': '2026-11-16T01:00:00Z',
+                      'last_edited_at': '2026-11-16T03:00:00Z'}]
+    except Exception:
+        ok = False
+    check('(c) the review read keeps each review\'s edit time (GraphQL lastEditedAt)', ok)
+    for label, reply in (('more than one page of reviews', reviews_reply([node], more=True)),
+                         ('a GraphQL error', reviews_reply([node], errors=[{'message': 'something broke'}])),
+                         ('a reply with no reviews field', {'data': {'repository': {'pullRequest': None}}})):
+        try:
+            GhClient(REPO, graphql_runner(reply)).reviews(200)
+            ok = False
+        except ApiError:
+            ok = True
+        except Exception:
+            ok = False
+        check(f'(c) the review read fails closed on {label}', ok)
+
+    # Review at e32b72e, P2: only the stamp ISSUE COMMENT is exempt, never a review or inline item with its id.
+    stamp_cid = 12
+    c = _world()
+    c.reviews_by_pr = {200: [review('CODEX REVIEW BLOCK — late', '2026-11-16T03:00:00Z', rid=stamp_cid)]}
+    code, text = go(c, apply=True)
+    check('(c) a later BLOCK review that has the stamp comment\'s numeric id still vetoes: NOT armed', not arms(c))
+    c = _world()
+    c.inline_by_pr = {200: [inline('BLOCK here', '2026-11-16T03:00:00Z', cid=stamp_cid)]}
+    code, text = go(c, apply=True)
+    check('(c) a later BLOCK inline comment that has the stamp comment\'s numeric id still vetoes: NOT armed',
+          not arms(c))
+    c = changed_after_read(lambda f: setattr(f, 'reviews_by_pr', {200: [review(
+        'BLOCK', '2026-11-16T03:00:00Z', rid=stamp_cid)]}))
+    code, text = go(c, apply=True)
+    check('(c) the same-id BLOCK review posted after the plan was read: the fresh preflight refuses', not arms(c))
+    c = changed_after_read(lambda f: setattr(f, 'inline_by_pr', {200: [inline(
+        'BLOCK', '2026-11-16T03:00:00Z', cid=stamp_cid)]}))
+    code, text = go(c, apply=True)
+    check('(c) the same-id BLOCK inline comment posted after the plan was read: the fresh preflight refuses',
+          not arms(c))
 
     # Log safety: gh's own output can carry request headers; the loop must never pass them on.
     import subprocess as _sp
