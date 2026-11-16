@@ -1,5 +1,5 @@
 {
-  "revision": 35,
+  "revision": 36,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -90,6 +90,7 @@
     "tests/Boo.Core.Tests/StartupRegistrationTests.cs": "dcd5b440b8191dd0adfb49e700e5c53ca45a42aa8e5814d809de997e86ebf64a",
     "tests/Boo.Core.Tests/TestThreadPool.cs": "9aee9db37060b844fc341d9a202b11c064a61e95a17dbd6f94cf961ddbc4f52f",
     "tests/Boo.Core.Tests/TypeTextInvisibleCharacterTests.cs": "b97367e6b0abd1bffecf139b78c7852939d8bfb06a7da4929bfb66d7ec9ac8ab",
+    "tests/Boo.Core.Tests/UndoJournalCompleteUndoTests.cs": "ff611e25eb43c485b8d0b4075fc32e8aba1ae3ab7eef9e6a081c966f4a52dbcb",
     "tests/Boo.Core.Tests/UndoJournalTests.cs": "5f73cbb8de8b9a65d7d00bb3cb630fb66cf320437aa452936fa11762945b58c8",
     "tests/Boo.Core.Tests/UnobservedScreenActionTests.cs": "087a2865b9217aab18ac7a1b7e755f5a2af69c13831a35e33fa72f9547e4544b",
     "tests/Boo.Core.Tests/UntrustedInputFuzzTests.cs": "1260bcb26bcac3b60d43693874fef10d7abf073caf53c93d9388403a6d20c78c",
@@ -168,15 +169,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-34.json",
-  "previousManifestSha256": "9279a3414103738c5b9a242e814a30cf2bbcf1cf03b14756364a90db0f1aa139",
-  "revisionReason": "PR #142 (issue #124): perf probe counter tests - PerfProbeSnapshotTests (mapping/serialization), RuntimeProbeCountersTests (runtime reader) and RuntimeProbeCountersThreadTests (JIT counters process-wide); kill Codex mutants M02-M04 (61361c2) and M11/M12 (1b1260d). Re-extended on lane/face 91a9e50.",
+  "previousManifest": "docs/verification/test-oracle-history/revision-35.json",
+  "previousManifestSha256": "6cda79e15e4c9f3025eceb4c277e123601dc37c38c8b5373acf2f8aa2910e7bd",
+  "revisionReason": "PR #158: UndoJournal.CompleteUndo settles an executed field Undo (issue #157; kills mutation survivors M03-M05)",
   "addedFiles": [
-    "tests/Boo.Core.Tests/PerfProbeSnapshotTests.cs",
-    "tests/Boo.Integration.Tests/RuntimeProbeCountersTests.cs",
-    "tests/Boo.Integration.Tests/RuntimeProbeCountersThreadTests.cs"
+    "tests/Boo.Core.Tests/UndoJournalCompleteUndoTests.cs"
   ],
-  "revisionCommit": "4688348f7551c3c4bbe6b1b05a040a264d0e99eb",
+  "revisionCommit": "a135b9cd9ce0d202e3005bb44ebd568ad00ee396",
   "changedFiles": [],
   "removedFiles": []
 }

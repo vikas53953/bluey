@@ -186,14 +186,17 @@ public sealed class TypeTextTargetTests
     /// pumps messages, as Boo's UI thread does). In Boo's live field Undo, Windows reported the edited FieldA control
     /// itself as the foreground window (diagnostic run 43762033324); the target app's "childforeground" mode raises that
     /// same event on every write. Boo must still recognise the top-level window as its current target, so it can re-read
-    /// the window to verify the restore, and the restore must not be refused as "target is not current".
+    /// the window to verify the restore, and the restore must not be refused as "target is not current". The nested mode
+    /// puts FieldA two containers deep, so only mapping the event to the top-level window (not to the parent) passes.
     /// </summary>
-    [Fact]
-    public async Task ApprovedWriteThenRestore_TargetStaysCurrent_SoTheRestoreCanBeVerified()
+    [Theory]
+    [InlineData("childforeground")]
+    [InlineData("nestedchildforeground")]
+    public async Task ApprovedWriteThenRestore_TargetStaysCurrent_SoTheRestoreCanBeVerified(string mode)
     {
         var exe = Environment.GetEnvironmentVariable("BOO_TYPE_TARGET_EXE");
         Assert.False(string.IsNullOrWhiteSpace(exe), "BOO_TYPE_TARGET_EXE must name tools/Boo.TypeTarget.App's exe");
-        using var app = Process.Start(new ProcessStartInfo(exe!, "childforeground") { UseShellExecute = false })!;
+        using var app = Process.Start(new ProcessStartInfo(exe!, mode) { UseShellExecute = false })!;
         var log = new List<string>();
         try
         {
@@ -232,7 +235,7 @@ public sealed class TypeTextTargetTests
             {
                 _output.WriteLine(line);
             }
-            Evidence("undo-target", string.Join(" | ", log), hwnd);
+            Evidence("undo-target-" + mode, string.Join(" | ", log), hwnd);
 
             Assert.True(edit.Success, string.Join(" | ", log));
             Assert.True(currentAfterEdit, "after an approved field write Boo no longer recognises the window as its target, so it cannot re-read it. " + string.Join(" | ", log));

@@ -23,6 +23,7 @@ namespace Boo.TypeTarget.App;
 /// IDs merely contain the approved one: clickpartialfirst (decoy "ButtonA2" before "ButtonA") and clickpartialonly
 /// (only "ButtonA2"). childforeground: FieldA is editable and, each time its text changes, announces itself (the child
 /// control, not the window) as the new foreground window, the event Windows raised in Boo's live field Undo (#157).
+/// nestedchildforeground: the same, with FieldA two containers deep, so its parent is not the top-level window.
 /// </summary>
 internal static class Program
 {
@@ -83,14 +84,26 @@ internal static class Program
 
             Control? fieldA = mode switch
             {
-                "present" or "casefirst" or "removeonwrite" or "destroyonwrite" or "childforeground" => new TextBox { Name = "FieldA", AccessibleName = "Field A" },
+                "present" or "casefirst" or "removeonwrite" or "destroyonwrite" or "childforeground" or "nestedchildforeground" => new TextBox { Name = "FieldA", AccessibleName = "Field A" },
                 "readonly" => new TextBox { Name = "FieldA", AccessibleName = "Field A", ReadOnly = true },
                 "nonvalue" => new Label { Name = "FieldA", AccessibleName = "Field A", Text = "Field A (not editable)" },
                 "provider-ok" or "provider-readgone" or "provider-readinvalid" or "provider-readfails" or "provider-setthrows" => new ProviderField(mode, writeCount!),
                 "missing" or "caseonly" or "partialonly" or "clickcasefirst" or "clickcaseonly" or "clickpartialfirst" or "clickpartialonly" => null,
                 _ => throw new ArgumentException($"unknown mode '{mode}'"),
             };
-            if (fieldA is not null)
+            if (fieldA is not null && mode == "nestedchildforeground")
+            {
+                var outer = new Panel { Name = "OuterPanel" };
+                outer.SetBounds(10, 10, 500, 50);
+                var inner = new Panel { Name = "InnerPanel" };
+                inner.SetBounds(5, 5, 490, 40);
+                fieldA.SetBounds(5, 5, 480, 30);
+                inner.Controls.Add(fieldA);
+                outer.Controls.Add(inner);
+                Controls.Add(outer);
+                fieldA.TextChanged += (_, _) => NotifyWinEvent(EventSystemForeground, fieldA.Handle, 0, 0);
+            }
+            else if (fieldA is not null)
             {
                 fieldA.SetBounds(20, 20, 480, 30);
                 Controls.Add(fieldA);
