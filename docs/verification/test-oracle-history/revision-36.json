@@ -90,6 +90,7 @@
     "tests/Boo.Core.Tests/StartupRegistrationTests.cs": "dcd5b440b8191dd0adfb49e700e5c53ca45a42aa8e5814d809de997e86ebf64a",
     "tests/Boo.Core.Tests/TestThreadPool.cs": "9aee9db37060b844fc341d9a202b11c064a61e95a17dbd6f94cf961ddbc4f52f",
     "tests/Boo.Core.Tests/TypeTextInvisibleCharacterTests.cs": "b97367e6b0abd1bffecf139b78c7852939d8bfb06a7da4929bfb66d7ec9ac8ab",
+    "tests/Boo.Core.Tests/UndoJournalCompleteUndoTests.cs": "ff611e25eb43c485b8d0b4075fc32e8aba1ae3ab7eef9e6a081c966f4a52dbcb",
     "tests/Boo.Core.Tests/UndoJournalTests.cs": "5f73cbb8de8b9a65d7d00bb3cb630fb66cf320437aa452936fa11762945b58c8",
     "tests/Boo.Core.Tests/UnobservedScreenActionTests.cs": "087a2865b9217aab18ac7a1b7e755f5a2af69c13831a35e33fa72f9547e4544b",
     "tests/Boo.Core.Tests/UntrustedInputFuzzTests.cs": "1260bcb26bcac3b60d43693874fef10d7abf073caf53c93d9388403a6d20c78c",
@@ -97,10 +98,8 @@
     "tests/Boo.Core.Tests/UpdateStatusTextTests.cs": "7a50ed32cbfcd8b1d6c2c721fdb99c03ae9e51a6f23cd451fbd69e933fd3ed9e",
     "tests/Boo.Core.Tests/UpdateVersionGateTests.cs": "4b0c027b856bf5c358687986ccbd5aad7bfa8b6b5c7a6a2c9923b9a3e9dbe4b3",
     "tests/Boo.Core.Tests/VoiceCommandTests.cs": "13decf186040e3e49ec0280e9afa5cc08f87ed1e3a062e48d77e0cdc3eedf0b4",
-    "tests/Boo.Demo.Tests/BlankScan.cs": "4cabf6c0eb6b97034945437cd5670cecf51c9fe6794c7d5706fca2aea3dc6864",
-    "tests/Boo.Demo.Tests/BlankScanTests.cs": "ecf191b86fb55fc632171dd91c136123bd2f130f3f52ab100a696fa9ee461014",
     "tests/Boo.Demo.Tests/Boo.Demo.Tests.csproj": "f3fad7e22de0b6b19a8b5bb208a3a6dcb4d76db4befa792f289ef188ed955d7b",
-    "tests/Boo.Demo.Tests/BooAppFixture.cs": "1a5c7b90d2a7527e98d0e69009a06bee4a52a1657a43db800831e75afa399bce",
+    "tests/Boo.Demo.Tests/BooAppFixture.cs": "3674257f2b56f26ae5c1fb537e3d7498cd633d23b466988c7c45e91e06ec2179",
     "tests/Boo.Demo.Tests/DemoTests.cs": "dcb58a575f973cd6d58f97af7612b97f6b1c4b0ab7c22f0c1b32f37e04611dac",
     "tests/Boo.Demo.Tests/HiddenTextApprovalCardDemoTests.cs": "2e51e67626e3920b3ed2b436467b1008d1762dc1b978c7e22135cde9b9275f9e",
     "tests/Boo.Demo.Tests/OrderedSteps.cs": "306e9963f703f5d3110060f5a03f66272dfda4959eba07c238be328da40776e2",
@@ -172,14 +171,11 @@
   },
   "previousManifest": "docs/verification/test-oracle-history/revision-35.json",
   "previousManifestSha256": "6cda79e15e4c9f3025eceb4c277e123601dc37c38c8b5373acf2f8aa2910e7bd",
-  "revisionReason": "Re-applied on top of lane/face revision 35 (PR #142 perf tests) after merging lane/face into PR #161. Demo first-paint flake (demo-ci runs 43733044905, 43755644582, 43797565952, 43797941480): WPF publishes the companion window to UI Automation before its first render, so BooAppFixture.EnsurePanel/WaitForPanel returned a still-white maximised window and 00-panel-open.png failed the visual check (one flat colour 90-91%). The fixture now waits until the window's own PrintWindow rendering is not blank by the same rule as scripts/ci/Test-DemoVisual.ps1 (BlankScan port, with BlankScanTests). Pixel-read failures count as not painted, so the wait still fails closed at its timeout.",
+  "revisionReason": "PR #158: UndoJournal.CompleteUndo settles an executed field Undo (issue #157; kills mutation survivors M03-M05)",
   "addedFiles": [
-    "tests/Boo.Demo.Tests/BlankScan.cs",
-    "tests/Boo.Demo.Tests/BlankScanTests.cs"
+    "tests/Boo.Core.Tests/UndoJournalCompleteUndoTests.cs"
   ],
-  "revisionCommit": "9b220d14ef2af6c731d8c94c1bf59dcd85d1811a",
-  "changedFiles": [
-    "tests/Boo.Demo.Tests/BooAppFixture.cs"
-  ],
+  "revisionCommit": "a135b9cd9ce0d202e3005bb44ebd568ad00ee396",
+  "changedFiles": [],
   "removedFiles": []
 }
