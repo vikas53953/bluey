@@ -490,6 +490,9 @@ public sealed class FocusAckDriver
         }
     }
 
+    /// <summary>An element of the focus panel by automation id, or null when it is not there.</summary>
+    public AutomationElement? PanelElement(string id) => Panel.FindFirstDescendant(cf => cf.ByAutomationId(id));
+
     public void Capture(string name) => _boo.CaptureScreen(name);
 
     public void Flush(string name)
