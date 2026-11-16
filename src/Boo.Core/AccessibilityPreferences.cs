@@ -27,6 +27,9 @@ public static class TextScale
     /// <summary>True when the factor changes layout enough to be worth applying (ignores float noise).</summary>
     public static bool IsScaled(double factor) => factor > 1.005;
 
+    // RED PROOF (throwaway, do not merge): a banned hidden clock must fail the build (RS0030 as an error).
+    public static System.DateTime RedProofClock() => System.DateTime.Now;
+
     /// <summary>
     /// Minimum window size once the content is scaled: grows with the factor but never past the
     /// available work area, so a 225% user on a small screen still gets a window that fits.
