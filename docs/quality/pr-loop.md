@@ -43,6 +43,30 @@ never a match.
 
 When a PR is `stamped-ready` and not armed, arming is that run's only action; the comment catches up next run.
 
+## The preflight before every arm, and one arm per run
+
+The plan is read at the start of the run; GitHub can change before the arm (a newer `codex-verified` failure, a
+withdrawn or edited `CODEX VERIFIED` comment, the PR retargeted to `main`, a red check, the base moving on).
+`--match-head-commit` binds only the head. So immediately before **each** arm the script re-reads, fresh:
+the repository's `allow_auto_merge`; the PR itself (same number, same head, open, not a draft, not a fork, base exactly
+`lane/face`, mergeable, auto-merge not already armed); the base head and the PR's `behind_by`; the check runs and
+statuses on the head; the comments. The PR must still classify as `stamped-ready`, and the latest `codex-verified`
+status must still be the **same status ID** the plan saw, named by a trusted `CODEX VERIFIED <head>` comment. Any
+change: no arm (`SKIP ... the fresh preflight no longer qualifies it`). Any read error: no arm, the run stops, exit 1.
+
+**The allowed base is an allowlist of one: `lane/face`.** A PR on any other base (`main`, or anything else, whatever
+its number) is never acted on, and `--base` refuses any other value. This closes the whole "PR #3-like" class, not
+just PR #3.
+
+**At most one arm per run.** An arm can let GitHub merge and move `lane/face` on, and every later plan in the run was
+read against the old base. Rather than re-derive mid-run, the loop arms at most one PR per run; the next run (10
+minutes later) re-reads everything.
+
+**Honest limit:** the preflight **narrows** the race window to the few seconds between its reads and the arm call; it
+is **not** an atomic compare-and-swap of base, status and comment. The backstop stays server-side: branch protection
+requires `codex-verified` (and every other required check) on the head at merge time, and `--match-head-commit` binds
+the head.
+
 ## The ledger (idempotency, keyed by PR, head and action)
 
 The simplest honest choice: **GitHub's own state is the ledger**, no file. `arm` is skipped when the PR's
@@ -106,6 +130,16 @@ Related, not solved here (open question): when auto-merge was armed by `GITHUB_T
 (for example `feature-map`, the push runs of `quality-gates` and `windows-ci`). The PR's own checks have all run
 before the merge, so no gate is skipped for the PR, but the after-merge runs on `lane/face` would be missing. Fixes
 for later, owner's call: a GitHub App token for the arm step, or letting the next PR's runs cover `lane/face`.
+
+## Unproven, and the owner's call
+
+- `contents: write` is confined to the `loop` job, which never runs on pull requests; the PR job's token is
+  read-only, checkout does not persist credentials, and acting needs an explicit switch.
+- **UNVERIFIED:** that the acting-mode permissions are enough to arm, and what runs on `lane/face` after a merge done
+  by auto-merge armed with the workflow token (GitHub documents that such token-driven events start no workflows).
+  No dry run can prove either.
+- **Activation is an owner policy decision** (putting the workflow on `main`, setting `PR_LOOP_APPLY=on`), not
+  something this PR turns on. Missing post-merge checks are a policy question, not an accepted replacement for them.
 
 ## Proof
 

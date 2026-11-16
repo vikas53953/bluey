@@ -42,6 +42,7 @@ import sys
 RULE = 'BOO-LOOP-001'
 REPO = 'vikas53953/bluey'
 BASE = 'lane/face'
+ALLOWED_BASES = (BASE,)  # an allowlist of one: a PR on any other base (main included) is never acted on
 BOT_LOGIN = 'github-actions[bot]'
 EXCLUDED = {3: 'PR #3 (lane/face -> main) is never touched by the loop'}
 # The required checks of lane/face's branch protection on 16 Nov 2026 (codex-verified is judged separately).
@@ -126,6 +127,14 @@ class GhClient:
             raise ApiError('200 or more open PRs: the list may be cut short, refusing to plan on part of it')
         return data
 
+    def pr(self, number):
+        fields = ('number,state,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,mergeable,'
+                  'mergeStateStatus,autoMergeRequest')
+        data = self._json(['pr', 'view', str(number), '--repo', self.repo, '--json', fields])
+        if not isinstance(data, dict):
+            raise ApiError(f'the fresh read of PR #{number} is not an object')
+        return data
+
     def comments(self, number):
         return [c for page in self._pages(f'repos/{self.repo}/issues/{number}/comments?per_page=100') for c in page]
 
@@ -159,8 +168,8 @@ def in_scope(pr, base):
     """Return None when the loop judges this PR, else the plain reason it does not."""
     if pr.get('isDraft'):
         return 'draft PR (out of scope until marked ready)'
-    if pr.get('baseRefName') != base:
-        return f'base is {pr.get("baseRefName")}, not {base} (out of scope)'
+    if base not in ALLOWED_BASES or pr.get('baseRefName') != base:
+        return f'base is {pr.get("baseRefName")}, not {base} (out of scope; the loop acts only on {BASE})'
     if pr.get('isCrossRepository'):
         return 'PR from a fork (out of scope)'
     if not SHA.match(str(pr.get('headRefOid', ''))):
@@ -181,13 +190,51 @@ def snapshot(client, base):
             continue
         entry['out_of_scope'] = in_scope(pr, base)
         if not entry['out_of_scope'] and pr.get('mergeable') != 'UNKNOWN':
-            head = pr['headRefOid']
-            entry['comments'] = client.comments(number)
-            entry['check_runs'] = client.check_runs(head)
-            entry['statuses'] = client.statuses(head)
-            entry['behind_by'] = client.behind_by(snap['base_sha'], head)
+            _read_gates(client, entry, snap['base_sha'])
         snap['prs'].append(entry)
     return snap
+
+
+def _read_gates(client, entry, base_sha):
+    number, head = entry['pr']['number'], entry['pr']['headRefOid']
+    entry['comments'] = client.comments(number)
+    entry['check_runs'] = client.check_runs(head)
+    entry['statuses'] = client.statuses(head)
+    entry['behind_by'] = client.behind_by(base_sha, head)
+
+
+def preflight(client, planned, base):
+    """Fresh reads of everything the arm depends on, right before it. Returns None when the PR still qualifies on
+    every point, else the plain reason it does not. Read errors raise ApiError (the run fails closed).
+    This NARROWS the window between the plan's read and the arm; it is NOT an atomic compare-and-swap. GitHub's
+    branch protection (codex-verified is a required check) and --match-head-commit remain the backstop."""
+    number, head = planned['number'], planned['head']
+    if number in EXCLUDED or base not in ALLOWED_BASES:
+        return 'excluded PR or base not allowed'
+    if client.repo_settings()['allow_auto_merge'] is not True:
+        return 'allow_auto_merge is no longer on'
+    pr = client.pr(number)
+    if pr.get('number') != number:
+        return f'fresh read returned PR #{pr.get("number")}'
+    if pr.get('headRefOid') != head:
+        return f'head moved to {pr.get("headRefOid")}'
+    if str(pr.get('state', 'OPEN')).upper() != 'OPEN':
+        return f'PR is {pr.get("state")}'
+    if pr.get('autoMergeRequest'):
+        return 'auto-merge is already armed'
+    item = {'pr': pr, 'excluded': None, 'out_of_scope': in_scope(pr, base)}
+    if item['out_of_scope']:
+        return item['out_of_scope']
+    if pr.get('mergeable') != 'MERGEABLE':
+        return f'mergeable is {pr.get("mergeable")}'
+    _read_gates(client, item, client.base_sha(base))
+    state, detail, _ = classify(item, base)
+    if state != 'stamped-ready':
+        return f'now {state}: {detail}'
+    status = _latest_by_context(item['statuses']).get(STAMP_CONTEXT) or {}
+    if status.get('id') != planned.get('stamp_id'):
+        return f'the latest codex-verified status is now {status.get("id")}, not {planned.get("stamp_id")}'
+    return None
 
 
 def _body(comment):
@@ -321,8 +368,9 @@ def plan(snap, base, bot_login):
             elif pr.get('autoMergeRequest'):
                 entry['arm'] = 'no (auto-merge already armed: nothing to repeat)'
             else:
-                entry['arm'] = f'YES ({stamp_reason})'
+                entry['arm'] = f'YES, after a fresh preflight ({stamp_reason})'
                 entry['action'] = 'arm'
+                entry['stamp_id'] = _latest_by_context(item['statuses'])[STAMP_CONTEXT].get('id')
         else:
             entry['arm'] = f'no ({stamp_reason})' if not stamp_ok else f'no (state {state})'
         if entry['action'] is None and judged:
@@ -338,9 +386,11 @@ def plan(snap, base, bot_login):
     return entries
 
 
-def execute(entries, client, apply, out=print):
-    """Take the planned actions (only with apply). PR #3 is refused here again even if a plan names it."""
-    done = 0
+def execute(entries, client, apply, out=print, base=BASE):
+    """Take the planned actions (only with apply). PR #3 is refused here again even if a plan names it.
+    Every arm is preceded by a fresh preflight; at most ONE arm per run, because an arm can move the base on and
+    every later plan was read against the old base (the next run re-reads everything)."""
+    done, armed = 0, 0
     for entry in entries:
         if entry['number'] in EXCLUDED:
             if entry.get('action'):
@@ -350,10 +400,26 @@ def execute(entries, client, apply, out=print):
         if not action:
             continue
         if not apply:
-            out(f'DRY RUN: would {action} on PR #{entry["number"]} (head {entry["head"]}); nothing done')
+            out(f'DRY RUN: would {action} on PR #{entry["number"]} (head {entry["head"]}); nothing done'
+                + (' (a fresh preflight would run first)' if action == 'arm' else ''))
             continue
+        if action == 'arm':
+            if armed:
+                out(f'SKIP: arm on PR #{entry["number"]}: at most one arm per run (the base may have moved); '
+                    'the next run re-reads it')
+                continue
+            try:
+                why_not = preflight(client, entry, base)
+            except ApiError as error:
+                raise ApiError(f'preflight read for PR #{entry["number"]} failed, no arm: {error}') from None
+            if why_not:
+                out(f'SKIP: arm on PR #{entry["number"]}: the fresh preflight no longer qualifies it ({why_not})')
+                continue
+            out(f'PREFLIGHT OK for PR #{entry["number"]}: fresh reads still qualify it. This narrows the race '
+                'window; it is not atomic. Branch protection and --match-head-commit remain the backstop.')
         try:
             if action == 'arm':
+                armed += 1
                 client.arm(entry['number'], entry['head'])
             elif action == 'create-comment':
                 client.create_comment(entry['number'], entry['body'])
@@ -389,7 +455,7 @@ def run(client, apply, base=BASE, bot_login=BOT_LOGIN, out=print):
     counts = {s: sum(1 for e in entries if e['state'] == s) for s in (*STATES, 'excluded')}
     out('states: ' + ', '.join(f'{k}={v}' for k, v in counts.items() if v))
     try:
-        done = execute(entries, client, apply, out)
+        done = execute(entries, client, apply, out, base)
     except ApiError as error:
         out(f'::error::{RULE} fail closed: {error}')
         return 1
@@ -771,6 +837,9 @@ def main(argv):
         else:
             print(__doc__)
             return 2
+    if opts['--base'] not in ALLOWED_BASES:
+        print(f'::error::{RULE} --base must be one of {", ".join(ALLOWED_BASES)} (got {opts["--base"]})')
+        return 2
     try:
         return run(GhClient(opts['--repo']), apply=apply, base=opts['--base'], bot_login=opts['--bot-login'])
     except ApiError as error:

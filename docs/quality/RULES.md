@@ -616,7 +616,7 @@ the latest `codex-verified` status on that exact head is SUCCESS and a trusted `
 that status's ID, or (2) create/edit its one marker comment `pr-loop: state=<s> head=<sha> next=<who>`. Its self-test
 fails when any state is misjudged, when a mismatched SHA, a different status ID, a failure status or an untrusted
 comment would arm, when PR #3 is read past the list or acted on, when a second run on the same head would act again,
-when a dry run would act, or when an API error would not fail the run closed.
+when a dry run would act, when an API error would not fail the run closed, when a change after the plan's read (stamp revoked, comment withdrawn or edited, PR retargeted, draft, behind, red check, already armed) would still arm because the fresh preflight before the arm missed it, when a pre-action read failure would still arm, or when a second PR would be armed in the same run. The preflight narrows the race; it is not atomic, and branch protection plus `--match-head-commit` remain the backstop. The only allowed base is `lane/face`.
 
 **Fix:** correct the state rule or the plan so the planted fixture gets the state the doc names. **Do NOT** add a
 branch update (a `GITHUB_TOKEN` push starts no CI: option (i)), arm without the matched stamp, drop the PR #3
