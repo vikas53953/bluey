@@ -124,7 +124,7 @@ public partial class MainWindow : Window
         _onAppearanceChanged = onAppearanceChanged;
         _appearance = new NotchAppearance();
         InitializeComponent();
-        ContentRendered += MainWindow_OnContentRendered;
+        Loaded += MainWindow_OnContentRendered;
 
         _focusTimer = new DispatcherTimer(DispatcherPriority.Normal)
         {
