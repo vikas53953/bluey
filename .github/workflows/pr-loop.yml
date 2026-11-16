@@ -8,7 +8,8 @@ name: pr-loop
 # Acting needs an explicit switch: a manual run with dry_run=false, or the repository variable PR_LOOP_APPLY set to
 # 'on' (owner's choice) for the schedule. Everything else is a dry run that prints the plan and does nothing.
 # Schedules and manual runs only start from the default branch (main), so the loop is idle until this file is there.
-# On pull requests only the self-test and a read-only dry run of the real queue run (the hosted proof).
+# On pull requests that change the loop itself (paths below) only the self-test and a read-only dry run of the real
+# queue run (the hosted proof); other PRs never get this check, so a GitHub hiccup here cannot turn them red.
 # Public repository, GitHub-hosted ubuntu runner: $0 Actions minutes. No artifacts, no secrets beyond the job token.
 
 on:
@@ -22,6 +23,10 @@ on:
         default: true
   pull_request:
     types: [opened, synchronize, reopened]
+    paths:
+      - 'scripts/pr_loop.py'
+      - '.github/workflows/pr-loop.yml'
+      - 'docs/quality/pr-loop.md'
 
 permissions:
   contents: read

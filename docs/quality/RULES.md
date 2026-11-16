@@ -625,3 +625,5 @@ exclusion, or turn the dry-run default around in the workflow (acting needs `dry
 Known gaps: schedules run only from the default branch (`main`), so the loop is idle until the workflow is there. A
 merge performed by auto-merge armed with `GITHUB_TOKEN` starts no push workflows on `lane/face` (open question in
 pr-loop.md). Trusted comments are judged by author association, not by which agent wrote them.
+The REST reply hides `allow_auto_merge` from a read-only token; the script then reads GraphQL `autoMergeAllowed`, and an
+unreadable setting never arms. `contents: write` on the `loop` job is UNVERIFIED until the first armed run.

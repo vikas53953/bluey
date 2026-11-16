@@ -71,7 +71,13 @@ marker is ignored. Nothing to lose between runs, nothing to keep in a cache, not
   example run 43802607289: `UBUNTU total_ms 0`, 2 jobs). Cost: **$0**.
 - `allow_auto_merge` is **on** for the repository (`gh api repos/vikas53953/bluey --jq .allow_auto_merge` → `true`,
   16 Nov 2026). If it is ever turned off, the loop reports it (`::warning::`), never arms, and never changes the
-  setting; the marker comment names the owner as next.
+  setting; the marker comment names the owner as next. The REST repository reply hides this field from a read-only
+  token (the first hosted dry run failed closed on exactly that, run 43803095094), so the script then asks GraphQL
+  (`autoMergeAllowed`); if the setting is still unreadable it is reported as "unreadable with this token" and the loop
+  never arms.
+- `gh pr merge --auto` arms GitHub's auto-merge while required checks are pending. If every requirement is already met
+  when it runs, GitHub may merge at once; that is the same outcome auto-merge would reach, still bound to the head by
+  `--match-head-commit`.
 - Schedule: every 10 minutes, plus a manual run with a `dry_run` input (default `true`). Concurrency group `pr-loop-queue`
   so two runs never overlap.
 - **Acting needs an explicit switch.** A manual run with `dry_run=false`, or the repository variable `PR_LOOP_APPLY`
@@ -80,8 +86,11 @@ marker is ignored. Nothing to lose between runs, nothing to keep in a cache, not
   `main`, the loop does not run on its own. On pull requests only the `selftest` job runs: the self-test and a
   read-only dry run of the real queue (its token cannot write).
 - Permissions: the `selftest` job reads only (`contents`, `pull-requests`, `statuses`, `checks`: read). The `loop`
-  job has `pull-requests: write` (comments, auto-merge) and `contents: write`, because GitHub requires merge rights to
-  arm auto-merge; `statuses` and `checks` read. Checkout with `persist-credentials: false`, so the token is not left in
+  job has `pull-requests: write` (comments, auto-merge) and `contents: write`, because arming auto-merge needs merge
+  rights (GitHub's guidance for enabling auto-merge from a workflow; **UNVERIFIED here until the first armed run on
+  `main`**, and a deviation from the plan's `contents: read`, for the orchestrator to accept); `statuses` and `checks`
+  read.
+- On pull requests the check runs only when the loop's own files change (`paths:`), so other PRs never carry it. Checkout with `persist-credentials: false`, so the token is not left in
   git. The refuse step stops the job anywhere but a GitHub-hosted VM.
 
 ## The GITHUB_TOKEN trap, and the chosen option (i)
@@ -101,6 +110,8 @@ for later, owner's call: a GitHub App token for the arm step, or letting the nex
 ## Proof
 
 - Self-test red first (logic stubbed), local and hosted: run 43802607289, `0/38 self-test cases passed`.
+- Fail closed for real: hosted run 43803095094 could not read `allow_auto_merge` with the read-only token and stopped
+  with `fail closed while reading GitHub, no action taken`, exit 1 (fixed by the GraphQL fallback above).
 - Self-test green after the implementation, and a read-only dry run of the real queue on every PR run (the plan for an
   unstamped PR says `arm: no (no codex-verified stamp on this head)`).
 - Nothing armed or commented on any real PR while this was built (dry run only).
