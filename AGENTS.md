@@ -29,6 +29,9 @@ sessions. These rules apply to every agent working in this repository.
 - Never add or edit rows in the PR table of `HANDOFF.md`, the table of `docs/DECISIONS.md` or the tables of
   `docs/FEATURE_MAP.md` (frozen history). Write your own fragment file instead: `docs/handoff/<pr>.md`,
   `docs/decisions/<pr>-<slug>.md`, `docs/feature-map/<named-id>.md` (BOO-DOCS-001, `docs/quality/RULES.md`).
+- End every PR body, PR comment and commit message you write with one trace footer line,
+  `Agent: <lane name> | Thread: <T3 thread link or https URL> | Model: <model>/<effort>` (BOO-TRACE-001, checked on PR bodies by `trace-footer`;
+  `gh pr create --body-file` skips the PR template, so add it yourself).
 
 ## Branches, keys and safety
 

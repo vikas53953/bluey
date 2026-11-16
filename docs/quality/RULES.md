@@ -606,3 +606,51 @@ feature-map fragment with `Replaces:` for the same old id do not conflict in git
 `Test-FeatureMap.ps1` (feature-map workflow, on every push to `lane/face`) reports the id replaced twice. A PR can edit
 `doc-fragments.yml` itself; like every gate here, that is caught by review and the required-check settings, not by the
 workflow. Not a required check until Vikas says so.
+
+## Trace footer on agent-written PR bodies (16 Nov 2026)
+
+Workflow `trace-footer` (job `footer`, Linux, under a minute, read-only token, no artifacts) runs
+`scripts/quality/trace_footer.py` on every pull request when it is opened, edited, pushed to or reopened. Why: with
+several agent lanes working in parallel, a red CI run or a QA finding has to reach the lane, the thread and the model
+that wrote the PR. One fixed line at the end of the body says who that is, so the fix is routed there (HANDOFF
+section 5, rule 13) instead of guessed.
+
+```
+Agent: <lane name> | Thread: <T3 thread link or https URL> | Model: <model>/<effort>
+Agent: agent-trust lane (Claude) | Thread: t3-thread://v2/41127859-de66-4654-8378-fd8497b3a652 | Model: claude-opus-5-5/medium
+```
+
+Grammar (spaces folded): `Agent: ` lane ` | Thread: ` thread ` | Model: ` model. Lane: 1 to 80 characters, no `|`.
+Thread: `t3-thread://` followed by letters, digits and `._~/-`, or an `https://` URL with a dotted host and no spaces.
+Model: one or more names (`[A-Za-z0-9][A-Za-z0-9._:-]*`, separated by single spaces), then `/` and a lower-case effort
+word (`claude-opus-5-5/medium`, `codex gpt-6.1-sol/medium`). The full grammar is in the script's docstring.
+
+As in `pr-evidence`, the body is not read as text: GitHub renders it (POST /markdown) and the check reads what a reader
+of the PR page sees. A plain "last line of the text" check would accept a footer hidden by an unclosed code fence or
+HTML comment, an indented code block or a `<details>` fold; the rendered check does not. Step order, as in
+`pr-evidence`: the **base branch's** copy of the checker judges the body first, then the PR's own copy runs its
+self-test, its render test (the tricks above, rendered by GitHub) and the check.
+
+## BOO-TRACE-001
+**A PR body without exactly one valid trace footer as its last visible line.** The check fails (closed, if GitHub
+cannot render the body or the body is empty) when:
+- no visible line starts with `Agent:` (code blocks and inline code do not count), or more than one does;
+- the footer is not the last line a reader sees;
+- the footer is not a plain line directly in a top-level paragraph (a heading, list, quote, table row, fold, bold or
+  code fails; a footer typed straight under a table row becomes a table row: leave a blank line above it);
+- its text breaks the grammar (empty or too-long lane, a thread that is not a t3-thread:// link or https URL, a model
+  without `/<effort>`, wrong keywords, order or separators, an unfilled `<placeholder>`).
+
+**Fix:** end the body with the footer line for your own lane, thread and model, after a blank line. **Do NOT** put
+anything after it, or hide it in a code block, comment or fold.
+
+PR comments and commit messages carry the same line by convention; they are not checked in CI (GitHub's own merge
+commits and the existing history have no footer, and a comment check would need a new trigger). A commit message can
+be checked locally: `python -I scripts/quality/trace_footer.py --commit <file>` (plain text: the last non-empty line,
+ignoring `#` lines, after any `Co-Authored-By:` trailer). `gh pr create --body-file` does not use
+`.github/pull_request_template.md`, so agents add the footer themselves (AGENTS.md).
+
+Known gaps: the check proves the footer is present and well formed, not that it is true (a wrong lane or thread is
+review's job). A PR can edit `trace-footer.yml` itself; like every gate here, that is caught by review and the
+required-check settings, not by the workflow. Open PRs fail this check at their next push or body edit until they add
+the footer (migration: add it at the next body edit). Not a required check until Vikas says so.

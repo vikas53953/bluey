@@ -66,8 +66,6 @@ def fold(text):
 
 def grammar(line):
     """Problems with one footer line's text (empty list: it matches the grammar)."""
-    return []  # RED: rules not written yet; the self-test below must fail
-
     text = fold(line)
     match = FOOTER.match(text)
     if not match:
@@ -149,8 +147,6 @@ def lines(rendered_html):
 
 def check(rendered_html):
     """Problems (plain-words strings) with the rendered PR body; empty means it passes."""
-    return []  # RED: rules not written yet; the self-test below must fail
-
     visible = [ln for ln in lines(rendered_html) if not (ln['code'] and 'pre' in ln['blocks'])]
     footers = [ln for ln in visible if ln['text'].startswith('Agent:') and not ln['code']]
     if not footers:
@@ -172,8 +168,6 @@ def check(rendered_html):
 
 def check_commit(message):
     """Problems with a commit message (plain text): its last non-empty, non-# line must be a footer."""
-    return []  # RED: rules not written yet; the self-test below must fail
-
     body = [ln for ln in (message or '').splitlines() if ln.strip() and not ln.startswith('#')]
     if not body or not body[-1].startswith('Agent:'):
         return ['the commit message does not end with a trace footer line "' + EXAMPLE + '"']
