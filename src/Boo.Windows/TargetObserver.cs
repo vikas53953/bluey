@@ -12,6 +12,7 @@ namespace Boo.Windows;
 public sealed class TargetObserver : IDisposable
 {
     private const uint EventSystemForeground = 0x0003;
+    private const uint GaRoot = 2;
     private const uint WineventOutOfContext = 0;
     private const uint WdaMonitor = 1;
     private const uint WdaExcludeFromCapture = 0x11;
@@ -186,9 +187,20 @@ public sealed class TargetObserver : IDisposable
         GC.SuppressFinalize(this);
     }
 
+    /// <summary>
+    /// Retains the new foreground window as the target. Windows can name a child control here (for example a text box
+    /// that UI Automation just wrote to, issue #157); the target is always that control's top-level window, so a child
+    /// can never replace it and make the real window look stale.
+    /// </summary>
     private void OnForegroundChanged(IntPtr hook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint eventThread, uint eventTime)
     {
         if (eventType != EventSystemForeground || hwnd == IntPtr.Zero || idObject != 0 || idChild != 0)
+        {
+            return;
+        }
+
+        hwnd = GetAncestor(hwnd, GaRoot);
+        if (hwnd == IntPtr.Zero)
         {
             return;
         }
@@ -467,6 +479,9 @@ public sealed class TargetObserver : IDisposable
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr module, WinEventDelegate callback, uint processId, uint threadId, uint flags);
