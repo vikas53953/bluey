@@ -1,0 +1,61 @@
+name: perf-guards
+
+# PR #142 / issue #124: pins what the idle-CPU fix ships and checks the perf tooling's own logic, on every PR.
+#   - the PUBLISHED Boo.runtimeconfig.json must carry the pinned runtime settings (TieredPGO off, ...);
+#   - scripts/perf self-tests (exact expected rows / verdicts, exit 1 on any difference);
+#   - no step in the perf workflows can mask a failing command (one command per step).
+# The probe's counter mapping and reader are unit-tested in windows-ci (Boo.Core.Tests, Boo.Integration.Tests).
+# GitHub-hosted only, no secrets, no AI.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guards:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # PyYAML for the workflow-steps check (pinned, hash-checked; same file windows-ci installs).
+      - name: CI Python packages
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
+      # One command per step (Codex review BLOCK on 5a3922b): a failing command can never be hidden by a later one.
+      - name: Self-test, runtime-settings check
+        run: python -I scripts/perf/check_runtime_settings.py --self-test
+
+      - name: Self-test, diagnostic summary
+        run: python -I scripts/perf/idle_diag_summary.py --self-test
+
+      - name: Self-test, mutant verdicts (setup failures are INVALID, never KILLED)
+        run: python -I scripts/perf/guard_mutants.py --self-test
+
+      - name: Self-test, workflow-steps check
+        run: python -I scripts/perf/check_workflow_steps.py --self-test
+
+      - name: No masked commands in the perf workflows
+        run: python -I scripts/perf/check_workflow_steps.py .github/workflows/perf-guards.yml .github/workflows/perf-guards-mutants.yml .github/workflows/perf-idle-diag.yml
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Publish Boo.exe (same command as windows-ci)
+        run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
+
+      - name: Published runtime settings are the pinned ones
+        run: python -I scripts/perf/check_runtime_settings.py check artifacts/ci

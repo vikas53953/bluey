@@ -474,7 +474,7 @@ they were. The facts get the replay's exit code, output hash and SARIF log. In `
 compiles (about 7 minutes locally).
 
 `fixtures` builds nine fixtures (`scripts/quality/buildfacts/fixtures/`) and quotes the facts lines that show each
-bypass. **Four only have to SHOW the bypass in the facts** (their judges come in #28 and #32): per-folder
+bypass. **Four only have to SHOW the bypass in the facts** (their judges: #28 for the banned APIs; `arch_refs.py judge`, section [Architecture references](#architecture-references-boo-ref), for the other three): per-folder
 `.editorconfig` severity, the five conditions (Configuration, RuntimeIdentifier, `_IsPublishing`, SolutionName,
 `IsOSPlatform`), `PackageDownload` + `Exists()` import, and a NuGet MSBuild SDK; their check result is only reported.
 **Five must also FAIL the check**: `compiler-response-file` (response file), `tamper-after-compile` (a `Copy` over the
@@ -681,3 +681,239 @@ test project in the repository, wherever it lives (a test fixture project that r
 
 **Fix:** make the test run, or delete it in a reviewed change. **Do NOT** add `Skip =`, empty the file, or move the
 test into a project the gate does not recognise as a test project (one without xUnit).
+
+## Architecture references (BOO-REF)
+
+Plan section 2.4 A, PR 1.2. [`scripts/quality/arch_refs.py`](../../scripts/quality/arch_refs.py) judges every project
+under `src/` against [`docs/architecture/layers.json`](../architecture/layers.json): which `src/` projects it may
+reference, which packages, which package build files it may import, which frameworks, and which target frameworks it is
+built for. The file is **exact both ways**: a reference it does not list fails, and an allowance the shipped build no
+longer uses also fails until it is removed, so the file always says what is true today.
+
+| Project | May reference projects | May reference packages | Package build files | Frameworks (from the SDK) | Built for |
+| --- | --- | --- | --- | --- | --- |
+| `Boo.Core` | none | none | none | `Microsoft.NETCore.App` | `net10.0` |
+| `Boo.Providers` | Core | none | none | `Microsoft.NETCore.App` | `net10.0` |
+| `Boo.Storage` | Core | `Microsoft.Data.Sqlite`, `System.Security.Cryptography.ProtectedData` | `SQLitePCLRaw.lib.e_sqlite3` (comes with Sqlite) | + Windows SDK | `net10.0-windows10.0.19041.0` |
+| `Boo.Windows` | Core | `NAudio` | none | + Windows SDK, `Microsoft.WindowsDesktop.App` (WPF, WinForms) | `net10.0-windows10.0.19041.0` |
+| `Boo.App` | Core, Windows, Providers, Storage | `Velopack` | `SQLitePCLRaw.lib.e_sqlite3` | + Windows SDK, `Microsoft.WindowsDesktop.App` | `net10.0-windows10.0.19041.0` |
+
+`sdk_packs` lists the packs the SDK itself downloads for these frameworks and the `win-x64` publish (the runtime packs,
+Crossgen2 for ReadyToRun, the Windows SDK projection). They may be downloaded, and their analyzers and reference files
+used; their build files may never be imported.
+
+**Read from the shipped build's facts.** The judge does not evaluate anything itself. It reads `build-facts.json`
+(section [Build facts](#build-facts-the-shipped-build)): the facts of `windows-ci`'s own Release build of `Boo.sln` and
+its `win-x64` self-contained publish of `Boo.App`, from their binary logs. Every unit of a `src/` project (one project,
+target framework and runtime identifier, in either log) is judged, including WPF's markup-compile project of `Boo.App`:
+
+- **project references**: the `ProjectReference` items, the ones really followed into the compile (what `csc` got,
+  so one added by a target while building counts), the projects in the restore results, and plain paths to another
+  project's `bin/` or `obj/` DLL. A reference that exists only under `Configuration == 'Release'`, a
+  `RuntimeIdentifier`, `_IsPublishing`, `SolutionName` or `IsOSPlatform('Windows')` shows up in the log where it is
+  real (the earlier evaluation-only check, Debug and project-alone on Linux, missed every one of these);
+- **packages**: `PackageReference` items and the direct dependencies in the restore results (a package added by a
+  target before restore counts); `PackageDownload` items and the restore's downloads (only `sdk_packs` may be
+  downloaded); every file `csc` got from a package (reference or analyzer) must be from that project's restore results,
+  same id and version;
+- **build code**: every imported file must be the repository's own, the SDK's (`<dotnet>/`), or a build file of a
+  package the project restores (that id at that version) **and** whose row lists it under `package_build_files`. So an `Exists()`-guarded import
+  of a downloaded package, and a NuGet MSBuild SDK (`<Sdk Name="..." Version="..."/>`, imported from `<nuget>/`
+  without being restored), fail; so does an import from anywhere else on the machine;
+- **frameworks**: `FrameworkReference` items, the framework packs `csc` got, and the target frameworks the logs show
+  (a second target framework in the publish only is seen); the WPF and WinForms profiles
+  (`Microsoft.WindowsDesktop.App.WPF` / `.WindowsForms`) count as `Microsoft.WindowsDesktop.App`;
+- **direct assemblies and analyzers**: any `<Reference>` item or `csc` reference that is neither a framework pack, a
+  file of a package the project restores, nor another `src/` project's output (then it is that project edge), and any
+  analyzer that is neither the SDK's nor from a restored package or downloaded SDK pack. WPF's markup-compile project
+  lists its references as `<Reference>` items with hint paths into the restored packages; those pass, a DLL from
+  anywhere else (the repository, an unrestored package, a name with no path) fails.
+
+It fails closed: facts that are not schema `boo-build-facts/1`, a missing, doubled or failed `build` / `publish` log, a
+malformed unit, a `src/` unit that no row owns, a declared project the build log does not compile, a unit without
+restore results, a restored library that is neither a package nor a project, or a reference with an unknown origin.
+The project files judged come from git (any `*proj` under `src/`, any letter case). `--self-test` judges 70 planted
+builds shaped like today's (each of the review's bypasses as it appears in the facts), 11 loosening cases and 6 kinds of
+unreadable facts; `format` checks `layers.json` alone; `show FACTS` prints what each project references.
+
+**Where it runs.** `windows-ci`, step **Architecture references (judged on the build facts)**, right after the build
+facts are written and uploaded. `quality-gates` (Linux) only runs `--self-test` and `format`; nothing there evaluates
+projects any more.
+
+**A PR cannot loosen its own layers, nor forge the facts its judge reads.** On a pull request the same step also runs
+the **base branch's** `arch_refs.py` with the **base branch's** `layers.json` (both read from git), and refuses a PR
+`layers.json` that allows anything the base one does not (BOO-REF-008). Splitting "loosen" and "use" over two PRs fails
+the first one. That base judge does **not** read the facts above (the PR's own extractor wrote those, and a PR could
+change it to leave a reference out). It reads **trusted facts**: the **base branch's** `scripts/quality/trusted_facts.py`
+takes the **base branch's** extractor folder (`scripts/quality/buildfacts/`), `build_facts.py` and `global.json` from
+git, builds the extractor outside the repository (so the PR's `Directory.Build.*`, `NuGet.config` and `global.json` do
+not reach it), self-tests it, runs it on this build's binary logs, checks the facts with the base `build_facts.py`, and
+writes `provenance.json` (base commit, git tree of the extractor folder, blob of the checker, sha256 of each binary log
+and of the facts). The base judge, given `--trusted-base <base commit>`, re-reads git and the files and refuses facts
+whose provenance is missing or differs; `--rise-only` without `--trusted-base` refuses to judge at all. While the base
+branch has none of these (this PR introduces them), that part says so, and the PR's own copies run the same trusted
+path once to show it works (not a verdict). `trusted_facts.py` is shared: the banned-API judge (#28) takes the same
+path after this PR merges.
+
+**Changing the layers.** A new edge, package, package build file, SDK pack, framework, target framework or project is an
+architecture decision: the PR edits `layers.json` and says why, the owner approves, and the base-branch check
+(BOO-REF-008) is overridden once with the reason in the PR. Removing something only needs the PR's own `layers.json`
+to drop it (BOO-REF-007 asks for that). Package versions are not judged.
+
+| Rule | Fails when | Today |
+| --- | --- | --- |
+| [BOO-REF-001](#boo-ref-001) | a `src/` project references a `src/` project its row does not allow (in either log, by any route above) | 0 |
+| [BOO-REF-002](#boo-ref-002) | a `src/` project references anything that is not a `src/<Name>/<Name>.csproj` project (`tools/`, `tests/`, outside the repo) | 0 |
+| [BOO-REF-003](#boo-ref-003) | a package, download, package build file, direct `<Reference>`, DLL path or analyzer its row (and `sdk_packs`) does not allow | 0 |
+| [BOO-REF-004](#boo-ref-004) | a project file under `src/` with no row or not at `src/<Name>/<Name>.csproj`, a `src/` unit no row owns, a declared project not compiled in the build log, or a unit without restore results | 0 |
+| [BOO-REF-005](#boo-ref-005) | a framework reference its row does not allow, or target frameworks other than its row's | 0 |
+| [BOO-REF-006](#boo-ref-006) | `layers.json` is malformed: unknown or missing keys, duplicates, an allowance naming no row, a self edge, a cycle | 0 |
+| [BOO-REF-007](#boo-ref-007) | `layers.json` allows or declares something the shipped build no longer has (the PR's own check only) | 0 |
+| [BOO-REF-008](#boo-ref-008) | the PR's `layers.json` allows more than the base branch's (the base-branch check only) | n/a |
+
+## BOO-REF-001
+**A project reference the layers do not allow** (for example `Boo.Windows` → `Boo.Providers` "to reuse a helper").
+One such edge ties two layers together for good. **Fix:** move the shared code down into a project both may reference
+(usually `Boo.Core`, as plain values or an interface), or do the wiring in `Boo.App`. **Do NOT** add the edge to
+`layers.json` to make the check pass, or hide it behind a condition: the facts of the real build show it.
+
+## BOO-REF-002
+**A reference that leaves `src/`.** `tools/` and `tests/` are not shipped and not judged; `tests/` is the frozen oracle.
+**Fix:** move the code the product needs into a `src/` project, or turn the dependency around. **Do NOT** copy the
+project into `src/` under a new name or link its files in with `<Compile Include>`.
+
+## BOO-REF-003
+**A package, assembly, analyzer or package build code the layer does not allow.** A package in the wrong layer breaks
+it from below without any project reference, and a package's build files run inside the build. **Fix:** put the code
+that needs it in the layer that owns that kind of work. **Do NOT** reference the DLL directly, add the package from
+`Directory.Build.props` or a target, download it and import its build files, or use a NuGet MSBuild SDK; the facts show
+all of these.
+
+## BOO-REF-004
+**A project that cannot be judged.** A project without a row has no rules; a declared project the facts do not show is
+not judged at all. **Fix:** put it at `src/<Name>/<Name>.csproj`, in `Boo.sln`, and add its row, with the smallest set
+of references it needs, in the same PR (owner approval, see Changing the layers). **Do NOT** put product code in
+`tools/` or `tests/` instead, or take a project out of `Boo.sln`.
+
+## BOO-REF-005
+**A framework the layer does not allow.** `Boo.Core` and `Boo.Providers` stay on plain `net10.0`, so WPF, WinForms and
+Windows APIs are impossible there. **Fix:** keep Windows-only code in `Boo.Windows` or `Boo.App`. **Do NOT** add
+`-windows`, a second target framework or a `<FrameworkReference>` to reach one Windows type.
+
+## BOO-REF-006
+**A broken rule file.** **Fix:** known keys only, complete rows, lists of distinct names, no self edge, no cycle.
+**Do NOT** delete the file or a row to silence it.
+
+## BOO-REF-007
+**An unused allowance (good news).** **Fix:** remove it from `layers.json` in the same PR, so the gain is locked in.
+**Do NOT** add a dummy reference to keep it.
+
+## BOO-REF-008
+**A PR that loosens `layers.json`.** **Fix:** the owner approves the new allowance and overrides the check once, with
+the reason in the PR. **Do NOT** split the loosening and its use into two PRs.
+
+## Known gaps (architecture references)
+
+| Gap | Example | Closed by |
+| --- | --- | --- |
+| Packages a package brings with it | `Microsoft.Data.Sqlite` brings `SQLitePCLRaw.*`; only direct packages are judged (they must still be in the restore results, and their build files need a `package_build_files` entry) | by design (the direct choice is the decision); versions are not judged either |
+| What the facts reader cannot see | a task that loads code without logging it, a build file that changes the build without an import or item MSBuild logs | the build-facts holes (section Build facts, "Still open") |
+| Sharing code without a reference | `<Compile Include="../Boo.Providers/X.cs" Link="X.cs"/>` | PR 1.3's compile-list check (#28: what each project compiles must be its own files) |
+| Loading code at run time | `Assembly.LoadFrom`, `[DllImport]` of a DLL by path, reflection | type-level rules (BOO-ARCH) and review |
+| Projects outside `src/` | `tools/` and `tests/` references are not judged (plan 2.4 lists today's test references as their allowlist) | a later PR |
+| An SDK or package update | a new SDK downloads another pack, or a package update adds `build/` files | fails closed (BOO-REF-003 or 007) until `layers.json` is updated in a reviewed PR, like `known.json` for the build facts |
+| Other build commands | a project built only by another workflow, or for another runtime identifier | the judge reads only windows-ci's Release build and `win-x64` publish, which is what ships |
+| The PR supplies the workflow, the build and its binary logs | a PR that edits `windows-ci.yml` (drops the step, `-bl`, or the base-branch part), or build code that changes what MSBuild logs | HANDOFF.md known issue 0 (CODEOWNERS, pending); the facts themselves are now extracted and checked by the base branch's own tooling (trusted facts, above), so a PR-modified extractor or checker changes nothing |
+| Merge order with PR 1.3 (#28) | #28 adds the `Microsoft.CodeAnalysis.BannedApiAnalyzers` package (with `buildTransitive` files) to every `src/` project from `Directory.Build.props`, which this check reports (BOO-REF-003) until `layers.json` allows it; allowing it before it is used fails BOO-REF-007 (unused) | this PR merges first (#28 reuses its `trusted_facts.py`); #28 then adds `"all_src_projects": {"packages": ["Microsoft.CodeAnalysis.BannedApiAnalyzers"], "package_build_files": ["Microsoft.CodeAnalysis.BannedApiAnalyzers"]}`, which the base judge refuses as looser (BOO-REF-008): an owner decision on #28, per "Changing the layers" above |
+
+## Bookkeeping in fragment files (16 Nov 2026)
+
+Workflow `doc-fragments` (job `fragments`, Linux, under a minute, no secrets, no artifacts) runs
+`scripts/quality/doc_fragments.py` on every pull request. Why: three tables were edited by almost every PR (the PR
+table in `HANDOFF.md`, the table in `docs/DECISIONS.md`, the tables in `docs/FEATURE_MAP.md` with counter ids like
+A7/A8), so nearly every sync of a parallel PR conflicted there (#93, #104, #139, #149, #152). Those tables are now
+frozen history, each marked by a `> **Frozen table.**` line; every new row is a file owned by one PR or one feature, so
+two PRs never edit the same file.
+
+| Fragment | Holds | Header (exactly) |
+| --- | --- | --- |
+| `docs/handoff/<pr number>.md` | that PR's status row (one row; the PR cell is `[#N](https://github.com/<owner>/<repo>/pull/N)`, N = the file name) | `PR`, `Branch → base`, `State`, `Notes` |
+| `docs/decisions/<pr number>-<slug>.md` | that PR's decision row(s); Date like `16 Nov 2026` | `Date`, `Decision`, `Why`, `Source`, `Status` |
+| `docs/feature-map/<named-id>.md` | one feature row; id cell = file name (lowercase words joined by `-`, never a counter); first a `Section: <### heading of the map>` line, optionally `Replaces: <old id>` | `#`, `Feature`, `How verified`, `Proof` |
+
+Each file holds only those lines: the header, the `| --- |` line and the row(s), no other text, no empty cell. The
+combined view (frozen rows plus every fragment, sorted; a handoff fragment takes its PR's old row's place, a
+`Replaces:` fragment takes the old map row's place) is printed by
+`python -I scripts/quality/doc_fragments.py assemble`, or written with `--out` outside the repository or under the
+git-ignored `artifacts/`. It is never committed (else the conflict would just move there). `Test-FeatureMap.ps1` reads
+the feature-map fragments exactly like table rows (label, cited `file::Method` exists, every live/native test cited by
+some row).
+
+Step order, as in `pr-evidence`: the **base branch's** copy of the checker (read from git) judges the PR first, so a PR
+cannot loosen the script it is judged by; then the PR's own copy runs its self-test (every rule on a planted sample,
+including a real throwaway git repository) and the check.
+
+## BOO-DOCS-001
+**A row written into a frozen bookkeeping table, or a fragment that breaks the shape or ownership rules.** The check
+compares the PR's head with its merge base and fails (closed, on any git or event trouble) when:
+- a row of a frozen table is added, edited, removed or moved (`HANDOFF.md` under `### Pull requests`,
+  `docs/DECISIONS.md` above `## Detailed decision records`, `docs/FEATURE_MAP.md` under `## The map`), a heading that
+  marks one is gone, or a `> **Frozen table.**` line is edited or removed;
+- any fragment in the tree is malformed (name, header, cell count, empty cell, extra text, row count, PR link, date,
+  id cell, unknown `Section`, `Replaces` of an id not in the frozen map or of one id twice);
+- a **new** handoff or decisions fragment is named for another PR's number (open the PR first, then add
+  `docs/handoff/<its number>.md`);
+- another PR's handoff or decisions fragment is changed in anything but its status cell (`State` / `Status`), gains or
+  loses a row, or is deleted.
+
+Ownership, the simplest honest rule: a handoff or decisions fragment belongs to the PR in its file name, which may
+change or delete it freely; any other PR may change only its status cell (for example to `merged 16 Nov (abc1234)`).
+Feature-map fragments belong to the feature, not to a PR: any PR may add, edit or delete one; `Test-FeatureMap.ps1`
+keeps what they claim true. A frozen HANDOFF row for an old PR is superseded by that PR's own `docs/handoff/<pr>.md`
+(written by that PR, for example when it next syncs). Frozen decision rows keep their wording; "proposed (PR #N); in
+force on merge" already says what the merge does.
+
+**Fix:** move the row out of the frozen table into the right fragment file (the message names the folder and the
+pattern). **Do NOT** edit the frozen rows, rename the headings that mark them, edit the pointer lines, or commit the
+assembled view.
+
+Known gaps: the check judges files, not truth (whether a status is right is review's job). Two PRs that each add a
+feature-map fragment with `Replaces:` for the same old id do not conflict in git; after both merge,
+`Test-FeatureMap.ps1` (feature-map workflow, on every push to `lane/face`) reports the id replaced twice. A PR can edit
+`doc-fragments.yml` itself; like every gate here, that is caught by review and the required-check settings, not by the
+workflow. Not a required check until Vikas says so.
+
+## BOO-LOOP-001
+**The deterministic PR loop arms auto-merge only on a matched, unvetoed stamp, and takes at most one action per PR per
+run.** [`scripts/pr_loop.py`](../../scripts/pr_loop.py) (workflow `pr-loop`, full design in [pr-loop.md](pr-loop.md))
+puts every open PR in exactly one state (`blocked`, `needs-rebase`, `ci-red`, `waiting-QA`, `waiting-review`,
+`waiting-stamp`, `stamped-ready`) and may only (1) run `gh pr merge <n> --auto --merge --match-head-commit <head>` when
+the latest `codex-verified` status on that exact head is SUCCESS, a trusted `CODEX VERIFIED <head>` comment names that
+status's ID, no comment newer than that one says `BLOCK`, `NOT VERIFIED` or `SURVIVED` (whole word, case-sensitive),
+and a fresh preflight right before the arm still finds all of that with the same status ID (at most one arm per run);
+(2) create/edit its one marker comment `pr-loop: state=<s> head=<sha> next=<who>`; (3) after a bot merge leaves the
+tip of `lane/face` without CI, dispatch `windows-ci` and `perf-guards` on it once. The only allowed base is
+`lane/face`: no PR on `main` (or any other base) is ever acted on.
+
+Its self-test fails when any state is misjudged; when a mismatched SHA, a different status ID, a failure status, an
+untrusted comment, a required check that is skipped or neutral, or a newer veto in an issue comment, a PR review body or an inline
+review comment would arm (including a review edited after the stamp, an unknown edit time, or a review or inline
+comment sharing the stamp comment's numeric id) (also with a copied loop marker, or in the same second as the
+stamp comment); when `--base` accepts anything but `lane/face`; when a change after the plan's read (stamp revoked or replaced,
+comment withdrawn or edited, veto comment, PR retargeted, draft, behind, red check, already armed) would still arm;
+when a second PR would be armed in one run; when any PR on `main` or PR #3 is acted on; when a second run on the same
+head would act again; when tip CI is dispatched without a bot merge at the tip, twice for one SHA, or in a dry run;
+when an API error would not fail the run closed; when `pr-loop.yml` gains a `schedule:` or loses its `dry_run` default
+of `true`; when any line of a private-key block (complete, or BEGIN without END), any key shape known to `key_scan.py` or any labelled value (`API key:`, `Authorization`, `token`, `secret`, `password`, `cookie`, ...) reaches stdout, stderr or a comment payload through any output path, when the script writes output outside its one choke point, when a missing or malformed field or time from any API source (PR metadata, comments, reviews, inline comments, check runs, statuses, merged PRs) is accepted instead of stopping the run, when `.get(` is used on API data outside the accessors, when a `gh` error carrying an `Authorization` header or a token reaches the output, when the environment
+handed to `gh` keeps `GH_DEBUG` / `GIT_TRACE*` / `GIT_CURL_VERBOSE` / `DEBUG`, when a verbose flag reaches `gh`, or when
+the workflow stops key-scanning its captured output.
+
+**Fix:** correct the state rule or the plan so the planted fixture gets the state the doc names. **Do NOT** add a
+branch update (a `GITHUB_TOKEN` push starts no CI: option (i)), arm without the matched stamp, drop the preflight,
+the one-arm limit, the veto or the base allowlist, add a `schedule:` trigger, or turn the dry-run default around.
+
+Known gaps: the preflight narrows the race; it is not atomic, and branch protection plus `--match-head-commit` remain
+the backstop. Acting-mode permissions, a `--ref lane/face` dispatch from the scheduler on `main`, and the tip-CI
+dispatch after a real bot merge are UNVERIFIED until they first happen (pr-loop.md says what to check). The REST reply
+hides `allow_auto_merge` from a read-only token; the script then reads GraphQL `autoMergeAllowed`, and an unreadable
+setting never arms. Trusted comments are judged by author association, not by which agent wrote them.
