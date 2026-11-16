@@ -10,12 +10,12 @@ static class SelfTest
         var failures = new List<string>();
         var t = new PathTokens();
         t.AddRepo(@"D:\a\bluey\bluey");
+        // The trust roots are established outside the build (Program.SetRoots: the running MSBuild's SDK, this
+        // process's own runtime and NuGet folder), never from its evaluated properties.
+        t.Add(@"C:\Program Files\dotnet", "<dotnet>/");
+        t.Add(@"C:\Users\runneradmin\.nuget\packages", "<nuget>/");
         t.AddFromProperties(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["NetCoreRoot"] = @"C:\Program Files\dotnet\",
-            ["DOTNET_HOST_PATH"] = @"C:\Program Files\dotnet\dotnet.exe",
-            ["NuGetPackageRoot"] = @"C:\Users\runneradmin\.nuget\packages\",
-            ["NuGetPackageFolders"] = @"C:\Users\runneradmin\.nuget\packages\;C:\Program Files\dotnet\sdk\NuGetFallbackFolder",
             ["ProgramFiles"] = @"C:\Program Files",
             ["ProgramFiles(x86)"] = @"C:\Program Files (x86)",
             ["TargetPlatformSdkPath"] = @"C:\Program Files (x86)\Windows Kits\10\",
@@ -194,10 +194,10 @@ static class SelfTest
     {
         var t = new PathTokens();
         t.AddRepo(@"D:\a\my repo\bluey");
+        t.Add(@"C:\Program Files\dotnet", "<dotnet>/");                   // trust roots: established outside the build
+        t.Add(@"C:\Users\runner admin\.nuget\packages", "<nuget>/");
         t.AddFromProperties(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["NetCoreRoot"] = @"C:\Program Files\dotnet\",
-            ["NuGetPackageRoot"] = @"C:\Users\runner admin\.nuget\packages\",
             ["ProgramFiles(x86)"] = @"C:\Program Files (x86)",
             ["TargetPlatformSdkPath"] = @"C:\Program Files (x86)\Windows Kits\10\",
             ["RUNNER_TEMP"] = @"D:\a\_temp",
