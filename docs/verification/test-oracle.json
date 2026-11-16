@@ -1,5 +1,5 @@
 {
-  "revision": 40,
+  "revision": 41,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -100,9 +100,9 @@
     "tests/Boo.Demo.Tests/BlankScan.cs": "4cabf6c0eb6b97034945437cd5670cecf51c9fe6794c7d5706fca2aea3dc6864",
     "tests/Boo.Demo.Tests/BlankScanTests.cs": "ecf191b86fb55fc632171dd91c136123bd2f130f3f52ab100a696fa9ee461014",
     "tests/Boo.Demo.Tests/Boo.Demo.Tests.csproj": "f3fad7e22de0b6b19a8b5bb208a3a6dcb4d76db4befa792f289ef188ed955d7b",
-    "tests/Boo.Demo.Tests/BooAppFixture.cs": "8e6ee9e0f86ef063b4c67849c782c446cc7c4ec49ba465b6d071487760212677",
+    "tests/Boo.Demo.Tests/BooAppFixture.cs": "1797c6493bf7031a337f36885f5f1e4464f1780481c117a3e1ab50b1d46acd1f",
     "tests/Boo.Demo.Tests/DemoTests.cs": "dcb58a575f973cd6d58f97af7612b97f6b1c4b0ab7c22f0c1b32f37e04611dac",
-    "tests/Boo.Demo.Tests/FirstPaintWaitDemoTests.cs": "d2bb264f81a8de3126494b720a656d7f134e2b51ef65010a05fd57dfd7b546ad",
+    "tests/Boo.Demo.Tests/FirstPaintWaitDemoTests.cs": "85f0b3597e4d6bc44aa2eb5348b45957ca7eb67703f28000cb9a23f1d35178fe",
     "tests/Boo.Demo.Tests/HiddenTextApprovalCardDemoTests.cs": "2e51e67626e3920b3ed2b436467b1008d1762dc1b978c7e22135cde9b9275f9e",
     "tests/Boo.Demo.Tests/OrderedSteps.cs": "306e9963f703f5d3110060f5a03f66272dfda4959eba07c238be328da40776e2",
     "tests/Boo.Demo.Tests/PaintedProbeTests.cs": "ee7eac45507845b80fc3f74e4634801bc0a328d8ac77bfc6a5c44abe492da3ae",
@@ -172,11 +172,11 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-39.json",
-  "previousManifestSha256": "29ff11f1c0ed518c9a60368ad813a388a8514cde15d8ae9fbcfa3169004d1cae",
-  "revisionReason": "Codex verifier on b8a9532 asked for a wait-site bypass red proof. WaitForPanel now delegates to a public WaitForPainted(find, timeout, what) that holds the paint gate; FirstPaintWaitDemoTests drive that exact method with test-owned WPF windows, so removing or bypassing IsPainted at the wait site makes the never-painted test return instead of timing out and fail. No assertion removed or weakened.",
+  "previousManifest": "docs/verification/test-oracle-history/revision-40.json",
+  "previousManifestSha256": "17603342614cfa5d87da5021ea661f9a7f4c4ed26c38358f62cf36a36db037be",
+  "revisionReason": "PR #161 QA (FAIL on 1d6dd20) asked for render-to-capture ordering, the blank probe's own image and an executed wait-site bypass control. BooAppFixture: WaitForPainted calls DwmFlush after the paint gate (the probe reads the window's composition surface via PW_RENDERFULLCONTENT; DwmFlush waits for the Desktop Window Manager to compose its next frame before the window is handed back); IsPainted is split into a public RenderWindow(window) so tests can keep the judged image; TryGetScreenRectangle for a rectangle capture. FirstPaintWaitDemoTests: the never-painted test keeps the probe's own blank image and asserts it is one flat colour; a new bypass control shows the same window through the ungated WaitFor is handed back at once and blank; the delayed control keeps the painted probe image and, on a GitHub-hosted runner, a screen rectangle capture of the window taken right after the wait returns, asserted not blank. Nothing removed or weakened.",
   "addedFiles": [],
-  "revisionCommit": "b8a95327773013a9109cfb293b21e3a054386213",
+  "revisionCommit": "1d6dd2005bb28e04514aa59cb01caf0bb61e2d80",
   "changedFiles": [
     "tests/Boo.Demo.Tests/BooAppFixture.cs",
     "tests/Boo.Demo.Tests/FirstPaintWaitDemoTests.cs"

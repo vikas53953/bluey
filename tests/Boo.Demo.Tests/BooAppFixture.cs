@@ -113,9 +113,17 @@ public class BooAppFixture : IDisposable
     /// The wait site itself: polls <paramref name="find"/> and hands the window back only once <see cref="IsPainted"/>
     /// says it has drawn content, failing closed at <paramref name="timeout"/> like <see cref="WaitFor{T}"/>. Tests drive
     /// it with their own windows (FirstPaintWaitDemoTests), so removing the paint gate here fails them.
+    /// Ordering: the probe reads the window through PrintWindow with PW_RENDERFULLCONTENT, which renders the window's
+    /// composition surface (the one the Desktop Window Manager composes from), so a non-blank result means the frame has
+    /// reached that surface; <c>DwmFlush</c> then waits for the Desktop Window Manager to compose its next frame before
+    /// the window is handed back, so a screen capture taken after this returns is of a composed frame that holds it.
     /// </summary>
-    public Window WaitForPainted(Func<Window?> find, TimeSpan timeout, string what) =>
-        WaitFor(() => find() is { } window && IsPainted(window) ? window : null, timeout, what);
+    public Window WaitForPainted(Func<Window?> find, TimeSpan timeout, string what)
+    {
+        var window = WaitFor(() => find() is { } candidate && IsPainted(candidate) ? candidate : null, timeout, what);
+        CaptureNative.DwmFlush();
+        return window;
+    }
 
     public Window WaitForNotch(TimeSpan timeout) =>
         WaitFor(FindNotch, timeout, "the Boo launcher (notch) window to appear");
@@ -143,21 +151,44 @@ public class BooAppFixture : IDisposable
     /// </summary>
     public static bool IsPainted(Window window)
     {
+        using var bitmap = RenderWindow(window);
+        return bitmap is not null && !BlankScan.IsBlank(bitmap, out _, out _);
+    }
+
+    /// <summary>
+    /// The window's own rendering as the probe sees it (PrintWindow, PW_RENDERFULLCONTENT), or null when it cannot be
+    /// read: no handle, no rectangle, zero area, PrintWindow refused, or the window is gone. Tests keep this image as
+    /// evidence of what the wait judged.
+    /// </summary>
+    public static Bitmap? RenderWindow(Window window)
+    {
         try
         {
             var hwnd = window.Properties.NativeWindowHandle.ValueOrDefault;
             if (hwnd == IntPtr.Zero || !CaptureNative.GetWindowRect(hwnd, out var rect))
             {
-                return false;
+                return null;
             }
-            using var bitmap = PrintWindowBitmap(hwnd, rect);
-            return bitmap is not null && !BlankScan.IsBlank(bitmap, out _, out _);
+            return PrintWindowBitmap(hwnd, rect);
         }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException or InvalidOperationException
                                    or FlaUI.Core.Exceptions.PropertyNotSupportedException)
         {
+            return null;
+        }
+    }
+
+    /// <summary>The window's screen rectangle, for a rectangle capture of what the desktop shows there.</summary>
+    public static bool TryGetScreenRectangle(Window window, out Rectangle rectangle)
+    {
+        rectangle = Rectangle.Empty;
+        var hwnd = window.Properties.NativeWindowHandle.ValueOrDefault;
+        if (hwnd == IntPtr.Zero || !CaptureNative.GetWindowRect(hwnd, out var rect) || rect.Width <= 0 || rect.Height <= 0)
+        {
             return false;
         }
+        rectangle = new Rectangle(rect.Left, rect.Top, rect.Width, rect.Height);
+        return true;
     }
 
     /// <summary>Renders the window's own content into a 24-bit bitmap, or null when it has no area or PrintWindow fails.</summary>
@@ -341,6 +372,10 @@ public class BooAppFixture : IDisposable
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         public static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
+
+        /// <summary>Blocks until the Desktop Window Manager has composed its next frame.</summary>
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        public static extern int DwmFlush();
 
     }
 

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Drawing;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
@@ -7,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using FlaUI.Core.AutomationElements;
 using WpfWindow = System.Windows.Window;
+using Window = FlaUI.Core.AutomationElements.Window;
 using WpfGrid = System.Windows.Controls.Grid;
 using MediaBrushes = System.Windows.Media.Brushes;
 using MediaColor = System.Windows.Media.Color;
@@ -55,6 +57,37 @@ public sealed class FirstPaintWaitDemoTests : IClassFixture<BooAppFixture>
         Assert.Contains("never-painted probe window", timeout.Message);
         var stem = Path.Combine(_boo.ArtifactsDirectory, "timeout-a-never-painted-probe-window--expected-");
         Assert.True(File.Exists(stem + ".capture.txt"), "no timeout capture note was kept for the never-painted window");
+
+        KeepBlankProbeImage(window, "first-paint-never-painted-probe");
+    }
+
+    /// <summary>
+    /// The executed bypass control: the same never-painted window through <see cref="BooAppFixture.WaitFor{T}"/> without the
+    /// paint gate is handed back at once, blank. This is what a wait on the handle alone did before this fix, and what
+    /// removing the gate from <see cref="BooAppFixture.WaitForPainted"/> would do again.
+    /// </summary>
+    [Fact]
+    public void WithoutThePaintGate_ANeverPaintedWindowIsHandedBackBlank()
+    {
+        using var probe = WpfProbeWindow.Show(contentDelay: null);
+        var window = _boo.Automation.FromHandle(probe.Handle).AsWindow();
+        var clock = Stopwatch.StartNew();
+
+        var handedBack = _boo.WaitFor(() => window, TimeSpan.FromSeconds(3), "a never-painted probe window without the paint gate");
+
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(2), $"the ungated wait took {clock.Elapsed.TotalSeconds:0.0} s");
+        Assert.False(BooAppFixture.IsPainted(handedBack), "the ungated wait handed back a window the probe calls painted");
+        KeepBlankProbeImage(handedBack, "first-paint-bypass-probe");
+    }
+
+    /// <summary>Saves the probe's own rendering of the window and asserts it is one flat colour, so the blank input is on record.</summary>
+    private void KeepBlankProbeImage(Window window, string name)
+    {
+        using var image = BooAppFixture.RenderWindow(window);
+        Assert.NotNull(image);
+        image.Save(Path.Combine(_boo.ArtifactsDirectory, name + ".boo-0.png"), System.Drawing.Imaging.ImageFormat.Png);
+        Assert.True(BlankScan.IsBlank(image, out var rectangle, out var share), $"the probe image was not blank: rectangle {rectangle:P0}, colour {share:P0}");
+        Assert.True(share >= 0.99, $"the never-painted window was not one flat colour: {share:P0}");
     }
 
     [Fact]
@@ -75,6 +108,26 @@ public sealed class FirstPaintWaitDemoTests : IClassFixture<BooAppFixture>
         Assert.True(shownAt <= returnedAt,
             $"the wait returned at {returnedAt:HH:mm:ss.fff}, before the window set its content at {shownAt:HH:mm:ss.fff}");
         Assert.True(BooAppFixture.IsPainted(painted), "the window handed back was not painted");
+
+        using (var image = BooAppFixture.RenderWindow(painted))
+        {
+            Assert.NotNull(image);
+            image.Save(Path.Combine(_boo.ArtifactsDirectory, "first-paint-control-probe.boo-0.png"), System.Drawing.Imaging.ImageFormat.Png);
+        }
+
+        if (BooAppFixture.OnGitHubHostedRunner())
+        {
+            Assert.True(BooAppFixture.TryGetScreenRectangle(painted, out var rectangle), "the control window has no screen rectangle");
+            var screenPath = _boo.CaptureRectangle("first-paint-control-screen", rectangle);
+            using var screen = new Bitmap(screenPath);
+            using var copy = new Bitmap(screen.Width, screen.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+            using (var g = Graphics.FromImage(copy))
+            {
+                g.DrawImageUnscaled(screen, 0, 0);
+            }
+            Assert.False(BlankScan.IsBlank(copy, out var screenRectangle, out var screenShare),
+                $"the first screen capture after the wait is blank where the control window is: rectangle {screenRectangle:P0}, colour {screenShare:P0}");
+        }
     }
 
     /// <summary>A borderless 240 x 180 WPF window on its own STA dispatcher thread: white until its content is set.</summary>
