@@ -34,8 +34,12 @@ never a match.
 `NOT VERIFIED` or `SURVIVED`, the PR is `blocked` and never armed. Matching is **case-sensitive and whole-word**: the
 phrase must not touch a letter, digit or underscore on either side, so `BLOCK` and `CODEX REVIEW BLOCK —` veto while
 `blocked`, `BLOCKED` and `UNBLOCK` do not. Any author counts (failing safe: a stray word can only stop an arm, never
-cause one). The loop's own marker comments are skipped, and never quote the phrases. Comments older than the stamp
-comment (and not edited since) do not veto: they are what the verifier already saw.
+cause one). Only the loop's **own** ledger comment is exempt: written by the loop's login (`github-actions[bot]`),
+starting with the marker and in ledger shape; a copied marker in anybody else's comment does not switch a veto off.
+Order: timestamps have one-second resolution, so a comment created in the same second as the stamp comment is
+ordered by comment id (ids only grow); an edit made in the same second as the stamp cannot be ordered and counts as
+after it (fail closed). Comments older than the stamp comment (and not edited since) do not veto: they are what the
+verifier already saw.
 
 ## The allowed actions (at most one per PR per run)
 
@@ -65,7 +69,7 @@ own comment also means no arm this run: the next run plans from it). Any change:
 no longer qualifies it`). Any read error: no arm, the run stops, exit 1.
 
 **The allowed base is an allowlist of one: `lane/face`.** A PR on any other base (`main`, or anything else, whatever
-its number) is never acted on, and `--base` refuses any other value. This closes the whole "PR #3-like" class, not
+its number) is never acted on, and `--base` refuses any other value before anything is read (tested through the command line). This closes the whole "PR #3-like" class, not
 just PR #3.
 
 **At most one arm per run.** An arm can let GitHub merge and move `lane/face` on, and every later plan in the run was

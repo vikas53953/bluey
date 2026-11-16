@@ -236,14 +236,14 @@ def in_scope(pr, base):
     return None
 
 
-def snapshot(client, base):
+def snapshot(client, base, bot_login=BOT_LOGIN):
     """Read everything first; any read error raises ApiError before a single action is planned."""
     snap = {'repo': client.repo_settings(), 'base_sha': client.base_sha(base), 'prs': []}
     for pr in sorted(client.open_prs(), key=lambda p: p.get('number', 0)):
         number = pr.get('number')
         if not isinstance(number, int):
             raise ApiError('an open PR has no number')
-        entry = {'pr': pr, 'excluded': EXCLUDED.get(number), 'out_of_scope': None}
+        entry = {'pr': pr, 'excluded': EXCLUDED.get(number), 'out_of_scope': None, 'bot_login': bot_login}
         if entry['excluded']:  # PR #3: nothing past the list is read
             snap['prs'].append(entry)
             continue
@@ -293,7 +293,8 @@ def preflight(client, planned, base):
         return f'PR is {pr.get("state")}'
     if pr.get('autoMergeRequest'):
         return 'auto-merge is already armed'
-    item = {'pr': pr, 'excluded': None, 'out_of_scope': in_scope(pr, base)}
+    item = {'pr': pr, 'excluded': None, 'out_of_scope': in_scope(pr, base),
+            'bot_login': planned.get('bot_login', BOT_LOGIN)}
     if item['out_of_scope']:
         return item['out_of_scope']
     if pr.get('mergeable') != 'MERGEABLE':
@@ -339,7 +340,7 @@ def stamp(entry):
             continue
         named = STATUS_ID.search(text)
         if named and int(named.group(1)) == status.get('id'):
-            vetoed = _veto(entry['comments'], comment)
+            vetoed = _veto(entry['comments'], comment, entry.get('bot_login', BOT_LOGIN))
             if vetoed:
                 return False, f'VETO: {vetoed}'
             return True, f'codex-verified status {status.get("id")} named by its CODEX VERIFIED comment'
@@ -347,15 +348,33 @@ def stamp(entry):
                    f'"CODEX VERIFIED {head}" comment')
 
 
-def _veto(comments, stamp_comment):
+def _loop_owned(comment, bot_login):
+    """Only the loop's own ledger comment: written by the loop's login, starting with the marker, in ledger shape.
+    A copied marker in anybody else's comment does not count."""
+    body = str(comment.get('body') or '')
+    return ((comment.get('user') or {}).get('login') == bot_login and body.lstrip().startswith(MARKER)
+            and LEDGER_LINE.search(body) is not None)
+
+
+def _after_stamp(comment, stamp_comment):
+    """True when the comment was created or edited after the stamp comment, or when the order cannot be told
+    (fail closed). Timestamps have one-second resolution: a creation in the same second is ordered by comment id
+    (ids only grow); an edit in the same second as the stamp cannot be ordered, so it counts as after."""
+    since, stamp_id = str(stamp_comment.get('created_at', '')), stamp_comment.get('id') or 0
+    created, cid = str(comment.get('created_at', '')), comment.get('id') or 0
+    updated = str(comment.get('updated_at') or created)
+    if created > since or (created == since and cid > stamp_id):
+        return True
+    return updated > created and updated >= since
+
+
+def _veto(comments, stamp_comment, bot_login=BOT_LOGIN):
     """A plain reason when any other comment, created or edited after the stamp comment, holds a veto phrase.
-    The loop's own marker comments never count (and never quote the phrases)."""
-    since = str(stamp_comment.get('created_at', ''))
+    Only the loop's own ledger comments are exempt (and they never quote the phrases)."""
     for comment in comments:
-        if comment.get('id') == stamp_comment.get('id') or MARKER in str(comment.get('body') or ''):
+        if comment.get('id') == stamp_comment.get('id') or _loop_owned(comment, bot_login):
             continue
-        when = max(str(comment.get('created_at', '')), str(comment.get('updated_at') or ''))
-        if when > since and VETO.search(str(comment.get('body') or '')):
+        if _after_stamp(comment, stamp_comment) and VETO.search(str(comment.get('body') or '')):
             return (f'comment {comment.get("id")} by {(comment.get("user") or {}).get("login")}, newer than the '
                     'stamp comment, carries a veto word')
     return None
@@ -461,6 +480,7 @@ def plan(snap, base, bot_login):
                 entry['arm'] = f'YES, after a fresh preflight ({stamp_reason})'
                 entry['action'] = 'arm'
                 entry['stamp_id'] = _latest_by_context(item['statuses'])[STAMP_CONTEXT].get('id')
+                entry['bot_login'] = item.get('bot_login', BOT_LOGIN)
         else:
             entry['arm'] = f'no ({stamp_reason})' if not stamp_ok else f'no (state {state})'
         if entry['action'] is None and judged:
@@ -549,7 +569,7 @@ def execute_tip(tip, client, apply, base, out=print):
 def run(client, apply, base=BASE, bot_login=BOT_LOGIN, out=print):
     """Snapshot, plan, print, then (only with apply) act. Returns the exit code; 1 = failed closed."""
     try:
-        snap = snapshot(client, base)
+        snap = snapshot(client, base, bot_login)
         entries = plan(snap, base, bot_login)
     except ApiError as error:
         out(f'::error::{RULE} fail closed while reading GitHub, no action taken: {error}')
@@ -1192,7 +1212,7 @@ def self_test():
     return 1 if failed else 0
 
 
-def main(argv):
+def main(argv, client_factory=GhClient):
     args = list(argv)
     if args == ['--self-test']:
         return self_test()
@@ -1213,7 +1233,7 @@ def main(argv):
         print(f'::error::{RULE} --base must be one of {", ".join(ALLOWED_BASES)} (got {opts["--base"]})')
         return 2
     try:
-        return run(GhClient(opts['--repo']), apply=apply, base=opts['--base'], bot_login=opts['--bot-login'])
+        return run(client_factory(opts['--repo']), apply=apply, base=opts['--base'], bot_login=opts['--bot-login'])
     except ApiError as error:
         print(f'::error::{RULE} fail closed, no action taken: {error}')
         return 1

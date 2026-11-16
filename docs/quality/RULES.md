@@ -620,7 +620,8 @@ tip of `lane/face` without CI, dispatch `windows-ci` and `perf-guards` on it onc
 `lane/face`: no PR on `main` (or any other base) is ever acted on.
 
 Its self-test fails when any state is misjudged; when a mismatched SHA, a different status ID, a failure status, an
-untrusted comment or a newer veto comment would arm; when a change after the plan's read (stamp revoked or replaced,
+untrusted comment or a newer veto comment would arm (also with a copied loop marker, or in the same second as the
+stamp comment); when `--base` accepts anything but `lane/face`; when a change after the plan's read (stamp revoked or replaced,
 comment withdrawn or edited, veto comment, PR retargeted, draft, behind, red check, already armed) would still arm;
 when a second PR would be armed in one run; when any PR on `main` or PR #3 is acted on; when a second run on the same
 head would act again; when tip CI is dispatched without a bot merge at the tip, twice for one SHA, or in a dry run;
