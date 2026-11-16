@@ -105,7 +105,7 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
                         {
                             Describe(root, 0);
                             if (root.Properties.BoundingRectangle.TryGetValue(out var bounds) && bounds.Width > 0 && bounds.Height > 0)
-                                _boo.CaptureRectangle($"qa-j12f-shell-root-{count}", bounds);
+                                _boo.CaptureScreen($"qa-j12f-shell-root-{count}");
                         }
                         Record($"shell inventory count={count}; truncated={count >= 2000}");
                     }
@@ -170,7 +170,7 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
                 Assert.True(Visible(taskbar));
                 Assert.Equal("Taskbar", taskbar.Properties.Name.Value);
                 Record($"overflow name={openHit.Properties.Name.Value} pid={openHit.Properties.ProcessId.Value} runtimeId={string.Join(",", overflowIdentity)} taskbarRuntimeId={string.Join(",", taskbarIdentity)} bounds={box} point={openPoint.X},{openPoint.Y}; one physical open click");
-                _boo.CaptureRectangle("qa-j12f-overflow-control", box);
+                _boo.CaptureScreen("qa-j12f-overflow-control");
                 Mouse.Click(openPoint, MouseButton.Left);
                 var exposed = BooAppFixture.WaitUntil(() => (icons = Icons()).Length > 0, TimeSpan.FromSeconds(3));
                 Areas(); // Required positive container evidence after the single bootstrap action.
@@ -211,7 +211,7 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
             var hit = _boo.Automation.FromPoint(point);
             try
             {
-                _boo.CaptureRectangle("qa-j12f-pre-right-click-area", area.BoundingRectangle);
+                _boo.CaptureScreen("qa-j12f-pre-right-click-area");
             }
             catch (Exception diagnosticError)
             {
@@ -267,7 +267,7 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
             Assert.Equal(_boo.App.ProcessId, menu.Properties.ProcessId.Value);
             Assert.True(stop.IsEnabled && stop.Patterns.Invoke.IsSupported);
             Record($"menu pid={menu.Properties.ProcessId.Value} name={menu.Properties.Name.Value} bounds={menu.BoundingRectangle}; item={stop.Properties.Name.Value} InvokeSupported=true");
-            _boo.CaptureRectangle("qa-j12f-tray-menu", menu.BoundingRectangle);
+            _boo.CaptureScreen("qa-j12f-tray-menu");
             Assert.True(clock.ElapsedMilliseconds - running < 9000, "Running-to-Stop setup exceeded bounded window; no retry.");
             Thread.Sleep(150);
             var mark = recorder.Mark();
