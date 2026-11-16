@@ -608,22 +608,31 @@ feature-map fragment with `Replaces:` for the same old id do not conflict in git
 workflow. Not a required check until Vikas says so.
 
 ## BOO-LOOP-001
-**The deterministic PR loop arms auto-merge only on a matched stamp, and takes at most one action per PR per run.**
-[`scripts/pr_loop.py`](../../scripts/pr_loop.py) (workflow `pr-loop`, full design in [pr-loop.md](pr-loop.md)) puts
-every open PR in exactly one state (`blocked`, `needs-rebase`, `ci-red`, `waiting-QA`, `waiting-review`,
+**The deterministic PR loop arms auto-merge only on a matched, unvetoed stamp, and takes at most one action per PR per
+run.** [`scripts/pr_loop.py`](../../scripts/pr_loop.py) (workflow `pr-loop`, full design in [pr-loop.md](pr-loop.md))
+puts every open PR in exactly one state (`blocked`, `needs-rebase`, `ci-red`, `waiting-QA`, `waiting-review`,
 `waiting-stamp`, `stamped-ready`) and may only (1) run `gh pr merge <n> --auto --merge --match-head-commit <head>` when
-the latest `codex-verified` status on that exact head is SUCCESS and a trusted `CODEX VERIFIED <head>` comment names
-that status's ID, or (2) create/edit its one marker comment `pr-loop: state=<s> head=<sha> next=<who>`. Its self-test
-fails when any state is misjudged, when a mismatched SHA, a different status ID, a failure status or an untrusted
-comment would arm, when PR #3 is read past the list or acted on, when a second run on the same head would act again,
-when a dry run would act, when an API error would not fail the run closed, when a change after the plan's read (stamp revoked, comment withdrawn or edited, PR retargeted, draft, behind, red check, already armed) would still arm because the fresh preflight before the arm missed it, when a pre-action read failure would still arm, or when a second PR would be armed in the same run. The preflight narrows the race; it is not atomic, and branch protection plus `--match-head-commit` remain the backstop. The only allowed base is `lane/face`.
+the latest `codex-verified` status on that exact head is SUCCESS, a trusted `CODEX VERIFIED <head>` comment names that
+status's ID, no comment newer than that one says `BLOCK`, `NOT VERIFIED` or `SURVIVED` (whole word, case-sensitive),
+and a fresh preflight right before the arm still finds all of that with the same status ID (at most one arm per run);
+(2) create/edit its one marker comment `pr-loop: state=<s> head=<sha> next=<who>`; (3) after a bot merge leaves the
+tip of `lane/face` without CI, dispatch `windows-ci` and `perf-guards` on it once. The only allowed base is
+`lane/face`: no PR on `main` (or any other base) is ever acted on.
+
+Its self-test fails when any state is misjudged; when a mismatched SHA, a different status ID, a failure status, an
+untrusted comment or a newer veto comment would arm; when a change after the plan's read (stamp revoked or replaced,
+comment withdrawn or edited, veto comment, PR retargeted, draft, behind, red check, already armed) would still arm;
+when a second PR would be armed in one run; when any PR on `main` or PR #3 is acted on; when a second run on the same
+head would act again; when tip CI is dispatched without a bot merge at the tip, twice for one SHA, or in a dry run;
+when an API error would not fail the run closed; when `pr-loop.yml` gains a `schedule:` or loses its `dry_run` default
+of `true`.
 
 **Fix:** correct the state rule or the plan so the planted fixture gets the state the doc names. **Do NOT** add a
-branch update (a `GITHUB_TOKEN` push starts no CI: option (i)), arm without the matched stamp, drop the PR #3
-exclusion, or turn the dry-run default around in the workflow (acting needs `dry_run=false` or `PR_LOOP_APPLY=on`).
+branch update (a `GITHUB_TOKEN` push starts no CI: option (i)), arm without the matched stamp, drop the preflight,
+the one-arm limit, the veto or the base allowlist, add a `schedule:` trigger, or turn the dry-run default around.
 
-Known gaps: schedules run only from the default branch (`main`), so the loop is idle until the workflow is there. A
-merge performed by auto-merge armed with `GITHUB_TOKEN` starts no push workflows on `lane/face` (open question in
-pr-loop.md). Trusted comments are judged by author association, not by which agent wrote them.
-The REST reply hides `allow_auto_merge` from a read-only token; the script then reads GraphQL `autoMergeAllowed`, and an
-unreadable setting never arms. `contents: write` on the `loop` job is UNVERIFIED until the first armed run.
+Known gaps: the preflight narrows the race; it is not atomic, and branch protection plus `--match-head-commit` remain
+the backstop. Acting-mode permissions, a `--ref lane/face` dispatch from the scheduler on `main`, and the tip-CI
+dispatch after a real bot merge are UNVERIFIED until they first happen (pr-loop.md says what to check). The REST reply
+hides `allow_auto_merge` from a read-only token; the script then reads GraphQL `autoMergeAllowed`, and an unreadable
+setting never arms. Trusted comments are judged by author association, not by which agent wrote them.

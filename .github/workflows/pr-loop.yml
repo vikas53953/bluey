@@ -5,16 +5,16 @@ name: pr-loop
 # matched codex-verified stamp, or upsert one marker comment that names the next owner. It never updates a branch
 # (a GITHUB_TOKEN push starts no CI; option (i)), never touches PR #3, tags, releases, installer or signing.
 #
-# Acting needs an explicit switch: a manual run with dry_run=false, or the repository variable PR_LOOP_APPLY set to
-# 'on' (owner's choice) for the schedule. Everything else is a dry run that prints the plan and does nothing.
-# Schedules and manual runs only start from the default branch (main), so the loop is idle until this file is there.
+# No schedule here: GitHub fires schedules only from the default branch (main). A small scheduler on main (Phase 2
+# lane) runs `gh workflow run pr-loop.yml --ref lane/face` every 5-10 minutes. Acting needs an explicit switch: a
+# manual run with dry_run=false (the owner's policy decision). Everything else is a dry run that does nothing.
+# After a bot merge (auto-merge armed with this token starts no push CI) the loop dispatches windows-ci and perf-guards
+# on lane/face once per tip commit (workflow_dispatch is allowed from the job token).
 # On pull requests that change the loop itself (paths below) only the self-test and a read-only dry run of the real
 # queue run (the hosted proof); other PRs never get this check, so a GitHub hiccup here cannot turn them red.
 # Public repository, GitHub-hosted ubuntu runner: $0 Actions minutes. No artifacts, no secrets beyond the job token.
 
 on:
-  schedule:
-    - cron: '*/10 * * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -79,6 +79,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: write
       statuses: read
       checks: read
     steps:
@@ -104,10 +105,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
           DRY_RUN_INPUT: ${{ inputs.dry_run }}
-          APPLY_VAR: ${{ vars.PR_LOOP_APPLY }}
         run: |
           mode=--dry-run
           if [ "$EVENT" = "workflow_dispatch" ] && [ "$DRY_RUN_INPUT" = "false" ]; then mode=--apply; fi
-          if [ "$EVENT" = "schedule" ] && [ "$APPLY_VAR" = "on" ]; then mode=--apply; fi
           echo "Mode: $mode (event $EVENT)"
           python -I scripts/pr_loop.py "$mode"

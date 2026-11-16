@@ -59,6 +59,12 @@ QA_PASS = re.compile(r'^QA PASS at `?([0-9a-f]{40})`?(?![0-9a-f])')
 REVIEW_PASS = re.compile(r'^CODEX REVIEW PASS\s*[—–-]+\s*`?([0-9a-f]{40})`?(?![0-9a-f])')
 VERIFIED = re.compile(r'^CODEX VERIFIED `?([0-9a-f]{40})`?(?![0-9a-f])')
 STATUS_ID = re.compile(r'Returned status ID \*\*(\d+)\*\*, context `codex-verified`')
+# A comment newer than the stamp comment (created or edited later) holding one of these whole, case-sensitive
+# phrases vetoes the arm: `BLOCK` (so `BLOCKED` and `blocked` do not), `NOT VERIFIED`, `SURVIVED`.
+VETO = re.compile(r'(?<![A-Za-z0-9_])(BLOCK|NOT VERIFIED|SURVIVED)(?![A-Za-z0-9_])')
+# After a merge made by a bot (auto-merge armed with the workflow token), GitHub starts no push workflows on the base,
+# so the loop dispatches these on the base once (they all have a workflow_dispatch trigger).
+TIP_WORKFLOWS = ('windows-ci.yml', 'perf-guards.yml')
 LEDGER_LINE = re.compile(r'^pr-loop: state=(\S+) head=([0-9a-f]{40}) next=(\S+)$', re.M)
 
 
@@ -135,6 +141,23 @@ class GhClient:
             raise ApiError(f'the fresh read of PR #{number} is not an object')
         return data
 
+    def merged_prs(self, base):
+        data = self._json(['pr', 'list', '--repo', self.repo, '--state', 'merged', '--base', base, '--limit', '20',
+                           '--json', 'number,mergeCommit,mergedBy,mergedAt'])
+        if not isinstance(data, list):
+            raise ApiError('the merged-PR list is not a list')
+        return data
+
+    def workflow_runs(self, workflow, sha):
+        data = self._json(['api', f'repos/{self.repo}/actions/workflows/{workflow}/runs?head_sha={sha}&per_page=1',
+                           '--jq', '{n: .total_count}'])
+        if not isinstance((data or {}).get('n'), int):
+            raise ApiError(f'could not count the runs of {workflow}')
+        return data['n']
+
+    def dispatch(self, workflow, ref):
+        self._gh(['workflow', 'run', workflow, '--repo', self.repo, '--ref', ref])
+
     def comments(self, number):
         return [c for page in self._pages(f'repos/{self.repo}/issues/{number}/comments?per_page=100') for c in page]
 
@@ -192,7 +215,19 @@ def snapshot(client, base):
         if not entry['out_of_scope'] and pr.get('mergeable') != 'UNKNOWN':
             _read_gates(client, entry, snap['base_sha'])
         snap['prs'].append(entry)
+    snap['tip'] = _tip(client, base, snap['base_sha'])
     return snap
+
+
+def _tip(client, base, tip):
+    """Which tip workflows to dispatch: only when the base's tip IS the merge commit of a PR merged by a bot (a
+    merge by a person starts push CI by itself), and only those with no run on that SHA yet (the ledger)."""
+    merged_by_bot = [m for m in client.merged_prs(base)
+                     if (m.get('mergeCommit') or {}).get('oid') == tip and (m.get('mergedBy') or {}).get('is_bot')]
+    if not merged_by_bot:
+        return {'sha': tip, 'pr': None, 'dispatch': []}
+    missing = [w for w in TIP_WORKFLOWS if client.workflow_runs(w, tip) == 0]
+    return {'sha': tip, 'pr': merged_by_bot[0].get('number'), 'dispatch': missing}
 
 
 def _read_gates(client, entry, base_sha):
@@ -268,9 +303,26 @@ def stamp(entry):
             continue
         named = STATUS_ID.search(text)
         if named and int(named.group(1)) == status.get('id'):
+            vetoed = _veto(entry['comments'], comment)
+            if vetoed:
+                return False, f'VETO: {vetoed}'
             return True, f'codex-verified status {status.get("id")} named by its CODEX VERIFIED comment'
     return False, (f'codex-verified status {status.get("id")} on this head is not named by a trusted '
                    f'"CODEX VERIFIED {head}" comment')
+
+
+def _veto(comments, stamp_comment):
+    """A plain reason when any other comment, created or edited after the stamp comment, holds a veto phrase.
+    The loop's own marker comments never count (and never quote the phrases)."""
+    since = str(stamp_comment.get('created_at', ''))
+    for comment in comments:
+        if comment.get('id') == stamp_comment.get('id') or MARKER in str(comment.get('body') or ''):
+            continue
+        when = max(str(comment.get('created_at', '')), str(comment.get('updated_at') or ''))
+        if when > since and VETO.search(str(comment.get('body') or '')):
+            return (f'comment {comment.get("id")} by {(comment.get("user") or {}).get("login")}, newer than the '
+                    'stamp comment, carries a veto word')
+    return None
 
 
 def _ci(entry):
@@ -325,6 +377,8 @@ def classify(entry, base):
     if not any((m := REVIEW_PASS.match(t)) and m.group(1) == head for t in trusted):
         return 'waiting-review', f'QA PASS present; no CODEX REVIEW PASS names {head}', 'reviewer'
     ok, reason = stamp(entry)
+    if reason.startswith('VETO: '):
+        return 'blocked', f'stamp vetoed: {reason[6:]}', 'lane'
     if not ok:
         return 'waiting-stamp', f'QA and review PASS present; {reason}', 'verifier'
     return 'stamped-ready', reason, 'auto-merge'
@@ -434,6 +488,28 @@ def execute(entries, client, apply, out=print, base=BASE):
     return done
 
 
+def execute_tip(tip, client, apply, base, out=print):
+    """Dispatch the missing tip workflows on the base, after a fresh check that the tip has not moved and still
+    has no run of that workflow. Read errors raise ApiError (fail closed)."""
+    done = 0
+    for workflow in tip['dispatch']:
+        if not apply:
+            out(f'DRY RUN: would dispatch {workflow} on {base} (tip {tip["sha"]}, bot merge of PR #{tip["pr"]}); '
+                'nothing done')
+            continue
+        now = client.base_sha(base)
+        if now != tip['sha']:
+            out(f'SKIP: dispatch {workflow}: {base} moved to {now} (its own push runs cover it)')
+            continue
+        if client.workflow_runs(workflow, now):
+            out(f'SKIP: dispatch {workflow}: a run on {now} already exists')
+            continue
+        client.dispatch(workflow, base)
+        out(f'DONE: dispatch {workflow} on {base} (tip {now}, bot merge of PR #{tip["pr"]})')
+        done += 1
+    return done
+
+
 def run(client, apply, base=BASE, bot_login=BOT_LOGIN, out=print):
     """Snapshot, plan, print, then (only with apply) act. Returns the exit code; 1 = failed closed."""
     try:
@@ -452,14 +528,19 @@ def run(client, apply, base=BASE, bot_login=BOT_LOGIN, out=print):
         out(f'PR #{e["number"]} state={e["state"]} head={e["head"]} next={e["next"]}\n'
             f'    why:  {e["detail"]}\n    arm:  {e["arm"]}\n'
             f'    action: {e["action"] or "no action"}')
+    tip = snap['tip']
+    out(f'tip of {base} {tip["sha"]}: ' + (f'bot merge of PR #{tip["pr"]}; dispatch: '
+                                          f'{", ".join(tip["dispatch"]) or "none (runs already exist)"}'
+                                          if tip['pr'] else 'not a bot merge; no dispatch needed'))
     counts = {s: sum(1 for e in entries if e['state'] == s) for s in (*STATES, 'excluded')}
     out('states: ' + ', '.join(f'{k}={v}' for k, v in counts.items() if v))
     try:
         done = execute(entries, client, apply, out, base)
+        done += execute_tip(snap['tip'], client, apply, base, out)
     except ApiError as error:
         out(f'::error::{RULE} fail closed: {error}')
         return 1
-    planned = sum(1 for e in entries if e.get('action'))
+    planned = sum(1 for e in entries if e.get('action')) + len(snap['tip']['dispatch'])
     out(f'actions: {planned} planned, {done} done' + ('' if apply else ' (dry run)'))
     return 0
 
@@ -549,7 +630,7 @@ class FakeClient:
 
     def workflow_runs(self, workflow, sha):
         self._read('workflow_runs', (workflow, sha))
-        return self.runs.get((workflow, sha), 0)
+        return self._then('workflow_runs', self.runs.get((workflow, sha), 0))
 
     def dispatch(self, workflow, ref):
         self._write('dispatch', workflow, ref)
@@ -883,6 +964,16 @@ def self_test():
                    runs={(w, 'b' * 40): 1 for w in tip_workflows})
     code, text = go(c, apply=True)
     check('(d) the tip already has runs of those workflows: no dispatch (ledger = existing runs on that SHA)',
+          code == 0 and not dispatches(c))
+    c = bot_merged(_world(s=lambda d: d['statuses'].update({head: []})),
+                   runs={(w, 'b' * 40): 1 for w in tip_workflows})
+    code, text = go(c, apply=False)
+    check('(d) the plan itself reads the ledger: tip runs exist, so even a dry run plans no dispatch',
+          code == 0 and 'would dispatch' not in text and 'runs already exist' in text)
+    c = bot_merged(_world(s=lambda d: d['statuses'].update({head: []})))
+    c.after['workflow_runs'] = lambda f: f.runs.update({(w, 'b' * 40): 1 for w in tip_workflows})
+    code, text = go(c, apply=True)
+    check('(d) a tip run appears between the read and the dispatch (e.g. another loop run): no dispatch',
           code == 0 and not dispatches(c))
     c = bot_merged(_world(s=lambda d: d['statuses'].update({head: []})))
     code, text = go(c, apply=False)

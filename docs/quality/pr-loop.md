@@ -16,13 +16,13 @@ Only "trusted" comments count: author association OWNER, MEMBER or COLLABORATOR.
 
 | State | When | Next (who the comment wakes) |
 | --- | --- | --- |
-| `blocked` | Draft, base not `lane/face`, fork PR, GitHub has not computed mergeability yet, or the verifier refused this head (the latest `codex-verified` status on it is `failure` or `error`). | owner / lane / loop (next run) |
+| `blocked` | Draft, base not `lane/face` (every PR on `main`, not only #3), fork PR, GitHub has not computed mergeability yet, the verifier refused this head (the latest `codex-verified` status on it is `failure` or `error`), or the stamp is vetoed (below). | owner / lane / loop (next run) |
 | `needs-rebase` | Behind `lane/face` (compare API `behind_by` > 0) or conflicting. | lane (syncs the branch) |
 | `ci-red` | A check run or a commit status on the head failed (`failure`, `cancelled`, `timed_out`, `action_required`, `startup_failure`, `stale`, `error`). When a check of the same name ran again (for example `evidence` after a body edit), the newest run counts, as in GitHub's own required-check rule. | lane |
 | `waiting-QA` | A check is still running or a required check (`demos`, `build-test-publish`, `live-ai-smoke`, `evidence`, `package`, `preflight`, `quality`, `smoke`) has not reported yet; or all green but no comment starting `QA PASS at <head>`. | qa |
 | `waiting-review` | No comment starting `CODEX REVIEW PASS — <head>`. | reviewer |
 | `waiting-stamp` | No matched stamp (below). | verifier |
-| `stamped-ready` | Everything above met **and** a matched stamp. | auto-merge |
+| `stamped-ready` | Everything above met **and** a matched, unvetoed stamp. | auto-merge |
 
 **The matched stamp (the attribution rule, same as the merge verifier's):** the **latest** `codex-verified` commit
 status on this exact head has state `success`, **and** a trusted comment whose first line is `CODEX VERIFIED <this
@@ -30,12 +30,19 @@ head>` contains `Returned status ID **<id>**, context `codex-verified`` with `<i
 comment naming another SHA, a different status ID, a later failure status, or a comment from an untrusted account:
 never a match.
 
+**The veto:** if **any** other comment on the PR, created or edited after that stamp comment, contains `BLOCK`,
+`NOT VERIFIED` or `SURVIVED`, the PR is `blocked` and never armed. Matching is **case-sensitive and whole-word**: the
+phrase must not touch a letter, digit or underscore on either side, so `BLOCK` and `CODEX REVIEW BLOCK —` veto while
+`blocked`, `BLOCKED` and `UNBLOCK` do not. Any author counts (failing safe: a stray word can only stop an arm, never
+cause one). The loop's own marker comments are skipped, and never quote the phrases. Comments older than the stamp
+comment (and not edited since) do not veto: they are what the verifier already saw.
+
 ## The allowed actions (at most one per PR per run)
 
 1. **Arm auto-merge**: `gh pr merge <n> --auto --merge --match-head-commit <head>`. Only in `stamped-ready`, only
-   when the repository allows auto-merge, only when auto-merge is not already armed. `--match-head-commit` means a new
-   push between the read and the call makes GitHub refuse it. GitHub then merges only when every required check,
-   including `codex-verified`, is green on the head.
+   when the repository allows auto-merge, only when auto-merge is not already armed, only after the fresh preflight,
+   and at most one arm per run. `--match-head-commit` means a new push between the read and the call makes GitHub
+   refuse it. GitHub then merges only when every required check, including `codex-verified`, is green on the head.
 2. **Branch update: not an action** (see the trap below). The script has no code path for it.
 3. **One marker comment per PR**: first line `pr-loop: state=<state> head=<sha> next=<who>`, then the reason. Created
    once, then edited in place. Same state and head as the comment already says: nothing written. Drafts, other
@@ -43,109 +50,133 @@ never a match.
 
 When a PR is `stamped-ready` and not armed, arming is that run's only action; the comment catches up next run.
 
+Plus one repository-level action, **tip CI after a bot merge** (below).
+
 ## The preflight before every arm, and one arm per run
 
 The plan is read at the start of the run; GitHub can change before the arm (a newer `codex-verified` failure, a
-withdrawn or edited `CODEX VERIFIED` comment, the PR retargeted to `main`, a red check, the base moving on).
-`--match-head-commit` binds only the head. So immediately before **each** arm the script re-reads, fresh:
+withdrawn or edited `CODEX VERIFIED` comment, a new BLOCK comment, the PR retargeted to `main`, a red check, the base
+moving on). `--match-head-commit` binds only the head. So immediately before **each** arm the script re-reads, fresh:
 the repository's `allow_auto_merge`; the PR itself (same number, same head, open, not a draft, not a fork, base exactly
 `lane/face`, mergeable, auto-merge not already armed); the base head and the PR's `behind_by`; the check runs and
-statuses on the head; the comments. The PR must still classify as `stamped-ready`, and the latest `codex-verified`
-status must still be the **same status ID** the plan saw, named by a trusted `CODEX VERIFIED <head>` comment. Any
-change: no arm (`SKIP ... the fresh preflight no longer qualifies it`). Any read error: no arm, the run stops, exit 1.
+statuses on the head; the comments (so the veto is checked again). The PR must still classify as `stamped-ready`, and
+the latest `codex-verified` status must still be the **same status ID** the plan saw (a newer SUCCESS stamp with its
+own comment also means no arm this run: the next run plans from it). Any change: no arm (`SKIP ... the fresh preflight
+no longer qualifies it`). Any read error: no arm, the run stops, exit 1.
 
 **The allowed base is an allowlist of one: `lane/face`.** A PR on any other base (`main`, or anything else, whatever
 its number) is never acted on, and `--base` refuses any other value. This closes the whole "PR #3-like" class, not
 just PR #3.
 
 **At most one arm per run.** An arm can let GitHub merge and move `lane/face` on, and every later plan in the run was
-read against the old base. Rather than re-derive mid-run, the loop arms at most one PR per run; the next run (10
-minutes later) re-reads everything.
+read against the old base. Rather than re-derive mid-run, the loop arms at most one PR per run; the next run re-reads
+everything.
 
 **Honest limit:** the preflight **narrows** the race window to the few seconds between its reads and the arm call; it
 is **not** an atomic compare-and-swap of base, status and comment. The backstop stays server-side: branch protection
 requires `codex-verified` (and every other required check) on the head at merge time, and `--match-head-commit` binds
 the head.
 
+## Tip CI after a bot merge
+
+A merge made by auto-merge that the workflow token armed is recorded as made by a bot, and GitHub starts **no** push
+workflows for it, so `lane/face` would get no `windows-ci` or perf run on its new tip. Each run the loop reads the
+last 20 PRs merged into `lane/face`. When the **current tip of `lane/face` is the merge commit of a PR merged by a
+bot** (`mergedBy.is_bot`), it dispatches `windows-ci.yml` and `perf-guards.yml` on `lane/face` (both already have a
+`workflow_dispatch` trigger, so no workflow changed; GitHub allows `workflow_dispatch` from the job token). The
+ledger is GitHub's own runs: a workflow that already has any run on that tip SHA is not dispatched. Right before each
+dispatch it re-reads the tip (moved: skip, the new tip's own pushes cover it) and the run count (a run appeared:
+skip). A merge by a person starts push CI by itself: no dispatch. Dry run: printed, not done. A read error: no action,
+exit 1.
+
+**UNVERIFIED until the first real bot merge** (no real dispatch was made while building this). What to check then:
+the merged PR shows `mergedBy` as a bot; the next loop run prints `tip of lane/face <sha>: bot merge of PR #N;
+dispatch: windows-ci.yml, perf-guards.yml`; both runs appear on that SHA with event `workflow_dispatch`, triggered by
+`github-actions[bot]`; a further loop run prints `none (runs already exist)`. Not covered by this dispatch: the other
+push-only runs on `lane/face` (`demo-ci`, `quality-gates`, `feature-map`); the PR's own runs covered them before the
+merge.
+
 ## The ledger (idempotency, keyed by PR, head and action)
 
 The simplest honest choice: **GitHub's own state is the ledger**, no file. `arm` is skipped when the PR's
 `autoMergeRequest` is already set. `comment` is skipped when the bot's own marker comment (author
 `github-actions[bot]`, marker `<!-- pr-loop:v1 -->`) already says this state and head; anybody else's comment with the
-marker is ignored. Nothing to lose between runs, nothing to keep in a cache, nothing another account can forge.
+marker is ignored. `dispatch` is skipped when the tip SHA already has a run of that workflow. Nothing to lose between
+runs, nothing to keep in a cache, nothing another account can forge.
 
 ## Never
 
-- **PR #3** (`lane/face` → `main`): skipped right after the PR list is read (nothing about it is read further), and
-  the executor refuses again if a plan ever names it.
+- **PR #3** and **every PR whose base is `main`** (or anything but `lane/face`): never acted on. PR #3 is also skipped
+  right after the PR list is read, and the executor refuses again if a plan ever names it.
 - Tags, releases, installer, signing, repository settings, branch pushes: no code path.
-- Merge without the matched stamp; merge directly (only arming GitHub's auto-merge, which still waits for every
-  required check).
+- Merge without the matched, unvetoed stamp; merge directly (only arming GitHub's auto-merge, which still waits for
+  every required check).
 - Print a token: `gh` reads `GH_TOKEN`; the script never reads or prints it.
-- **Fail closed:** any API error while reading (repository, base head, PR list, comments, checks, statuses, compare)
-  stops the run before any action: exit 1, `::error::` with the reason. An error while acting stops the run there,
-  exit 1. 200 or more open PRs: refused (the list could be cut short).
+- **Fail closed:** any API error while reading (repository, base head, PR list, comments, checks, statuses, compare,
+  merged PRs, workflow runs) stops the run before any action: exit 1, `::error::` with the reason. An error while
+  acting stops the run there, exit 1. 200 or more open PRs: refused (the list could be cut short).
 
-## Where it runs and what it costs
+## How it is started
 
-- The repository is **public** (`gh api repos/vikas53953/bluey --jq .visibility` → `public`, 16 Nov 2026), and the
-  jobs run on GitHub-hosted `ubuntu-latest`. GitHub documents standard hosted runners as free for public
-  repositories. The billing endpoints for the account are not readable with the token here (they need the `user`
-  scope: HTTP 404). The run timing endpoint is readable and shows **0 billable ms** for this workflow's runs (for
-  example run 43802607289: `UBUNTU total_ms 0`, 2 jobs). Cost: **$0**.
-- `allow_auto_merge` is **on** for the repository (`gh api repos/vikas53953/bluey --jq .allow_auto_merge` → `true`,
-  16 Nov 2026). If it is ever turned off, the loop reports it (`::warning::`), never arms, and never changes the
-  setting; the marker comment names the owner as next. The REST repository reply hides this field from a read-only
-  token (the first hosted dry run failed closed on exactly that, run 43803095094), so the script then asks GraphQL
-  (`autoMergeAllowed`); if the setting is still unreadable it is reported as "unreadable with this token" and the loop
-  never arms.
-- `gh pr merge --auto` arms GitHub's auto-merge while required checks are pending. If every requirement is already met
-  when it runs, GitHub may merge at once; that is the same outcome auto-merge would reach, still bound to the head by
-  `--match-head-commit`.
-- Schedule: every 10 minutes, plus a manual run with a `dry_run` input (default `true`). Concurrency group `pr-loop-queue`
-  so two runs never overlap.
-- **Acting needs an explicit switch.** A manual run with `dry_run=false`, or the repository variable `PR_LOOP_APPLY`
-  set to `on` (owner's choice) for the schedule. Anything else is a dry run.
-- **GitHub starts schedules and manual runs only from the default branch, which is `main`.** Until this file reaches
-  `main`, the loop does not run on its own. On pull requests only the `selftest` job runs: the self-test and a
-  read-only dry run of the real queue (its token cannot write).
+- **No `schedule:` trigger.** GitHub fires schedules only from the default branch (`main`). A small scheduler that
+  lives on `main` (built by the Phase 2 lane, not here) runs `gh workflow run pr-loop.yml --ref lane/face` every 5 to
+  10 minutes, which runs this file as it is on `lane/face`.
+- `workflow_dispatch` with a `dry_run` input, **default `true`**. **Acting needs `dry_run=false`**, which is the
+  owner's policy decision (the scheduler passes `-f dry_run=false` only once he says so). Concurrency group
+  `pr-loop-queue`, so two runs never overlap.
+- On pull requests that change the loop's own files (`paths:`) only the `selftest` job runs: the self-test and a
+  read-only dry run of the real queue (its token cannot write). Other PRs never carry this check.
 - Permissions: the `selftest` job reads only (`contents`, `pull-requests`, `statuses`, `checks`: read). The `loop`
-  job has `pull-requests: write` (comments, auto-merge) and `contents: write`, because arming auto-merge needs merge
-  rights (GitHub's guidance for enabling auto-merge from a workflow; **UNVERIFIED here until the first armed run on
-  `main`**, and a deviation from the plan's `contents: read`, for the orchestrator to accept); `statuses` and `checks`
-  read.
-- On pull requests the check runs only when the loop's own files change (`paths:`), so other PRs never carry it. Checkout with `persist-credentials: false`, so the token is not left in
-  git. The refuse step stops the job anywhere but a GitHub-hosted VM.
+  job (never on pull requests) has `pull-requests: write` (comments, auto-merge), `contents: write` (arming auto-merge
+  needs merge rights; a deviation from the plan's `contents: read`), `actions: write` (the tip dispatch), and
+  `statuses`/`checks` read. Checkout with `persist-credentials: false`. The refuse step stops the job anywhere but a
+  GitHub-hosted VM.
+
+## What it costs: $0 (proof)
+
+- The repository is **public**: `gh api repos/vikas53953/bluey --jq .visibility` → `public` (16 Nov 2026).
+- Only standard GitHub-hosted labels: `pr-loop` runs on `ubuntu-latest`; the dispatched `windows-ci` and
+  `perf-guards` use their existing `windows-latest` labels. `scripts/ci/check_runners.py` allows only standard
+  hosted labels and passes on every workflow.
+- GitHub documents standard GitHub-hosted runners as free for public repositories.
+- The account billing endpoints are not readable with the token here (they need the `user` scope: HTTP 404). The run
+  timing endpoint is readable and shows **0 billable ms**: `pr-loop` run 43802607289 `UBUNTU total_ms 0` (2 jobs),
+  and a ten-minute `windows-ci` run 43813170620 `WINDOWS total_ms 0`.
+
+## Settings
+
+- `allow_auto_merge` is **on** (`gh api repos/vikas53953/bluey --jq .allow_auto_merge` → `true`, 16 Nov 2026). If it
+  is ever turned off, the loop reports it (`::warning::`), never arms, and never changes the setting. The REST reply
+  hides this field from a read-only token (the first hosted dry run failed closed on exactly that, run 43803095094),
+  so the script then asks GraphQL (`autoMergeAllowed`); still unreadable means "unreadable with this token", never arm.
+- `gh pr merge --auto` arms GitHub's auto-merge while required checks are pending. If every requirement is already met
+  when it runs, GitHub may merge at once; that is the same outcome auto-merge would reach, still bound to the head.
 
 ## The GITHUB_TOKEN trap, and the chosen option (i)
 
 A push made with the workflow's own `GITHUB_TOKEN` (including GitHub's "update branch") **does not start other
 workflows**. If the loop updated a behind branch, the new head would have no CI, so it could never be QA'd, reviewed
-or stamped, and the PR would sit there looking busy. **Option (i), chosen:** the scheduled loop never updates
-branches. It only arms auto-merge and writes the marker comment; branch syncs stay with the orchestrator / the lane's
-task, whose pushes do start CI. `needs-rebase` therefore names `lane` as next.
-
-Related, not solved here (open question): when auto-merge was armed by `GITHUB_TOKEN`, GitHub performs the merge as
-`github-actions[bot]`, and that merge push to `lane/face` also starts **no** push-triggered workflows on `lane/face`
-(for example `feature-map`, the push runs of `quality-gates` and `windows-ci`). The PR's own checks have all run
-before the merge, so no gate is skipped for the PR, but the after-merge runs on `lane/face` would be missing. Fixes
-for later, owner's call: a GitHub App token for the arm step, or letting the next PR's runs cover `lane/face`.
+or stamped. **Option (i), chosen:** the loop never updates branches. It only arms auto-merge, writes the marker
+comment and dispatches tip CI after a bot merge; branch syncs stay with the orchestrator / the lane's task, whose
+pushes do start CI. `needs-rebase` therefore names `lane` as next.
 
 ## Unproven, and the owner's call
 
-- `contents: write` is confined to the `loop` job, which never runs on pull requests; the PR job's token is
-  read-only, checkout does not persist credentials, and acting needs an explicit switch.
-- **UNVERIFIED:** that the acting-mode permissions are enough to arm, and what runs on `lane/face` after a merge done
-  by auto-merge armed with the workflow token (GitHub documents that such token-driven events start no workflows).
-  No dry run can prove either.
-- **Activation is an owner policy decision** (putting the workflow on `main`, setting `PR_LOOP_APPLY=on`), not
-  something this PR turns on. Missing post-merge checks are a policy question, not an accepted replacement for them.
+- `contents: write` and `actions: write` are confined to the `loop` job, which never runs on pull requests; the PR
+  job's token is read-only, checkout does not persist credentials, and acting needs `dry_run=false`.
+- **UNVERIFIED:** that the acting-mode permissions are enough to arm and to dispatch; that a `--ref lane/face` dispatch
+  from the scheduler on `main` runs this file; the tip-CI dispatch on the first real bot merge (what to check is
+  above). No dry run can prove these.
+- **Activation is an owner policy decision** (the scheduler on `main`, `dry_run=false`), not something this PR turns
+  on. The tip dispatch covers `windows-ci` and `perf-guards`; other push-only runs after a bot merge stay a policy
+  question, not an accepted replacement for them.
 
 ## Proof
 
-- Self-test red first (logic stubbed), local and hosted: run 43802607289, `0/38 self-test cases passed`.
-- Fail closed for real: hosted run 43803095094 could not read `allow_auto_merge` with the read-only token and stopped
-  with `fail closed while reading GitHub, no action taken`, exit 1 (fixed by the GraphQL fallback above).
-- Self-test green after the implementation, and a read-only dry run of the real queue on every PR run (the plan for an
-  unstamped PR says `arm: no (no codex-verified stamp on this head)`).
-- Nothing armed or commented on any real PR while this was built (dry run only).
+- Self-test red first (logic stubbed): run 43802607289, `0/38`. Fail closed for real: run 43803095094.
+- Review P1 (stale snapshot) red first: run 43812847889, `41/56`.
+- Review P2 and the 16 Nov requirements (a)-(d) red first: run 43828969596, `67/76` (the 9 new behaviour cases fail;
+  the P2 and (b) cases pass on the old code and are proven by mutation kills instead).
+- Mutation kills (local): removing the one-arm limit, the stamp-ID continuity check, the base allowlist, the veto,
+  either run-ledger check, or the bot-merger condition each fails at least one self-test case.
+- Nothing armed, commented or dispatched on any real PR or branch while this was built (dry run only).
