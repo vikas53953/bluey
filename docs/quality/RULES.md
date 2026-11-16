@@ -217,8 +217,14 @@ PR 1.3 makes the ban exact: the compiler, not a text scan, decides which member 
   traces every shipped assembly to a recorded compile, and every `src/` project must have one in the build log.
   Publish-only code (a file included only under a `RuntimeIdentifier` or `_IsPublishing`) is compiled, logged and
   judged in the publish log.
-- **On a pull request** `windows-ci` also runs the **base branch's** copy of `banned_apis.py` as `judge` on the same
-  facts (skipped while the base has none), and the `quality` job runs its `rise-check`: no new entry, no raised count,
+- **On a pull request** the verdict is the **base branch's** copy of `banned_apis.py` as `judge --verdict
+  --trusted-base <base sha>` on **trusted facts**, never on the facts above (the PR's own extractor wrote those and could
+  leave a banned call's RS0030 result out): the base branch's `scripts/quality/trusted_facts.py produce --replay-under
+  src/` (#32's design, section "A PR cannot loosen its own layers, nor forge the facts its judge reads") builds the base's
+  own extractor and `build_facts.py` from git outside the repository, replays each `src/` compile, checks the facts and
+  writes `provenance.json`; the judge verifies it and fails closed, and `--verdict` without `--trusted-base` refuses to
+  judge. While the base has no `banned_apis.py` (this PR), the PR's own copies run that path once with the checkout's own
+  commit as the base, a bootstrap that is not an independent verdict. The `quality` job runs the base copy's `rise-check`: no new entry, no raised count,
   no removed ban line, RS0030 named in no `src/` C# file other than `AnalyzerBaseline.cs`. On Linux the `quality` job
   keeps the parts that need no build of the app: `list-check`, the [canary](#canary) and `format` (the ban list and
   every `AnalyzerBaseline.cs` parse in their strict formats).
