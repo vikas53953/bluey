@@ -50,6 +50,7 @@ Why not Electron: see [docs/DECISIONS.md](docs/DECISIONS.md).
 | `tests/Boo.Core.Tests` | net10.0 | Unit tests for Boo.Core (1719 on 12 Nov). |
 | `tests/Boo.Integration.Tests` | net10.0-windows | Cross-project tests (148). |
 | `tests/Boo.Providers.Tests` | net10.0 | Provider clients against in-memory HTTP, no key (115). |
+| `tools/Boo.Cassettes.Tests` | net10.0 | **Mock**: replays saved OpenAI replies (good, messy and a bad-day set, with their delays and injected faults) through the real OpenAI client; no key (BOO-CASS-001, `docs/quality/cassettes.md`). Never a substitute for the live run. |
 
 ### Not in `Boo.sln` (built in their own CI step)
 
@@ -63,6 +64,7 @@ Why not Electron: see [docs/DECISIONS.md](docs/DECISIONS.md).
 | `tools/Boo.LiveSmoke` | One **real** AI round trip through the published `Boo.exe` (used only by `live-ai-smoke`). |
 | `tools/Boo.LiveProbe` | Manual one-shot paid probe of the OpenAI `responses`, `decisions` or `realtime` path. Not used by CI. |
 | `tools/Boo.Properties` | FsCheck property tests of the notch lifecycle reducer (`src/Boo.Core/NotchLifecycle.cs`): 5 properties over random event walks, shrunk counterexamples in the log. Run by `properties.yml` (no app, no AI). |
+| `tools/Boo.Cassettes.Record` | Records real OpenAI replies as redacted cassettes. Run only by the by-hand `record-cassettes` workflow; built by windows-ci so it cannot rot. |
 
 Other folders: `docs/plans` (implementation plans), `docs/verification` (evidence, native checklists, frozen-test
 oracle), `docs/design` (`boo-notch-spec.json` drives the notch face), `docs/security`, `scripts/` (CI gates and

@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "name": "bad-connect-refused",
+  "origin": "synthetic",
+  "note": "Synthetic, hand-made from the documented OpenAI Responses API shape (not a real recording). First real recording: record-cassettes.yml after merge.",
+  "call": "respond",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses",
+    "model": "gpt-5-mini",
+    "format": "boo_screen_help_result",
+    "tools": [],
+    "bodyKeys": [
+      "model",
+      "store",
+      "reasoning",
+      "instructions",
+      "input",
+      "text"
+    ]
+  },
+  "fault": {
+    "kind": "connect-refused",
+    "atChunk": 0
+  },
+  "expect": {
+    "outcome": "provider-failure",
+    "failureKind": "Offline",
+    "status": null,
+    "retryable": true,
+    "message": "Can't reach OpenAI. Check your internet connection and try again."
+  }
+}
