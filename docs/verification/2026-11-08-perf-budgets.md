@@ -39,7 +39,8 @@ breach fails the job. Budgets are deliberately set from measured runner numbers 
    stride) instead of copying every frame into a `width*height*4` managed array first: on a 2560x1440 display that
    removes a 14.7 MB large-object-heap allocation and a 1440-iteration row copy from every capture. The JPEG stream
    is pre-sized from the previous frame. `ScreenCapture` is now `IDisposable` and the panel disposes it on exit.
-4. **Publish settings.** `PublishReadyToRun` (no JIT wait for the first frames), `TieredPGO`,
+4. **Publish settings.** `PublishReadyToRun` (no JIT wait for the first frames), `TieredPGO` (on until 15 Nov 2026;
+   now off, issue #124: its extra re-compile round filled the idle window),
    `ConcurrentGarbageCollection=false` (one fewer always-on thread; Boo's heap is small so a blocking gen2 is
    milliseconds) and `SatelliteResourceLanguages=en` (smaller publish folder).
 
