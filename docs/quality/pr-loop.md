@@ -18,7 +18,7 @@ Only "trusted" comments count: author association OWNER, MEMBER or COLLABORATOR.
 | --- | --- | --- |
 | `blocked` | Draft, base not `lane/face` (every PR on `main`, not only #3), fork PR, GitHub has not computed mergeability yet, the verifier refused this head (the latest `codex-verified` status on it is `failure` or `error`), or the stamp is vetoed (below). | owner / lane / loop (next run) |
 | `needs-rebase` | Behind `lane/face` (compare API `behind_by` > 0) or conflicting. | lane (syncs the branch) |
-| `ci-red` | A check run or a commit status on the head failed (`failure`, `cancelled`, `timed_out`, `action_required`, `startup_failure`, `stale`, `error`). When a check of the same name ran again (for example `evidence` after a body edit), the newest run counts, as in GitHub's own required-check rule. | lane |
+| `ci-red` | A check run or a commit status on the head failed (`failure`, `cancelled`, `timed_out`, `action_required`, `startup_failure`, `stale`, `error`), or a **required** check concluded anything but `success` (a required check that is `skipped` or `neutral` is not green; only other checks, such as `github-release`, may skip). When a check of the same name ran again (for example `evidence` after a body edit), the newest run counts, as in GitHub's own required-check rule. | lane |
 | `waiting-QA` | A check is still running or a required check (`demos`, `build-test-publish`, `live-ai-smoke`, `evidence`, `package`, `preflight`, `quality`, `smoke`) has not reported yet; or all green but no comment starting `QA PASS at <head>`. | qa |
 | `waiting-review` | No comment starting `CODEX REVIEW PASS — <head>`. | reviewer |
 | `waiting-stamp` | No matched stamp (below). | verifier |
@@ -30,14 +30,15 @@ head>` contains `Returned status ID **<id>**, context `codex-verified`` with `<i
 comment naming another SHA, a different status ID, a later failure status, or a comment from an untrusted account:
 never a match.
 
-**The veto:** if **any** other comment on the PR, created or edited after that stamp comment, contains `BLOCK`,
+**The veto:** if **any** other comment on the PR (issue comments, PR review bodies from `/pulls/{n}/reviews` and inline review comments from `/pulls/{n}/comments`, all read every run and again in the preflight; a failed read stops the run), created, submitted or edited after that stamp comment, contains `BLOCK`,
 `NOT VERIFIED` or `SURVIVED`, the PR is `blocked` and never armed. Matching is **case-sensitive and whole-word**: the
 phrase must not touch a letter, digit or underscore on either side, so `BLOCK` and `CODEX REVIEW BLOCK —` veto while
 `blocked`, `BLOCKED` and `UNBLOCK` do not. Any author counts (failing safe: a stray word can only stop an arm, never
 cause one). Only the loop's **own** ledger comment is exempt: written by the loop's login (`github-actions[bot]`),
 starting with the marker and in ledger shape; a copied marker in anybody else's comment does not switch a veto off.
-Order: timestamps have one-second resolution, so a comment created in the same second as the stamp comment is
-ordered by comment id (ids only grow); an edit made in the same second as the stamp cannot be ordered and counts as
+Order: timestamps have one-second resolution, so an issue comment created in the same second as the stamp comment
+is ordered by comment id (ids only grow); a review or inline comment in that second cannot be ordered (its ids are a
+different sequence) and counts as after; a review with no submission time counts as after; an edit made in the same second as the stamp cannot be ordered and counts as
 after it (fail closed). Comments older than the stamp comment (and not edited since) do not veto: they are what the
 verifier already saw.
 
@@ -131,7 +132,12 @@ text, and the dry-run plan. There is no queue file. `safe()` is driven by:
    `Authorization`, `Bearer`, `token`, `secret`, `password`, `cookie`, `Set-Cookie`, `private key`, `access key`)
    followed by `:`, `=` or a space: the label stays, the rest of that line is replaced by `[redacted]`.
 
-If the patterns cannot be loaded, `safe()` withholds the text entirely (fail closed). Because a label removes the
+Before both, a **whole private-key block** is removed: from its `-----BEGIN ... PRIVATE KEY-----` line across lines to
+its END line, or, when no END line follows, to the end of the text (fail closed). key_scan's own private-key shape
+matches only the BEGIN delimiter, which is right for a scanner that fails a file but not for redaction; widening
+key_scan's shape is a separate key_scan change, not made in this PR. `gh` error text goes through `safe()` before its
+line filter, so a block split over lines is caught whole. If the patterns cannot be loaded, `safe()` withholds the
+text entirely (fail closed). Because a label removes the
 rest of its line, the script writes its own words first and GitHub-reported text (check names, status contexts,
 comment authors) last, for example `failed on the head (failure): build API key: [redacted]`: the context survives.
 At startup `sys.stdout` and `sys.stderr` are wrapped so even a stray write is redacted (defence in depth). A self-test

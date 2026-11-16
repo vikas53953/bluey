@@ -54,7 +54,9 @@ TRUSTED = {'OWNER', 'MEMBER', 'COLLABORATOR'}
 MARKER = '<!-- pr-loop:v1 -->'
 STATES = ('blocked', 'needs-rebase', 'ci-red', 'waiting-QA', 'waiting-review', 'waiting-stamp', 'stamped-ready')
 FAIL_CONCLUSIONS = {'failure', 'cancelled', 'timed_out', 'action_required', 'startup_failure', 'stale'}
-OK_CONCLUSIONS = {'success', 'skipped', 'neutral'}
+# A REQUIRED check (REQUIRED_CHECKS) is green only on 'success'. Any other check (e.g. github-release, which skips
+# by design) may also be skipped or neutral.
+OPTIONAL_OK_CONCLUSIONS = {'success', 'skipped', 'neutral'}
 SHA = re.compile(r'^[0-9a-f]{40}$')
 QA_PASS = re.compile(r'^QA PASS at `?([0-9a-f]{40})`?(?![0-9a-f])')
 REVIEW_PASS = re.compile(r'^CODEX REVIEW PASS\s*[—–-]+\s*`?([0-9a-f]{40})`?(?![0-9a-f])')
@@ -98,6 +100,11 @@ REDACTED = '[redacted]'
 SENSITIVE_LABEL = re.compile(
     r'(?im)\b(api[\s_-]*key|authori[sz]ation|bearer|token|secret|password|passwd|set[\s_-]*cookie|cookie|'
     r'private[\s_-]*key|access[\s_-]*key)\b(\s*[:=]\s*|\s+)(?=\S)[^\n]*')
+# A whole private-key block: from its BEGIN line to its END line across lines, or, with no END line, to the end of
+# the text (fail closed). key_scan's own shape matches only the BEGIN delimiter, which is enough for a scanner that
+# fails a file, but not for redaction, which must remove the key material too.
+PEM_BLOCK = re.compile(r'-----BEGIN[^\n]*?PRIVATE KEY[^\n]*?-----.*?(?:-----END[^\n]*?PRIVATE KEY[^\n]*?-----|\Z)',
+                       re.S)
 _SHAPES = []
 
 
@@ -119,6 +126,7 @@ def safe(text):
         shapes = _key_scan_shapes()
     except Exception:  # noqa: BLE001 - any trouble loading the patterns withholds the text
         return '[output withheld: the key-scan patterns could not be loaded]'
+    text = PEM_BLOCK.sub(REDACTED, text)
     for _, rx in shapes:
         text = rx.sub(REDACTED, text)
     return SENSITIVE_LABEL.sub(lambda m: f'{m.group(1)}{m.group(2)}{REDACTED}', text)
@@ -206,7 +214,7 @@ class GhClient:
         except (OSError, subprocess.SubprocessError) as error:
             raise ApiError(f'gh could not run ({type(error).__name__})') from None
         if proc.returncode != 0:
-            raise ApiError(f'gh {args[0]} failed: {redact(proc.stderr)}')
+            raise ApiError(f'gh {args[0]} failed: {redact(safe(proc.stderr))}')
         return proc.stdout
 
     def _json(self, args, stdin=None):
@@ -281,6 +289,12 @@ class GhClient:
     def comments(self, number):
         return [c for page in self._pages(f'repos/{self.repo}/issues/{number}/comments?per_page=100') for c in page]
 
+    def reviews(self, number):
+        return [r for page in self._pages(f'repos/{self.repo}/pulls/{number}/reviews?per_page=100') for r in page]
+
+    def review_comments(self, number):
+        return [c for page in self._pages(f'repos/{self.repo}/pulls/{number}/comments?per_page=100') for c in page]
+
     def check_runs(self, sha):
         return [r for page in self._pages(f'repos/{self.repo}/commits/{sha}/check-runs?per_page=100')
                 for r in page.get('check_runs', [])]
@@ -353,6 +367,8 @@ def _tip(client, base, tip):
 def _read_gates(client, entry, base_sha):
     number, head = entry['pr']['number'], entry['pr']['headRefOid']
     entry['comments'] = client.comments(number)
+    entry['reviews'] = client.reviews(number)
+    entry['review_comments'] = client.review_comments(number)
     entry['check_runs'] = client.check_runs(head)
     entry['statuses'] = client.statuses(head)
     entry['behind_by'] = client.behind_by(base_sha, head)
@@ -424,7 +440,7 @@ def stamp(entry):
             continue
         named = STATUS_ID.search(text)
         if named and int(named.group(1)) == status.get('id'):
-            vetoed = _veto(entry['comments'], comment, entry.get('bot_login', BOT_LOGIN))
+            vetoed = _veto(entry['comments'] + _review_items(entry), comment, entry.get('bot_login', BOT_LOGIN))
             if vetoed:
                 return False, f'VETO: {vetoed}'
             return True, f'codex-verified status {status.get("id")} named by its CODEX VERIFIED comment'
@@ -440,14 +456,25 @@ def _loop_owned(comment, bot_login):
             and LEDGER_LINE.search(body) is not None)
 
 
+def _review_items(entry):
+    """PR review bodies and inline review comments, shaped like comments for the veto. Their ids are a different
+    sequence from issue-comment ids, so `kind` keeps them apart (a same-second tie cannot be ordered: fail closed).
+    A review's time is its submission time; with none, the order is unknown (fail closed)."""
+    items = [{'id': r.get('id'), 'body': r.get('body'), 'user': r.get('user'), 'kind': 'review',
+              'created_at': r.get('submitted_at') or ''} for r in entry.get('reviews', [])]
+    items += [dict(c, kind='inline') for c in entry.get('review_comments', [])]
+    return items
+
+
 def _after_stamp(comment, stamp_comment):
     """True when the comment was created or edited after the stamp comment, or when the order cannot be told
     (fail closed). Timestamps have one-second resolution: a creation in the same second is ordered by comment id
     (ids only grow); an edit in the same second as the stamp cannot be ordered, so it counts as after."""
     since, stamp_id = str(stamp_comment.get('created_at', '')), stamp_comment.get('id') or 0
-    created, cid = str(comment.get('created_at', '')), comment.get('id') or 0
+    created, cid = str(comment.get('created_at') or ''), comment.get('id') or 0
     updated = str(comment.get('updated_at') or created)
-    if created > since or (created == since and cid > stamp_id):
+    same_sequence = comment.get('kind', 'comment') == 'comment'
+    if not created or created > since or (created == since and (not same_sequence or cid > stamp_id)):
         return True
     return updated > created and updated >= since
 
@@ -482,7 +509,9 @@ def _ci(entry):
         reported.add(name)
         if run_.get('status') != 'completed':
             pending.append((str(run_.get('status')), name))
-        elif run_.get('conclusion') not in OK_CONCLUSIONS:
+        elif name in REQUIRED_CHECKS and run_.get('conclusion') != 'success':
+            red.append((f'{run_.get("conclusion")} on a required check', name))
+        elif run_.get('conclusion') not in OPTIONAL_OK_CONCLUSIONS:
             red.append((str(run_.get('conclusion')), name))
     for context, status in _latest_by_context(entry['statuses']).items():
         if context == STAMP_CONTEXT:

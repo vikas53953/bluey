@@ -620,13 +620,14 @@ tip of `lane/face` without CI, dispatch `windows-ci` and `perf-guards` on it onc
 `lane/face`: no PR on `main` (or any other base) is ever acted on.
 
 Its self-test fails when any state is misjudged; when a mismatched SHA, a different status ID, a failure status, an
-untrusted comment or a newer veto comment would arm (also with a copied loop marker, or in the same second as the
+untrusted comment, a required check that is skipped or neutral, or a newer veto in an issue comment, a PR review body or an inline
+review comment would arm (also with a copied loop marker, or in the same second as the
 stamp comment); when `--base` accepts anything but `lane/face`; when a change after the plan's read (stamp revoked or replaced,
 comment withdrawn or edited, veto comment, PR retargeted, draft, behind, red check, already armed) would still arm;
 when a second PR would be armed in one run; when any PR on `main` or PR #3 is acted on; when a second run on the same
 head would act again; when tip CI is dispatched without a bot merge at the tip, twice for one SHA, or in a dry run;
 when an API error would not fail the run closed; when `pr-loop.yml` gains a `schedule:` or loses its `dry_run` default
-of `true`; when any key shape known to `key_scan.py` or any labelled value (`API key:`, `Authorization`, `token`, `secret`, `password`, `cookie`, ...) reaches stdout, stderr or a comment payload through any output path, when the script writes output outside its one choke point, when a `gh` error carrying an `Authorization` header or a token reaches the output, when the environment
+of `true`; when any line of a private-key block (complete, or BEGIN without END), any key shape known to `key_scan.py` or any labelled value (`API key:`, `Authorization`, `token`, `secret`, `password`, `cookie`, ...) reaches stdout, stderr or a comment payload through any output path, when the script writes output outside its one choke point, when a `gh` error carrying an `Authorization` header or a token reaches the output, when the environment
 handed to `gh` keeps `GH_DEBUG` / `GIT_TRACE*` / `GIT_CURL_VERBOSE` / `DEBUG`, when a verbose flag reaches `gh`, or when
 the workflow stops key-scanning its captured output.
 
