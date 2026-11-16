@@ -139,18 +139,30 @@ RUN_JQ = ('.workflow_runs[] | {id, name, event, head_sha, head_branch, status, c
           'created_at, updated_at, prs: [.pull_requests[].number]}')
 
 
+def runs_created_between(repo, start, end, lister):
+    """Every run created from start to end, both whole seconds included. GitHub answers a filtered run list with at
+    most 1,000 runs and gives no sign that it cut the list, so a reply that reaches the cap is never trusted: the span
+    is split in half and both halves are read again. Only a single second with 1,000 runs stops the read."""
+    created = urllib.parse.quote(f'{iso(start)}..{iso(end)}', safe='')
+    rows = lister(f'repos/{repo}/actions/runs?per_page=100&created={created}', RUN_JQ)
+    if len(rows) < RUN_LIST_CAP:
+        return rows
+    if end <= start:
+        raise SystemExit(f'GitHub caps a filtered run list at {RUN_LIST_CAP}, and the single second {iso(start)} '
+                         'reached it, so it cannot be split further.')
+    mid = start + dt.timedelta(seconds=int((end - start).total_seconds()) // 2)
+    return (runs_created_between(repo, start, mid, lister)
+            + runs_created_between(repo, mid + dt.timedelta(seconds=1), end, lister))
+
+
 def runs_for_window(repo, since, until, lister=None):
-    """Every Actions run created in [since, until), read one UTC day at a time."""
+    """Every Actions run created in [since, until), read one UTC day at a time (a busy day in smaller pieces)."""
     lister = lister or gh_lines
     runs = {}
     day = since.replace(hour=0, minute=0, second=0, microsecond=0)
     while day < until:
         end = day + dt.timedelta(days=1) - dt.timedelta(seconds=1)
-        created = urllib.parse.quote(f'{iso(day)}..{iso(end)}', safe='')
-        rows = lister(f'repos/{repo}/actions/runs?per_page=100&created={created}', RUN_JQ)
-        if len(rows) >= RUN_LIST_CAP:
-            raise SystemExit(f'GitHub caps a filtered run list at 1000; {iso(day)} hit it. Split the day.')
-        for row in rows:
+        for row in runs_created_between(repo, day, end, lister):
             runs[row['id']] = row
         day += dt.timedelta(days=1)
     return sorted((r for r in runs.values() if in_window(r['created_at'], since, until)), key=lambda r: r['id'])
