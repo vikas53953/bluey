@@ -408,11 +408,27 @@ class FakeClient:
         self.checks_by_sha, self.statuses_by_sha = checks or {}, statuses or {}
         self.behind, self.allow, self.fail = behind or {}, allow_auto_merge, fail
         self.reads, self.writes = [], []
+        self.after = {}  # method name -> callable(self), run once right after that method's FIRST call returns
+        self.after_arm = None  # callable(self, number), run after each arm (e.g. the base moves on)
 
     def _read(self, name, key=None):
         self.reads.append((name, key))
-        if self.fail == name:
+        calls = sum(1 for r in self.reads if r[0] == name)
+        if self.fail == name or (isinstance(self.fail, tuple) and self.fail[0] == name and calls > self.fail[1]):
             raise ApiError(f'planted failure in {name}')
+
+    def _then(self, name, value):
+        hook = self.after.pop(name, None)
+        if hook:
+            hook(self)
+        return value
+
+    def pr(self, number):
+        self._read('pr', number)
+        found = [dict(p) for p in self.prs if p['number'] == number]
+        if not found:
+            raise ApiError(f'PR #{number} not found')
+        return found[0]
 
     def repo_settings(self):
         self._read('repo_settings')
@@ -440,7 +456,7 @@ class FakeClient:
 
     def behind_by(self, base_sha, head_sha):
         self._read('behind_by', head_sha)
-        return self.behind.get(head_sha, 0)
+        return self._then('behind_by', self.behind.get(head_sha, 0))
 
     def _write(self, *call):
         if self.fail == call[0]:
@@ -449,6 +465,8 @@ class FakeClient:
 
     def arm(self, number, head):
         self._write('arm', number, head)
+        if self.after_arm:
+            self.after_arm(self, number)
 
     def create_comment(self, number, body):
         self._write('create_comment', number, body)
@@ -654,6 +672,62 @@ def self_test():
     c = _world()
     code, text = go(c, apply=True)
     check('one action per PR per run: arming is the only action (no comment in the same run)', len(c.writes) == 1)
+
+    # Stale snapshot: GitHub changes AFTER the plan was read and BEFORE the arm. A fresh preflight must catch it.
+    def changed_after_read(change):
+        c = _world()
+        c.after['behind_by'] = change  # the last snapshot read of the PR; everything later sees the change
+        return c
+
+    newer_failure = {'id': 77, 'context': STAMP_CONTEXT, 'state': 'failure', 'created_at': '2026-11-16T09:00:00Z'}
+    stale_cases = {
+        'same-head stamp revoked (a newer codex-verified FAILURE) and the comments removed':
+            lambda f: (f.statuses_by_sha[head].insert(0, dict(newer_failure)), f.comments_by_pr[200].clear()),
+        'same-head stamp revoked (a newer codex-verified FAILURE), comments kept':
+            lambda f: f.statuses_by_sha[head].insert(0, dict(newer_failure)),
+        'the CODEX VERIFIED comment withdrawn': lambda f: f.comments_by_pr[200].pop(2),
+        'the CODEX VERIFIED comment edited to another SHA': lambda f: f.comments_by_pr[200].__setitem__(2, _comment(
+            f'CODEX VERIFIED {_sha(999)}\n\nReturned status ID **58974699495**, context `codex-verified`, SUCCESS.')),
+        'the CODEX VERIFIED comment edited to another status ID': lambda f: f.comments_by_pr[200].__setitem__(
+            2, _comment(f'CODEX VERIFIED {head}\n\nReturned status ID **4242**, context `codex-verified`, SUCCESS.')),
+        'the same-head PR retargeted to main': lambda f: f.prs[0].__setitem__('baseRefName', 'main'),
+        'the same-head PR retargeted to another branch': lambda f: f.prs[0].__setitem__('baseRefName', 'qa/other'),
+        'the PR turned into a draft': lambda f: f.prs[0].__setitem__('isDraft', True),
+        'the PR fell behind the base': lambda f: f.behind.__setitem__(head, 2),
+        'a check turned red on the head': lambda f: f.checks_by_sha[head].append(
+            {'id': 10 ** 7, 'name': 'smoke', 'status': 'completed', 'conclusion': 'failure'}),
+        'auto-merge got armed by someone else': lambda f: f.prs[0].__setitem__(
+            'autoMergeRequest', {'enabledAt': '2026-11-16T09:00:00Z'}),
+    }
+    for name, change in stale_cases.items():
+        c = changed_after_read(change)
+        code, text = go(c, apply=True)
+        check(f'preflight: {name} after the plan was read: NOT armed', not arms(c) and code in (0, 1))
+
+    c = _world()
+    c.fail = ('statuses', 1)  # the plan's read works; the fresh pre-action read fails
+    code, text = go(c, apply=True)
+    check('preflight: a pre-action read failure: no arm, exit 1', code == 1 and not arms(c))
+    c = _world()
+    c.fail = ('pr', 0)
+    code, text = go(c, apply=True)
+    check('preflight: the fresh PR read fails: no arm, exit 1', code == 1 and not arms(c))
+
+    c = _world()
+    code, text = go(c, apply=True)
+    check('preflight passes on an unchanged PR: armed once, and the output says the preflight narrows (not removes) '
+          'the race', arms(c) == [('arm', 200, head)] and 'not atomic' in text.lower())
+
+    two = _world()
+    second = _world(number=201)
+    two.prs += second.prs
+    two.comments_by_pr.update(second.comments_by_pr)
+    two.checks_by_sha.update(second.checks_by_sha)
+    two.statuses_by_sha.update(second.statuses_by_sha)
+    two.behind.update(second.behind)
+    two.after_arm = lambda f, n: f.behind.update({p['headRefOid']: 1 for p in f.prs if p['number'] != n})
+    code, text = go(two, apply=True)
+    check('a first arm moves the base on: no later PR is armed in the same run', len(arms(two)) == 1)
 
     # Dry run (the default) plans and prints but performs nothing.
     c = _world()
