@@ -74,9 +74,14 @@ jobs:
       - name: Architecture tests
         run: dotnet test tests/Boo.Architecture.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/architecture
 
+      # The real MainWindow driven in-process on an STA thread (tests/Boo.App.Tests): what the app promises to UI
+      # Automation at each WPF lifecycle step. Needs this runner's desktop session; no app process, no key.
+      - name: App lifecycle tests
+        run: dotnet test tests/Boo.App.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/app
+
       # Each project must have produced results with tests that ran, and none skipped or not executed.
-      - name: Test gate (unit, integration, provider, live-guard and architecture results)
-        run: python -I scripts/test_gate.py trx artifacts/test-results/core artifacts/test-results/integration artifacts/test-results/providers artifacts/test-results/liveguard artifacts/test-results/architecture
+      - name: Test gate (unit, integration, provider, live-guard, architecture and app lifecycle results)
+        run: python -I scripts/test_gate.py trx artifacts/test-results/core artifacts/test-results/integration artifacts/test-results/providers artifacts/test-results/liveguard artifacts/test-results/architecture artifacts/test-results/app
 
       - name: Publish app
         run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci -bl:artifacts/binlog/publish.binlog
