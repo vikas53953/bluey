@@ -635,7 +635,9 @@ self-test, its render test (the tricks above, rendered by GitHub) and the check.
 **A PR body without exactly one valid trace footer as its last visible line.** The check fails (closed, if GitHub
 cannot render the body or the body is empty) when:
 - no visible line starts with `Agent:` (code blocks and inline code do not count), or more than one does;
-- the footer is not the last line a reader sees;
+- the footer is not the last thing on the page (a line, code block, image or rule after it fails), or the last
+  non-empty line of the raw body text is not exactly the footer (an HTML comment after it fails; write an https thread
+  as a bare URL, so a plain last-line reader such as the PR loop finds the same line);
 - the footer is not a plain line directly in a top-level paragraph (a heading, list, quote, table row, fold, bold or
   code fails; a footer typed straight under a table row becomes a table row: leave a blank line above it);
 - its text breaks the grammar (empty or too-long lane, a thread that is not a t3-thread:// link or https URL, a model

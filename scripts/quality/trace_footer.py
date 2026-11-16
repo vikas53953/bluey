@@ -25,7 +25,9 @@ reads the rendered HTML, so text a reader cannot see does not count: an unclosed
 indented code block, a <details> fold. A plain-text "last line" check would be fooled by each of those. If GitHub
 cannot render the body, the check fails closed. The rule on the rendered page:
   1. Exactly one visible line starts with "Agent:" (code blocks and inline code are not counted).
-  2. It is the last visible line of the page.
+  2. It is the last thing on the page (no line, code block, image or rule after it), and the last non-empty line
+     of the raw body text is exactly that footer (so nothing hidden, such as an HTML comment, follows it either, and a
+     plain last-line reader such as the PR loop finds the same line). Write an https thread as a bare URL.
   3. It sits directly in a top-level paragraph (not a heading, list, quote, table or fold) and holds only text and,
      for an https thread, the link GitHub makes of it.
   4. Its text matches the grammar above.
@@ -57,6 +59,7 @@ BLOCK = {'p', 'div', 'pre', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th'
          'details', 'summary', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'dl', 'dt', 'dd', 'section', 'article',
          'figure', 'figcaption', 'markdown-accessiblity-table', 'caption'}
 VOID = {'br', 'img', 'hr', 'input', 'meta', 'link', 'wbr', 'source', 'col', 'area', 'base', 'embed', 'track'}
+MEDIA = {'img', 'svg', 'video', 'picture'}  # no text, but a reader sees it
 LINE_TAGS = {'a'}  # the only markup allowed on the footer line: the link GitHub makes of an https thread
 
 
@@ -93,7 +96,7 @@ class _Lines(html.parser.HTMLParser):
         self.lines, self._stack, self._line = [], [], None
 
     def _close_line(self):
-        if self._line is not None and fold(''.join(self._line['text'])):
+        if self._line is not None and (fold(''.join(self._line['text'])) or self._line['tags'] & MEDIA):
             self._line['text'] = fold(''.join(self._line['text']))
             self.lines.append(self._line)
         self._line = None
@@ -107,6 +110,8 @@ class _Lines(html.parser.HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag in BLOCK or tag == 'br':
             self._close_line()
+            if tag == 'hr':                               # a rule is something a reader sees: a line of its own
+                self.lines.append({'text': '[a horizontal rule]', 'blocks': [], 'tags': {'hr'}, 'code': False})
         else:
             line = self._open_line()
             line['tags'].add(tag)
@@ -147,7 +152,8 @@ def lines(rendered_html):
 
 def check(rendered_html, body=None):
     """Problems (plain-words strings) with the rendered PR body and, when given, its raw text; empty means it passes."""
-    visible = [ln for ln in lines(rendered_html) if not (ln['code'] and 'pre' in ln['blocks'])]
+    every = lines(rendered_html)
+    visible = [ln for ln in every if not (ln['code'] and 'pre' in ln['blocks'])]
     footers = [ln for ln in visible if ln['text'].startswith('Agent:') and not ln['code']]
     if not footers:
         return ['the PR body has no trace footer a reader can see: end it with the line "' + EXAMPLE + '" (your own '
@@ -156,9 +162,15 @@ def check(rendered_html, body=None):
         return [f'the PR body has {len(footers)} visible lines starting with "Agent:"; keep exactly one footer, the '
                 'last line (put examples in a code block)']
     footer = footers[0]
-    if visible[-1] is not footer:
-        return [f'the trace footer is not the last line a reader sees (after it: "{visible[-1]["text"][:60]}"); move '
-                'it to the very end of the body']
+    if every[-1] is not footer:
+        return [f'the trace footer is not the last line a reader sees (after it: "{every[-1]["text"][:60]}", a line, '
+                'code block, image or rule); move it to the very end of the body']
+    if body is not None:
+        raw = [fold(ln) for ln in body.splitlines() if ln.strip()]
+        if not raw or raw[-1] != footer['text']:
+            return ['the last non-empty line of the PR body text is not the footer exactly as written (no HTML comment, '
+                    'markup or anything else after it, no bold or brackets around it; write an https thread as a bare '
+                    f'URL): it is "{(raw or [""])[-1][:60]}"']
     problems = []
     if footer['blocks'] != ['p'] or footer['tags'] - LINE_TAGS:
         problems.append('the trace footer must be a plain line of text in its own paragraph (not in a heading, list, '
@@ -310,7 +322,7 @@ def _broken_renderer(body, repo):
     raise urllib.error.URLError('offline')
 
 
-def _event_case(renderer, body='x'):
+def _event_case(renderer, body='Intro text.\n\n' + EXAMPLE + '\n'):
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         event = pathlib.Path(tmp) / 'event.json'
