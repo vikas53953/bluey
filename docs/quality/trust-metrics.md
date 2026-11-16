@@ -5,6 +5,8 @@ records, so anyone can recount them. They start the measuring that Phase 3 of th
 (`docs/plans/agent-trust-plan.md`, section 4.3) needs before auto-merge can even be discussed.
 
 - **Made by:** `scripts/quality/trust_metrics.py` (read-only: `gh api` GET calls and `git log` / `git show` only).
+  A call that fails with a transport fault (an HTTP/2 stream cancelled by the peer, a connection reset, a 5xx, a rate
+  limit) is retried twice with a pause before the table goes red; any other failure is final at once.
 - **Raw data:** `docs/quality/trust-metrics/snapshot-2026-11-08_2026-11-13T06.json`. Every number below is computed
   from this file alone. PR descriptions and comments are kept only as their verdict lines.
 - **Weekly:** the `trust-metrics` workflow (manual or Mondays) makes the same table for the last full week and
