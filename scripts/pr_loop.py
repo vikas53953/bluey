@@ -711,6 +711,7 @@ class FakeClient:
         self.tip = 'b' * 40  # the base branch head
         self.merged = []  # recently merged PRs into the base: {'number', 'mergeCommit': {'oid'}, 'mergedBy': {...}}
         self.runs = {}  # (workflow file, sha) -> number of runs that exist
+        self.reviews_by_pr, self.inline_by_pr = {}, {}  # PR reviews and inline review comments
 
     def _read(self, name, key=None):
         self.reads.append((name, key))
@@ -746,6 +747,14 @@ class FakeClient:
     def comments(self, number):
         self._read('comments', number)
         return list(self.comments_by_pr.get(number, []))
+
+    def reviews(self, number):
+        self._read('reviews', number)
+        return [dict(r) for r in self.reviews_by_pr.get(number, [])]
+
+    def review_comments(self, number):
+        self._read('review_comments', number)
+        return [dict(r) for r in self.inline_by_pr.get(number, [])]
 
     def check_runs(self, sha):
         self._read('check_runs', sha)
@@ -1360,6 +1369,120 @@ def self_test():
               not bad)
     except Exception as error:
         check(f'redaction: structural scan ran ({type(error).__name__})', False)
+
+    # Review at 7f251f4, P1: a whole private-key block (BEGIN ... END, across lines) never reaches any output.
+    pem_line = 'MIIEpQ' + 'zvqPEMBODY' + 'Lq9' * 12
+    pem_full = ('-----BEGIN ' + 'RSA PRIVATE' + ' KEY-----\n' + pem_line + '\n' + pem_line[::-1] + '\n'
+                + '-----END ' + 'RSA PRIVATE' + ' KEY-----')
+    pem_open = pem_full.split('\n-----END')[0]
+
+    def pem_leaks(texts):
+        return any(s in t for t in texts for s in (pem_line, pem_line[::-1], '-----END'))
+
+    for kind, block in (('complete', pem_full), ('incomplete (no END line)', pem_open)):
+        for apply in (False, True):
+            c = _world(k=lambda d, _b=block: d['checks'][head].append(
+                {'id': 10 ** 8, 'name': f'build {_b}', 'status': 'completed', 'conclusion': 'failure'}))
+            code, text = captured(lambda: main(['--apply'] if apply else ['--dry-run'], client_factory=lambda r: c))
+            payloads = comment_payloads(c)
+            check(f'PEM: a {kind} PEM block in a check name never reaches the '
+                  f'{"output or the posted marker comment (apply)" if apply else "dry-run plan"}; context stays',
+                  not pem_leaks([text, *payloads]) and 'build' in text and 'failure' in text
+                  and (not apply or bool(payloads)))
+
+        def pem_runner(args, _b=block, **kwargs):
+            return _sp_redact.CompletedProcess(args, 1, '', f'gh: Bad credentials (HTTP 401)\n{_b}\n')
+        code, text = captured(lambda: main(['--dry-run'], client_factory=lambda r: GhClient(r, pem_runner)))
+        check(f'PEM: a {kind} PEM block in gh error text never reaches the output',
+              code == 1 and not pem_leaks([text]) and 'Bad credentials (HTTP 401)' in text)
+
+    # Review at 7f251f4, P2: a required check must conclude SUCCESS; skipped/neutral on a required name is not green.
+    def required_as(conclusion, names=REQUIRED_CHECKS):
+        def edit(d):
+            for r in d['checks'][head]:
+                if r['name'] in names:
+                    r['conclusion'] = conclusion
+        return edit
+
+    for concl in ('skipped', 'neutral'):
+        c = _world(k=required_as(concl))
+        code, text = go(c, apply=True)
+        check(f'required checks all {concl}: not green, NOT armed', not arms(c) and 'stamped-ready' not in text)
+    c = _world(k=required_as('skipped', ('smoke',)))
+    code, text = go(c, apply=True)
+    check('one required check skipped: NOT armed', not arms(c))
+    c = _world()
+    code, text = go(c, apply=True)
+    check('an OPTIONAL check skipped (github-release) is fine: armed', arms(c) == [('arm', 200, head)])
+    for concl in ('skipped', 'neutral'):
+        def turn(f, _c=concl):
+            for r in f.checks_by_sha[head]:
+                if r['name'] in REQUIRED_CHECKS:
+                    r['conclusion'] = _c
+        c = changed_after_read(turn)
+        code, text = go(c, apply=True)
+        check(f'preflight: required checks turn {concl} after the plan was read (stamp unchanged): NOT armed',
+              not arms(c) and c.statuses_by_sha[head][0]['state'] == 'success')
+
+    # Review at 7f251f4, P2: the veto also covers PR review bodies and inline review comments.
+    def review(body, when, rid=900, login='reviewer'):
+        return {'id': rid, 'body': body, 'state': 'COMMENTED', 'submitted_at': when,
+                'author_association': 'NONE', 'user': {'login': login}}
+
+    def inline(body, when, cid=800, updated=None):
+        return {'id': cid, 'body': body, 'created_at': when, 'updated_at': updated or when,
+                'author_association': 'NONE', 'user': {'login': 'reviewer'}}
+
+    for word in ('BLOCK', 'NOT VERIFIED', 'SURVIVED'):
+        c = _world()
+        c.reviews_by_pr = {200: [review(f'CODEX REVIEW {word} — {head}', '2026-11-16T03:00:00Z')]}
+        code, text = go(c, apply=True)
+        check(f'(c) a later PR review body saying {word}: NOT armed', not arms(c) and 'state=blocked' in text)
+        c = _world()
+        c.inline_by_pr = {200: [inline(f'{word}: this line', '2026-11-16T03:00:00Z')]}
+        code, text = go(c, apply=True)
+        check(f'(c) a later inline review comment saying {word}: NOT armed', not arms(c) and 'state=blocked' in text)
+    c = _world()
+    c.reviews_by_pr = {200: [review('CODEX REVIEW BLOCK — old head', '2026-11-16T01:00:00Z')]}
+    c.inline_by_pr = {200: [inline('BLOCK: old', '2026-11-16T01:00:00Z')]}
+    code, text = go(c, apply=True)
+    check('(c) an OLDER review body and an OLDER inline comment do not veto: armed', arms(c) == [('arm', 200, head)])
+    c = _world()
+    c.reviews_by_pr = {200: [review('BLOCK', '2026-11-16T02:00:00Z', rid=1)]}
+    code, text = go(c, apply=True)
+    check('(c) a review submitted in the same second as the stamp comment (ids not comparable across kinds): '
+          'NOT armed (fail closed)', not arms(c))
+    c = _world()
+    c.inline_by_pr = {200: [inline('fine', '2026-11-16T01:00:00Z', updated='2026-11-16T03:00:00Z')]}
+    c.inline_by_pr[200][0]['body'] = 'edited later: BLOCK'
+    code, text = go(c, apply=True)
+    check('(c) an older inline comment edited after the stamp to say BLOCK: NOT armed', not arms(c))
+    c = _world()
+    c.reviews_by_pr = {200: [review('BLOCK', None)]}
+    code, text = go(c, apply=True)
+    check('(c) a review with no submission time carrying BLOCK: NOT armed (order unknown, fail closed)', not arms(c))
+    c = changed_after_read(lambda f: setattr(f, 'reviews_by_pr', {200: [review(
+        f'CODEX REVIEW BLOCK — {head}', '2026-11-16T03:00:00Z')]}))
+    code, text = go(c, apply=True)
+    check('(c) a review BLOCK posted after the plan was read: the fresh preflight refuses', not arms(c))
+    c = changed_after_read(lambda f: setattr(f, 'inline_by_pr', {200: [inline('BLOCK', '2026-11-16T03:00:00Z')]}))
+    code, text = go(c, apply=True)
+    check('(c) an inline BLOCK posted after the plan was read: the fresh preflight refuses', not arms(c))
+    for endpoint in ('reviews', 'review_comments'):
+        c = _world()
+        c.fail = endpoint
+        code, text = go(c, apply=True)
+        check(f'(c) reading {endpoint} fails: exit 1, no action at all', code == 1 and not c.writes)
+        c = _world()
+        c.fail = (endpoint, 1)  # the plan's read works; the fresh preflight read fails
+        code, text = go(c, apply=True)
+        check(f'(c) the fresh preflight read of {endpoint} fails: exit 1, no arm', code == 1 and not arms(c))
+    c = _world()
+    c.reviews_by_pr = {200: [review(f'BLOCK {shapes["GitHub token"]}', '2026-11-16T03:00:00Z',
+                                    login=f'r {shapes["GitHub token"]}')]}
+    code, text = captured(lambda: main(['--apply'], client_factory=lambda r: c))
+    check('(c) review text and author are redacted on output and in the marker comment',
+          not leaks([text, *comment_payloads(c)], shapes['GitHub token']) and 'state=blocked' in text)
 
     # Log safety: gh's own output can carry request headers; the loop must never pass them on.
     import subprocess as _sp
