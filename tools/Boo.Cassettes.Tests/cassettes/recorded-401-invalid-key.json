@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "name": "recorded-401-invalid-key",
+  "origin": "recorded",
+  "note": "Recorded from the real OpenAI API on 13 Nov 2026 with a deliberately invalid placeholder credential (not a key; no key was used or needed). Redacted per BOO-CASS-001: OpenAI's masked echo of the credential is removed. Real cassettes with a valid key come from record-cassettes.yml after merge.",
+  "call": "respond",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses",
+    "model": "gpt-5-mini",
+    "format": "boo_screen_help_result",
+    "tools": [],
+    "bodyKeys": [
+      "model",
+      "store",
+      "reasoning",
+      "instructions",
+      "input",
+      "text"
+    ]
+  },
+  "response": {
+    "status": 401,
+    "headersDelayMs": 1191,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "chunks": [
+      {
+        "delayMs": 1,
+        "text": "{\"error\":{\"message\":\"Incorrect API key provided: [redacted-key]. You can find your API key at https://platform.openai.com/account/api-keys.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"invalid_api_key\"}}"
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "provider-failure",
+    "failureKind": "InvalidCredential",
+    "status": 401,
+    "retryable": false,
+    "message": "OpenAI rejected the API key. Paste a valid key in Settings."
+  }
+}

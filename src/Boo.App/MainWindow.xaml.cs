@@ -124,6 +124,7 @@ public partial class MainWindow : Window
         _onAppearanceChanged = onAppearanceChanged;
         _appearance = new NotchAppearance();
         InitializeComponent();
+        ContentRendered += MainWindow_OnContentRendered;
 
         _focusTimer = new DispatcherTimer(DispatcherPriority.Normal)
         {
@@ -140,6 +141,15 @@ public partial class MainWindow : Window
         SystemParameters.StaticPropertyChanged += SystemParameters_OnStaticPropertyChanged;
         Closed += (_, _) => SystemParameters.StaticPropertyChanged -= SystemParameters_OnStaticPropertyChanged;
     }
+
+
+    /// <summary>
+    /// Tells UI Automation that WPF has rendered this window's content once (ItemStatus "rendered"). A test that waits
+    /// for the companion window requires this acknowledgment from the app itself as well as its own pixel probe, so a
+    /// capture is never taken before the first render pass.
+    /// </summary>
+    private void MainWindow_OnContentRendered(object? sender, EventArgs e) =>
+        System.Windows.Automation.AutomationProperties.SetItemStatus(this, "rendered");
 
     public DisplayInfo? SelectedDisplay => _selectedDisplay;
     public double VerticalOffset => OffsetSlider.Value;
