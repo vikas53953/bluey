@@ -109,11 +109,12 @@ jobs:
           done
           echo "Started $TARGET on lane/face: ${url:-run link not visible yet, see the $TARGET runs}" | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # OFF. trust-metrics.yml has only `schedule` and `workflow_dispatch` triggers, so it has never run and GitHub has
-  # never registered it: dispatching it answers HTTP 404 "not found on the default branch". A one-line lane/face PR
-  # gives it a `pull_request` trigger on its own file, which runs it once and registers it.
-  # TURN ON when `gh workflow run trust-metrics.yml --ref lane/face` succeeds: remove `if: false`, uncomment the
-  # weekly cron above, and add trust-metrics to the dispatch choices.
+  # OFF. Until 16 Nov, trust-metrics.yml had never run, so GitHub had not registered it and a dispatch answered
+  # HTTP 404. PR #166 gave it a `pull_request` trigger on its own file; that run registered it (a dispatch now works).
+  # The same run showed lane/face's scripts/quality/trust_metrics.py stops on any day with 1,000+ runs, so a weekly
+  # run on lane/face would fail until #166's fix is there.
+  # TURN ON when PR #166 has merged into lane/face: remove `if: false`, uncomment the weekly cron above, and add
+  # trust-metrics to the dispatch choices.
   trust-metrics:
     if: false
     runs-on: ubuntu-latest
