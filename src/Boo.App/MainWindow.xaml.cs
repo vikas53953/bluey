@@ -149,7 +149,7 @@ public partial class MainWindow : Window
     /// capture is never taken before the first render pass.
     /// </summary>
     private void MainWindow_OnContentRendered(object? sender, EventArgs e) =>
-        System.Windows.Automation.AutomationProperties.SetItemStatus(this, "rendered");
+        System.Windows.Automation.AutomationProperties.SetItemStatus(this, "ready");
 
     public DisplayInfo? SelectedDisplay => _selectedDisplay;
     public double VerticalOffset => OffsetSlider.Value;
