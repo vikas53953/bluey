@@ -313,6 +313,7 @@ public partial class MainWindow : Window
     {
         _closingForExit = true;
         StopAll();
+        FlushFocusHistory();
         DisposeHoldToTalk();
         _focusTimer.Stop();
         _focusCaptureTimer.Stop();
@@ -1514,27 +1515,6 @@ public partial class MainWindow : Window
         UpdateCaptureIndicator();
     }
 
-    private void SaveFocusSnapshot(FocusSessionController? controller = null)
-    {
-        controller ??= _focus;
-        if (controller is null || _sessionStore is null)
-        {
-            return;
-        }
-        try
-        {
-            var snapshot = controller.Snapshot;
-            _sessionStore.Save(snapshot);
-            _lastFocusSaveRealElapsed = snapshot.RealElapsed;
-            LoadHistory();
-        }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
-        {
-            _sessionStore = null;
-            SetHistoryUnavailable();
-        }
-    }
-
     private void InitializeHistory()
     {
         try
@@ -1562,14 +1542,7 @@ public partial class MainWindow : Window
         }
         try
         {
-            var rows = _sessionStore.List()
-                .Take(20)
-                .Select(session => FocusTimeline.ToHistoryRow(session, HistoryBarWidth))
-                .ToList();
-            HistoryList.ItemsSource = rows;
-            HistoryStatus.Text = rows.Count == 0
-                ? "No saved sessions. Unknown gaps and pauses remain distinct when a session is recorded."
-                : "Periodic observations are estimates; unknown gaps and pauses are not counted as exact active time.";
+            ApplyHistoryRows(ReadHistoryRows(_sessionStore));
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException or ArgumentException or OverflowException)
         {
@@ -1584,7 +1557,7 @@ public partial class MainWindow : Window
         HistoryStatus.Text = HistoryUnavailableMessage;
     }
 
-    private void RefreshHistoryButton_OnClick(object sender, RoutedEventArgs e) => LoadHistory();
+    private void RefreshHistoryButton_OnClick(object sender, RoutedEventArgs e) => RefreshHistoryInBackground();
 
     private void UpdateFocusView()
     {
