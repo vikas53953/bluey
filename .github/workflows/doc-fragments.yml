@@ -1,0 +1,67 @@
+name: doc-fragments
+
+# BOO-DOCS-001 (docs/quality/RULES.md): the PR table in HANDOFF.md, the decision table in docs/DECISIONS.md and the
+# map in docs/FEATURE_MAP.md are frozen history. New rows go in one fragment file per owner (docs/handoff/<pr>.md,
+# docs/decisions/<pr>-<slug>.md, docs/feature-map/<named-id>.md), so parallel PRs never edit the same lines and never
+# conflict there. scripts/quality/doc_fragments.py fails when a PR adds or edits a frozen row, writes a malformed
+# fragment, adds a fragment named for another PR, or changes more than the status cell of another PR's fragment.
+# Every pull request (any base, so a throwaway PR against a branch is judged too). Linux, no build, no secrets, no
+# artifacts.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: doc-fragments-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  fragments:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=doc-fragments refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)'). Set this job's runner back to ubuntu-latest."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # A PR could loosen its own doc_fragments.py. So the BASE branch's copy (read from git, not from the PR) judges
+      # the PR first, before any code from the PR runs (as in pr-evidence). Until the base has the file (the PR that
+      # adds it), only the PR's own copy runs. (A PR that edits this workflow file itself is a gap left to review.)
+      - name: Fragments judged by the base branch's own checker (a PR cannot loosen its checker script)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "::error::BOO-DOCS-001 the base commit is not in the checkout, so the base branch's checker cannot run"
+            exit 1
+          fi
+          if git cat-file -e "$BASE_SHA:scripts/quality/doc_fragments.py" 2>/dev/null; then
+            git show "$BASE_SHA:scripts/quality/doc_fragments.py" > "$RUNNER_TEMP/doc_fragments_base.py"
+            python -I "$RUNNER_TEMP/doc_fragments_base.py" check --event "$GITHUB_EVENT_PATH"
+          else
+            echo "The base branch has no doc_fragments.py yet (this PR adds it); the PR's own copy judges it in the next steps."
+          fi
+
+      - name: Fragment check self-test (every rule fires on a planted sample)
+        run: python -I scripts/quality/doc_fragments.py --self-test
+
+      - name: Fragment check on this PR
+        run: python -I scripts/quality/doc_fragments.py check --event "$GITHUB_EVENT_PATH"

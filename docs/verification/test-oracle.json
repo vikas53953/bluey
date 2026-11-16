@@ -1,5 +1,5 @@
 {
-  "revision": 32,
+  "revision": 35,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -56,6 +56,7 @@
     "tests/Boo.Core.Tests/GeometryRegressionTests.cs": "58f94f92ef06c80d81c696eb518252e11aa9e8e92d82c54f51b1d4016e5f89fd",
     "tests/Boo.Core.Tests/GitHubAccessTokenTests.cs": "373ff26777df706f676add1ec3e29c251e5cf19ba0c04aaf5f594d87e919fba7",
     "tests/Boo.Core.Tests/HoldToTalkControllerTests.cs": "9ac8596b87076a9e2bf10ff792c7679d68bfa999d0861f0d7a658ae6d73ac373",
+    "tests/Boo.Core.Tests/InvisibleCharactersRevealSurrogateTests.cs": "aca95ee18b52f329bf2404109b893467f32c89207e9440a691be00034a693b4f",
     "tests/Boo.Core.Tests/LatencyRecorderTests.cs": "ba7d15dea5ecaf5a1c79170e20139692e7d09c4fee5922db885a121f31fbf98c",
     "tests/Boo.Core.Tests/LivingInkTests.cs": "861b50528f635eb8422603f45003d2002223b1f5fae0879e4912cd83ecc0938b",
     "tests/Boo.Core.Tests/MicrophoneFailureTests.cs": "027d428923ff56007e3c2fc97ee45c4d3208ac50a2aedc7a8bde5c2cd98b27c6",
@@ -69,6 +70,7 @@
     "tests/Boo.Core.Tests/ParityMotionTests.cs": "a25acc807a997524b2b37310a0aab58567de114b484b7c829e3e2356f5dcf745",
     "tests/Boo.Core.Tests/PauseAllShortcutTests.cs": "65696aecc08b8d3b044f60c1bf34c5fc4bed2022ce5b9cdc4de31bcba4bd1f40",
     "tests/Boo.Core.Tests/PerfBudgetTests.cs": "ec87531510aa5563bc8aabd155f9a9558fc2005f2110057f6459f8002d813795",
+    "tests/Boo.Core.Tests/PerfProbeSnapshotTests.cs": "493243b1832bf34f79c4183c32a54d873bf5df6e72ebfca6f15ca95a87456cc5",
     "tests/Boo.Core.Tests/PointerAnnotationSequencerTests.cs": "b13dcf828a5f5ca319dd3f387f49270d3e4369d8c9c42ab5fb2f9ebd2d8d3dfa",
     "tests/Boo.Core.Tests/PointerFlightPlannerTests.cs": "3b58c8e0538410ce85ffe8256aec635156bb19656dc879fc85dbdda3a05d5901",
     "tests/Boo.Core.Tests/PresenceControllerTests.cs": "e06747f24204ccb67e74f869f0774ed48b16389a7e1ca70cc364c2a2f6489f48",
@@ -117,12 +119,15 @@
     "tests/Boo.Integration.Tests/ProviderContractTests.cs": "a61e426743d1d706145a1cb80f788b38d9ccddbe177382c1f0849ec1e2779851",
     "tests/Boo.Integration.Tests/ProviderFailureClientTests.cs": "6c78bdea1e5587f42c521db4d3777d6b092cf0523e53fe36a67b9e6253951d43",
     "tests/Boo.Integration.Tests/ProviderRegressionTests.cs": "0c621a978fe78c362e4e6ab3f7ba682b31e53dc2df4cf4d548fae23af3e8e1bb",
+    "tests/Boo.Integration.Tests/RealtimeIncompleteReasonGuardTests.cs": "1b9bb620c5c054b5a5c39fb77fd808d553f9c7ce9945cdbdf25e58b97d9bc51a",
     "tests/Boo.Integration.Tests/RealtimeTranscriptProtocolTests.cs": "9077f2fea35c8843a5cf979e4fecbac34a9f1d0b6f316640e243b2e08ca7b09c",
     "tests/Boo.Integration.Tests/RealtimeTranscriptTests.cs": "d02dd5ce15c00569cb11b1dfcb87bcf63c572f2446dab763311526460e818da3",
     "tests/Boo.Integration.Tests/RealtimeVoiceConfigurationTests.cs": "7f6dfa7b975d19ffbf915344b65624d53d142d3c593c1b14119688af8f4dcae1",
     "tests/Boo.Integration.Tests/ResearchRequestShapeTests.cs": "68607a9544c37c6b439e18aa658dad1bb5cf20da8563dd511611eddc16c9b36b",
     "tests/Boo.Integration.Tests/ResponseDeadlineTests.cs": "a981dcd5cb4d6f5ebd7a84d09ae455e05b627fcf87f3db8aadb4c87636a4ead7",
     "tests/Boo.Integration.Tests/ReviewCaptureDisposeTests.cs": "153e15534f883714d918604ce91ab9b8e07607283a968fbe6b9eeb3985d8fab8",
+    "tests/Boo.Integration.Tests/RuntimeProbeCountersTests.cs": "a0f23a76c7fdbe2f340231a0fc7d104f2f83d0f41cf5c838a7a84ffdb3aa2f65",
+    "tests/Boo.Integration.Tests/RuntimeProbeCountersThreadTests.cs": "25c0c1bb877fa035cd0d35ddffa66a1e8626abe479e983e30a908af82d56353d",
     "tests/Boo.Integration.Tests/SessionRecoveryTests.cs": "604ff4bb833ce2be64718fc82650417dca2091517d4d33a71359fd5fd9d62e36",
     "tests/Boo.Integration.Tests/StoragePrivacyTests.cs": "dd188faa6dd2e0e92b039971fef54aadcbf37176d43ca0ec71ee2363d3982811",
     "tests/Boo.Integration.Tests/TypeTextExecutorInvisibleCharacterTests.cs": "b5b24816cfedc99a800f21bc37c5c1eb80114a741ccdf96aa88386481fa2e34e",
@@ -163,13 +168,15 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-31.json",
-  "previousManifestSha256": "7dd7e7f575a731b555c1eb1c1b02953beb50305cb415a501efeda702b2d773a7",
-  "revisionReason": "CaptureExclusionPolicyTests (Integration): hidden or already-excluded windows are never switched for a capture (demo blank-window fix, PR #95; re-extended on top of revision 31)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-34.json",
+  "previousManifestSha256": "9279a3414103738c5b9a242e814a30cf2bbcf1cf03b14756364a90db0f1aa139",
+  "revisionReason": "PR #142 (issue #124): perf probe counter tests - PerfProbeSnapshotTests (mapping/serialization), RuntimeProbeCountersTests (runtime reader) and RuntimeProbeCountersThreadTests (JIT counters process-wide); kill Codex mutants M02-M04 (61361c2) and M11/M12 (1b1260d). Re-extended on lane/face 91a9e50.",
   "addedFiles": [
-    "tests/Boo.Integration.Tests/CaptureExclusionPolicyTests.cs"
+    "tests/Boo.Core.Tests/PerfProbeSnapshotTests.cs",
+    "tests/Boo.Integration.Tests/RuntimeProbeCountersTests.cs",
+    "tests/Boo.Integration.Tests/RuntimeProbeCountersThreadTests.cs"
   ],
-  "revisionCommit": "8649b45ce9c288b7911af556eaf9de8c7c2c483f",
+  "revisionCommit": "4688348f7551c3c4bbe6b1b05a040a264d0e99eb",
   "changedFiles": [],
   "removedFiles": []
 }

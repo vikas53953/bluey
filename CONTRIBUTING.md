@@ -5,11 +5,12 @@ the branch model and the rules every change follows.
 
 ## Every PR must
 
-1. **Update [HANDOFF.md](HANDOFF.md) → "Current status"**: this PR's row (state, latest QA verdict with head SHA and
-   run links), any known issue it adds or closes, and anything it moves into or out of UNVERIFIED. Update the
-   "Status last updated" line.
-2. **Add a row to [docs/DECISIONS.md](docs/DECISIONS.md)** for every decision the PR makes or changes: date, what,
-   why, source. That includes decisions the owner gave in chat.
+1. **Write this PR's status row in its own file `docs/handoff/<pr number>.md`** (state, latest QA verdict with head
+   SHA and run links), and update HANDOFF.md → "Current status" for any known issue it adds or closes and anything it
+   moves into or out of UNVERIFIED. The PR table in HANDOFF.md itself is frozen history (BOO-DOCS-001).
+2. **Write a decision row in `docs/decisions/<pr number>-<slug>.md`** for every decision the PR makes or changes:
+   date, what, why, source, status (same columns as [docs/DECISIONS.md](docs/DECISIONS.md), whose table is frozen
+   history). That includes decisions the owner gave in chat. Shapes: `docs/quality/RULES.md`, BOO-DOCS-001.
 3. Follow the pipeline in [HANDOFF.md §5](HANDOFF.md#5-vikass-pipeline-rules-every-agent-follows):
    - branch off `origin/lane/face`, then PR into `lane/face`;
    - frozen tests change only through `scripts/test_oracle.py --extend` or a reviewed `--rebaseline`;
