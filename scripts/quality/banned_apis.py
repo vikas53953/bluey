@@ -587,10 +587,67 @@ def repo_configs(base):
     return [name for name in run.stdout.decode('utf-8').split('\0') if name and CONFIG_NAME.search(name)]
 
 
-def cmd_judge(base, facts_path):
+TRUSTED_SCHEMA = 'boo-trusted-facts/1'
+TRUSTED_TOOLING = (('extractor_tree', 'scripts/quality/buildfacts'), ('checker_blob', 'scripts/quality/build_facts.py'))
+
+
+def verify_trusted(facts_path, base_sha, repo):
+    """[] when facts_path was written by scripts/quality/trusted_facts.py produce from the base commit's OWN extractor
+    and checker (read from git) and nothing changed since; else the problems. The same check as arch_refs.py's and a
+    copy of trusted_facts.verify (this script runs with python -I, so it cannot import either)."""
+    import hashlib
+
+    def digest(path):
+        return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+
+    facts_path = pathlib.Path(facts_path)
+    try:
+        prov = json.loads(facts_path.with_name('provenance.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return [f'no readable provenance.json beside {facts_path.name}: these facts were not produced by the base '
+                'branch\'s own extractor (scripts/quality/trusted_facts.py produce)']
+    if not isinstance(prov, dict) or prov.get('schema') != TRUSTED_SCHEMA:
+        return [f'provenance.json is not {TRUSTED_SCHEMA}']
+    problems = []
+    if prov.get('base_sha') != base_sha:
+        problems.append(f'the facts were produced from {str(prov.get("base_sha"))[:12]}, not the base {base_sha[:12]}')
+    for key, path in TRUSTED_TOOLING:
+        out = subprocess.run(['git', 'rev-parse', '--verify', f'{base_sha}:{path}'], cwd=repo, capture_output=True)
+        want = out.stdout.decode().strip() if out.returncode == 0 else None
+        if not want or prov.get(key) != want:
+            problems.append(f'{path} that produced the facts is not the base commit\'s ({key} differs)')
+    try:
+        if prov.get('facts_sha256') != digest(facts_path):
+            problems.append('the facts changed after they were produced (sha256 differs)')
+    except OSError:
+        problems.append('the facts cannot be read')
+    binlogs = prov.get('binlogs')
+    if not isinstance(binlogs, dict) or not binlogs:
+        problems.append('provenance.json names no binary log')
+    else:
+        for name, entry in sorted(binlogs.items()):
+            try:
+                if digest(entry['path']) != entry['sha256']:
+                    problems.append(f'binary log {name} changed after the facts were produced')
+            except (OSError, KeyError, TypeError):
+                problems.append(f'binary log {name} cannot be read')
+    return problems
+
+
+def cmd_judge(base, facts_path, verdict=False, trusted_base=None):
+    if verdict and not trusted_base:
+        print('BANNED APIS FAILED: the base branch\'s verdict reads only trusted facts: pass --trusted-base <base commit> '
+              'and the facts that scripts/quality/trusted_facts.py produce wrote from that commit\'s own extractor '
+              '(facts from the PR\'s own extractor could leave a banned call out)')
+        return 1
     if not facts_path or not pathlib.Path(facts_path).is_file():
-        print('usage: judge <build-facts.json>  (written by the "Build facts" step of windows-ci)')
-        return 2
+        print('usage: judge <build-facts.json> [--verdict --trusted-base <base sha>]  (windows-ci)')
+        return 2 if not verdict else 1
+    if trusted_base:
+        problems = verify_trusted(facts_path, trusted_base, base)
+        if problems:
+            print('BANNED APIS FAILED: the facts are not trusted: ' + '; '.join(problems))
+            return 1
     facts = json.loads(pathlib.Path(facts_path).read_text(encoding='utf-8'))
     projects = src_projects(base)
     baselines, problems = {}, []
@@ -768,13 +825,19 @@ def trusted_cases():
             failures.append('trusted facts: facts without provenance (the PR-produced facts) must fail')
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = judge_cmd(repo, str(facts), verdict=True, trusted_base=None)
+            try:
+                code = judge_cmd(repo, str(facts), verdict=True, trusted_base=None)
+            except Exception:  # it went on to judge the facts instead of refusing them
+                code = None
         if code != 1 or 'trusted' not in out.getvalue():
             failures.append('trusted facts: the base verdict (--verdict) without --trusted-base must refuse to judge')
         provenance()
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = judge_cmd(repo, str(facts), verdict=True, trusted_base=head_sha)
+            try:
+                code = judge_cmd(repo, str(facts), verdict=True, trusted_base=head_sha)
+            except Exception:  # it went on to judge the facts instead of refusing them
+                code = None
         if code != 1 or 'not the base' not in out.getvalue():
             failures.append('trusted facts: the base verdict must refuse facts whose provenance does not match')
     return failures
@@ -1050,7 +1113,8 @@ def main():
     try:
         if command == 'judge':
             index = sys.argv.index('judge')
-            return cmd_judge(base, sys.argv[index + 1] if index + 1 < len(sys.argv) else '')
+            return cmd_judge(base, sys.argv[index + 1] if index + 1 < len(sys.argv) else '',
+                             verdict='--verdict' in sys.argv, trusted_base=argument('--trusted-base'))
         if command == 'rise-check':
             if not argument('--base-rev'):
                 print('usage: rise-check --base-rev <git rev> [--root <dir>]')
