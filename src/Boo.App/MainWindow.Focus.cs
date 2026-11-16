@@ -67,12 +67,12 @@ public partial class MainWindow
     {
         if (string.IsNullOrWhiteSpace(FocusTaskBox.Text))
         {
-            FocusStatus.Text = "Name the focus task first.";
+            SetFocusStatus("Name the focus task first.");
             return;
         }
         if (!double.TryParse(FocusDurationBox.Text, out var minutes) || minutes <= 0)
         {
-            FocusStatus.Text = "Enter a positive duration in minutes.";
+            SetFocusStatus("Enter a positive duration in minutes.");
             return;
         }
 
@@ -107,7 +107,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            FocusStatus.Text = SanitizedError(ex, "Focus session is not available yet.");
+            SetFocusStatus(SanitizedError(ex, "Focus session is not available yet."));
         }
     }
 
@@ -132,7 +132,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            FocusStatus.Text = SanitizedError(ex, "Could not pause focus.");
+            SetFocusStatus(SanitizedError(ex, "Could not pause focus."));
         }
     }
 
@@ -143,7 +143,7 @@ public partial class MainWindow
         if (takeBreak && _focus is { Status: Boo.Core.FocusStatus.Running })
         {
             FocusPauseButton_OnClick(this, new RoutedEventArgs());
-            FocusStatus.Text = "On a 5 minute break. Press Resume when you are back.";
+            SetFocusStatus("On a 5 minute break. Press Resume when you are back.");
         }
     }
 
@@ -166,12 +166,12 @@ public partial class MainWindow
             _focusClock.Start();
             _focusTimer.Start();
             UpdateFocusView();
-            FocusStatus.Text = "Running after explicit Resume.";
+            SetFocusStatus("Running after explicit Resume.");
             SetFace(WithFocusFace(_faceInputs));
         }
         catch (Exception ex)
         {
-            FocusStatus.Text = SanitizedError(ex, "Could not resume focus.");
+            SetFocusStatus(SanitizedError(ex, "Could not resume focus."));
         }
     }
 
@@ -187,7 +187,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            FocusStatus.Text = SanitizedError(ex, "Could not end focus.");
+            SetFocusStatus(SanitizedError(ex, "Could not end focus."));
         }
     }
 

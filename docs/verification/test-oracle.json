@@ -1,5 +1,5 @@
 {
-  "revision": 37,
+  "revision": 38,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -15,6 +15,7 @@
     "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "50c7561b8c6ce94f879102b86c461ec200b4c53a0d8f3e792000213fb279f591",
     "tests/Boo.Architecture.Tests/Boo.Architecture.Tests.csproj": "8587ecb45245fa2141bed6746514e6097653c2751ffcd1a878b06ff2b5665029",
     "tests/Boo.Architecture.Tests/CecilScan.cs": "39cc420a5770f94d4a9a13a300e8b3edd95f803508295b54ddf2cd07482e29e3",
+    "tests/Boo.Architecture.Tests/FocusStatusWriteRuleTests.cs": "2c0668abb6322210ce32294f8a6e020e9842b94022f604551b2845e9965a594b",
     "tests/Boo.Core.Tests/AccessibilityPreferencesTests.cs": "267b52de838c26b4549c27868f19a2f3655865c18ab0854c7ce69b89c7fd111a",
     "tests/Boo.Core.Tests/ActionPolicyTests.cs": "fd7bb663e0c1ce773d76760e49c7e2aac79efcb12d0db8f135e462168d063c15",
     "tests/Boo.Core.Tests/ActionPreviewTests.cs": "9b4fdc7645a68c482899bc1712e94cb7b6fa0d27e3da9b100b8e54391ff34148",
@@ -170,13 +171,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-36.json",
-  "previousManifestSha256": "ca54c5fc5b3c3db25bf62ebf0c6c2715c5f3920c56c27a30dbce26bda45866b2",
-  "revisionReason": "PR #158: FieldUndoDemoTests (whole-app field Undo on the published Boo.exe with the mock; issue #157 call-site wiring)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-37.json",
+  "previousManifestSha256": "7afb88d3b7604c6d4bb1f4abb279e1783e14928ec5ad155c9a330ef6384f9e33",
+  "revisionReason": "PR #170: FocusStatusWriteRuleTests (every focus status write goes through SetFocusStatus; second review P2)",
   "addedFiles": [
-    "tests/Boo.Demo.Tests/FieldUndoDemoTests.cs"
+    "tests/Boo.Architecture.Tests/FocusStatusWriteRuleTests.cs"
   ],
-  "revisionCommit": "529f649243746b23291ab5759a953ee3783bd558",
+  "revisionCommit": "3f50f62436ddc31196c1d4379b408fa9a0b65c1b",
   "changedFiles": [],
   "removedFiles": []
 }

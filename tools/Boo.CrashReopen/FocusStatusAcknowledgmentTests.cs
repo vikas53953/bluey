@@ -217,6 +217,83 @@ public sealed class StartReplacingARunningSessionAcknowledgmentTests : IClassFix
     }
 }
 
+/// <summary>
+/// PR #170 second review, P2: a status write that repeats the text already shown is still a newer action. After one full
+/// Pause and Resume, the status already reads "Running after explicit Resume."; a second Pause (its save held) followed by
+/// a second Resume writes that same text again, and the held Pause acknowledgment must not overwrite it when the save lands.
+/// </summary>
+public sealed class RepeatedPauseResumeAcknowledgmentTests : IClassFixture<AckOrderFixture>
+{
+    private readonly FocusAckDriver _boo;
+
+    public RepeatedPauseResumeAcknowledgmentTests(AckOrderFixture boo, ITestOutputHelper output) => _boo = new FocusAckDriver(boo, output);
+
+    [Fact]
+    public void SecondPauseThenResume_WithTheSecondPausesWriteHeld_StaysRunning()
+    {
+        var task = "ack-repeat " + Guid.NewGuid().ToString("N")[..8];
+        try
+        {
+            _boo.Start(task);
+            _boo.WaitStatus(s => s.StartsWith("Running;", StringComparison.Ordinal), "Running after Start");
+            _boo.Press("FocusPauseButton");
+            _boo.WaitStatus(s => s.StartsWith("Paused.", StringComparison.Ordinal), "the first Pause");
+            _boo.Press("FocusResumeButton");
+            _boo.WaitStatus(s => s == "Running after explicit Resume.", "the first Resume");
+            using (_boo.HoldWrites())
+            {
+                _boo.Press("FocusPauseButton");
+                _boo.WaitFace("Paused");
+                _boo.Press("FocusResumeButton");
+                Thread.Sleep(300);
+            }
+            _boo.Stable(TimeSpan.FromSeconds(3));
+            Assert.Equal("Running after explicit Resume.", _boo.Status());
+        }
+        finally
+        {
+            _boo.Flush("ack-repeat");
+        }
+    }
+}
+
+/// <summary>
+/// PR #170 second review, P3: a save whose write commits but whose history refresh then fails is still saved. A row Boo
+/// cannot read is planted in sessions.db, so the history list cannot be rebuilt after the Pause write; the status must
+/// acknowledge the committed Pause (never "Not saved ... not in your history"), and the stored session is Paused.
+/// </summary>
+public sealed class SavedButHistoryUnreadableAcknowledgmentTests : IClassFixture<AckFailureFixture>
+{
+    private readonly FocusAckDriver _boo;
+
+    public SavedButHistoryUnreadableAcknowledgmentTests(AckFailureFixture boo, ITestOutputHelper output) => _boo = new FocusAckDriver(boo, output);
+
+    [Fact]
+    public void PauseWhoseWriteCommitsButHistoryCannotBeRead_IsAcknowledgedAsPaused()
+    {
+        var task = "ack-read-fails " + Guid.NewGuid().ToString("N")[..8];
+        try
+        {
+            _boo.Start(task);
+            _boo.WaitStatus(s => s.StartsWith("Running;", StringComparison.Ordinal), "Running after Start");
+            _boo.PlantUnreadableRow();
+            _boo.Press("FocusPauseButton");
+            _boo.WaitFace("Paused");
+            var final = _boo.WaitStatus(s => s.StartsWith("Paused.", StringComparison.Ordinal) || s.StartsWith("Not saved:", StringComparison.Ordinal),
+                "an acknowledgment of the Pause");
+            _boo.Stable(TimeSpan.FromSeconds(2));
+            final = _boo.Status();
+            _boo.Record($"after Pause with an unreadable history: status='{final}' stored={_boo.StoredRaw(task)}");
+            Assert.StartsWith("Paused.", final, StringComparison.Ordinal);
+            Assert.Equal("Paused", _boo.StoredRaw(task));
+        }
+        finally
+        {
+            _boo.Flush("ack-read-fails");
+        }
+    }
+}
+
 /// <summary>Drives the focus panel of the published Boo.exe through UI Automation and reads sessions.db from a copy.</summary>
 public sealed class FocusAckDriver
 {
@@ -351,6 +428,57 @@ public sealed class FocusAckDriver
             var session = File.Exists(db) ? new SessionStore(db).List().FirstOrDefault(s => s.Task == task) : null;
             SqliteConnection.ClearAllPools();
             return session;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        finally
+        {
+            try { Directory.Delete(copy, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    /// <summary>Adds a session row whose status Boo cannot parse, so reading the history fails while writes still work.</summary>
+    public void PlantUnreadableRow()
+    {
+        using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Database, Pooling = false }.ToString()))
+        {
+            connection.Open();
+            using var insert = connection.CreateCommand();
+            insert.CommandText = """
+                INSERT INTO FocusSessions (Id, Task, Duration, StartedAt, Elapsed, RealElapsed, Status, DeveloperMode, UsedDeveloperMode, ChecksJson)
+                VALUES ($id, 'unreadable row', 60, '2026-11-16T00:00:00.0000000+00:00', 0, 0, 'NotAStatus', 0, 0, '[]');
+                """;
+            insert.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+            insert.ExecuteNonQuery();
+        }
+        SqliteConnection.ClearAllPools();
+        Record("planted a history row Boo cannot read");
+    }
+
+    /// <summary>The stored Status text of a task's row, read with plain SQL (Boo's own reader would fail on the planted row).</summary>
+    public string? StoredRaw(string task)
+    {
+        var copy = Path.Combine(Path.GetTempPath(), "boo-ack-raw-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(copy);
+            foreach (var file in Directory.EnumerateFiles(_boo.DataDirectory, "sessions.db*"))
+            {
+                File.Copy(file, Path.Combine(copy, Path.GetFileName(file)), overwrite: true);
+            }
+            string? status;
+            using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Path.Combine(copy, "sessions.db"), Pooling = false }.ToString()))
+            {
+                connection.Open();
+                using var query = connection.CreateCommand();
+                query.CommandText = "SELECT Status FROM FocusSessions WHERE Task = $task;";
+                query.Parameters.AddWithValue("$task", task);
+                status = query.ExecuteScalar() as string;
+            }
+            SqliteConnection.ClearAllPools();
+            return status;
         }
         catch (IOException)
         {
