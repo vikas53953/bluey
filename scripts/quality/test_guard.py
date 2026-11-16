@@ -365,8 +365,13 @@ def self_test():
     tool_product_cs = ('tools/QaMock/Program.cs', 'public static class Program { public const int Port = 1; }\n')
     tool_child_cs = ('tools/QaMock/Child/Worker.cs', 'public static class Worker { public const int Size = 1; }\n')
     loose_tool = ('tools/Loose/run.ps1', 'Write-Output 1\n')
+    test_only_proj = '<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup>\n</Project>\n'
+    mixed_old = [('tools/MixedOld/Prod.csproj', tool_product[1]), ('tools/MixedOld/Tests.csproj', test_only_proj),
+                 ('tools/MixedOld/Program.cs', 'public static class P { public const int N = 1; }\n')]
+    two_tests = [('tools/TwoTests/A.Tests.csproj', test_only_proj), ('tools/TwoTests/B.Tests.csproj', test_only_proj),
+                 ('tools/TwoTests/ATests.cs', 'public class ATests { }\n')]
     base_files = dict([product, test_cs, tool_test, tool_case, tool_product, tool_product_cs, tool_child_cs,
-                       loose_tool, (ORACLE, oracle_old), ('docs/readme.md', 'readme\n')])
+                       loose_tool, (ORACLE, oracle_old), ('docs/readme.md', 'readme\n')] + mixed_old + two_tests)
     new_product = product[1].replace('"hi"', '"hello"')
     t = test_cs[1]
 
@@ -553,6 +558,20 @@ def self_test():
         case('an existing loose tools/ file wrapped in a NEW test project + a weakened test fails',
              dict(weak, **{loose_tool[0]: 'Write-Output 2\n', 'tools/Loose/Loose.Tests.csproj': nested_tests}),
              False, why='changes product code (tools/Loose/run.ps1')
+        # Review P1 (c145927): a folder with BOTH a product and a test .csproj is product for the product-change rule
+        # (a co-located test project never exempts a declared product project); its tests are still watched.
+        case('a NEW mixed folder (product + test .csproj added together) + a weakened test fails',
+             dict(weak, **{'tools/Mixed/Prod.csproj': tool_product[1], 'tools/Mixed/Tests.csproj': test_only_proj,
+                           'tools/Mixed/Program.cs': 'public static class M { }\n'}),
+             False, why='changes product code (tools/Mixed/')
+        case('an EXISTING mixed folder on the base: Program.cs changed + a weakened test fails',
+             dict(weak, **{'tools/MixedOld/Program.cs': 'public static class P { public const int N = 2; }\n'}),
+             False, why='changes product code (tools/MixedOld/Program.cs')
+        case('a test-only folder with two test projects: a change there + a weakened test is not a product change',
+             dict(weak, **{'tools/TwoTests/ATests.cs': 'public class ATests { public int X; }\n'}), True)
+        case('a mixed folder\'s files are still watched as tests: a line changed there + a src/ change fails',
+             {product[0]: new_product, 'tools/MixedOld/Program.cs': 'public static class P { }\n'},
+             False, why='weakens tools/MixedOld/Program.cs')
         event = pathlib.Path(tmp, 'event.json')
         event.write_text('{not json', encoding='utf-8')
         results.append(('an unreadable event fails closed', run_event(event, out=lambda *_: None, cwd=tmp) == 1))
