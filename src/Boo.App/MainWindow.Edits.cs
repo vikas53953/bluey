@@ -341,12 +341,7 @@ public partial class MainWindow
         _activeUndo = null;
         var after = await PollControlsAsync(undo.Context, lease,
             observation => ActionReadback.VerifyExpected(observation, undo.Plan.Expected, "observed").Success);
-        if (after is null)
-        {
-            return outcome;
-        }
-
-        var restored = _undoJournal.VerifyUndo(after, undo.Plan);
+        var restored = _undoJournal.CompleteUndo(outcome, after, undo.Plan);
         if (restored.Success)
         {
             _journalAwaitingApply = false;
