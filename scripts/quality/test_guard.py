@@ -16,6 +16,14 @@ request these two may not meet without a signed justification:
 Adding new test files, or only adding lines (new tests) to an existing one, never fails. A PR with no product change is
 out of scope here (the frozen oracle guards it).
 
+Only this PR's OWN changes are judged. A change that arrived through a pull request this PR carries (a merge commit
+"Merge pull request #N ..." between the merge base and the head, as GitHub writes it) was judged, or signed, on that
+PR; an integration PR such as lane/face -> main brings every merged lane's work and is not asked to re-justify it.
+Own changes are the commits on the head's first-parent chain (direct commits, and for a merge commit only what the
+merge itself wrote, i.e. files that differ from every parent: a conflict resolution or an edit slipped into the merge)
+plus every commit that no carried PR's merge reaches. A lane PR that merged its base into itself carries nothing new:
+its merge base moves.
+
 It passes anyway when the PR body has a section `## Test change justification` that names every weakened file (its
 path) and every weakened test method (its name), each on a line that also says why, and carries the line
 `Test change reviewed: <full 40-character head SHA> by <reviewer>` for the CURRENT head, so a later push needs a new
@@ -54,6 +62,7 @@ IF_DIRECTIVE = re.compile(r'^\s*#\s*if\b', re.MULTILINE)
 TEST_METHOD = re.compile(r'\[\s*(?:Xunit\s*\.\s*)?(?:Fact|Theory|SkippableFact|SkippableTheory)\b[^\]]*\]'
                          r'(?:\s*\[[^\]]*\])*\s*[\w<>\[\],.?\s]*?\b(\w+)\s*\([^)]*\)\s*\{')
 COMMENTS = re.compile(r'//[^\n]*|/\*.*?\*/', re.DOTALL)
+MERGE_SUBJECT = re.compile(r'^Merge pull request #(\d+)\b')
 
 
 class Unreadable(Exception):
@@ -183,11 +192,43 @@ def test_methods(text):
     return out
 
 
+def project_elements(text):
+    """Every element of a project file as (path of tags, attributes, text), or None when it is not XML. A test
+    project file is weakened when one of these is removed or changed, not when one is added (a .csproj is often one
+    line, where a line diff would call an added ItemGroup a changed line)."""
+    try:
+        root = ElementTree.fromstring(text)
+    except ElementTree.ParseError:
+        return None
+    out = []
+
+    def walk(element, trail):
+        trail = trail + (element.tag,)
+        out.append((trail, tuple(sorted(element.attrib.items())), (element.text or '').strip()))
+        for child in element:
+            walk(child, trail)
+    walk(root, ())
+    return sorted(out)
+
+
 def weakened_file(path, old, new):
     """(reasons, weakened method names) for one existing test file; empty reasons when nothing was weakened."""
     if new is None:
         return ['an existing test file was deleted'], sorted(test_methods(old)) if path.endswith('.cs') else []
     reasons = []
+    old_elements = project_elements(old) if path.lower().endswith('.csproj') else None
+    new_elements = project_elements(new) if old_elements is not None else None
+    if old_elements is not None and new_elements is not None:
+        remaining = list(new_elements)
+        lost = 0
+        for element in old_elements:
+            if element in remaining:
+                remaining.remove(element)
+            else:
+                lost += 1
+        if lost:
+            reasons.append(f'{lost} existing project element(s) removed or changed')
+        return reasons, []
     removed = [line for line in difflib.ndiff(old.split('\n'), new.split('\n'))
                if line.startswith('- ') and line[2:].strip()]
     if removed:
@@ -230,6 +271,33 @@ def oracle_weakened(changes, base, head, cwd):
     return reasons
 
 
+def own_changes(merge_base, head_sha, cwd):
+    """(paths this PR changed itself, numbers of the PRs it carries). A carried PR is a merge commit in
+    merge_base..head whose subject is GitHub's "Merge pull request #N ..."; the commits its second parent reaches are
+    that PR's, not this one's. Own commits: the head's first-parent chain (for a merge commit, only the files that
+    differ from every parent, which is what the merge itself wrote) plus every commit in the range that no carried
+    merge reaches. Raises Unreadable when git cannot answer."""
+    log = git(['log', '--format=%H%x00%P%x00%s', f'{merge_base}..{head_sha}'], cwd).decode('utf-8', 'replace')
+    parents, carried = {}, {}
+    for line in log.splitlines():
+        sha, ps, subject = line.split('\0', 2)
+        parents[sha] = ps.split()
+        m = MERGE_SUBJECT.match(subject)
+        if m and len(parents[sha]) > 1:
+            carried[int(m.group(1))] = parents[sha][1]
+    first_parent = git(['rev-list', '--first-parent', f'{merge_base}..{head_sha}'], cwd).decode().split()
+    uncarried = git(['rev-list', head_sha, f'^{merge_base}'] + [f'^{p2}' for p2 in carried.values()],
+                    cwd).decode().split()
+    paths = set()
+    for sha in dict.fromkeys(first_parent + uncarried):
+        if len(parents.get(sha, [])) > 1:
+            out = git(['diff-tree', '-c', '-r', '--name-only', '--no-commit-id', '-z', sha], cwd)
+        else:
+            out = git(['diff-tree', '-r', '--root', '--name-only', '--no-commit-id', '-z', sha], cwd)
+        paths.update(p for p in out.decode('utf-8', 'replace').split('\0') if p)
+    return paths, frozenset(carried)
+
+
 def visible_lines(body):
     """Body lines a reader of the PR page sees as text: HTML comments and fenced code blocks removed."""
     body = re.sub(r'<!--.*?(?:-->|$)', '', (body or '').replace('\r\n', '\n'), flags=re.DOTALL)
@@ -268,12 +336,15 @@ def judge(body, base, head, cwd='.'):
     merge_base = git(['merge-base', base, head_sha], cwd).decode().strip()
     raw = git(['diff', '--name-status', '--no-renames', '-z', merge_base, head_sha], cwd).decode('utf-8', 'replace')
     parts = [p for p in raw.split('\0') if p]
-    changes = list(zip(parts[0::2], parts[1::2]))
+    own, carried = own_changes(merge_base, head_sha, cwd)
+    changes = [(status, path) for status, path in zip(parts[0::2], parts[1::2]) if path in own]
+    note = f' ({len(carried)} carried PR(s) not re-judged: #{", #".join(str(n) for n in sorted(carried))})' \
+        if carried else ''
     test_dirs = test_project_dirs([merge_base, head_sha], cwd)
     base_kinds, head_kinds = project_kinds(merge_base, cwd), project_kinds(head_sha, cwd)
     product = sorted(p for status, p in changes if is_product_path(p, status != 'A', base_kinds, head_kinds))
     if not product:
-        return [], 'no product change (src/, tools/ outside test projects, Directory.Build.*): out of scope'
+        return [], f'no own product change (src/, tools/ outside test projects, Directory.Build.*): out of scope{note}'
     weakened = []   # (path, reasons, methods)
     for status, path in changes:
         if status != 'A' and is_test_file(path, test_dirs):
@@ -287,7 +358,7 @@ def judge(body, base, head, cwd='.'):
     if oracle:
         weakened.append((ORACLE, oracle, []))
     if not weakened:
-        return [], f'product change ({len(product)} file(s)) and no existing test weakened'
+        return [], f'product change ({len(product)} file(s)) and no existing test weakened{note}'
     more = f' and {len(product) - 1} more' if len(product) > 1 else ''
     where = f'this PR changes product code ({product[0]}{more})'
     problems = [f'{where} and weakens {path}: {"; ".join(reasons)}'
@@ -318,7 +389,7 @@ def judge(body, base, head, cwd='.'):
     if missing:
         return problems + missing, ''
     return [], (f'{len(weakened)} weakened test file(s) justified and signed by {current[0].group(2)} '
-                f'for {head_sha[:12]}')
+                f'for {head_sha[:12]}{note}')
 
 
 def report(problems, summary, out=print):
@@ -434,6 +505,26 @@ def self_test():
              {product[0]: new_product, test_cs[0]: commented}, False, why='fewer test attributes')
         case('a deleted test file + a product change fails', {product[0]: new_product}, False, deletions=[test_cs[0]],
              why='an existing test file was deleted')
+        one_line = ('tests/App.Tests/App.Tests.csproj', '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference '
+                    'Include="xunit" Version="2.9.3"/></ItemGroup></Project>\n')
+        sh('checkout', '-q', '--detach', base)
+        csproj_base = commit(dict([one_line]))
+        for name, text, ok, why in [
+            ('an ItemGroup added to a one-line test .csproj + a product change passes',
+             one_line[1].replace('</ItemGroup></Project>', '</ItemGroup><ItemGroup><None Include="spec.json"/>'
+                                                            '</ItemGroup></Project>'), True, ''),
+            ('a PackageReference removed from a test .csproj + a product change fails',
+             one_line[1].replace('<PackageReference Include="xunit" Version="2.9.3"/>', ''), False,
+             'project element(s) removed or changed'),
+            ('a Version changed in a test .csproj + a product change fails',
+             one_line[1].replace('2.9.3', '2.9.2'), False, 'project element(s) removed or changed'),
+            ('a test .csproj made unreadable XML + a product change fails',
+             one_line[1].replace('</Project>', ''), False, 'line(s) removed or changed'),
+        ]:
+            sh('checkout', '-q', '--detach', csproj_base)
+            head = commit({product[0]: new_product, one_line[0]: text})
+            problems, _ = judge('', csproj_base, head, tmp)
+            results.append((name, (problems == []) == ok and why in ' '.join(problems)))
         case('a weakened test in a tools/ test project + a product change fails',
              {product[0]: new_product, tool_case[0]: tool_case[1].replace('Assert.True(true)', 'var x = 1')}, False,
              why='weakens tools/Live.Tests/LiveTests.cs')
@@ -575,6 +666,44 @@ def self_test():
         case('a mixed folder\'s files are still watched as tests: a line changed there + a src/ change fails',
              {product[0]: new_product, 'tools/MixedOld/Program.cs': 'public static class P { }\n'},
              False, why='weakens tools/MixedOld/Program.cs')
+        # Carried pull requests (BOO-TEST-002 on an integration PR): a weakening that arrived through a merge commit
+        # "Merge pull request #N ..." was judged on PR #N; what the integration branch itself writes is still judged.
+        def branch(name, start):
+            sh('checkout', '-q', '-B', name, start)
+
+        def merge(name, subject, extra=None):
+            if extra is None:
+                sh('merge', '-q', '--no-ff', '-m', subject, name)
+            else:
+                sh('merge', '-q', '--no-ff', '--no-commit', name)
+                commit(extra)   # the merge commit itself writes these files
+                sh('commit', '-q', '--amend', '-m', subject)
+            return subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=tmp, capture_output=True, text=True).stdout.strip()
+
+        def carried_case(name, should_pass, build, why=''):
+            branch('pr-7', base)
+            commit({product[0]: new_product, test_cs[0]: no_assert})
+            branch('integration', base)
+            head = build()
+            problems, summary = judge('', base, head, tmp)
+            results.append((name, (problems == []) == should_pass and why in ' '.join(problems + [summary])))
+
+        carried_case('a weakened test + product change carried by "Merge pull request #7" passes on the integration PR',
+                     True, lambda: merge('pr-7', 'Merge pull request #7 from o/pr-7'), why='carried PR(s) not re-judged: #7')
+        carried_case('the same changes under a merge subject that names no PR fail', False,
+                     lambda: merge('pr-7', "Merge branch 'pr-7' into integration"), why='fewer assertion-shaped calls')
+        carried_case('what the carried merge commit itself writes (product and a skip) is this PR\'s own and fails', False,
+                     lambda: merge('pr-7', 'Merge pull request #7 from o/pr-7',
+                                   extra={product[0]: new_product.replace('"hello"', '"hey"'), test_cs[0]: skip}),
+                     why='more skip markers')
+        carried_case('a direct commit on the integration branch after a carried merge is judged', False,
+                     lambda: (merge('pr-7', 'Merge pull request #7 from o/pr-7'),
+                              commit({product[0]: new_product.replace('"hello"', '"hey"'), test_cs[0]: skip}))[1],
+                     why='more skip markers')
+        carried_case('a carried merge whose own edit only weakens a test (no own product change) is out of scope here',
+                     True, lambda: merge('pr-7', 'Merge pull request #7 from o/pr-7', extra={test_cs[0]: skip}),
+                     why='no own product change')
+        sh('checkout', '-q', '--detach', base)
         event = pathlib.Path(tmp, 'event.json')
         event.write_text('{not json', encoding='utf-8')
         results.append(('an unreadable event fails closed', run_event(event, out=lambda *_: None, cwd=tmp) == 1))

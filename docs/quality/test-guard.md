@@ -38,6 +38,22 @@ Both of these in one PR:
 **Never fails:** adding new test files, adding new tests to an existing file (lines only added, no skip or `#if`), a pure
 oracle `--extend`, and any PR that does not change product code (the frozen oracle already guards test-only PRs).
 
+**A `.csproj` is compared as XML, not as lines.** A project file counts as weakened only when an existing element is
+removed or changed (a `PackageReference` dropped, a `Version` lowered, a property flipped); adding an `ItemGroup` or
+an item to a one-line project file is not a change to what was there. A `.csproj` that does not parse on either side
+falls back to the line comparison.
+
+## Carried pull requests are not re-judged
+
+Only this PR's **own** changes are judged. A change that reached the branch through a pull request this PR carries,
+a merge commit `Merge pull request #N ...` as GitHub writes it between the merge base and the head, was judged, or
+signed, on that PR already. An integration PR such as `lane/face` → `main` brings every merged lane's work and is
+not asked to justify it again; the summary names the carried PRs it skipped. Own changes are the commits on the
+head's first-parent chain (direct commits, and for a merge commit only what the merge itself wrote: a conflict
+resolution or an edit slipped into the merge, i.e. files that differ from every parent) plus every commit that no
+carried PR's merge reaches. A lane PR that merged its base into itself carries nothing new, because its merge base
+moves with it. This is the same boundary `doc-fragments` uses for carried fragments.
+
 ## How to pass when the test change is right
 
 Add this section to the PR body (outside HTML comments and code blocks):
@@ -65,6 +81,9 @@ Test change reviewed: 0123456789abcdef0123456789abcdef01234567 by Fable reviewer
   matters for brand-new files.
 - A PR can edit `test-guard.yml` itself; like every gate here, that is caught by review and the required-check settings,
   not by the workflow.
+- A branch that merges another open PR's branch into itself under GitHub's `Merge pull request #N` subject is also
+  treated as carrying that PR, so its changes are not re-judged here. The merge subject is the boundary, as it is for
+  `doc-fragments`; a hand-written merge with that subject is caught by review, not by the checker.
 
 ## Run it locally
 
