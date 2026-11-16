@@ -12,15 +12,20 @@
     - a [Fact]/[Theory] in a live or native project ($LiveDirs and tests/Boo.Demo.Tests below) is not cited by any row
       (a new live check nobody mapped);
     - two rows share an ID.
+  Rows come from the frozen table in docs/FEATURE_MAP.md PLUS one fragment file per feature in docs/feature-map/
+  (<named-id>.md, BOO-DOCS-001). A fragment row counts exactly like a table row. A fragment's `Replaces: <old id>` line
+  drops that frozen row (its cites no longer count); replacing an id that is not in the table, or one id twice, is
+  drift, as is a fragment whose name is not a named id or whose row is not exactly one row starting with that id.
   Read-only. Works in Windows PowerShell 5.1 and PowerShell 7.
 
 .EXAMPLE
   powershell -NoProfile -File .claude/skills/verify-boo/scripts/Test-FeatureMap.ps1
 #>
-param([string] $MapPath)
+param([string] $MapPath, [string] $FragmentDir)
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 if (-not $MapPath) { $MapPath = Join-Path $repo 'docs\FEATURE_MAP.md' }
+if (-not $FragmentDir) { $FragmentDir = Join-Path $repo 'docs\feature-map' }
 $labels = 'automated live', 'automated mock', 'manual', 'UNVERIFIED'
 $problems = [System.Collections.Generic.List[string]]::new()
 $ids = @{}
@@ -34,6 +39,8 @@ $LiveDirs = @('tools/Boo.VerifyLive', 'tools/Boo.LiveSmoke', 'tools/Boo.CrashReo
 $NativeDirs = $LiveDirs + @('tests/Boo.Demo.Tests')
 $LiveDirPattern = '^(' + (($LiveDirs | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')/'
 
+# Every row to check, from the frozen table and from the fragment files: @{ Id; Line }.
+$rowList = [System.Collections.Generic.List[object]]::new()
 $inMap = $false
 foreach ($line in Get-Content $MapPath -Encoding UTF8) {
   # Everything under "## The map" that looks like a table row must be a header, a separator or a proper map row:
@@ -46,6 +53,40 @@ foreach ($line in Get-Content $MapPath -Encoding UTF8) {
   }
   # Map rows look like: | N1 | feature | how verified | proof |
   if ($line -notmatch '^\|\s*([A-Z]{1,2}\d+)\s*\|') { continue }
+  $rowList.Add(@{ Id = $Matches[1]; Line = $line })
+}
+
+# Fragment files: docs/feature-map/<named-id>.md, one row each (BOO-DOCS-001; scripts/quality/doc_fragments.py checks
+# their shape on every PR, this checks what they claim).
+$replaced = @{}
+$fragmentRows = [System.Collections.Generic.List[object]]::new()
+if (Test-Path $FragmentDir) {
+  foreach ($f in Get-ChildItem $FragmentDir -File | Sort-Object Name) {
+    $fid = [IO.Path]::GetFileNameWithoutExtension($f.Name)
+    if ($f.Extension -cne '.md' -or $fid -cnotmatch '^[a-z][a-z0-9]*(-[a-z0-9]+)+$') {
+      $problems.Add("feature-map fragment $($f.Name) is not named <named-id>.md (lowercase words joined by -)"); continue
+    }
+    $fragLines = @(Get-Content $f.FullName -Encoding UTF8 | Where-Object { $_ -match '^\s*\|' -and $_ -notmatch '^\|\s*#\s*\|' -and $_ -notmatch '^\|\s*-' })
+    if ($fragLines.Count -ne 1) { $problems.Add("feature-map fragment $($f.Name) must hold exactly one map row (it has $($fragLines.Count))"); continue }
+    $firstCell = ($fragLines[0].Trim().Trim('|').Split('|'))[0].Trim()
+    if ($firstCell -cne $fid) { $problems.Add("feature-map fragment $($f.Name): the row's id cell must be '$fid' (it is '$firstCell')"); continue }
+    foreach ($meta in Get-Content $f.FullName -Encoding UTF8) {
+      if ($meta -match '^Replaces:\s*(\S+)\s*$') {
+        $old = $Matches[1]
+        if ($replaced.ContainsKey($old)) { $problems.Add("$old is replaced by two fragments ($($replaced[$old]) and $($f.Name))") }
+        else { $replaced[$old] = $f.Name }
+      }
+    }
+    $fragmentRows.Add(@{ Id = $fid; Line = $fragLines[0] })
+  }
+}
+foreach ($old in @($replaced.Keys)) {
+  if (-not ($rowList | Where-Object { $_.Id -ceq $old })) { $problems.Add("fragment $($replaced[$old]) replaces $old, which is not a row of the frozen map table") }
+}
+$rowList = @($rowList | Where-Object { -not $replaced.ContainsKey($_.Id) }) + @($fragmentRows)
+
+foreach ($r in $rowList) {
+  $line = $r.Line
   $cells = $line.Trim().Trim('|').Split('|') | ForEach-Object { $_.Trim() }
   $id = $cells[0]
   $rows++

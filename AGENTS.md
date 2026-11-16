@@ -26,6 +26,9 @@ sessions. These rules apply to every agent working in this repository.
 - `windows-ci` and `demo-ci` must be green on the PR head. `scripts/ci/assert-tests-ran.ps1` rejects empty or skipped
   runs; do not bypass it.
 - The real-key round trip is the manual `live-ai-smoke` workflow (`-f journeys=true` for every live journey).
+- Never add or edit rows in the PR table of `HANDOFF.md`, the table of `docs/DECISIONS.md` or the tables of
+  `docs/FEATURE_MAP.md` (frozen history). Write your own fragment file instead: `docs/handoff/<pr>.md`,
+  `docs/decisions/<pr>-<slug>.md`, `docs/feature-map/<named-id>.md` (BOO-DOCS-001, `docs/quality/RULES.md`).
 
 ## Branches, keys and safety
 

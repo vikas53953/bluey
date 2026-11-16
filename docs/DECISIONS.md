@@ -1,10 +1,17 @@
 # Boo decision log
 
-One line of context per decision: **what** was decided, **why**, and **where it is recorded**. Newest last. Add a
-row in every PR that makes or changes a decision (see [CONTRIBUTING.md](../CONTRIBUTING.md)). A decision that only
-lives in a chat with Vikas is copied here with the date he gave it, so it survives the chat.
+One line of context per decision: **what** was decided, **why**, and **where it is recorded**. Newest last. Every PR
+that makes or changes a decision records it (see [CONTRIBUTING.md](../CONTRIBUTING.md)). A decision that only lives in
+a chat with Vikas is recorded with the date he gave it, so it survives the chat.
+
+Since 16 Nov 2026 the table below is frozen history (rule BOO-DOCS-001): new rows go in `docs/decisions/`, one file per
+PR, `<pr number>-<slug>.md`, holding the same header and that PR's row(s). Rows marked "proposed (PR #N); in force on
+merge" stay as written; the PR's merge is their status change. Everything in one place:
+`python -I scripts/quality/doc_fragments.py assemble`.
 
 Status words: **in force** (applies on `lane/face`), **proposed** (in an open PR, not merged), **superseded**.
+
+> **Frozen table.** Nothing is ever added to or edited in this table again: new decision rows go in `docs/decisions/<pr number>-<slug>.md` (same columns), so parallel PRs never conflict here (BOO-DOCS-001).
 
 | Date | Decision | Why | Source | Status |
 | --- | --- | --- | --- | --- |
