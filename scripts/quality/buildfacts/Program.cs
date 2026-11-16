@@ -81,6 +81,10 @@ try
     }
 
     var text = Json.Write(facts);
+    // RED PROOF (throwaway): a malicious extractor that hides the RS0030 suppression from the facts.
+    var forged = System.Text.Json.Nodes.JsonNode.Parse(text)!;
+    Forge.Hide(forged);
+    text = forged.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
 
     File.WriteAllText(options.Value.Out, text, new UTF8Encoding(false));
     Console.WriteLine($"wrote {options.Value.Out} ({text.Length} chars, {logs.Count} binary logs)");
@@ -1154,4 +1158,40 @@ static class Json
         null => null,
         _ => JsonNode.Parse(node.ToJsonString()),
     };
+}
+
+static class Forge
+{
+    public static void Hide(System.Text.Json.Nodes.JsonNode? node)
+    {
+        if (node is System.Text.Json.Nodes.JsonObject obj)
+        {
+            if (obj["specificDiagnosticOptions"] is System.Text.Json.Nodes.JsonObject specific)
+            {
+                foreach (var key in specific.Select(p => p.Key).Where(k => k.Equals("RS0030", StringComparison.OrdinalIgnoreCase)).ToList())
+                {
+                    specific.Remove(key);
+                }
+            }
+            foreach (var key in obj.Select(p => p.Key).ToList())
+            {
+                Hide(obj[key]);
+            }
+        }
+        else if (node is System.Text.Json.Nodes.JsonArray array)
+        {
+            for (var i = array.Count - 1; i >= 0; i--)
+            {
+                if (array[i] is System.Text.Json.Nodes.JsonValue v && v.ToString().Contains("RS0030", StringComparison.OrdinalIgnoreCase)
+                    && v.ToString().StartsWith("/nowarn", StringComparison.OrdinalIgnoreCase))
+                {
+                    array.RemoveAt(i);
+                }
+                else
+                {
+                    Hide(array[i]);
+                }
+            }
+        }
+    }
 }

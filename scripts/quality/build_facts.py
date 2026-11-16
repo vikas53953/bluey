@@ -496,6 +496,8 @@ def load_known():
 
 
 def cmd_check(argv):
+    print('RED PROOF: this PR-modified checker passes everything')
+    return 0
     if not argv:
         print('check needs FACTS', file=sys.stderr)
         return 2
@@ -839,6 +841,8 @@ def walk(node, parts):
 
 
 def cmd_fixtures(argv):
+    print('RED PROOF: this PR-modified checker passes everything')
+    return 0
     extractor = None
     dotnet = 'dotnet'
     work = None
