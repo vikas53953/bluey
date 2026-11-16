@@ -1,0 +1,108 @@
+name: pr-loop
+
+# BOO-LOOP-001 (docs/quality/RULES.md, docs/quality/pr-loop.md): a deterministic PR loop, no AI. Each run snapshots
+# the open PRs, puts each in exactly one state and takes at most one allowed action per PR: arm auto-merge ONLY on a
+# matched codex-verified stamp, or upsert one marker comment that names the next owner. It never updates a branch
+# (a GITHUB_TOKEN push starts no CI; option (i)), never touches PR #3, tags, releases, installer or signing.
+#
+# Acting needs an explicit switch: a manual run with dry_run=false, or the repository variable PR_LOOP_APPLY set to
+# 'on' (owner's choice) for the schedule. Everything else is a dry run that prints the plan and does nothing.
+# Schedules and manual runs only start from the default branch (main), so the loop is idle until this file is there.
+# On pull requests only the self-test and a read-only dry run of the real queue run (the hosted proof).
+# Public repository, GitHub-hosted ubuntu runner: $0 Actions minutes. No artifacts, no secrets beyond the job token.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run: print the plan, take no action'
+        type: boolean
+        default: true
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-loop-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'queue' }}
+  cancel-in-progress: false
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: read
+      checks: read
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=pr-loop refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)'). Set this job's runner back to ubuntu-latest."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: PR loop self-test (every state, every refusal, on planted fixtures, no network)
+        run: python -I scripts/pr_loop.py --self-test
+
+      - name: Read-only dry run of the real queue (plans only; this job's token cannot write)
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python -I scripts/pr_loop.py --dry-run
+
+  loop:
+    needs: selftest
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      statuses: read
+      checks: read
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=pr-loop refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)'). Set this job's runner back to ubuntu-latest."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: PR loop (dry run unless explicitly switched on)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
+          APPLY_VAR: ${{ vars.PR_LOOP_APPLY }}
+        run: |
+          mode=--dry-run
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$DRY_RUN_INPUT" = "false" ]; then mode=--apply; fi
+          if [ "$EVENT" = "schedule" ] && [ "$APPLY_VAR" = "on" ]; then mode=--apply; fi
+          echo "Mode: $mode (event $EVENT)"
+          python -I scripts/pr_loop.py "$mode"

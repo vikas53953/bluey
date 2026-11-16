@@ -1,0 +1,472 @@
+"""BOO-LOOP-001: a deterministic PR loop (no AI). Puts every open PR in exactly one state, then takes at most one
+allowed action per PR. Rules, states and the never-list: docs/quality/pr-loop.md.
+
+  python -I scripts/pr_loop.py --self-test           every rule on planted fixtures (offline, no network)
+  python -I scripts/pr_loop.py                       read GitHub, print the plan, do NOTHING (dry run is the default)
+  python -I scripts/pr_loop.py --apply               read GitHub, print the plan, then take the planned actions
+  options: --repo OWNER/NAME (default vikas53953/bluey), --base BRANCH (default lane/face),
+           --bot-login LOGIN (whose marker comment is the ledger; default github-actions[bot])
+
+States (first unmet gate wins, so each PR gets exactly one):
+  blocked         out of scope (draft, other base, fork), mergeability not computed yet, or the verifier refused the
+                  head (latest `codex-verified` status on it is failure/error)
+  needs-rebase    behind the base branch, or conflicting
+  ci-red          a check run or commit status on the head failed
+  waiting-QA      checks still running / a required check not reported yet, or no trusted `QA PASS at <full head>`
+  waiting-review  no trusted `CODEX REVIEW PASS — <full head>` comment
+  waiting-stamp   no `codex-verified` SUCCESS status on the head that a trusted `CODEX VERIFIED <full head>` comment
+                  names by its ID (`Returned status ID **<id>**`, context `codex-verified`)
+  stamped-ready   all of the above met
+
+Allowed actions (at most one per PR per run):
+  arm       `gh pr merge <n> --auto --merge --match-head-commit <head>`, only in stamped-ready, only when the repository
+            allows auto-merge and auto-merge is not already armed
+  comment   one marker comment per PR `pr-loop: state=<s> head=<sha> next=<who>`, created once, then edited in place;
+            the same state and head means no edit
+Branch updates are NOT an action (option (i), docs/quality/pr-loop.md): a push made with the workflow's GITHUB_TOKEN
+does not start CI, so the orchestrator/lane keeps branch syncing.
+
+Idempotency ledger = GitHub's own state, keyed by (PR, head, action): `arm` is skipped when auto-merge is already armed;
+`comment` is skipped when the marker comment already says this state and head. No file to lose or forge.
+
+Never: PR #3 (lane/face -> main) is skipped before any read and refused again by the executor; no tags, releases,
+installer or signing; no merge without the stamp; no branch push; never prints a token. Any API error while reading
+fails the whole run closed (no action at all, exit 1). Stdlib only, safe under `python -I`.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+RULE = 'BOO-LOOP-001'
+REPO = 'vikas53953/bluey'
+BASE = 'lane/face'
+BOT_LOGIN = 'github-actions[bot]'
+EXCLUDED = {3: 'PR #3 (lane/face -> main) is never touched by the loop'}
+# The required checks of lane/face's branch protection on 16 Nov 2026 (codex-verified is judged separately).
+REQUIRED_CHECKS = ('demos', 'build-test-publish', 'live-ai-smoke', 'evidence', 'package', 'preflight', 'quality',
+                   'smoke')
+STAMP_CONTEXT = 'codex-verified'
+TRUSTED = {'OWNER', 'MEMBER', 'COLLABORATOR'}
+MARKER = '<!-- pr-loop:v1 -->'
+STATES = ('blocked', 'needs-rebase', 'ci-red', 'waiting-QA', 'waiting-review', 'waiting-stamp', 'stamped-ready')
+FAIL_CONCLUSIONS = {'failure', 'cancelled', 'timed_out', 'action_required', 'startup_failure', 'stale'}
+OK_CONCLUSIONS = {'success', 'skipped', 'neutral'}
+SHA = re.compile(r'^[0-9a-f]{40}$')
+QA_PASS = re.compile(r'^QA PASS at `?([0-9a-f]{40})`?(?![0-9a-f])')
+REVIEW_PASS = re.compile(r'^CODEX REVIEW PASS\s*[—–-]+\s*`?([0-9a-f]{40})`?(?![0-9a-f])')
+VERIFIED = re.compile(r'^CODEX VERIFIED `?([0-9a-f]{40})`?(?![0-9a-f])')
+STATUS_ID = re.compile(r'Returned status ID \*\*(\d+)\*\*, context `codex-verified`')
+LEDGER_LINE = re.compile(r'^pr-loop: state=(\S+) head=([0-9a-f]{40}) next=(\S+)$', re.M)
+
+
+class ApiError(Exception):
+    """Any failure talking to GitHub. The run fails closed: no action, exit 1."""
+
+
+class GhClient:
+    """GitHub through the `gh` CLI and the token it already has (GH_TOKEN in Actions). Never prints the token."""
+
+    def __init__(self, repo):
+        self.repo = repo
+
+    def _gh(self, args, stdin=None):
+        try:
+            proc = subprocess.run(['gh', *args], input=stdin, capture_output=True, text=True, encoding='utf-8',
+                                  timeout=120)
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ApiError(f'gh could not run ({type(error).__name__})') from None
+        if proc.returncode != 0:
+            raise ApiError(f'gh {args[0]} {args[1] if len(args) > 1 else ""} failed: '
+                           f'{(proc.stderr or "").strip()[:300]}')
+        return proc.stdout
+
+    def _json(self, args, stdin=None):
+        out = self._gh(args, stdin)
+        try:
+            return json.loads(out) if out.strip() else None
+        except ValueError:
+            raise ApiError(f'gh {args[0]} returned text that is not JSON') from None
+
+    def _pages(self, path):
+        pages = self._json(['api', '--paginate', '--slurp', path])
+        if not isinstance(pages, list):
+            raise ApiError(f'unexpected paginated reply for {path}')
+        return pages
+
+    def repo_settings(self):
+        data = self._json(['api', f'repos/{self.repo}'])
+        if not isinstance(data, dict) or 'allow_auto_merge' not in data:
+            raise ApiError('the repository reply has no allow_auto_merge field')
+        return {'allow_auto_merge': bool(data['allow_auto_merge'])}
+
+    def base_sha(self, base):
+        data = self._json(['api', f'repos/{self.repo}/commits/{base.replace("/", "%2F")}', '--jq', '{sha: .sha}'])
+        sha = (data or {}).get('sha', '')
+        if not SHA.match(sha):
+            raise ApiError(f'could not read the head of {base}')
+        return sha
+
+    def open_prs(self):
+        fields = ('number,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,mergeable,mergeStateStatus,'
+                  'autoMergeRequest')
+        data = self._json(['pr', 'list', '--repo', self.repo, '--state', 'open', '--limit', '200', '--json', fields])
+        if not isinstance(data, list):
+            raise ApiError('the open-PR list is not a list')
+        if len(data) >= 200:
+            raise ApiError('200 or more open PRs: the list may be cut short, refusing to plan on part of it')
+        return data
+
+    def comments(self, number):
+        return [c for page in self._pages(f'repos/{self.repo}/issues/{number}/comments?per_page=100') for c in page]
+
+    def check_runs(self, sha):
+        return [r for page in self._pages(f'repos/{self.repo}/commits/{sha}/check-runs?per_page=100')
+                for r in page.get('check_runs', [])]
+
+    def statuses(self, sha):
+        return [s for page in self._pages(f'repos/{self.repo}/commits/{sha}/statuses?per_page=100') for s in page]
+
+    def behind_by(self, base_sha, head_sha):
+        data = self._json(['api', f'repos/{self.repo}/compare/{base_sha}...{head_sha}', '--jq',
+                           '{behind_by: .behind_by}'])
+        if not isinstance((data or {}).get('behind_by'), int):
+            raise ApiError('the compare reply has no behind_by')
+        return data['behind_by']
+
+    def arm(self, number, head):
+        self._gh(['pr', 'merge', str(number), '--repo', self.repo, '--auto', '--merge', '--match-head-commit', head])
+
+    def create_comment(self, number, body):
+        self._gh(['api', '-X', 'POST', f'repos/{self.repo}/issues/{number}/comments', '--input', '-'],
+                 json.dumps({'body': body}))
+
+    def edit_comment(self, comment_id, body):
+        self._gh(['api', '-X', 'PATCH', f'repos/{self.repo}/issues/comments/{comment_id}', '--input', '-'],
+                 json.dumps({'body': body}))
+
+
+def in_scope(pr, base):
+    """Return None when the loop judges this PR, else the plain reason it does not."""
+    return 'NOT IMPLEMENTED'
+
+
+def snapshot(client, base):
+    """Read everything first; any read error raises ApiError before a single action is planned."""
+    raise ApiError('snapshot is not implemented yet')
+
+
+def classify(pr, base):
+    """Return (state, detail, next) for one in-scope PR read by snapshot()."""
+    return 'blocked', 'not implemented', 'owner'
+
+
+def plan(snap, base, bot_login):
+    """One entry per open PR: state, detail, next, why arming is or is not planned, and at most one action."""
+    return []
+
+
+def execute(entries, client, apply):
+    """Take the planned actions (only with apply). PR #3 is refused here again even if a plan names it."""
+    return 0
+
+
+def run(client, apply, base=BASE, bot_login=BOT_LOGIN, out=print):
+    raise ApiError('run is not implemented yet')
+
+
+# ---------------------------------------------------------------------------------------------------------------- tests
+
+class FakeClient:
+    """Planted GitHub for the self-test. Records every read and write; `fail` names a method that raises ApiError."""
+
+    def __init__(self, prs, comments=None, checks=None, statuses=None, behind=None, allow_auto_merge=True, fail=None):
+        self.prs, self.comments_by_pr = prs, comments or {}
+        self.checks_by_sha, self.statuses_by_sha = checks or {}, statuses or {}
+        self.behind, self.allow, self.fail = behind or {}, allow_auto_merge, fail
+        self.reads, self.writes = [], []
+
+    def _read(self, name, key=None):
+        self.reads.append((name, key))
+        if self.fail == name:
+            raise ApiError(f'planted failure in {name}')
+
+    def repo_settings(self):
+        self._read('repo_settings')
+        return {'allow_auto_merge': self.allow}
+
+    def base_sha(self, base):
+        self._read('base_sha')
+        return 'b' * 40
+
+    def open_prs(self):
+        self._read('open_prs')
+        return [dict(p) for p in self.prs]
+
+    def comments(self, number):
+        self._read('comments', number)
+        return list(self.comments_by_pr.get(number, []))
+
+    def check_runs(self, sha):
+        self._read('check_runs', sha)
+        return list(self.checks_by_sha.get(sha, []))
+
+    def statuses(self, sha):
+        self._read('statuses', sha)
+        return list(self.statuses_by_sha.get(sha, []))
+
+    def behind_by(self, base_sha, head_sha):
+        self._read('behind_by', head_sha)
+        return self.behind.get(head_sha, 0)
+
+    def _write(self, *call):
+        if self.fail == call[0]:
+            raise ApiError(f'planted failure in {call[0]}')
+        self.writes.append(call)
+
+    def arm(self, number, head):
+        self._write('arm', number, head)
+
+    def create_comment(self, number, body):
+        self._write('create_comment', number, body)
+
+    def edit_comment(self, comment_id, body):
+        self._write('edit_comment', comment_id, body)
+
+
+def _sha(n):
+    return f'{n:040x}'
+
+
+def _comment(body, author='OWNER', login='vikas53953', cid=1, created='2026-11-16T00:00:00Z'):
+    return {'id': cid, 'body': body, 'author_association': author, 'user': {'login': login}, 'created_at': created}
+
+
+def _world(number=200, head=None, **edit):
+    """A PR that passes every gate (stamped-ready), as a FakeClient. `edit` overrides parts of it."""
+    head = head or _sha(number)
+    pr = {'number': number, 'headRefOid': head, 'headRefName': f'fix/{number}', 'baseRefName': BASE,
+          'isDraft': False, 'isCrossRepository': False, 'mergeable': 'MERGEABLE', 'mergeStateStatus': 'BLOCKED',
+          'autoMergeRequest': None}
+    pr.update(edit.pop('pr', {}))
+    checks = [{'name': n, 'status': 'completed', 'conclusion': 'success'} for n in REQUIRED_CHECKS]
+    checks.append({'name': 'github-release', 'status': 'completed', 'conclusion': 'skipped'})
+    stamp_id = 58974699495
+    statuses = [{'id': stamp_id, 'context': STAMP_CONTEXT, 'state': 'success', 'created_at': '2026-11-16T01:00:00Z'}]
+    comments = [
+        _comment(f'QA PASS at {head}: all green.', cid=10),
+        _comment(f'﻿CODEX REVIEW PASS — {head}\n\nno findings', cid=11),
+        _comment(f'CODEX VERIFIED {head}\n\nReturned status ID **{stamp_id}**, context `codex-verified`, SUCCESS.',
+                 cid=12),
+    ]
+    data = {'prs': [pr], 'comments': {number: comments}, 'checks': {head: checks}, 'statuses': {head: statuses},
+            'behind': {head: 0}}
+    for key, fn in edit.items():
+        fn(data)
+    return FakeClient(data['prs'], data['comments'], data['checks'], data['statuses'], data['behind'],
+                      allow_auto_merge=data.get('allow', True), fail=data.get('fail'))
+
+
+def self_test():
+    results = []
+
+    def check(name, cond):
+        results.append((name, bool(cond)))
+        print(('PASS  ' if cond else 'FAIL  ') + name)
+
+    def go(client, apply=False):
+        lines = []
+        try:
+            code = run(client, apply=apply, out=lines.append)
+        except Exception as error:  # a stub or a crash is a failed case, never a pass
+            lines.append(f'CRASH {type(error).__name__}: {error}')
+            code = 'crash'
+        return code, '\n'.join(lines)
+
+    def state_of(client):
+        try:
+            entries = plan(snapshot(client, BASE), BASE, BOT_LOGIN)
+        except Exception as error:
+            return f'crash {type(error).__name__}'
+        return entries[0]['state'] if entries else None
+
+    def arms(client):
+        return [w for w in client.writes if w[0] == 'arm']
+
+    head = _sha(200)
+
+    # One fixture per state.
+    check('stamped-ready: every gate met', state_of(_world()) == 'stamped-ready')
+    check('waiting-stamp: QA and review PASS, no codex-verified status',
+          state_of(_world(s=lambda d: d['statuses'].update({head: []}))) == 'waiting-stamp')
+    check('waiting-review: QA PASS only',
+          state_of(_world(c=lambda d: d['comments'][200].__delitem__(slice(1, 3)))) == 'waiting-review')
+    check('waiting-QA: no QA PASS comment',
+          state_of(_world(c=lambda d: d['comments'][200].__delitem__(0))) == 'waiting-QA')
+    check('waiting-QA: a required check still running',
+          state_of(_world(k=lambda d: d['checks'][head].__setitem__(0, {'name': 'demos', 'status': 'in_progress',
+                                                                        'conclusion': None}))) == 'waiting-QA')
+    check('waiting-QA: a required check not reported at all',
+          state_of(_world(k=lambda d: d['checks'][head].pop(0))) == 'waiting-QA')
+    check('ci-red: a check run failed on the head',
+          state_of(_world(k=lambda d: d['checks'][head].append({'name': 'smoke', 'status': 'completed',
+                                                                'conclusion': 'failure'}))) == 'ci-red')
+    check('ci-red: a commit status (not codex-verified) is failure',
+          state_of(_world(s=lambda d: d['statuses'][head].append({'id': 5, 'context': 'other', 'state': 'failure',
+                                                                  'created_at': '2026-11-16T00:00:00Z'}))) == 'ci-red')
+    check('needs-rebase: behind the base',
+          state_of(_world(b=lambda d: d['behind'].update({head: 3}))) == 'needs-rebase')
+    check('needs-rebase: conflicting',
+          state_of(_world(pr={'mergeable': 'CONFLICTING', 'mergeStateStatus': 'DIRTY'})) == 'needs-rebase')
+    check('blocked: draft PR', state_of(_world(pr={'isDraft': True})) == 'blocked')
+    check('blocked: another base branch', state_of(_world(pr={'baseRefName': 'qa/app-explorer'})) == 'blocked')
+    check('blocked: mergeability not computed yet', state_of(_world(pr={'mergeable': 'UNKNOWN'})) == 'blocked')
+
+    # Arming: only on a matched stamp.
+    c = _world()
+    code, text = go(c, apply=True)
+    check('stamped-ready + --apply arms exactly once with --match-head-commit on the head',
+          code == 0 and arms(c) == [('arm', 200, head)] and len(c.writes) == 1)
+
+    c = _world(c=lambda d: d['comments'][200].__setitem__(2, _comment(
+        f'CODEX VERIFIED {_sha(999)}\n\nReturned status ID **58974699495**, context `codex-verified`, SUCCESS.')))
+    code, text = go(c, apply=True)
+    check('a stamp comment naming another SHA does NOT arm', code == 0 and not arms(c)
+          and 'state=waiting-stamp' in text)
+
+    c = _world(c=lambda d: d['comments'][200].__setitem__(2, _comment(
+        f'CODEX VERIFIED {head}\n\nReturned status ID **12345**, context `codex-verified`, SUCCESS.')))
+    code, text = go(c, apply=True)
+    check('a stamp comment naming a different status ID does NOT arm', code == 0 and not arms(c)
+          and 'state=waiting-stamp' in text)
+
+    c = _world(s=lambda d: d['statuses'][head].__setitem__(0, {'id': 58974699495, 'context': STAMP_CONTEXT,
+                                                               'state': 'failure',
+                                                               'created_at': '2026-11-16T01:00:00Z'}))
+    code, text = go(c, apply=True)
+    check('a failure codex-verified status does NOT arm (blocked)', code == 0 and not arms(c)
+          and 'state=blocked' in text)
+
+    c = _world(s=lambda d: d['statuses'][head].insert(0, {'id': 7, 'context': STAMP_CONTEXT, 'state': 'failure',
+                                                          'created_at': '2026-11-16T02:00:00Z'}))
+    code, text = go(c, apply=True)
+    check('a later failure status replaces an earlier success: does NOT arm', code == 0 and not arms(c))
+
+    c = _world(c=lambda d: d['comments'][200].__setitem__(2, dict(d['comments'][200][2], author_association='NONE',
+                                                                  user={'login': 'stranger'})))
+    code, text = go(c, apply=True)
+    check('a stamp comment from an untrusted account does NOT arm', code == 0 and not arms(c))
+
+    c = _world(a=lambda d: d.__setitem__('allow', False))
+    code, text = go(c, apply=True)
+    check('repository auto-merge setting off: detected and reported, never armed, settings untouched',
+          code == 0 and not c.writes and 'allow_auto_merge' in text)
+
+    # PR #3 is never touched, even when it looks stamped-ready.
+    c = _world(number=3, pr={'headRefName': 'lane/face', 'baseRefName': 'main'})
+    c3 = _world(number=3)  # same number, ordinary-looking base: still excluded
+    code, text = go(c, apply=True)
+    code3, text3 = go(c3, apply=True)
+    check('PR #3 is never read past the list and never acted on (even if it looks stamped-ready)',
+          code == 0 and code3 == 0 and not c.writes and not c3.writes
+          and not [r for r in c3.reads if r[1] in (3, _sha(3))])
+    try:
+        execute([{'number': 3, 'head': _sha(3), 'action': 'arm'}], c3, apply=True)
+        refused = False
+    except Exception:
+        refused = True
+    check('the executor refuses PR #3 even if a plan names it', refused and not c3.writes)
+
+    # Idempotency: a second run on the same head does nothing.
+    c = _world(pr={'autoMergeRequest': {'enabledAt': '2026-11-16T03:00:00Z'}},
+               c=lambda d: d['comments'][200].append(_comment(
+                   f'{MARKER}\npr-loop: state=stamped-ready head={head} next=auto-merge\n', author='NONE',
+                   login=BOT_LOGIN, cid=50)))
+    code, text = go(c, apply=True)
+    check('second run, same head: auto-merge already armed and marker says the same: no action',
+          code == 0 and not c.writes)
+
+    c = _world(s=lambda d: d['statuses'].update({head: []}),
+               c=lambda d: d['comments'][200].append(_comment(
+                   f'{MARKER}\npr-loop: state=waiting-stamp head={head} next=verifier\n', author='NONE',
+                   login=BOT_LOGIN, cid=50)))
+    code, text = go(c, apply=True)
+    check('second run, same state and head: no new or edited comment', code == 0 and not c.writes)
+
+    c = _world(s=lambda d: d['statuses'].update({head: []}))
+    code, text = go(c, apply=True)
+    check('first run on a waiting PR: one marker comment created, naming state, head and next',
+          code == 0 and len(c.writes) == 1 and c.writes[0][0] == 'create_comment'
+          and f'pr-loop: state=waiting-stamp head={head} next=verifier' in c.writes[0][2])
+
+    c = _world(s=lambda d: d['statuses'].update({head: []}),
+               c=lambda d: d['comments'][200].append(_comment(
+                   f'{MARKER}\npr-loop: state=waiting-review head={head} next=reviewer\n', author='NONE',
+                   login=BOT_LOGIN, cid=50)))
+    code, text = go(c, apply=True)
+    check('state changed: the one marker comment is edited in place, not re-posted',
+          code == 0 and len(c.writes) == 1 and c.writes[0][:2] == ('edit_comment', 50))
+
+    c = _world(s=lambda d: d['statuses'].update({head: []}),
+               c=lambda d: d['comments'][200].append(_comment(
+                   f'{MARKER}\npr-loop: state=waiting-stamp head={head} next=verifier\n', cid=50)))
+    code, text = go(c, apply=True)
+    check('a marker comment from someone other than the bot is not the ledger (bot writes its own)',
+          code == 0 and len(c.writes) == 1 and c.writes[0][0] == 'create_comment')
+
+    c = _world()
+    code, text = go(c, apply=True)
+    check('one action per PR per run: arming is the only action (no comment in the same run)', len(c.writes) == 1)
+
+    # Dry run (the default) plans and prints but performs nothing.
+    c = _world()
+    code, text = go(c, apply=False)
+    check('dry run prints the plan (arm would happen) and performs nothing',
+          code == 0 and not c.writes and 'DRY RUN' in text and 'arm' in text)
+    c = _world(s=lambda d: d['statuses'].update({head: []}))
+    code, text = go(c, apply=False)
+    check('dry run on an unstamped PR says: no action (no codex-verified stamp)',
+          code == 0 and not c.writes and 'no codex-verified stamp' in text)
+
+    # Fail closed on any API error: no action at all.
+    for method in ('repo_settings', 'base_sha', 'open_prs', 'comments', 'check_runs', 'statuses', 'behind_by'):
+        c = _world(f=lambda d, m=method: d.__setitem__('fail', m))
+        code, text = go(c, apply=True)
+        check(f'API error in {method}: exit 1, no action, a clear message', code == 1 and not c.writes
+              and 'fail' in text.lower())
+    c = _world(f=lambda d: d.__setitem__('fail', 'arm'))
+    code, text = go(c, apply=True)
+    check('API error while arming: exit 1 with a clear message', code == 1 and 'arm' in text)
+
+    failed = [n for n, ok in results if not ok]
+    print(f'\n{len(results) - len(failed)}/{len(results)} self-test cases passed')
+    return 1 if failed else 0
+
+
+def main(argv):
+    args = list(argv)
+    if args == ['--self-test']:
+        return self_test()
+    opts = {'--repo': REPO, '--base': BASE, '--bot-login': BOT_LOGIN}
+    apply = False
+    while args:
+        arg = args.pop(0)
+        if arg == '--apply':
+            apply = True
+        elif arg == '--dry-run':
+            apply = False
+        elif arg in opts and args:
+            opts[arg] = args.pop(0)
+        else:
+            print(__doc__)
+            return 2
+    try:
+        return run(GhClient(opts['--repo']), apply=apply, base=opts['--base'], bot_login=opts['--bot-login'])
+    except ApiError as error:
+        print(f'::error::{RULE} fail closed, no action taken: {error}')
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
