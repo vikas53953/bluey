@@ -628,7 +628,7 @@ comment withdrawn or edited, veto comment, PR retargeted, draft, behind, red che
 when a second PR would be armed in one run; when any PR on `main` or PR #3 is acted on; when a second run on the same
 head would act again; when tip CI is dispatched without a bot merge at the tip, twice for one SHA, or in a dry run;
 when an API error would not fail the run closed; when `pr-loop.yml` gains a `schedule:` or loses its `dry_run` default
-of `true`; when any line of a private-key block (complete, or BEGIN without END), any key shape known to `key_scan.py` or any labelled value (`API key:`, `Authorization`, `token`, `secret`, `password`, `cookie`, ...) reaches stdout, stderr or a comment payload through any output path, when the script writes output outside its one choke point, when a `gh` error carrying an `Authorization` header or a token reaches the output, when the environment
+of `true`; when any line of a private-key block (complete, or BEGIN without END), any key shape known to `key_scan.py` or any labelled value (`API key:`, `Authorization`, `token`, `secret`, `password`, `cookie`, ...) reaches stdout, stderr or a comment payload through any output path, when the script writes output outside its one choke point, when a missing or malformed field or time from any API source (PR metadata, comments, reviews, inline comments, check runs, statuses, merged PRs) is accepted instead of stopping the run, when `.get(` is used on API data outside the accessors, when a `gh` error carrying an `Authorization` header or a token reaches the output, when the environment
 handed to `gh` keeps `GH_DEBUG` / `GIT_TRACE*` / `GIT_CURL_VERBOSE` / `DEBUG`, when a verbose flag reaches `gh`, or when
 the workflow stops key-scanning its captured output.
 

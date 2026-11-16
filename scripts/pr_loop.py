@@ -33,6 +33,7 @@ Never: PR #3 (lane/face -> main) is skipped before any read and refused again by
 installer or signing; no merge without the stamp; no branch push; never prints a token. Any API error while reading
 fails the whole run closed (no action at all, exit 1). Stdlib only, safe under `python -I`.
 """
+import datetime
 import importlib.util
 import json
 import os
@@ -197,8 +198,145 @@ def redact(text):
     return (' | '.join(k for k in kept if k)[:300] + note).strip()
 
 
+# --------------------------------------------------------------------------------------------- the API boundary
+# Every field the loop relies on is read HERE, through _field() / _time(), from every source: PR metadata, issue
+# comments, PR reviews, inline review comments, check runs, commit statuses, merged PRs, and the small replies
+# (repository settings, base head, compare, workflow runs). A required key must be PRESENT (absent is not null),
+# have the right type, and every time must parse with ONE strict parser (ISO-8601 UTC, `2026-11-16T03:00:00Z`).
+# Anything else is malformed: the run takes no action at all and exits 1 (fail closed). Present null is accepted only
+# where the API gives it a meaning: a review's lastEditedAt null = never edited; a review's submittedAt null = not
+# submitted (ordered as after the stamp); a check run's conclusion / completed_at null = not finished; a deleted
+# account (user/author null). Downstream code reads only the records the adapters return, with plain indexing; a
+# self-test forbids `.get(` anywhere outside this boundary's helpers, main() and the test code.
+
+class MalformedData(ApiError):
+    """GitHub returned data the loop cannot trust: a missing field, a wrong type or an unparseable time."""
+
+
+STRICT_TIME = re.compile(r'^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.[0-9]{1,9})?Z$')
+
+
+def parse_time(value, where):
+    """The one time parser: ISO-8601 UTC only. Returns the canonical `YYYY-MM-DDTHH:MM:SSZ` (string order = time
+    order). Anything else raises MalformedData; the value itself is never echoed."""
+    match = STRICT_TIME.match(value) if isinstance(value, str) else None
+    if not match:
+        raise MalformedData(f'{where}: not an ISO-8601 UTC time')
+    try:
+        datetime.datetime(*(int(part) for part in match.groups()))
+    except ValueError:
+        raise MalformedData(f'{where}: not a real date and time') from None
+    return '{}-{}-{}T{}:{}:{}Z'.format(*match.groups())
+
+
+def _field(obj, key, kind, where, nullable=False):
+    """The one accessor for API data: the key must be present; null only when nullable; the type must match (an int
+    is never a bool)."""
+    if not isinstance(obj, dict):
+        raise MalformedData(f'{where}: not an object')
+    if key not in obj:
+        raise MalformedData(f'{where}: field {key} is missing')
+    value = obj[key]
+    if value is None:
+        if nullable:
+            return None
+        raise MalformedData(f'{where}: field {key} is null')
+    if kind is int:
+        ok = isinstance(value, int) and not isinstance(value, bool)
+    else:
+        ok = isinstance(value, kind)
+    if not ok:
+        raise MalformedData(f'{where}: field {key} has the wrong type')
+    return value
+
+
+def _time(obj, key, where, nullable=False):
+    value = _field(obj, key, str, where, nullable)
+    return None if value is None else parse_time(value, f'{where}.{key}')
+
+
+def _login(obj, key, where):
+    user = _field(obj, key, dict, where, nullable=True)
+    return None if user is None else _field(user, 'login', str, f'{where}.{key}')
+
+
+def _list(value, where):
+    if not isinstance(value, list):
+        raise MalformedData(f'{where}: not a list')
+    return value
+
+
+def _adapt_all(items, adapter, where):
+    return [adapter(item, f'{where}[{i}]') for i, item in enumerate(_list(items, where))]
+
+
+def adapt_pr(raw, where, with_state=False):
+    record = {
+        'number': _field(raw, 'number', int, where),
+        'headRefOid': _field(raw, 'headRefOid', str, where),
+        'headRefName': _field(raw, 'headRefName', str, where),
+        'baseRefName': _field(raw, 'baseRefName', str, where),
+        'isDraft': _field(raw, 'isDraft', bool, where),
+        'isCrossRepository': _field(raw, 'isCrossRepository', bool, where),
+        'mergeable': _field(raw, 'mergeable', str, where),
+        'mergeStateStatus': _field(raw, 'mergeStateStatus', str, where),
+        'autoMergeRequest': _field(raw, 'autoMergeRequest', dict, where, nullable=True) is not None,
+    }
+    if with_state:
+        record['state'] = _field(raw, 'state', str, where)
+    return record
+
+
+def adapt_comment(raw, where):
+    """An issue comment or an inline review comment (REST)."""
+    return {'id': _field(raw, 'id', int, where), 'body': _field(raw, 'body', str, where),
+            'login': _login(raw, 'user', where),
+            'author_association': _field(raw, 'author_association', str, where),
+            'created_at': _time(raw, 'created_at', where), 'updated_at': _time(raw, 'updated_at', where)}
+
+
+def adapt_review(raw, where):
+    """A PR review (GraphQL node). lastEditedAt must be PRESENT: null = never edited; absent = malformed."""
+    return {'id': _field(raw, 'databaseId', int, where), 'body': _field(raw, 'body', str, where),
+            'login': _login(raw, 'author', where),
+            'submitted_at': _time(raw, 'submittedAt', where, nullable=True) or '',
+            'last_edited_at': _time(raw, 'lastEditedAt', where, nullable=True)}
+
+
+def adapt_check_run(raw, where):
+    record = {'id': _field(raw, 'id', int, where), 'name': _field(raw, 'name', str, where),
+              'status': _field(raw, 'status', str, where),
+              'conclusion': _field(raw, 'conclusion', str, where, nullable=True),
+              'completed_at': _time(raw, 'completed_at', where, nullable=True)}
+    if record['status'] == 'completed' and (record['conclusion'] is None or record['completed_at'] is None):
+        raise MalformedData(f'{where}: completed without a conclusion or a completion time')
+    return record
+
+
+def adapt_status(raw, where):
+    return {'id': _field(raw, 'id', int, where), 'context': _field(raw, 'context', str, where),
+            'state': _field(raw, 'state', str, where),
+            'description': _field(raw, 'description', str, where, nullable=True),
+            'created_at': _time(raw, 'created_at', where), 'updated_at': _time(raw, 'updated_at', where)}
+
+
+def adapt_merged(raw, where):
+    commit = _field(raw, 'mergeCommit', dict, where, nullable=True)
+    by = _field(raw, 'mergedBy', dict, where, nullable=True)
+    return {'number': _field(raw, 'number', int, where),
+            'merge_oid': None if commit is None else _field(commit, 'oid', str, f'{where}.mergeCommit'),
+            'merged_by_bot': False if by is None else _field(by, 'is_bot', bool, f'{where}.mergedBy')}
+
+
+def _count(value, where):
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise MalformedData(f'{where}: not a whole number')
+    return value
+
+
 class GhClient:
     """GitHub through the `gh` CLI and the token it already has (GH_TOKEN in Actions). Never prints the token.
+    It returns the raw API shapes (checked to be lists/objects); the adapters above judge every field.
     `runner` stands in for subprocess.run in the self-test."""
 
     def __init__(self, repo, runner=None):
@@ -225,38 +363,38 @@ class GhClient:
             raise ApiError(f'gh {args[0]} returned text that is not JSON') from None
 
     def _pages(self, path):
-        pages = self._json(['api', '--paginate', '--slurp', path])
-        if not isinstance(pages, list):
-            raise ApiError(f'unexpected paginated reply for {path}')
-        return pages
+        return _list(self._json(['api', '--paginate', '--slurp', path]), f'paginated reply for {path}')
+
+    def _flat(self, path):
+        return [item for page in self._pages(path) for item in _list(page, f'a page of {path}')]
 
     def repo_settings(self):
         """allow_auto_merge: True / False, or None when this token may not see it (REST omits the field for a
-        read-only token). None never arms; the run says so."""
+        read-only token; then GraphQL autoMergeAllowed, which may be null). None never arms; the run says so."""
         data = self._json(['api', f'repos/{self.repo}'])
         if not isinstance(data, dict):
-            raise ApiError('the repository reply is not an object')
-        if isinstance(data.get('allow_auto_merge'), bool):
+            raise MalformedData('the repository reply is not an object')
+        if 'allow_auto_merge' in data and isinstance(data['allow_auto_merge'], bool):
             return {'allow_auto_merge': data['allow_auto_merge'], 'source': 'REST'}
         owner, _, name = self.repo.partition('/')
         query = 'query($o:String!,$n:String!){repository(owner:$o,name:$n){autoMergeAllowed}}'
         reply = self._json(['api', 'graphql', '-f', f'query={query}', '-F', f'o={owner}', '-F', f'n={name}'])
-        value = (((reply or {}).get('data') or {}).get('repository') or {}).get('autoMergeAllowed')
-        return {'allow_auto_merge': value if isinstance(value, bool) else None, 'source': 'GraphQL'}
+        repo = _field(_field(reply, 'data', dict, 'settings reply'), 'repository', dict, 'settings reply.data')
+        return {'allow_auto_merge': _field(repo, 'autoMergeAllowed', bool, 'settings reply', nullable=True),
+                'source': 'GraphQL'}
 
     def base_sha(self, base):
         data = self._json(['api', f'repos/{self.repo}/commits/{base.replace("/", "%2F")}', '--jq', '{sha: .sha}'])
-        sha = (data or {}).get('sha', '')
+        sha = _field(data, 'sha', str, f'the head of {base}')
         if not SHA.match(sha):
-            raise ApiError(f'could not read the head of {base}')
+            raise MalformedData(f'the head of {base} is not a full SHA')
         return sha
 
     def open_prs(self):
         fields = ('number,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,mergeable,mergeStateStatus,'
                   'autoMergeRequest')
-        data = self._json(['pr', 'list', '--repo', self.repo, '--state', 'open', '--limit', '200', '--json', fields])
-        if not isinstance(data, list):
-            raise ApiError('the open-PR list is not a list')
+        data = _list(self._json(['pr', 'list', '--repo', self.repo, '--state', 'open', '--limit', '200',
+                                 '--json', fields]), 'the open-PR list')
         if len(data) >= 200:
             raise ApiError('200 or more open PRs: the list may be cut short, refusing to plan on part of it')
         return data
@@ -264,68 +402,55 @@ class GhClient:
     def pr(self, number):
         fields = ('number,state,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,mergeable,'
                   'mergeStateStatus,autoMergeRequest')
-        data = self._json(['pr', 'view', str(number), '--repo', self.repo, '--json', fields])
-        if not isinstance(data, dict):
-            raise ApiError(f'the fresh read of PR #{number} is not an object')
-        return data
+        return self._json(['pr', 'view', str(number), '--repo', self.repo, '--json', fields])
 
     def merged_prs(self, base):
-        data = self._json(['pr', 'list', '--repo', self.repo, '--state', 'merged', '--base', base, '--limit', '20',
-                           '--json', 'number,mergeCommit,mergedBy,mergedAt'])
-        if not isinstance(data, list):
-            raise ApiError('the merged-PR list is not a list')
-        return data
+        return _list(self._json(['pr', 'list', '--repo', self.repo, '--state', 'merged', '--base', base, '--limit',
+                                 '20', '--json', 'number,mergeCommit,mergedBy,mergedAt']), 'the merged-PR list')
 
     def workflow_runs(self, workflow, sha):
         data = self._json(['api', f'repos/{self.repo}/actions/workflows/{workflow}/runs?head_sha={sha}&per_page=1',
                            '--jq', '{n: .total_count}'])
-        if not isinstance((data or {}).get('n'), int):
-            raise ApiError(f'could not count the runs of {workflow}')
-        return data['n']
+        return _count(_field(data, 'n', int, f'the run count of {workflow}'), f'the run count of {workflow}')
 
     def dispatch(self, workflow, ref):
         self._gh(['workflow', 'run', workflow, '--repo', self.repo, '--ref', ref])
 
     def comments(self, number):
-        return [c for page in self._pages(f'repos/{self.repo}/issues/{number}/comments?per_page=100') for c in page]
+        return self._flat(f'repos/{self.repo}/issues/{number}/comments?per_page=100')
 
     def reviews(self, number):
-        """PR reviews with their real edit time. REST reviews carry no edit time, so they are read through GraphQL
-        (lastEditedAt is null when a review was never edited). More than one page, an error or a missing field:
-        ApiError (fail closed)."""
+        """PR reviews as GraphQL nodes (only GraphQL gives a review's edit time, lastEditedAt). An error, a missing
+        field or more than one page: fail closed. The nodes themselves are judged by adapt_review()."""
         owner, _, name = self.repo.partition('/')
         query = ('query($o:String!,$n:String!,$pr:Int!){repository(owner:$o,name:$n){pullRequest(number:$pr){'
                  'reviews(first:100){pageInfo{hasNextPage} nodes{databaseId body submittedAt lastEditedAt '
                  'author{login}}}}}}')
         reply = self._json(['api', 'graphql', '-f', f'query={query}', '-F', f'o={owner}', '-F', f'n={name}',
                             '-F', f'pr={int(number)}'])
-        if not isinstance(reply, dict) or reply.get('errors'):
+        if not isinstance(reply, dict) or ('errors' in reply and reply['errors']):
             raise ApiError(f'the review read of PR #{number} returned an error')
-        reviews = ((((reply.get('data') or {}).get('repository') or {}).get('pullRequest') or {}).get('reviews'))
-        if not isinstance(reviews, dict) or not isinstance(reviews.get('nodes'), list):
-            raise ApiError(f'the review read of PR #{number} has no reviews field')
-        if (reviews.get('pageInfo') or {}).get('hasNextPage') is not False:
-            raise ApiError(f'PR #{number} has more than 100 reviews (or no page info): refusing to judge part of them')
-        return [{'id': n.get('databaseId'), 'body': n.get('body'), 'user': {'login': (n.get('author') or {}).get('login')},
-                 'submitted_at': n.get('submittedAt'), 'last_edited_at': n.get('lastEditedAt')}
-                for n in reviews['nodes']]
+        where = f'the review read of PR #{number}'
+        repo = _field(_field(reply, 'data', dict, where), 'repository', dict, where)
+        reviews = _field(_field(repo, 'pullRequest', dict, where), 'reviews', dict, where)
+        if _field(_field(reviews, 'pageInfo', dict, where), 'hasNextPage', bool, where) is not False:
+            raise ApiError(f'PR #{number} has more than 100 reviews: refusing to judge part of them')
+        return _list(_field(reviews, 'nodes', list, where), where)
 
     def review_comments(self, number):
-        return [c for page in self._pages(f'repos/{self.repo}/pulls/{number}/comments?per_page=100') for c in page]
+        return self._flat(f'repos/{self.repo}/pulls/{number}/comments?per_page=100')
 
     def check_runs(self, sha):
-        return [r for page in self._pages(f'repos/{self.repo}/commits/{sha}/check-runs?per_page=100')
-                for r in page.get('check_runs', [])]
+        path = f'repos/{self.repo}/commits/{sha}/check-runs?per_page=100'
+        return [run_ for page in self._pages(path) for run_ in _field(page, 'check_runs', list, f'a page of {path}')]
 
     def statuses(self, sha):
-        return [s for page in self._pages(f'repos/{self.repo}/commits/{sha}/statuses?per_page=100') for s in page]
+        return self._flat(f'repos/{self.repo}/commits/{sha}/statuses?per_page=100')
 
     def behind_by(self, base_sha, head_sha):
         data = self._json(['api', f'repos/{self.repo}/compare/{base_sha}...{head_sha}', '--jq',
                            '{behind_by: .behind_by}'])
-        if not isinstance((data or {}).get('behind_by'), int):
-            raise ApiError('the compare reply has no behind_by')
-        return data['behind_by']
+        return _count(_field(data, 'behind_by', int, 'the compare reply'), 'the compare reply')
 
     def arm(self, number, head):
         self._gh(['pr', 'merge', str(number), '--repo', self.repo, '--auto', '--merge', '--match-head-commit', head])
@@ -341,30 +466,31 @@ class GhClient:
 
 def in_scope(pr, base):
     """Return None when the loop judges this PR, else the plain reason it does not."""
-    if pr.get('isDraft'):
+    if pr['isDraft']:
         return 'draft PR (out of scope until marked ready)'
-    if base not in ALLOWED_BASES or pr.get('baseRefName') != base:
-        return f'base is {pr.get("baseRefName")}, not {base} (out of scope; the loop acts only on {BASE})'
-    if pr.get('isCrossRepository'):
+    if base not in ALLOWED_BASES or pr['baseRefName'] != base:
+        return f'base is {pr["baseRefName"]}, not {base} (out of scope; the loop acts only on {BASE})'
+    if pr['isCrossRepository']:
         return 'PR from a fork (out of scope)'
-    if not SHA.match(str(pr.get('headRefOid', ''))):
+    if not SHA.match(pr['headRefOid']):
         return 'head SHA unreadable'
     return None
 
 
 def snapshot(client, base, bot_login=BOT_LOGIN):
-    """Read everything first; any read error raises ApiError before a single action is planned."""
+    """Read everything first; any read error or malformed field raises ApiError before a single action is
+    planned."""
     snap = {'repo': client.repo_settings(), 'base_sha': client.base_sha(base), 'prs': []}
-    for pr in sorted(client.open_prs(), key=lambda p: p.get('number', 0)):
-        number = pr.get('number')
-        if not isinstance(number, int):
-            raise ApiError('an open PR has no number')
-        entry = {'pr': pr, 'excluded': EXCLUDED.get(number), 'out_of_scope': None, 'bot_login': bot_login}
+    prs = _adapt_all(client.open_prs(), adapt_pr, 'the open-PR list')
+    for pr in sorted(prs, key=lambda p: p['number']):
+        number = pr['number']
+        excluded = EXCLUDED[number] if number in EXCLUDED else None
+        entry = {'pr': pr, 'excluded': excluded, 'out_of_scope': None, 'bot_login': bot_login}
         if entry['excluded']:  # PR #3: nothing past the list is read
             snap['prs'].append(entry)
             continue
         entry['out_of_scope'] = in_scope(pr, base)
-        if not entry['out_of_scope'] and pr.get('mergeable') != 'UNKNOWN':
+        if not entry['out_of_scope'] and pr['mergeable'] != 'UNKNOWN':
             _read_gates(client, entry, snap['base_sha'])
         snap['prs'].append(entry)
     snap['tip'] = _tip(client, base, snap['base_sha'])
@@ -374,27 +500,40 @@ def snapshot(client, base, bot_login=BOT_LOGIN):
 def _tip(client, base, tip):
     """Which tip workflows to dispatch: only when the base's tip IS the merge commit of a PR merged by a bot (a
     merge by a person starts push CI by itself), and only those with no run on that SHA yet (the ledger)."""
-    merged_by_bot = [m for m in client.merged_prs(base)
-                     if (m.get('mergeCommit') or {}).get('oid') == tip and (m.get('mergedBy') or {}).get('is_bot')]
+    merged = _adapt_all(client.merged_prs(base), adapt_merged, 'the merged-PR list')
+    merged_by_bot = [m for m in merged if m['merge_oid'] == tip and m['merged_by_bot']]
     if not merged_by_bot:
         return {'sha': tip, 'pr': None, 'dispatch': []}
-    missing = [w for w in TIP_WORKFLOWS if client.workflow_runs(w, tip) == 0]
-    return {'sha': tip, 'pr': merged_by_bot[0].get('number'), 'dispatch': missing}
+    missing = [w for w in TIP_WORKFLOWS if _count(client.workflow_runs(w, tip), f'runs of {w}') == 0]
+    return {'sha': tip, 'pr': merged_by_bot[0]['number'], 'dispatch': missing}
 
 
 def _read_gates(client, entry, base_sha):
     number, head = entry['pr']['number'], entry['pr']['headRefOid']
-    entry['comments'] = client.comments(number)
-    entry['reviews'] = client.reviews(number)
-    entry['review_comments'] = client.review_comments(number)
-    entry['check_runs'] = client.check_runs(head)
-    entry['statuses'] = client.statuses(head)
-    entry['behind_by'] = client.behind_by(base_sha, head)
+    entry['comments'] = _adapt_all(client.comments(number), adapt_comment, f'PR #{number} comments')
+    entry['reviews'] = _adapt_all(client.reviews(number), adapt_review, f'PR #{number} reviews')
+    entry['review_comments'] = _adapt_all(client.review_comments(number), adapt_comment,
+                                          f'PR #{number} inline comments')
+    entry['check_runs'] = _adapt_all(client.check_runs(head), adapt_check_run, f'PR #{number} check runs')
+    entry['statuses'] = _adapt_all(client.statuses(head), adapt_status, f'PR #{number} statuses')
+    entry['behind_by'] = _count(client.behind_by(base_sha, head), f'PR #{number} compare')
+
+
+def _latest_by_context(statuses):
+    latest = {}
+    for s in sorted(statuses, key=lambda s: (s['created_at'], s['id']), reverse=True):
+        latest.setdefault(s['context'], s)
+    return latest
+
+
+def _latest_stamp(statuses):
+    latest = _latest_by_context(statuses)
+    return latest[STAMP_CONTEXT] if STAMP_CONTEXT in latest else None
 
 
 def preflight(client, planned, base):
     """Fresh reads of everything the arm depends on, right before it. Returns None when the PR still qualifies on
-    every point, else the plain reason it does not. Read errors raise ApiError (the run fails closed).
+    every point, else the plain reason it does not. Read errors and malformed data raise ApiError (fail closed).
     This NARROWS the window between the plan's read and the arm; it is NOT an atomic compare-and-swap. GitHub's
     branch protection (codex-verified is a required check) and --match-head-commit remain the backstop."""
     number, head = planned['number'], planned['head']
@@ -402,123 +541,108 @@ def preflight(client, planned, base):
         return 'excluded PR or base not allowed'
     if client.repo_settings()['allow_auto_merge'] is not True:
         return 'allow_auto_merge is no longer on'
-    pr = client.pr(number)
-    if pr.get('number') != number:
-        return f'fresh read returned PR #{pr.get("number")}'
-    if pr.get('headRefOid') != head:
-        return f'head moved to {pr.get("headRefOid")}'
-    if str(pr.get('state', 'OPEN')).upper() != 'OPEN':
-        return f'PR is {pr.get("state")}'
-    if pr.get('autoMergeRequest'):
+    pr = adapt_pr(client.pr(number), f'the fresh read of PR #{number}', with_state=True)
+    if pr['number'] != number:
+        return f'fresh read returned PR #{pr["number"]}'
+    if pr['headRefOid'] != head:
+        return f'head moved to {pr["headRefOid"]}'
+    if pr['state'].upper() != 'OPEN':
+        return f'PR is {pr["state"]}'
+    if pr['autoMergeRequest']:
         return 'auto-merge is already armed'
-    item = {'pr': pr, 'excluded': None, 'out_of_scope': in_scope(pr, base),
-            'bot_login': planned.get('bot_login', BOT_LOGIN)}
+    item = {'pr': pr, 'excluded': None, 'out_of_scope': in_scope(pr, base), 'bot_login': planned['bot_login']}
     if item['out_of_scope']:
         return item['out_of_scope']
-    if pr.get('mergeable') != 'MERGEABLE':
-        return f'mergeable is {pr.get("mergeable")}'
+    if pr['mergeable'] != 'MERGEABLE':
+        return f'mergeable is {pr["mergeable"]}'
     _read_gates(client, item, client.base_sha(base))
     state, detail, _ = classify(item, base)
     if state != 'stamped-ready':
         return f'now {state}: {detail}'
-    status = _latest_by_context(item['statuses']).get(STAMP_CONTEXT) or {}
-    if status.get('id') != planned.get('stamp_id'):
-        return f'the latest codex-verified status is now {status.get("id")}, not {planned.get("stamp_id")}'
+    status = _latest_stamp(item['statuses'])
+    if status is None or status['id'] != planned['stamp_id']:
+        return (f'the latest codex-verified status is now {None if status is None else status["id"]}, '
+                f'not {planned["stamp_id"]}')
     return None
 
 
 def _body(comment):
-    return str(comment.get('body') or '').lstrip('﻿').lstrip()
+    return comment['body'].lstrip('﻿').lstrip()
 
 
 def _trusted(comments):
-    return [c for c in comments if c.get('author_association') in TRUSTED]
-
-
-def _latest_by_context(statuses):
-    latest = {}
-    for s in sorted(statuses, key=lambda s: (str(s.get('created_at', '')), s.get('id') or 0), reverse=True):
-        latest.setdefault(s.get('context'), s)
-    return latest
+    return [c for c in comments if c['author_association'] in TRUSTED]
 
 
 def stamp(entry):
     """(ok, reason). ok only when the LATEST codex-verified status on this exact head is success AND a trusted
     `CODEX VERIFIED <this head>` comment names that status's ID. Anything else never arms."""
     head = entry['pr']['headRefOid']
-    status = _latest_by_context(entry['statuses']).get(STAMP_CONTEXT)
+    status = _latest_stamp(entry['statuses'])
     if status is None:
         return False, 'no codex-verified stamp on this head'
-    if status.get('state') != 'success':
-        return False, f'codex-verified on this head is {status.get("state")} (status {status.get("id")})'
+    if status['state'] != 'success':
+        return False, f'codex-verified on this head is {status["state"]} (status {status["id"]})'
     for comment in _trusted(entry['comments']):
         text = _body(comment)
         match = VERIFIED.match(text)
         if not match or match.group(1) != head:
             continue
         named = STATUS_ID.search(text)
-        if named and int(named.group(1)) == status.get('id'):
-            items = _veto_items(entry, entry.get('bot_login', BOT_LOGIN))
-            stamp_item = next(i for i in items if i['kind'] == 'issue_comment' and i['id'] == comment.get('id'))
+        if named and int(named.group(1)) == status['id']:
+            items = _veto_items(entry, entry['bot_login'])
+            stamp_item = next(i for i in items if i['kind'] == 'issue_comment' and i['id'] == comment['id'])
             vetoed = _veto(items, stamp_item)
             if vetoed:
                 return False, f'VETO: {vetoed}'
-            return True, f'codex-verified status {status.get("id")} named by its CODEX VERIFIED comment'
-    return False, (f'codex-verified status {status.get("id")} on this head is not named by a trusted '
+            return True, f'codex-verified status {status["id"]} named by its CODEX VERIFIED comment'
+    return False, (f'codex-verified status {status["id"]} on this head is not named by a trusted '
                    f'"CODEX VERIFIED {head}" comment')
 
 
 def _loop_owned(comment, bot_login):
     """Only the loop's own ledger comment: written by the loop's login, starting with the marker, in ledger shape.
     A copied marker in anybody else's comment does not count."""
-    body = str(comment.get('body') or '')
-    return ((comment.get('user') or {}).get('login') == bot_login and body.lstrip().startswith(MARKER)
+    body = comment['body']
+    return (comment['login'] == bot_login and body.lstrip().startswith(MARKER)
             and LEDGER_LINE.search(body) is not None)
-
-
-UNKNOWN_EDIT = 'unknown'
-TIMESTAMP = re.compile(r'^[0-9]{4}-[0-9]{2}-[0-9]{2}T')  # only a real time is compared
 
 
 def _veto_items(entry, bot_login):
     """Every surface a veto can come from, as one shape: kind ('issue_comment', 'review', 'inline'), id (unique only
-    within its kind: the three kinds number separately), created (creation or submission time; '' when unknown),
-    edited (the last edit time; None when the API says never edited; UNKNOWN_EDIT when the field is missing), body,
-    login, and whether it is the loop's own ledger comment. Nothing downstream reads the raw API dicts."""
-    def edit_of(raw, key):
-        return raw[key] if key in raw else UNKNOWN_EDIT
-
+    within its kind: the three kinds number separately), created (creation or submission time, canonical; '' when
+    a review was never submitted), edited (the last edit time; None = never edited), body, login, and whether it is
+    the loop's own ledger comment. Built only from adapted records."""
     items = []
-    for c in entry.get('comments', []):
-        items.append({'kind': 'issue_comment', 'id': c.get('id'), 'created': str(c.get('created_at') or ''),
-                      'edited': edit_of(c, 'updated_at'), 'body': str(c.get('body') or ''),
-                      'login': (c.get('user') or {}).get('login'), 'loop_owned': _loop_owned(c, bot_login)})
-    for r in entry.get('reviews', []):
-        items.append({'kind': 'review', 'id': r.get('id'), 'created': str(r.get('submitted_at') or ''),
-                      'edited': edit_of(r, 'last_edited_at'), 'body': str(r.get('body') or ''),
-                      'login': (r.get('user') or {}).get('login'), 'loop_owned': False})
-    for c in entry.get('review_comments', []):
-        items.append({'kind': 'inline', 'id': c.get('id'), 'created': str(c.get('created_at') or ''),
-                      'edited': edit_of(c, 'updated_at'), 'body': str(c.get('body') or ''),
-                      'login': (c.get('user') or {}).get('login'), 'loop_owned': False})
+    for c in entry['comments']:
+        items.append({'kind': 'issue_comment', 'id': c['id'], 'created': c['created_at'], 'edited': c['updated_at'],
+                      'body': c['body'], 'login': c['login'], 'loop_owned': _loop_owned(c, bot_login)})
+    for r in entry['reviews']:
+        items.append({'kind': 'review', 'id': r['id'], 'created': r['submitted_at'], 'edited': r['last_edited_at'],
+                      'body': r['body'], 'login': r['login'], 'loop_owned': False})
+    for c in entry['review_comments']:
+        items.append({'kind': 'inline', 'id': c['id'], 'created': c['created_at'], 'edited': c['updated_at'],
+                      'body': c['body'], 'login': c['login'], 'loop_owned': False})
     return items
 
 
 def _after_stamp(item, stamp_item):
     """True when the item was created, submitted or edited after the stamp comment, or when the order cannot be
     told (fail closed). Timestamps have one-second resolution. In the same second only an issue comment can be
-    ordered against the stamp (same id sequence); any other kind counts as after. An unknown creation or edit time
-    counts as after; an edit in the same second as the stamp counts as after."""
-    since, stamp_id = stamp_item['created'], stamp_item['id'] or 0
+    ordered against the stamp (same id sequence); any other kind counts as after. A missing or non-canonical
+    creation or edit time counts as after; an edit in the same second as the stamp counts as after."""
+    since, stamp_id = stamp_item['created'], stamp_item['id']
     created = item['created']
-    if not created or created > since:
+    if not created or not STRICT_TIME.match(created) or created > since:
         return True
-    if created == since and (item['kind'] != 'issue_comment' or (item['id'] or 0) > stamp_id):
+    if created == since and (item['kind'] != 'issue_comment' or item['id'] > stamp_id):
         return True
     edited = item['edited']
-    if edited == UNKNOWN_EDIT:
+    if edited is None:
+        return False
+    if not STRICT_TIME.match(str(edited)):
         return True
-    return bool(TIMESTAMP.match(str(edited or ''))) and str(edited) > created and str(edited) >= since
+    return edited > created and edited >= since
 
 
 def _veto(items, stamp_item):
@@ -544,25 +668,25 @@ def _ci(entry):
     """(red, pending): lists of plain reasons for the head's check runs and commit statuses."""
     red, pending, reported = [], [], set()
     latest = {}  # a re-run in a new suite (e.g. pr-evidence after a body edit) replaces the older run of that name
-    for run_ in sorted(entry['check_runs'], key=lambda r: r.get('id') or 0):
-        latest[run_.get('name')] = run_
+    for run_ in sorted(entry['check_runs'], key=lambda r: r['id']):
+        latest[run_['name']] = run_
     for run_ in latest.values():
-        name = run_.get('name')
+        name = run_['name']
         reported.add(name)
-        if run_.get('status') != 'completed':
-            pending.append((str(run_.get('status')), name))
-        elif name in REQUIRED_CHECKS and run_.get('conclusion') != 'success':
-            red.append((f'{run_.get("conclusion")} on a required check', name))
-        elif run_.get('conclusion') not in OPTIONAL_OK_CONCLUSIONS:
-            red.append((str(run_.get('conclusion')), name))
+        if run_['status'] != 'completed':
+            pending.append((run_['status'], name))
+        elif name in REQUIRED_CHECKS and run_['conclusion'] != 'success':
+            red.append((f'{run_["conclusion"]} on a required check', name))
+        elif run_['conclusion'] not in OPTIONAL_OK_CONCLUSIONS:
+            red.append((run_['conclusion'], name))
     for context, status in _latest_by_context(entry['statuses']).items():
         if context == STAMP_CONTEXT:
             continue
         reported.add(context)
-        if status.get('state') == 'pending':
+        if status['state'] == 'pending':
             pending.append(('pending', context))
-        elif status.get('state') != 'success':
-            red.append((str(status.get('state')), context))
+        elif status['state'] != 'success':
+            red.append((status['state'], context))
     pending += [('not reported yet', name) for name in REQUIRED_CHECKS if name not in reported]
     return red, pending
 
@@ -570,19 +694,19 @@ def _ci(entry):
 def classify(entry, base):
     """Return (state, detail, next) for one PR read by snapshot(). The first unmet gate wins."""
     pr = entry['pr']
-    head = pr.get('headRefOid')
-    if entry.get('out_of_scope'):
+    head = pr['headRefOid']
+    if entry['out_of_scope']:
         return 'blocked', entry['out_of_scope'], 'owner'
-    if pr.get('mergeable') == 'UNKNOWN':
+    if pr['mergeable'] == 'UNKNOWN':
         return 'blocked', 'GitHub has not computed mergeability yet (read again next run)', 'loop'
-    if pr.get('mergeable') == 'CONFLICTING' or pr.get('mergeStateStatus') == 'DIRTY':
+    if pr['mergeable'] == 'CONFLICTING' or pr['mergeStateStatus'] == 'DIRTY':
         return 'needs-rebase', f'conflicts with {base}: the lane merges {base} in and resolves them', 'lane'
     if entry['behind_by'] > 0:
         return 'needs-rebase', f'{entry["behind_by"]} commit(s) behind {base}: the lane syncs the branch', 'lane'
-    stamp_status = _latest_by_context(entry['statuses']).get(STAMP_CONTEXT)
-    if stamp_status and stamp_status.get('state') in ('failure', 'error'):
-        return 'blocked', (f'the verifier refused this head (codex-verified {stamp_status.get("state")}, '
-                           f'status {stamp_status.get("id")})'), 'lane'
+    stamp_status = _latest_stamp(entry['statuses'])
+    if stamp_status and stamp_status['state'] in ('failure', 'error'):
+        return 'blocked', (f'the verifier refused this head (codex-verified {stamp_status["state"]}, '
+                           f'status {stamp_status["id"]})'), 'lane'
     red, pending = _ci(entry)
     if red:
         return 'ci-red', 'failed on the head ' + _listing(red), 'lane'
@@ -603,18 +727,17 @@ def classify(entry, base):
 
 def _setting(snap):
     value = snap['repo']['allow_auto_merge']
-    return {True: 'on', False: 'off'}.get(value, 'unreadable with this token')
+    return 'on' if value is True else 'off' if value is False else 'unreadable with this token'
 
 
 def _ledger(entry, bot_login):
     """The bot's latest marker comment: (comment id, state, head) or None."""
-    mine = [c for c in entry['comments']
-            if (c.get('user') or {}).get('login') == bot_login and MARKER in str(c.get('body') or '')]
+    mine = [c for c in entry['comments'] if c['login'] == bot_login and MARKER in c['body']]
     if not mine:
         return None
-    last = max(mine, key=lambda c: (str(c.get('created_at', '')), c.get('id') or 0))
-    match = LEDGER_LINE.search(str(last.get('body') or ''))
-    return (last.get('id'), match.group(1) if match else None, match.group(2) if match else None)
+    last = max(mine, key=lambda c: (c['created_at'], c['id']))
+    match = LEDGER_LINE.search(last['body'])
+    return (last['id'], match.group(1) if match else None, match.group(2) if match else None)
 
 
 def plan(snap, base, bot_login):
@@ -622,7 +745,7 @@ def plan(snap, base, bot_login):
     entries = []
     for item in snap['prs']:
         pr = item['pr']
-        number, head = pr['number'], pr.get('headRefOid')
+        number, head = pr['number'], pr['headRefOid']
         if item['excluded']:
             entries.append({'number': number, 'head': head, 'state': 'excluded', 'detail': item['excluded'],
                             'next': '-', 'arm': 'no (excluded)', 'action': None})
@@ -636,13 +759,13 @@ def plan(snap, base, bot_login):
                 entry['arm'] = ('no (the repository setting allow_auto_merge is '
                                 f'{_setting(snap)}; the loop never changes settings)')
                 entry['next'] = 'owner'
-            elif pr.get('autoMergeRequest'):
+            elif pr['autoMergeRequest']:
                 entry['arm'] = 'no (auto-merge already armed: nothing to repeat)'
             else:
                 entry['arm'] = f'YES, after a fresh preflight ({stamp_reason})'
                 entry['action'] = 'arm'
-                entry['stamp_id'] = _latest_by_context(item['statuses'])[STAMP_CONTEXT].get('id')
-                entry['bot_login'] = item.get('bot_login', BOT_LOGIN)
+                entry['stamp_id'] = _latest_stamp(item['statuses'])['id']
+                entry['bot_login'] = item['bot_login']
         else:
             entry['arm'] = f'no ({stamp_reason})' if not stamp_ok else f'no (state {state})'
         if entry['action'] is None and judged:
@@ -665,10 +788,10 @@ def execute(entries, client, apply, out=emit, base=BASE):
     done, armed = 0, 0
     for entry in entries:
         if entry['number'] in EXCLUDED:
-            if entry.get('action'):
+            if entry['action']:
                 raise ApiError(f'refused: a plan named an action on excluded PR #{entry["number"]}')
             continue
-        action = entry.get('action')
+        action = entry['action']
         if not action:
             continue
         if not apply:
@@ -719,7 +842,7 @@ def execute_tip(tip, client, apply, base, out=emit):
         if now != tip['sha']:
             out(f'SKIP: dispatch {workflow}: {base} moved to {now} (its own push runs cover it)')
             continue
-        if client.workflow_runs(workflow, now):
+        if _count(client.workflow_runs(workflow, now), f'runs of {workflow}'):
             out(f'SKIP: dispatch {workflow}: a run on {now} already exists')
             continue
         client.dispatch(workflow, base)
@@ -738,10 +861,11 @@ def run(client, apply, base=BASE, bot_login=BOT_LOGIN, out=emit):
         snap = snapshot(client, base, bot_login)
         entries = plan(snap, base, bot_login)
     except ApiError as error:
-        out(f'::error::{RULE} fail closed while reading GitHub, no action taken: {error}')
+        kind = 'malformed GitHub data' if isinstance(error, MalformedData) else 'reading GitHub'
+        out(f'::error::{RULE} fail closed ({kind}), no action taken: {error}')
         return 1
     out(f'{RULE} pr-loop: {len(entries)} open PR(s), base {base} at {snap["base_sha"]}, '
-        f'allow_auto_merge={_setting(snap)} (read via {snap["repo"].get("source", "?")}), '
+        f'allow_auto_merge={_setting(snap)} (read via {snap["repo"]["source"]}), '
         f'mode={"APPLY" if apply else "DRY RUN"}')
     if snap['repo']['allow_auto_merge'] is not True:
         out(f'::warning::the repository setting allow_auto_merge is {_setting(snap)}: the loop will never arm '
@@ -762,7 +886,7 @@ def run(client, apply, base=BASE, bot_login=BOT_LOGIN, out=emit):
     except ApiError as error:
         out(f'::error::{RULE} fail closed: {error}')
         return 1
-    planned = sum(1 for e in entries if e.get('action')) + len(snap['tip']['dispatch'])
+    planned = sum(1 for e in entries if e['action']) + len(snap['tip']['dispatch'])
     out(f'actions: {planned} planned, {done} done' + ('' if apply else ' (dry run)'))
     return 0
 
@@ -822,7 +946,7 @@ class FakeClient:
 
     def reviews(self, number):
         self._read('reviews', number)
-        return [dict(r) for r in self.reviews_by_pr.get(number, [])]
+        return [_review_node(r) for r in self.reviews_by_pr.get(number, [])]
 
     def review_comments(self, number):
         self._read('review_comments', number)
@@ -1621,8 +1745,9 @@ def self_test():
             'lastEditedAt': '2026-11-16T03:00:00Z', 'author': {'login': 'reviewer'}}
     try:
         got = GhClient(REPO, graphql_runner(reviews_reply([node]))).reviews(200)
-        ok = got == [{'id': 7, 'body': 'BLOCK', 'user': {'login': 'reviewer'}, 'submitted_at': '2026-11-16T01:00:00Z',
-                      'last_edited_at': '2026-11-16T03:00:00Z'}]
+        ok = got == [node] and adapt_review(node, 'x') == {
+            'id': 7, 'body': 'BLOCK', 'login': 'reviewer', 'submitted_at': '2026-11-16T01:00:00Z',
+            'last_edited_at': '2026-11-16T03:00:00Z'}
     except Exception:
         ok = False
     check('(c) the review read keeps each review\'s edit time (GraphQL lastEditedAt)', ok)

@@ -42,6 +42,25 @@ different sequence) and counts as after; a review with no submission time counts
 after it (fail closed). Comments older than the stamp comment (and not edited since) do not veto: they are what the
 verifier already saw.
 
+## The API boundary (strict validation)
+
+Every field the loop relies on is read in one place, through one accessor, from every source: PR metadata, issue
+comments, PR reviews, inline review comments, check runs, commit statuses, merged PRs, and the small replies
+(repository settings, base head, compare, workflow runs). Rules:
+- a required key must be **present**: absent is not the same as null;
+- its type must match (a number is never a yes/no, text is never a number);
+- every time goes through **one strict parser**: ISO-8601 UTC only (`2026-11-16T03:00:00Z`); no other zone, no
+  missing zone, no impossible date;
+- null is accepted only where the API gives it a meaning: a review's `lastEditedAt` null = never edited; a review's
+  `submittedAt` null = not submitted (counts as after the stamp); a check run's `conclusion` / `completed_at` null =
+  not finished (a completed run without them is malformed); a deleted account (user or author null).
+
+Anything else is **malformed**: the whole run takes no action and exits 1 (`fail closed (malformed GitHub data)`),
+naming the field but never its value. So a review whose `lastEditedAt` is missing or not a time can never be read
+as "never edited". Downstream code reads only the adapters' records, with plain indexing; a self-test scans the
+script's syntax tree and fails on any `.get(` outside `gh_env`, `main` and the test code. The tests run through the
+real `GhClient`: a raw-JSON stand-in for `gh` serves the planted data as JSON text, exactly as `gh` would.
+
 ## The allowed actions (at most one per PR per run)
 
 1. **Arm auto-merge**: `gh pr merge <n> --auto --merge --match-head-commit <head>`. Only in `stamped-ready`, only
