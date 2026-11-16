@@ -687,8 +687,101 @@ def cmd_rise_check(base, rev):
 # ---------------------------------------------------------------------------------------------------------------------
 # Self-test: planted samples for every judging rule. Each case states the exact number of problems expected.
 # ---------------------------------------------------------------------------------------------------------------------
-def self_test():
+def trusted_cases():
+    """Review P1 (139663f): the base banned-API verdict must not read facts the PR's own extractor produced. Planted on
+    a throwaway git repo: [] when every case behaves, else the failures."""
+    import contextlib
+    import hashlib
+    import io
+    import os
     failures = []
+    try:
+        import inspect
+        verify, judge_cmd = verify_trusted, cmd_judge
+        if 'trusted_base' not in inspect.signature(judge_cmd).parameters:
+            raise TypeError('cmd_judge takes no trusted_base')
+    except (NameError, TypeError) as error:
+        return [f'trusted facts: the judge has no trusted-facts check ({type(error).__name__}: {error})']
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = pathlib.Path(tmp)
+        repo = tmp / 'repo'
+        repo.mkdir()
+        env = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@example.invalid', GIT_COMMITTER_NAME='t',
+                   GIT_COMMITTER_EMAIL='t@example.invalid', GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
+
+        def sh(*args):
+            return subprocess.run(['git'] + list(args), cwd=repo, env=env, check=True,
+                                  capture_output=True).stdout.decode().strip()
+
+        def write(path, text):
+            target = repo.joinpath(*path.split('/'))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding='utf-8')
+
+        sh('init', '-q', '-b', 'main')
+        write('scripts/quality/buildfacts/Program.cs', '// honest extractor\n')
+        write('scripts/quality/build_facts.py', '# honest checker\n')
+        sh('add', '-A')
+        sh('commit', '-q', '-m', 'base')
+        base_sha = sh('rev-parse', 'HEAD')
+        write('scripts/quality/buildfacts/Program.cs', '// FORGED: leaves the RS0030 results out\n')
+        sh('commit', '-q', '-am', 'head')
+        head_sha = sh('rev-parse', 'HEAD')
+        work = tmp / 'trusted'
+        work.mkdir()
+        facts, binlog = work / 'build-facts.json', tmp / 'build.binlog'
+        facts.write_text('{"schema": "boo-build-facts/1", "binlogs": []}', encoding='utf-8')
+        binlog.write_bytes(b'binlog')
+        digest = lambda path: hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()  # noqa: E731
+
+        def provenance(**change):
+            prov = {'schema': 'boo-trusted-facts/1', 'base_sha': base_sha,
+                    'extractor_tree': sh('rev-parse', f'{base_sha}:scripts/quality/buildfacts'),
+                    'checker_blob': sh('rev-parse', f'{base_sha}:scripts/quality/build_facts.py'),
+                    'binlogs': {'build': {'path': str(binlog), 'sha256': digest(binlog)}},
+                    'facts_sha256': digest(facts)}
+            prov.update(change)
+            (work / 'provenance.json').write_text(json.dumps(prov), encoding='utf-8')
+
+        def fails(words, sha=base_sha):
+            return any(words in problem for problem in verify(facts, sha, repo))
+
+        provenance()
+        if verify(facts, base_sha, repo):
+            failures.append(f'trusted facts: good provenance must verify, got {verify(facts, base_sha, repo)}')
+        if not fails('not the base', head_sha):
+            failures.append('trusted facts: facts produced from another commit than the base must fail')
+        provenance(extractor_tree=sh('rev-parse', f'{head_sha}:scripts/quality/buildfacts'))
+        if not fails('that produced the facts'):
+            failures.append('trusted facts: facts from a head-modified extractor must fail')
+        provenance()
+        facts.write_text('{"schema": "boo-build-facts/1", "binlogs": [], "forged": true}', encoding='utf-8')
+        if not fails('changed after'):
+            failures.append('trusted facts: forged facts (edited after production) must fail')
+        facts.write_text('{"schema": "boo-build-facts/1", "binlogs": []}', encoding='utf-8')
+        binlog.write_bytes(b'another build')
+        if not fails('binary log build changed'):
+            failures.append('trusted facts: a binary log swapped after production must fail')
+        binlog.write_bytes(b'binlog')
+        (work / 'provenance.json').unlink()
+        if not fails('no readable provenance'):
+            failures.append('trusted facts: facts without provenance (the PR-produced facts) must fail')
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = judge_cmd(repo, str(facts), verdict=True, trusted_base=None)
+        if code != 1 or 'trusted' not in out.getvalue():
+            failures.append('trusted facts: the base verdict (--verdict) without --trusted-base must refuse to judge')
+        provenance()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = judge_cmd(repo, str(facts), verdict=True, trusted_base=head_sha)
+        if code != 1 or 'not the base' not in out.getvalue():
+            failures.append('trusted facts: the base verdict must refuse facts whose provenance does not match')
+    return failures
+
+
+def self_test():
+    failures = trusted_cases()
 
     def expect(name, problems, count, needle=''):
         if len(problems) != count or (needle and not any(needle in p for p in problems)):
