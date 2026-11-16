@@ -187,10 +187,6 @@ def failed_in_log(log, method):
     return False
 
 
-BAD_RUN_COUNTERS = ('error', 'timeout', 'aborted', 'passedButRunAborted', 'notRunnable', 'disconnected',
-                    'inProgress', 'pending')
-
-
 def refuse_dtd(data):
     """Raise ValueError when the XML has a DOCTYPE or an entity declaration anywhere, in any encoding expat reads
     (UTF-8, UTF-16 with BOM or declaration, ...): the parser itself reports it, so padding or re-encoding cannot hide
@@ -206,39 +202,43 @@ def refuse_dtd(data):
         raise ValueError(f'unreadable TRX file ({error})') from None
 
 
+ROW_OUTCOMES = ('Passed', 'Failed', 'NotExecuted')
+
+
 def run_problems(root, results):
-    """Why this TRX file is not one complete, clean run ([] when it is): exactly one ResultSummary with outcome
-    Completed (or Failed: a run where tests failed, which is how a red proof looks), exactly one Counters block, no
-    aborted / error / timeout / not-runnable / disconnected / in-progress / pending count, and counters that match
-    the result rows (total, executed, passed, failed, notExecuted). A partial or aborted run proves nothing."""
+    """Why this TRX file is not one complete, clean run ([] when it is). Everything is derived from the result rows:
+    every row's outcome is Passed, Failed or NotExecuted; the one ResultSummary's outcome is Failed when any row
+    failed and Completed otherwise; the one Counters block has total, executed, passed, failed and notExecuted equal
+    to the rows, and EVERY other counter (aborted, error, timeout, inconclusive, passedButRunAborted, notRunnable,
+    disconnected, warning, completed, inProgress, pending, or any new one) is 0, because no row has that outcome.
+    A partial, aborted or self-contradicting run proves nothing."""
     summaries = list(root.iter(TRX_NS + 'ResultSummary'))
     if len(summaries) != 1:
         return [f'{len(summaries)} run summaries (expected exactly 1)']
     problems = []
+    outcomes = [o for _, _, o in results]
+    others = sorted(set(o for o in outcomes if o not in ROW_OUTCOMES))
+    if others:
+        problems.append('a result row with another outcome (' + ', '.join(others) + ')')
+    expected = 'Failed' if 'Failed' in outcomes else 'Completed'
     outcome = summaries[0].get('outcome') or ''
-    if outcome not in ('Completed', 'Failed'):
-        problems.append(f'run outcome {outcome or "missing"} (expected Completed, or Failed for a red run)')
+    if outcome != expected:
+        problems.append(f'run outcome {outcome or "missing"}, but the result rows say {expected}')
     counters = list(summaries[0].iter(TRX_NS + 'Counters'))
     if len(counters) != 1:
         return problems + [f'{len(counters)} counter blocks (expected exactly 1)']
-
-    def num(name):
-        try:
-            return int(counters[0].get(name, '0') or '0')
-        except ValueError:
-            return -1
-    for name in BAD_RUN_COUNTERS:
-        if num(name) != 0:
-            problems.append(f'{name}={counters[0].get(name)} (expected 0)')
-    outcomes = [o for _, _, o in results]
     want = {'total': len(outcomes), 'executed': sum(o != 'NotExecuted' for o in outcomes),
             'passed': outcomes.count('Passed'), 'failed': outcomes.count('Failed'),
             'notExecuted': outcomes.count('NotExecuted')}
-    for name, value in want.items():
-        if num(name) != value:
-            problems.append(f'{name}={counters[0].get(name, "missing")} but the file has {value} such result rows')
-    if any(o not in ('Passed', 'Failed', 'NotExecuted') for o in outcomes):
-        problems.append('a result row with another outcome (' + ', '.join(sorted(set(outcomes))) + ')')
+    for name in sorted(set(want) | set(counters[0].attrib)):
+        raw = counters[0].get(name, '0' if name not in want else None)
+        try:
+            value = int(raw) if raw is not None else None
+        except ValueError:
+            value = None
+        if value != want.get(name, 0):
+            problems.append(f'counter {name}={raw if raw is not None else "missing"} but the rows give '
+                            f'{want.get(name, 0)}')
     return problems
 
 

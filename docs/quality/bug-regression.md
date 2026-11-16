@@ -43,10 +43,11 @@ Every GitHub read is read-only (the workflow has `contents`, `actions`, `issues`
 write). If any read fails (rendering the body, a job, its log, a run's test results, a linked issue), the check fails closed;
 re-run it. The test results come from the run's artifacts: `windows-ci` uploads every `.trx` as `test-results`
 (key-scanned before upload). Artifacts larger than 32 MB (the published app) are skipped.
-Every `.trx` file read must be **one complete, clean run**, or the run's results count as unreadable (fail closed):
-exactly one run summary with outcome `Completed` (or `Failed`, which is how a red run looks) and exactly one counter
-block, no `aborted`, `error`, `timeout`, `passedButRunAborted`, `notRunnable`, `disconnected`, `inProgress` or
-`pending` count, and counters that match the result rows (`total`, `executed`, `passed`, `failed`, `notExecuted`). A file
+Every `.trx` file read must be **one complete, clean run** whose summary agrees with its rows, or the run's
+results count as unreadable (fail closed): every result row is `Passed`, `Failed` or `NotExecuted`; exactly one run
+summary, whose outcome is `Failed` when any row failed and `Completed` otherwise; exactly one counter block, with
+`total`, `executed`, `passed`, `failed` and `notExecuted` equal to the rows and every other counter (`aborted`, `error`,
+`timeout`, `inconclusive`, `passedButRunAborted`, `warning`, ...) equal to 0, since no row has that outcome. A file
 with a DOCTYPE or an entity declaration is refused wherever it sits and in any encoding the XML parser reads (UTF-8,
 UTF-16, ...).
 
