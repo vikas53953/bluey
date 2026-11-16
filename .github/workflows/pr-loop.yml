@@ -63,13 +63,29 @@ jobs:
           python-version: '3.12'
 
       - name: PR loop self-test (every state, every refusal, on planted fixtures, no network)
-        run: python -I scripts/pr_loop.py --self-test
+        shell: bash
+        run: |
+          mkdir -p pr-loop-log
+          python -I scripts/pr_loop.py --self-test 2>&1 | tee -a pr-loop-log/selftest.txt
 
       - name: Read-only dry run of the real queue (plans only; this job's token cannot write)
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python -I scripts/pr_loop.py --dry-run
+        shell: bash
+        run: |
+          mkdir -p pr-loop-log
+          python -I scripts/pr_loop.py --dry-run 2>&1 | tee -a pr-loop-log/dry-run.txt
+
+      # Log safety (BOO-LOOP-001, BOO-SAFE-002): the loop's whole output was captured above; scan it for key-shaped
+      # text and for the exact job token. Nothing is uploaded; a hit fails the job.
+      - name: Key-scan the captured loop output (no header or token may appear)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p pr-loop-log
+          python -I scripts/quality/key_scan.py --secret-env GH_TOKEN pr-loop-log
 
   loop:
     needs: selftest
@@ -101,6 +117,7 @@ jobs:
           python-version: '3.12'
 
       - name: PR loop (dry run unless explicitly switched on)
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
@@ -109,4 +126,15 @@ jobs:
           mode=--dry-run
           if [ "$EVENT" = "workflow_dispatch" ] && [ "$DRY_RUN_INPUT" = "false" ]; then mode=--apply; fi
           echo "Mode: $mode (event $EVENT)"
-          python -I scripts/pr_loop.py "$mode"
+          mkdir -p pr-loop-log
+          python -I scripts/pr_loop.py "$mode" 2>&1 | tee -a pr-loop-log/loop.txt
+
+      # Log safety (BOO-LOOP-001, BOO-SAFE-002): the loop's whole output was captured above; scan it for key-shaped
+      # text and for the exact job token. Nothing is uploaded; a hit fails the job.
+      - name: Key-scan the captured loop output (no header or token may appear)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p pr-loop-log
+          python -I scripts/quality/key_scan.py --secret-env GH_TOKEN pr-loop-log

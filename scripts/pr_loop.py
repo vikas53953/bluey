@@ -72,21 +72,57 @@ class ApiError(Exception):
     """Any failure talking to GitHub. The run fails closed: no action, exit 1."""
 
 
-class GhClient:
-    """GitHub through the `gh` CLI and the token it already has (GH_TOKEN in Actions). Never prints the token."""
+# Log safety. gh prints request headers (Authorization) when debug/verbose is on, so the environment handed to gh
+# never carries a debug or trace switch, a verbose flag on a gh call is refused, and gh's error text is redacted
+# line by line before it reaches any output. The loop never prints the environment.
+QUIET_ENV_DROP = ('GH_DEBUG', 'GIT_CURL_VERBOSE', 'DEBUG', 'GH_VERBOSE')
+REFUSED_FLAGS = ('--verbose', '--debug')
+SENSITIVE_LINE = re.compile(
+    r'(?i)authori[sz]ation|bearer|token|password|secret|cookie|api[-_]?key|'
+    r'(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}|sk-[A-Za-z0-9_-]{12,}|'
+    r'AIza[0-9A-Za-z_-]{16,}|A[KS]IA[0-9A-Z]{12,}|xox[abeoprs]-|-----BEGIN[A-Z ]*PRIVATE KEY|'
+    r'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|hf_[A-Za-z0-9]{16,}|tskey-')
 
-    def __init__(self, repo):
+
+def gh_env(parent=None):
+    """A copy of the environment without any debug / trace / verbose switch (GH_DEBUG, GIT_TRACE*, ...)."""
+    env = dict(os.environ if parent is None else parent)
+    for name in list(env):
+        if name in QUIET_ENV_DROP or name.startswith('GIT_TRACE'):
+            del env[name]
+    return env
+
+
+def redact(text):
+    """gh error text with every line that could hold a header, token or key-shaped value removed."""
+    kept, dropped = [], 0
+    for line in str(text or '').splitlines():
+        if SENSITIVE_LINE.search(line):
+            dropped += 1
+        else:
+            kept.append(line.strip())
+    note = f' [{dropped} line(s) removed: could hold a credential]' if dropped else ''
+    return (' | '.join(k for k in kept if k)[:300] + note).strip()
+
+
+class GhClient:
+    """GitHub through the `gh` CLI and the token it already has (GH_TOKEN in Actions). Never prints the token.
+    `runner` stands in for subprocess.run in the self-test."""
+
+    def __init__(self, repo, runner=None):
         self.repo = repo
+        self.runner = runner or subprocess.run
 
     def _gh(self, args, stdin=None):
+        if any(a in REFUSED_FLAGS or a.startswith(tuple(f + '=' for f in REFUSED_FLAGS)) for a in args):
+            raise ApiError('refused: a verbose/debug flag on a gh call (it would print request headers)')
         try:
-            proc = subprocess.run(['gh', *args], input=stdin, capture_output=True, text=True, encoding='utf-8',
-                                  timeout=120)
+            proc = self.runner(['gh', *args], input=stdin, capture_output=True, text=True, encoding='utf-8',
+                               timeout=120, env=gh_env())
         except (OSError, subprocess.SubprocessError) as error:
             raise ApiError(f'gh could not run ({type(error).__name__})') from None
         if proc.returncode != 0:
-            raise ApiError(f'gh {args[0]} {args[1] if len(args) > 1 else ""} failed: '
-                           f'{(proc.stderr or "").strip()[:300]}')
+            raise ApiError(f'gh {args[0]} failed: {redact(proc.stderr)}')
         return proc.stdout
 
     def _json(self, args, stdin=None):

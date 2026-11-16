@@ -116,6 +116,19 @@ runs, nothing to keep in a cache, nothing another account can forge.
   merged PRs, workflow runs) stops the run before any action: exit 1, `::error::` with the reason. An error while
   acting stops the run there, exit 1. 200 or more open PRs: refused (the list could be cut short).
 
+## Log safety (no header or token in any output)
+
+`gh` prints request headers, including `Authorization`, when a debug or verbose switch is on. So the script is built
+so that it cannot pass one on: the environment it hands to `gh` drops `GH_DEBUG`, every `GIT_TRACE*`,
+`GIT_CURL_VERBOSE`, `GH_VERBOSE` and `DEBUG` even when the parent sets them; a `--verbose` / `--debug` flag on a `gh`
+call is refused before `gh` runs; `gh`'s error text is redacted line by line (any line mentioning authorization,
+bearer, token, password, secret, cookie or api key, or holding key-shaped text, is dropped and counted) before it
+reaches any output; the script never prints the environment. Each job captures the loop's whole output (`tee` into
+`pr-loop-log/`, with `pipefail`) and its last step, even after a failure, runs `scripts/quality/key_scan.py
+--secret-env GH_TOKEN pr-loop-log`: a key-shaped line or the exact job token in the log fails the job. Nothing is
+uploaded. The self-test plants a `gh` failure whose stderr carries an `Authorization: token ...` header (the fake
+token is built at run time) and checks the output never shows it.
+
 ## How it is started
 
 - **No `schedule:` trigger.** GitHub fires schedules only from the default branch (`main`). A small scheduler that
