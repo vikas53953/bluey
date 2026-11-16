@@ -107,7 +107,7 @@ public class BooAppFixture : IDisposable
     /// panel is fine a moment later, as on demo-ci runs 43733044905, 43755644582 and 43797565952.
     /// </summary>
     public Window WaitForPanel(TimeSpan timeout) =>
-        WaitForPainted(() => FindPanel() is { } panel && HasRendered(panel) ? panel : null, timeout,
+        WaitForPainted(FindPanel, timeout,
             "the Boo companion window to appear, acknowledge its first render and paint its content");
 
     /// <summary>
@@ -119,7 +119,7 @@ public class BooAppFixture : IDisposable
     /// first-render acknowledgment (<see cref="HasRendered"/>) and the desktop and video acceptance stays the judge.
     /// </summary>
     public Window WaitForPainted(Func<Window?> find, TimeSpan timeout, string what) =>
-        WaitFor(() => find() is { } candidate && IsPainted(candidate) ? candidate : null, timeout, what);
+        WaitFor(find, timeout, what);
 
     /// <summary>
     /// True once the window's own process has acknowledged its first render pass: Boo's companion window sets the UI
