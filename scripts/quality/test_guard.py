@@ -344,8 +344,10 @@ def self_test():
     tool_product = ('tools/QaMock/QaMock.csproj', '<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n'
                     '    <OutputType>Exe</OutputType>\n  </PropertyGroup>\n</Project>\n')
     tool_product_cs = ('tools/QaMock/Program.cs', 'public static class Program { public const int Port = 1; }\n')
-    base_files = dict([product, test_cs, tool_test, tool_case, tool_product, tool_product_cs, (ORACLE, oracle_old),
-                       ('docs/readme.md', 'readme\n')])
+    tool_child_cs = ('tools/QaMock/Child/Worker.cs', 'public static class Worker { public const int Size = 1; }\n')
+    loose_tool = ('tools/Loose/run.ps1', 'Write-Output 1\n')
+    base_files = dict([product, test_cs, tool_test, tool_case, tool_product, tool_product_cs, tool_child_cs,
+                       loose_tool, (ORACLE, oracle_old), ('docs/readme.md', 'readme\n')])
     new_product = product[1].replace('"hi"', '"hello"')
     t = test_cs[1]
 
@@ -517,6 +519,21 @@ def self_test():
                                project.format('  <ItemGroup><PackageReference Include="xunit" Version="2.9.3" />'
                                               '</ItemGroup>'),
                            'tools/New.Tests/NewTests.cs': 'public class NewTests { }\n'}), True)
+        # Review P1 (ea81ef5): a NEW nested test project inside an existing product project (or around existing
+        # loose tools/ files) must not relabel existing product code; the base's owner decides for existing paths.
+        nested_tests = project.format('  <PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup>\n'
+                                      '  <ItemGroup><PackageReference Include="xunit" Version="2.9.3" /></ItemGroup>')
+        case('an existing product file under a NEW nested test project + a weakened test fails',
+             dict(weak, **{tool_child_cs[0]: tool_child_cs[1].replace('Size = 1', 'Size = 2'),
+                           'tools/QaMock/Child/Child.Tests.csproj': nested_tests}),
+             False, why='changes product code (tools/QaMock/Child/Worker.cs')
+        case('a NEW file in an existing product project, inside a NEW nested test project, + a weakened test fails',
+             dict(weak, **{'tools/QaMock/Child/Extra.cs': 'public static class Extra { }\n',
+                           'tools/QaMock/Child/Child.Tests.csproj': nested_tests}),
+             False, why='changes product code')
+        case('an existing loose tools/ file wrapped in a NEW test project + a weakened test fails',
+             dict(weak, **{loose_tool[0]: 'Write-Output 2\n', 'tools/Loose/Loose.Tests.csproj': nested_tests}),
+             False, why='changes product code (tools/Loose/run.ps1')
         event = pathlib.Path(tmp, 'event.json')
         event.write_text('{not json', encoding='utf-8')
         results.append(('an unreadable event fails closed', run_event(event, out=lambda *_: None, cwd=tmp) == 1))
