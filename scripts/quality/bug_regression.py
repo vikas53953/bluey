@@ -885,6 +885,28 @@ def self_test(out=print):
                      'failing closed'))
         expect('full check: a clean, complete green TRX passes (control)',
                judge(body(), github=with_results(**{'20': run_trx(green).encode('utf-8')}))[0] == [])
+        # Review BLOCK b137d57: the summary outcome and every counter must agree with the result rows.
+        red_rows = [(fqn, method, 'Failed')]
+        expect('a Failed summary over an all-pass row set is refused',
+               _raises(lambda: parse_trx(run_trx(green, 'Failed').encode('utf-8'))))
+        expect('a Completed summary over a failed row is refused',
+               _raises(lambda: parse_trx(run_trx(red_rows, 'Completed').encode('utf-8'))))
+        expect('inconclusive=1 with no such row is refused',
+               _raises(lambda: parse_trx(run_trx(green, 'Completed', {'inconclusive': 1}).encode('utf-8'))))
+        expect('any other nonzero counter with no such row (warning=1) is refused',
+               _raises(lambda: parse_trx(run_trx(green, 'Completed', {'warning': 1}).encode('utf-8'))))
+        expect('full check: a green run whose summary says Failed over all-pass rows fails closed',
+               fails(judge(body(), github=with_results(**{'20': run_trx(green, 'Failed').encode('utf-8')})),
+                     'failing closed'))
+        expect('full check: a green run with inconclusive=1 and no such row fails closed',
+               fails(judge(body(), github=with_results(**{'20': run_trx(green, 'Completed', {
+                   'inconclusive': 1}).encode('utf-8')})), 'failing closed'))
+        expect('full check: a red run whose summary says Completed over the failed row fails closed',
+               fails(judge(body(), github=with_results(**{'10': run_trx(red_rows, 'Completed').encode('utf-8')})),
+                     'failing closed'))
+        expect('full check: a valid failed red run (Failed summary, matching counters) still proves red (control)',
+               judge(body(), github=with_results(**{'10': run_trx(red_rows, 'Failed').encode('utf-8'),
+                                                     '20': run_trx(green).encode('utf-8')}))[0] == [])
         expect('the test class comes from the file: file-scoped and block namespaces',
                test_class(f'namespace A.B;\npublic class C {{ [Fact] public void {method}() {{ }} }}', method)
                == 'A.B.C'
