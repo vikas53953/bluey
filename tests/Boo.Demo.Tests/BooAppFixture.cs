@@ -107,8 +107,15 @@ public class BooAppFixture : IDisposable
     /// panel is fine a moment later, as on demo-ci runs 43733044905, 43755644582 and 43797565952.
     /// </summary>
     public Window WaitForPanel(TimeSpan timeout) =>
-        WaitFor(() => FindPanel() is { } panel && IsPainted(panel) ? panel : null, timeout,
-            "the Boo companion window to appear and paint its content");
+        WaitForPainted(FindPanel, timeout, "the Boo companion window to appear and paint its content");
+
+    /// <summary>
+    /// The wait site itself: polls <paramref name="find"/> and hands the window back only once <see cref="IsPainted"/>
+    /// says it has drawn content, failing closed at <paramref name="timeout"/> like <see cref="WaitFor{T}"/>. Tests drive
+    /// it with their own windows (FirstPaintWaitDemoTests), so removing the paint gate here fails them.
+    /// </summary>
+    public Window WaitForPainted(Func<Window?> find, TimeSpan timeout, string what) =>
+        WaitFor(() => find() is { } window && IsPainted(window) ? window : null, timeout, what);
 
     public Window WaitForNotch(TimeSpan timeout) =>
         WaitFor(FindNotch, timeout, "the Boo launcher (notch) window to appear");

@@ -14,8 +14,8 @@ using MediaColor = System.Windows.Media.Color;
 namespace Boo.Demo.Tests;
 
 /// <summary>
-/// The first-paint wait on real WPF windows the test owns, through the fixture's own <see cref="BooAppFixture.WaitFor{T}"/>
-/// (the primitive <c>WaitForPanel</c> uses, with its deadline and timeout screenshot): a WPF window that never draws
+/// The first-paint wait on real WPF windows the test owns, through the fixture's own <see cref="BooAppFixture.WaitForPainted"/>
+/// (the wait site <c>WaitForPanel</c> delegates to, with its deadline and timeout screenshot): a WPF window that never draws
 /// content keeps the wait waiting until it fails closed with a timeout and a retained timeout capture (the red path), and
 /// a WPF window that draws its content late is handed back only after that content exists (the delayed-first-render
 /// control). The expected timeout's capture is scoped to Boo's own windows (BOO_CAPTURE_SCOPE, as the live smoke sets
@@ -44,7 +44,7 @@ public sealed class FirstPaintWaitDemoTests : IClassFixture<BooAppFixture>
         try
         {
             timeout = Assert.Throws<TimeoutException>(() =>
-                _boo.WaitFor(() => BooAppFixture.IsPainted(window) ? window : null, TimeSpan.FromSeconds(3), "a never-painted probe window (expected)"));
+                _boo.WaitForPainted(() => window, TimeSpan.FromSeconds(3), "a never-painted probe window (expected)"));
         }
         finally
         {
@@ -65,7 +65,7 @@ public sealed class FirstPaintWaitDemoTests : IClassFixture<BooAppFixture>
         var window = _boo.Automation.FromHandle(probe.Handle).AsWindow();
         var clock = Stopwatch.StartNew();
 
-        var painted = _boo.WaitFor(() => BooAppFixture.IsPainted(window) ? window : null, TimeSpan.FromSeconds(15), "the late-painting probe window");
+        var painted = _boo.WaitForPainted(() => window, TimeSpan.FromSeconds(15), "the late-painting probe window");
         var returnedAt = DateTime.UtcNow;
 
         Assert.True(clock.Elapsed >= delay - TimeSpan.FromMilliseconds(100),
