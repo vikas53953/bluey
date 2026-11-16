@@ -1,5 +1,5 @@
 {
-  "revision": 38,
+  "revision": 39,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -102,7 +102,7 @@
     "tests/Boo.Demo.Tests/Boo.Demo.Tests.csproj": "f3fad7e22de0b6b19a8b5bb208a3a6dcb4d76db4befa792f289ef188ed955d7b",
     "tests/Boo.Demo.Tests/BooAppFixture.cs": "1a5c7b90d2a7527e98d0e69009a06bee4a52a1657a43db800831e75afa399bce",
     "tests/Boo.Demo.Tests/DemoTests.cs": "dcb58a575f973cd6d58f97af7612b97f6b1c4b0ab7c22f0c1b32f37e04611dac",
-    "tests/Boo.Demo.Tests/FirstPaintWaitDemoTests.cs": "f8eea8072d7e81e6954e3bab978637a272a2f96daf44bb3f546d8900a9c82900",
+    "tests/Boo.Demo.Tests/FirstPaintWaitDemoTests.cs": "29d8fe44d50c13bf593778379ae6e09f93e292b535aaa475688504ee851d144e",
     "tests/Boo.Demo.Tests/HiddenTextApprovalCardDemoTests.cs": "2e51e67626e3920b3ed2b436467b1008d1762dc1b978c7e22135cde9b9275f9e",
     "tests/Boo.Demo.Tests/OrderedSteps.cs": "306e9963f703f5d3110060f5a03f66272dfda4959eba07c238be328da40776e2",
     "tests/Boo.Demo.Tests/PaintedProbeTests.cs": "ee7eac45507845b80fc3f74e4634801bc0a328d8ac77bfc6a5c44abe492da3ae",
@@ -172,13 +172,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-37.json",
-  "previousManifestSha256": "91deb33e41beff69e47518b2c7f471b8e18fba3801a2a283cb52db6f667a9ac0",
-  "revisionReason": "PR #161 QA (FAIL on 5a05ae0) asked for the new wait exercised through its timeout on a real WPF window and a delayed-first-render control: FirstPaintWaitDemoTests drives the fixture's WaitFor with IsPainted on test-owned WPF windows (never painted: TimeoutException after the deadline with the timeout capture note kept; content drawn at 1.5 s: handed back only after that).",
-  "addedFiles": [
+  "previousManifest": "docs/verification/test-oracle-history/revision-38.json",
+  "previousManifestSha256": "d1838217bcee1ddb00aab00bc82c5c50b03197fc7049810fd9cdf637ac04b4a0",
+  "revisionReason": "FirstPaintWaitDemoTests delayed-render control failed on acc7da0 (demo-ci 43810719241): it compared a Stopwatch started before the probe window opened with one started after, so the content timestamp could exceed the wait's elapsed time although the wait returned after the content was set. Both sides now use UTC wall-clock instants; the content instant is recorded just before the content is set, so a wait that returns earlier than it returned on a blank window.",
+  "addedFiles": [],
+  "revisionCommit": "acc7da07b91f8a0c8d77bb08ffa125671fa88630",
+  "changedFiles": [
     "tests/Boo.Demo.Tests/FirstPaintWaitDemoTests.cs"
   ],
-  "revisionCommit": "d3f2ead6228945254e0e9cb4c5ada3eb22b77c22",
-  "changedFiles": [],
   "removedFiles": []
 }

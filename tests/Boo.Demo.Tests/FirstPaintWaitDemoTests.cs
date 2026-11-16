@@ -66,11 +66,14 @@ public sealed class FirstPaintWaitDemoTests : IClassFixture<BooAppFixture>
         var clock = Stopwatch.StartNew();
 
         var painted = _boo.WaitFor(() => BooAppFixture.IsPainted(window) ? window : null, TimeSpan.FromSeconds(15), "the late-painting probe window");
+        var returnedAt = DateTime.UtcNow;
 
         Assert.True(clock.Elapsed >= delay - TimeSpan.FromMilliseconds(100),
             $"the wait returned after {clock.Elapsed.TotalMilliseconds:0} ms, before the content was drawn at {delay.TotalMilliseconds:0} ms");
-        Assert.True(probe.ContentShownAt is { } shownAt && shownAt <= clock.Elapsed,
-            "the wait returned before the window reported drawing its content");
+        var shownAt = probe.ContentShownAt;
+        Assert.True(shownAt is not null, "the wait returned although the window never set its content");
+        Assert.True(shownAt <= returnedAt,
+            $"the wait returned at {returnedAt:HH:mm:ss.fff}, before the window set its content at {shownAt:HH:mm:ss.fff}");
         Assert.True(BooAppFixture.IsPainted(painted), "the window handed back was not painted");
     }
 
@@ -78,12 +81,21 @@ public sealed class FirstPaintWaitDemoTests : IClassFixture<BooAppFixture>
     private sealed class WpfProbeWindow : IDisposable
     {
         private readonly Thread _thread;
-        private readonly Stopwatch _clock = Stopwatch.StartNew();
         private WpfWindow? _window;
         private Dispatcher? _dispatcher;
+        private long _contentShownTicks;
 
         public IntPtr Handle { get; private set; }
-        public TimeSpan? ContentShownAt { get; private set; }
+
+        /// <summary>When the dispatcher thread started setting the window's content (UTC), or null while it is still blank. Recorded before the content exists, so a wait that returns earlier than this returned on a blank window.</summary>
+        public DateTime? ContentShownAt
+        {
+            get
+            {
+                var ticks = Volatile.Read(ref _contentShownTicks);
+                return ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc);
+            }
+        }
 
         private WpfProbeWindow(TimeSpan? contentDelay)
         {
@@ -111,9 +123,9 @@ public sealed class FirstPaintWaitDemoTests : IClassFixture<BooAppFixture>
                     timer.Tick += (_, _) =>
                     {
                         timer.Stop();
+                        Volatile.Write(ref _contentShownTicks, DateTime.UtcNow.Ticks);
                         _window.Content = BuildContent();
                         _window.UpdateLayout();
-                        ContentShownAt = _clock.Elapsed;
                     };
                     timer.Start();
                 }
