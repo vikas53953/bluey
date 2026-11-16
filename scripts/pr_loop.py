@@ -1016,6 +1016,64 @@ def self_test():
     check('(d) every tip workflow has a workflow_dispatch trigger',
           all(re.search(r'^  workflow_dispatch:', flow(w), re.M) for w in tip_workflows))
 
+    # Log safety: gh's own output can carry request headers; the loop must never pass them on.
+    import subprocess as _sp
+    fake_key = 'gh' + 'p_' + 'Q7' * 18  # built at run time, never stored key-shaped in this file; never printed
+    noisy = ('GH_DEBUG', 'GIT_TRACE', 'GIT_TRACE_CURL', 'GIT_CURL_VERBOSE', 'DEBUG')
+    seen = {}
+
+    def leaky_gh(args, **kwargs):
+        seen['env'], seen['args'] = kwargs.get('env'), args
+        return _sp.CompletedProcess(args, 1, '', f'* Request to api.github.com\n> Authorization: token {fake_key}\n'
+                                                 f'> authorization: Bearer {fake_key}\nX-Token: {fake_key}\n'
+                                                 f'gh: Bad credentials (HTTP 401)\n{fake_key}\n')
+    try:
+        lines = []
+        code = run(GhClient(REPO, runner=leaky_gh), apply=False, out=lines.append)
+        text = '\n'.join(lines)
+        ok = (code == 1 and fake_key not in text and 'uthorization' not in text and 'Bearer' not in text
+              and 'Bad credentials (HTTP 401)' in text)
+    except Exception as error:
+        ok, text = False, f'crash {type(error).__name__}'
+    check('log safety: a gh failure whose stderr holds an Authorization header and a token is reported WITHOUT them '
+          '(the rest of the message stays)', ok)
+
+    saved = {k: os.environ.get(k) for k in noisy}
+    try:
+        os.environ.update({k: '1' for k in noisy})
+        seen.clear()
+        try:
+            GhClient(REPO, runner=leaky_gh).repo_settings()
+        except ApiError:
+            pass
+        env = seen.get('env')
+        ok = isinstance(env, dict) and not [k for k in noisy if k in env] and 'PATH' in env
+    except Exception:
+        ok = False
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    check('log safety: the environment passed to gh has no GH_DEBUG / GIT_TRACE* / GIT_CURL_VERBOSE / DEBUG even when '
+          'the parent sets them', ok)
+
+    try:
+        seen.clear()
+        GhClient(REPO, runner=leaky_gh)._gh(['api', '--verbose', 'repos/x/y'])
+        ok = False
+    except ApiError:
+        ok = 'args' not in seen
+    except Exception:
+        ok = False
+    check('log safety: a verbose/debug flag on a gh call is refused before gh runs', ok)
+
+    check('log safety: the workflow captures the loop output and key-scans it (with the job token as a secret) '
+          'before the job ends',
+          'tee -a pr-loop-log/' in loop_yml
+          and 'python -I scripts/quality/key_scan.py --secret-env GH_TOKEN pr-loop-log' in loop_yml)
+
     # Dry run (the default) plans and prints but performs nothing.
     c = _world()
     code, text = go(c, apply=False)
