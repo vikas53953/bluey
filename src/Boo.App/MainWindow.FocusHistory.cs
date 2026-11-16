@@ -110,7 +110,9 @@ public partial class MainWindow
     /// <summary>
     /// Queues an optional write and then a re-read of the history list. The task completes with true when the write
     /// committed (or there was none), false when it failed. A failed re-read after a committed write does not make the
-    /// write unsaved: the history list just says it is unavailable.
+    /// write unsaved: the history list just says it is unavailable. The task completes on the UI thread, inside the same
+    /// step that puts the history rows on screen and after them, so an acknowledgment that waits on it can never be shown
+    /// before the history it promises, whatever priority that step runs at.
     /// </summary>
     private Task<bool> EnqueueFocusHistoryWork(SessionStore store, Action? write)
     {
@@ -118,14 +120,14 @@ public partial class MainWindow
         lock (_focusHistoryGate)
         {
             _focusHistoryTail = _focusHistoryTail.ContinueWith(
-                _ => done.TrySetResult(RunFocusHistoryWork(store, write)),
+                _ => RunFocusHistoryWork(store, write, done),
                 CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
         }
 
         return done.Task;
     }
 
-    private bool RunFocusHistoryWork(SessionStore store, Action? write)
+    private void RunFocusHistoryWork(SessionStore store, Action? write, TaskCompletionSource<bool> done)
     {
         var written = write is null || TryStoreStep(() => { write(); return true; });
         var rows = written ? TryStoreStep(() => ReadHistoryRows(store)) : null;
@@ -144,8 +146,9 @@ public partial class MainWindow
             {
                 ApplyHistoryRows(rows);
             }
+
+            done.TrySetResult(written);
         });
-        return written;
     }
 
     /// <summary>Runs one sessions.db step; the store's known failures return the default instead of throwing.</summary>
