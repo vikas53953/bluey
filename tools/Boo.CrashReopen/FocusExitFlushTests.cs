@@ -72,7 +72,7 @@ public sealed class QuitWithAPendingSaveTests : IClassFixture<ExitFlushFixture>
     /// Opens Boo's tray menu the way a person does (the overflow arrow when the icon is hidden, then a right-click on the
     /// "Boo companion" icon) and returns its Quit item without invoking it.
     /// </summary>
-    private MenuItem OpenTrayQuit()
+    private FlaUI.Core.AutomationElements.MenuItem OpenTrayQuit()
     {
         var automation = _app.Automation;
         var desktop = automation.GetDesktop();
