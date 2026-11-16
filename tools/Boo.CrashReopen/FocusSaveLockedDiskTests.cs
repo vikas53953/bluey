@@ -45,7 +45,7 @@ public sealed class FocusSaveLockedDiskTests : IClassFixture<LockedDiskFixture>
     }
 
     [Fact]
-    public void PauseWhileTheHistoryFileIsLocked_FaceAnswersAtOnce_AndTheSaveLandsAfterTheLock()
+    public async Task PauseWhileTheHistoryFileIsLocked_FaceAnswersAtOnce_AndTheSaveLandsAfterTheLock()
     {
         var log = new List<string>();
         var clock = Stopwatch.StartNew();
@@ -104,7 +104,9 @@ public sealed class FocusSaveLockedDiskTests : IClassFixture<LockedDiskFixture>
                 Thread.Sleep(40);
             }
             var statusRead = Task.Run(() => Name(panel, "FocusStatus"));
-            var statusWhileLocked = statusRead.Wait(TimeSpan.FromSeconds(2)) ? statusRead.Result : "<no answer while locked>";
+            var statusWhileLocked = await Task.WhenAny(statusRead, Task.Delay(TimeSpan.FromSeconds(2))) == statusRead
+                ? await statusRead
+                : "<no answer while locked>";
             Record($"while locked: reads={reads} slowest={slowest}ms pausedAt={sawPaused}ms status='{statusWhileLocked}'");
 
             using (var rollback = holder.CreateCommand())
@@ -116,7 +118,7 @@ public sealed class FocusSaveLockedDiskTests : IClassFixture<LockedDiskFixture>
             holder = null;
             SqliteConnection.ClearAllPools();
             Record("sessions.db unlocked");
-            invoke.Wait(Ui);
+            await invoke.WaitAsync(Ui);
 
             Assert.True(BooAppFixture.WaitUntil(() => Name(panel, "FocusStatus").StartsWith("Paused", StringComparison.Ordinal), Ui),
                 $"the Pause status never arrived after the lock was released. Status: '{Name(panel, "FocusStatus")}'");
