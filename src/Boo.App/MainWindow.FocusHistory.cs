@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.IO;
+using System.Windows.Controls;
 using Boo.Core;
 using Boo.Storage;
 
@@ -7,29 +9,43 @@ namespace Boo.App;
 /// <summary>
 /// Focus history persistence off the UI thread (issue #168). A focus snapshot is written to sessions.db, and the history
 /// list re-read, on one ordered background queue, so a slow or locked disk never freezes Boo's face, panel or UI
-/// Automation answers. Writes keep their order. A status line that promises a saved state ("Paused ...", "Running ...")
-/// is shown only when every write queued before it has finished, so a status on screen still means the row is on disk.
-/// Exit waits for the queue (bounded).
+/// Automation answers. Writes keep their order.
+/// A status line that promises a saved state ("Paused ...", "Running ...", "Session complete ... saved") is an
+/// acknowledgment of one specific save: it is shown only when that save has succeeded, and an honest "Not saved: ..."
+/// line is shown when it failed or when no history store was available. Acknowledgments are numbered; only the newest
+/// may change the status, and any other write to the focus status makes every pending acknowledgment stale, so an
+/// older action can never overwrite a newer one.
+/// Exit waits for the queue, bounded at 10 s: a save still blocked after that is not guaranteed to reach the disk.
 /// </summary>
 public partial class MainWindow
 {
     private static readonly TimeSpan FocusHistoryFlushTimeout = TimeSpan.FromSeconds(10);
     private readonly object _focusHistoryGate = new();
     private Task _focusHistoryTail = Task.CompletedTask;
+    private long _focusStatusGeneration;
+    private long _focusStatusNewest;
+    private bool _applyingFocusAcknowledgment;
+    private bool _focusStatusWatched;
 
     /// <summary>Queues a save of the focus snapshot (and a history refresh); never touches the disk on the UI thread.</summary>
-    private void SaveFocusSnapshot(FocusSessionController? controller = null)
+    private void SaveFocusSnapshot(FocusSessionController? controller = null) => _ = SaveFocusSnapshotTracked(controller);
+
+    /// <summary>
+    /// Queues a save like <see cref="SaveFocusSnapshot"/>. The task completes with true when this snapshot is on disk,
+    /// false when it was not saved (no store, or the write failed); a status that promises a saved state waits on it.
+    /// </summary>
+    private Task<bool> SaveFocusSnapshotTracked(FocusSessionController? controller = null)
     {
         controller ??= _focus;
         var store = _sessionStore;
         if (controller is null || store is null)
         {
-            return;
+            return Task.FromResult(false);
         }
 
         var snapshot = controller.Snapshot;
         _lastFocusSaveRealElapsed = snapshot.RealElapsed;
-        EnqueueFocusHistoryWork(() =>
+        return EnqueueFocusHistoryWork(() =>
         {
             store.Save(snapshot);
             return ReadHistoryRows(store);
@@ -46,23 +62,63 @@ public partial class MainWindow
             return;
         }
 
-        EnqueueFocusHistoryWork(() => ReadHistoryRows(store));
+        _ = EnqueueFocusHistoryWork(() => ReadHistoryRows(store));
     }
 
     /// <summary>
-    /// Shows <paramref name="text"/> once every save queued so far has finished. If anything else has changed the
-    /// focus status in the meantime, the newer text stays.
+    /// Acknowledges <paramref name="save"/>: when it has finished, shows <paramref name="saved"/> if it succeeded and
+    /// <paramref name="unsaved"/> if it did not, unless a newer acknowledgment or any other focus status has been shown
+    /// since this one was requested.
     /// </summary>
-    private void ShowFocusStatusWhenSaved(string text)
+    private void ShowFocusStatusWhenSaved(Task<bool> save, string saved, string unsaved)
     {
-        var shown = FocusStatus.Text;
-        Enqueue(() => OnUiThread(() =>
+        WatchFocusStatus();
+        var generation = ++_focusStatusGeneration;
+        _focusStatusNewest = generation;
+        _ = AcknowledgeAsync(save, generation, saved, unsaved);
+    }
+
+    private async Task AcknowledgeAsync(Task<bool> save, long generation, string saved, string unsaved)
+    {
+        var ok = await save.ConfigureAwait(false);
+        OnUiThread(() => ApplyFocusAcknowledgment(generation, ok ? saved : unsaved));
+    }
+
+    private void ApplyFocusAcknowledgment(long generation, string text)
+    {
+        if (generation != _focusStatusNewest)
         {
-            if (string.Equals(FocusStatus.Text, shown, StringComparison.Ordinal))
+            return;
+        }
+
+        _applyingFocusAcknowledgment = true;
+        try
+        {
+            FocusStatus.Text = text;
+        }
+        finally
+        {
+            _applyingFocusAcknowledgment = false;
+        }
+    }
+
+    /// <summary>Any focus status written outside an acknowledgment is newer than every pending acknowledgment.</summary>
+    private void WatchFocusStatus()
+    {
+        if (_focusStatusWatched)
+        {
+            return;
+        }
+
+        _focusStatusWatched = true;
+        DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock))
+            .AddValueChanged(FocusStatus, (_, _) =>
             {
-                FocusStatus.Text = text;
-            }
-        }));
+                if (!_applyingFocusAcknowledgment)
+                {
+                    _focusStatusNewest = ++_focusStatusGeneration;
+                }
+            });
     }
 
     /// <summary>Waits (bounded) for every queued save; called when Boo exits.</summary>
@@ -77,19 +133,21 @@ public partial class MainWindow
         tail.Wait(FocusHistoryFlushTimeout);
     }
 
-    private void EnqueueFocusHistoryWork(Func<IReadOnlyList<FocusHistoryRow>> work) =>
-        Enqueue(() => RunFocusHistoryWork(work));
-
-    private void Enqueue(Action step)
+    private Task<bool> EnqueueFocusHistoryWork(Func<IReadOnlyList<FocusHistoryRow>> work)
     {
+        var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_focusHistoryGate)
         {
             _focusHistoryTail = _focusHistoryTail.ContinueWith(
-                _ => step(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+                _ => done.TrySetResult(RunFocusHistoryWork(work)),
+                CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
         }
+
+        return done.Task;
     }
 
-    private void RunFocusHistoryWork(Func<IReadOnlyList<FocusHistoryRow>> work)
+    /// <summary>Runs one queued step; true when it succeeded. The history list is updated (or marked unavailable) first.</summary>
+    private bool RunFocusHistoryWork(Func<IReadOnlyList<FocusHistoryRow>> work)
     {
         IReadOnlyList<FocusHistoryRow>? rows = null;
         var failed = false;
@@ -122,18 +180,20 @@ public partial class MainWindow
             failed = true;
         }
 
+        var ok = !failed && rows is not null;
         OnUiThread(() =>
         {
-            if (failed || rows is null)
+            if (ok)
+            {
+                ApplyHistoryRows(rows!);
+            }
+            else
             {
                 _sessionStore = null;
                 SetHistoryUnavailable();
             }
-            else
-            {
-                ApplyHistoryRows(rows);
-            }
         });
+        return ok;
     }
 
     /// <summary>

@@ -58,9 +58,11 @@ public partial class MainWindow
         {
             _focus.Pause("Stopped");
             StopFocusMonitoring();
-            SaveFocusSnapshot();
+            var saved = SaveFocusSnapshotTracked();
             _focusTimer.Stop();
-            ShowFocusStatusWhenSaved("Paused by Stop; Resume is explicit.");
+            ShowFocusStatusWhenSaved(saved,
+                "Paused by Stop; Resume is explicit.",
+                "Not saved: paused by Stop, but focus history is unavailable. Resume is explicit.");
         }
         if (BusyStatus.AfterStop(StatusText.Text, StoppedStatusMessage) is { } stopped)
         {
