@@ -202,6 +202,13 @@ The principles behind these rules (and the merge, spend and spare-capacity rules
     `doc-fragments` check enforces this on every PR. To read everything in one place:
     `python -I scripts/quality/doc_fragments.py assemble` (prints it; `--out` only outside the repository or under
     `artifacts/`; never commit the combined view).
+13. **Trace footer on everything an agent writes (BOO-TRACE-001, since 16 Nov).** Every agent-written PR body, PR
+    comment and commit message ends with one line
+    `Agent: <lane name> | Thread: <T3 thread link or https URL> | Model: <model>/<effort>`, for example
+    `Agent: agent-trust lane (Claude) | Thread: t3-thread://v2/<id> | Model: claude-opus-5-5/medium`. **CI and QA
+    fixes are routed to the lane named in the PR's footer.** The `trace-footer` check enforces it on PR bodies only
+    (rendered by GitHub, so a footer in a code block, comment or fold does not count); comments and commits follow it
+    by convention (`python -I scripts/quality/trace_footer.py --commit <file>` checks a commit message locally).
 
 ## 6. Live QA scope (as of 13 Nov)
 

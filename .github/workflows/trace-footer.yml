@@ -1,0 +1,75 @@
+name: trace-footer
+
+# BOO-TRACE-001 (docs/quality/RULES.md): every pull request body ends with one trace footer line,
+#   Agent: <lane name> | Thread: <thread link> | Model: <model>/<effort>
+# so CI and QA fixes can be routed back to the lane, thread and model that wrote the PR. PR bodies only: commit bodies
+# and PR comments carry the same line by convention (not checked here). The body is read from the event file, never
+# pasted into a shell, and GitHub itself renders it (POST /markdown), so only what a reader of the PR page sees counts.
+# Its own small workflow (not a step in pr-evidence) so an existing gate's file is not touched and a failure names
+# this rule. Linux, no build, no secrets beyond the read-only token, no artifacts.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trace-footer-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  footer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=trace-footer refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)'). Set this job's runner back to ubuntu-latest."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # A PR could loosen its own trace_footer.py. So the BASE branch's copy (read from git, not from the PR) judges
+      # the body first, before any code from the PR runs (as in pr-evidence). Until the base has the file (the PR that
+      # adds it), only the PR's own copy runs. (A PR that edits this workflow file itself is a gap left to review.)
+      - name: Footer judged by the base branch's own checker (a PR cannot loosen its checker script)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "::error::BOO-TRACE-001 the base commit is not in the checkout, so the base branch's checker cannot run"
+            exit 1
+          fi
+          if git cat-file -e "$BASE_SHA:scripts/quality/trace_footer.py" 2>/dev/null; then
+            git show "$BASE_SHA:scripts/quality/trace_footer.py" > "$RUNNER_TEMP/trace_footer_base.py"
+            python -I "$RUNNER_TEMP/trace_footer_base.py" --event "$GITHUB_EVENT_PATH"
+          else
+            echo "The base branch has no trace_footer.py yet (this PR adds it); the PR's own copy judges the body in the next steps."
+          fi
+
+      - name: Footer check self-test (every rule fires on a planted sample)
+        run: python -I scripts/quality/trace_footer.py --self-test
+
+      - name: Footer check render test (known tricks, rendered by GitHub)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -I scripts/quality/trace_footer.py --render-test
+
+      - name: Trace footer in the PR body
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -I scripts/quality/trace_footer.py --event "$GITHUB_EVENT_PATH"
