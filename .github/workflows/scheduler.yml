@@ -1,0 +1,142 @@
+name: scheduler
+
+# Starts the lane/face checks that are meant to run on a timer.
+#
+# Why this file is on main: GitHub fires `schedule` only from the default branch (main), and Boo's work lives on
+# lane/face, so the timed checks there never fired. This workflow is the only thing on main that knows about them: at
+# each time below it runs `gh workflow run <file> --ref lane/face`, which starts that workflow's own manual trigger on
+# the lane/face tip (a workflow_dispatch made with the job's GITHUB_TOKEN does start a run). It starts runs and does
+# nothing else: no checkout, no build, no secrets, no write to the repository.
+#
+# Cost: the repository is public and every job runs on a standard GitHub-hosted runner, so runner minutes cost $0.
+# The only paid run is the daily sentinel: at most 2 OpenAI calls, about US$0.004 per run, about US$0.12 a month,
+# inside the US$10 a month cap (docs/quality/live-sentinel.md on lane/face). The property tests make no AI calls.
+#
+# No double runs: when a target's own file reaches main (lane/face merged into main), its own `schedule` fires there.
+# Each job first asks whether main already has the target file and skips if it does.
+
+on:
+  schedule:
+    - cron: '17 21 * * *'     # daily: live-sentinel (the same time as its own schedule on lane/face)
+    - cron: '41 2 * * *'      # nightly: properties (the same time as its own schedule on lane/face)
+    # - cron: '17 6 * * 1'    # weekly: trust-metrics (OFF, see the trust-metrics job)
+    # - cron: '*/10 * * * *'  # pr-loop (OFF, see the pr-loop job)
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Start one of the timed checks now, on lane/face
+        type: choice
+        required: true
+        options:
+          - live-sentinel
+          - properties
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: scheduler-${{ github.event.schedule || inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  live-sentinel:
+    if: ${{ github.event.schedule == '17 21 * * *' || inputs.target == 'live-sentinel' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TARGET: live-sentinel.yml
+    steps:
+      - name: Skip if main already runs it on its own schedule
+        id: own
+        run: |
+          if gh api "repos/$GH_REPO/contents/.github/workflows/$TARGET?ref=main" --jq .path > /dev/null 2> own.err; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "$TARGET is on main, so its own schedule runs it there. Not starting a second run."
+          elif grep -q "HTTP 404" own.err; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::could not tell whether main has $TARGET:"; cat own.err; exit 1
+          fi
+
+      # No inputs: tip_ref blank means the lane/face tip, so the sentinel's report job opens or closes its issue
+      # exactly as a scheduled run would.
+      - name: Start live-sentinel on lane/face
+        if: ${{ steps.own.outputs.skip == 'false' }}
+        run: |
+          since="$(date -u +%FT%TZ)"
+          gh workflow run "$TARGET" --ref lane/face
+          for i in $(seq 1 12); do
+            url="$(gh run list --workflow "$TARGET" --branch lane/face --event workflow_dispatch --limit 5 --json url,createdAt --jq "[.[] | select(.createdAt >= \"$since\")][0].url // empty")"
+            if [ -n "$url" ]; then break; fi
+            sleep 5
+          done
+          echo "Started $TARGET on lane/face: ${url:-run link not visible yet, see the $TARGET runs}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  properties:
+    if: ${{ github.event.schedule == '41 2 * * *' || inputs.target == 'properties' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TARGET: properties.yml
+    steps:
+      - name: Skip if main already runs it on its own schedule
+        id: own
+        run: |
+          if gh api "repos/$GH_REPO/contents/.github/workflows/$TARGET?ref=main" --jq .path > /dev/null 2> own.err; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "$TARGET is on main, so its own schedule runs it there. Not starting a second run."
+          elif grep -q "HTTP 404" own.err; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::could not tell whether main has $TARGET:"; cat own.err; exit 1
+          fi
+
+      # A dispatched run uses 20,000 cases per property, the same as its nightly schedule.
+      - name: Start properties on lane/face
+        if: ${{ steps.own.outputs.skip == 'false' }}
+        run: |
+          since="$(date -u +%FT%TZ)"
+          gh workflow run "$TARGET" --ref lane/face
+          for i in $(seq 1 12); do
+            url="$(gh run list --workflow "$TARGET" --branch lane/face --event workflow_dispatch --limit 5 --json url,createdAt --jq "[.[] | select(.createdAt >= \"$since\")][0].url // empty")"
+            if [ -n "$url" ]; then break; fi
+            sleep 5
+          done
+          echo "Started $TARGET on lane/face: ${url:-run link not visible yet, see the $TARGET runs}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # OFF. trust-metrics.yml has only `schedule` and `workflow_dispatch` triggers, so it has never run and GitHub has
+  # never registered it: dispatching it answers HTTP 404 "not found on the default branch". A one-line lane/face PR
+  # gives it a `pull_request` trigger on its own file, which runs it once and registers it.
+  # TURN ON when `gh workflow run trust-metrics.yml --ref lane/face` succeeds: remove `if: false`, uncomment the
+  # weekly cron above, and add trust-metrics to the dispatch choices.
+  trust-metrics:
+    if: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TARGET: trust-metrics.yml
+    steps:
+      - name: Start trust-metrics on lane/face
+        run: gh workflow run "$TARGET" --ref lane/face
+
+  # OFF. The PR loop (scripts/pr_loop.py, workflow pr-loop.yml) is still under review in PR #162.
+  # TURN ON when #162 has merged into lane/face: remove `if: false`, uncomment the `*/10` cron above, and add pr-loop
+  # to the dispatch choices. GitHub may delay or drop crons this frequent; the loop must not depend on every tick.
+  pr-loop:
+    if: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TARGET: pr-loop.yml
+    steps:
+      - name: Start pr-loop on lane/face
+        run: gh workflow run "$TARGET" --ref lane/face
