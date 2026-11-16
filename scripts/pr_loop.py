@@ -290,7 +290,25 @@ class GhClient:
         return [c for page in self._pages(f'repos/{self.repo}/issues/{number}/comments?per_page=100') for c in page]
 
     def reviews(self, number):
-        return [r for page in self._pages(f'repos/{self.repo}/pulls/{number}/reviews?per_page=100') for r in page]
+        """PR reviews with their real edit time. REST reviews carry no edit time, so they are read through GraphQL
+        (lastEditedAt is null when a review was never edited). More than one page, an error or a missing field:
+        ApiError (fail closed)."""
+        owner, _, name = self.repo.partition('/')
+        query = ('query($o:String!,$n:String!,$pr:Int!){repository(owner:$o,name:$n){pullRequest(number:$pr){'
+                 'reviews(first:100){pageInfo{hasNextPage} nodes{databaseId body submittedAt lastEditedAt '
+                 'author{login}}}}}}')
+        reply = self._json(['api', 'graphql', '-f', f'query={query}', '-F', f'o={owner}', '-F', f'n={name}',
+                            '-F', f'pr={int(number)}'])
+        if not isinstance(reply, dict) or reply.get('errors'):
+            raise ApiError(f'the review read of PR #{number} returned an error')
+        reviews = ((((reply.get('data') or {}).get('repository') or {}).get('pullRequest') or {}).get('reviews'))
+        if not isinstance(reviews, dict) or not isinstance(reviews.get('nodes'), list):
+            raise ApiError(f'the review read of PR #{number} has no reviews field')
+        if (reviews.get('pageInfo') or {}).get('hasNextPage') is not False:
+            raise ApiError(f'PR #{number} has more than 100 reviews (or no page info): refusing to judge part of them')
+        return [{'id': n.get('databaseId'), 'body': n.get('body'), 'user': {'login': (n.get('author') or {}).get('login')},
+                 'submitted_at': n.get('submittedAt'), 'last_edited_at': n.get('lastEditedAt')}
+                for n in reviews['nodes']]
 
     def review_comments(self, number):
         return [c for page in self._pages(f'repos/{self.repo}/pulls/{number}/comments?per_page=100') for c in page]
@@ -440,7 +458,9 @@ def stamp(entry):
             continue
         named = STATUS_ID.search(text)
         if named and int(named.group(1)) == status.get('id'):
-            vetoed = _veto(entry['comments'] + _review_items(entry), comment, entry.get('bot_login', BOT_LOGIN))
+            items = _veto_items(entry, entry.get('bot_login', BOT_LOGIN))
+            stamp_item = next(i for i in items if i['kind'] == 'issue_comment' and i['id'] == comment.get('id'))
+            vetoed = _veto(items, stamp_item)
             if vetoed:
                 return False, f'VETO: {vetoed}'
             return True, f'codex-verified status {status.get("id")} named by its CODEX VERIFIED comment'
@@ -456,38 +476,60 @@ def _loop_owned(comment, bot_login):
             and LEDGER_LINE.search(body) is not None)
 
 
-def _review_items(entry):
-    """PR review bodies and inline review comments, shaped like comments for the veto. Their ids are a different
-    sequence from issue-comment ids, so `kind` keeps them apart (a same-second tie cannot be ordered: fail closed).
-    A review's time is its submission time; with none, the order is unknown (fail closed)."""
-    items = [{'id': r.get('id'), 'body': r.get('body'), 'user': r.get('user'), 'kind': 'review',
-              'created_at': r.get('submitted_at') or ''} for r in entry.get('reviews', [])]
-    items += [dict(c, kind='inline') for c in entry.get('review_comments', [])]
+UNKNOWN_EDIT = 'unknown'
+TIMESTAMP = re.compile(r'^[0-9]{4}-[0-9]{2}-[0-9]{2}T')  # only a real time is compared
+
+
+def _veto_items(entry, bot_login):
+    """Every surface a veto can come from, as one shape: kind ('issue_comment', 'review', 'inline'), id (unique only
+    within its kind: the three kinds number separately), created (creation or submission time; '' when unknown),
+    edited (the last edit time; None when the API says never edited; UNKNOWN_EDIT when the field is missing), body,
+    login, and whether it is the loop's own ledger comment. Nothing downstream reads the raw API dicts."""
+    def edit_of(raw, key):
+        return raw[key] if key in raw else UNKNOWN_EDIT
+
+    items = []
+    for c in entry.get('comments', []):
+        items.append({'kind': 'issue_comment', 'id': c.get('id'), 'created': str(c.get('created_at') or ''),
+                      'edited': edit_of(c, 'updated_at'), 'body': str(c.get('body') or ''),
+                      'login': (c.get('user') or {}).get('login'), 'loop_owned': _loop_owned(c, bot_login)})
+    for r in entry.get('reviews', []):
+        items.append({'kind': 'review', 'id': r.get('id'), 'created': str(r.get('submitted_at') or ''),
+                      'edited': edit_of(r, 'last_edited_at'), 'body': str(r.get('body') or ''),
+                      'login': (r.get('user') or {}).get('login'), 'loop_owned': False})
+    for c in entry.get('review_comments', []):
+        items.append({'kind': 'inline', 'id': c.get('id'), 'created': str(c.get('created_at') or ''),
+                      'edited': edit_of(c, 'updated_at'), 'body': str(c.get('body') or ''),
+                      'login': (c.get('user') or {}).get('login'), 'loop_owned': False})
     return items
 
 
-def _after_stamp(comment, stamp_comment):
-    """True when the comment was created or edited after the stamp comment, or when the order cannot be told
-    (fail closed). Timestamps have one-second resolution: a creation in the same second is ordered by comment id
-    (ids only grow); an edit in the same second as the stamp cannot be ordered, so it counts as after."""
-    since, stamp_id = str(stamp_comment.get('created_at', '')), stamp_comment.get('id') or 0
-    created, cid = str(comment.get('created_at') or ''), comment.get('id') or 0
-    updated = str(comment.get('updated_at') or created)
-    same_sequence = comment.get('kind', 'comment') == 'comment'
-    if not created or created > since or (created == since and (not same_sequence or cid > stamp_id)):
+def _after_stamp(item, stamp_item):
+    """True when the item was created, submitted or edited after the stamp comment, or when the order cannot be
+    told (fail closed). Timestamps have one-second resolution. In the same second only an issue comment can be
+    ordered against the stamp (same id sequence); any other kind counts as after. An unknown creation or edit time
+    counts as after; an edit in the same second as the stamp counts as after."""
+    since, stamp_id = stamp_item['created'], stamp_item['id'] or 0
+    created = item['created']
+    if not created or created > since:
         return True
-    return updated > created and updated >= since
+    if created == since and (item['kind'] != 'issue_comment' or (item['id'] or 0) > stamp_id):
+        return True
+    edited = item['edited']
+    if edited == UNKNOWN_EDIT:
+        return True
+    return bool(TIMESTAMP.match(str(edited or ''))) and str(edited) > created and str(edited) >= since
 
 
-def _veto(comments, stamp_comment, bot_login=BOT_LOGIN):
-    """A plain reason when any other comment, created or edited after the stamp comment, holds a veto phrase.
-    Only the loop's own ledger comments are exempt (and they never quote the phrases)."""
-    for comment in comments:
-        if comment.get('id') == stamp_comment.get('id') or _loop_owned(comment, bot_login):
+def _veto(items, stamp_item):
+    """A plain reason when any item other than the stamp comment itself (matched by kind AND id) or the loop's own
+    ledger comment was created/edited after the stamp comment and holds a veto phrase."""
+    for item in items:
+        if (item['kind'], item['id']) == ('issue_comment', stamp_item['id']) or item['loop_owned']:
             continue
-        if _after_stamp(comment, stamp_comment) and VETO.search(str(comment.get('body') or '')):
-            return (f'comment {comment.get("id")} by {(comment.get("user") or {}).get("login")}, newer than the '
-                    'stamp comment, carries a veto word')
+        if _after_stamp(item, stamp_item) and VETO.search(item['body']):
+            return (f'{item["kind"].replace("_", " ")} {item["id"]} by {item["login"]}, newer than the stamp comment, '
+                    'carries a veto word')
     return None
 
 

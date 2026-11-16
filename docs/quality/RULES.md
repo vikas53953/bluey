@@ -621,7 +621,8 @@ tip of `lane/face` without CI, dispatch `windows-ci` and `perf-guards` on it onc
 
 Its self-test fails when any state is misjudged; when a mismatched SHA, a different status ID, a failure status, an
 untrusted comment, a required check that is skipped or neutral, or a newer veto in an issue comment, a PR review body or an inline
-review comment would arm (also with a copied loop marker, or in the same second as the
+review comment would arm (including a review edited after the stamp, an unknown edit time, or a review or inline
+comment sharing the stamp comment's numeric id) (also with a copied loop marker, or in the same second as the
 stamp comment); when `--base` accepts anything but `lane/face`; when a change after the plan's read (stamp revoked or replaced,
 comment withdrawn or edited, veto comment, PR retargeted, draft, behind, red check, already armed) would still arm;
 when a second PR would be armed in one run; when any PR on `main` or PR #3 is acted on; when a second run on the same

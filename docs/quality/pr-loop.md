@@ -30,13 +30,13 @@ head>` contains `Returned status ID **<id>**, context `codex-verified`` with `<i
 comment naming another SHA, a different status ID, a later failure status, or a comment from an untrusted account:
 never a match.
 
-**The veto:** if **any** other comment on the PR (issue comments, PR review bodies from `/pulls/{n}/reviews` and inline review comments from `/pulls/{n}/comments`, all read every run and again in the preflight; a failed read stops the run), created, submitted or edited after that stamp comment, contains `BLOCK`,
+**The veto:** if **any** other comment on the PR (issue comments, PR review bodies, read through GraphQL because only GraphQL gives a review's edit time (`lastEditedAt`), and inline review comments from `/pulls/{n}/comments`, all read every run and again in the preflight; a failed read, an error, a missing field or more than 100 reviews stops the run), created, submitted or edited after that stamp comment, contains `BLOCK`,
 `NOT VERIFIED` or `SURVIVED`, the PR is `blocked` and never armed. Matching is **case-sensitive and whole-word**: the
 phrase must not touch a letter, digit or underscore on either side, so `BLOCK` and `CODEX REVIEW BLOCK —` veto while
 `blocked`, `BLOCKED` and `UNBLOCK` do not. Any author counts (failing safe: a stray word can only stop an arm, never
 cause one). Only the loop's **own** ledger comment is exempt: written by the loop's login (`github-actions[bot]`),
 starting with the marker and in ledger shape; a copied marker in anybody else's comment does not switch a veto off.
-Order: timestamps have one-second resolution, so an issue comment created in the same second as the stamp comment
+Every item is normalized to one shape before judging: kind (issue comment, review, inline comment; each kind numbers its ids separately), id, created/submitted time, last edit time (none when the API says never edited, unknown when the field is missing), body, author. Only the stamp comment itself is exempt, matched by kind **and** id, so a review or inline comment that happens to share its number is still judged. An item counts as after the stamp when it was created or submitted later, or edited later (a review submitted earlier but edited after the stamp counts), or when its creation or edit time is unknown. Order: timestamps have one-second resolution, so an issue comment created in the same second as the stamp comment
 is ordered by comment id (ids only grow); a review or inline comment in that second cannot be ordered (its ids are a
 different sequence) and counts as after; a review with no submission time counts as after; an edit made in the same second as the stamp cannot be ordered and counts as
 after it (fail closed). Comments older than the stamp comment (and not edited since) do not veto: they are what the
