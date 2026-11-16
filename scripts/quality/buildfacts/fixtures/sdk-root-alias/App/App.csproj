@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <!-- Build code from this repository, in a file laid out like the SDK's Microsoft.NET.Publish.targets, that runs a real
+       SDK task under the name of a target known.json lists for the SDK. -->
+  <Import Project="..\evil\sdk\10.0.403\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.Publish.targets" />
+</Project>
