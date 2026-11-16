@@ -100,8 +100,15 @@ public class BooAppFixture : IDisposable
     public Window? FindNotch() => FindTopLevel(t =>
         string.Equals(t, NotchName, StringComparison.Ordinal) || string.Equals(t, NotchTitle, StringComparison.Ordinal));
 
+    /// <summary>
+    /// Waits for the companion window AND its first paint. WPF publishes the window to UI Automation before its first
+    /// render pass, so a probe that returns on the handle alone can hand back a still-white maximised window; a
+    /// screenshot taken then fails the demo visual check (one flat colour over 70 % of the screen) even though the
+    /// panel is fine a moment later, as on demo-ci runs 43733044905, 43755644582 and 43797565952.
+    /// </summary>
     public Window WaitForPanel(TimeSpan timeout) =>
-        WaitFor(FindPanel, timeout, "the Boo companion window to appear");
+        WaitFor(() => FindPanel() is { } panel && IsPainted(panel) ? panel : null, timeout,
+            "the Boo companion window to appear and paint its content");
 
     public Window WaitForNotch(TimeSpan timeout) =>
         WaitFor(FindNotch, timeout, "the Boo launcher (notch) window to appear");
@@ -109,17 +116,68 @@ public class BooAppFixture : IDisposable
     public static void PressOpenShortcut() =>
         Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.ALT, VirtualKeyShort.KEY_B);
 
-    /// <summary>Opens the panel with Ctrl+Alt+B if it is not already open, and returns it.</summary>
+    /// <summary>Opens the panel with Ctrl+Alt+B if it is not already open, and returns it once it has painted.</summary>
     public Window EnsurePanel()
     {
-        var panel = FindPanel();
-        if (panel is not null)
+        if (FindPanel() is null)
         {
-            return panel;
+            PressOpenShortcut();
         }
 
-        PressOpenShortcut();
         return WaitForPanel(TimeSpan.FromSeconds(15));
+    }
+
+    /// <summary>
+    /// True once the window has drawn something other than one flat colour. The judgement is the blank-window rule of
+    /// scripts/ci/Test-DemoVisual.ps1 applied to the window's own rendering (PrintWindow): blank = one flat rectangle
+    /// covering 40 % or more, or one flat colour covering 70 % or more. A window whose pixels cannot be read (no
+    /// handle yet, zero size, PrintWindow refused) counts as not painted, so a waiting caller keeps waiting and fails
+    /// closed at its timeout instead of capturing an empty frame.
+    /// </summary>
+    public static bool IsPainted(Window window)
+    {
+        try
+        {
+            var hwnd = window.Properties.NativeWindowHandle.ValueOrDefault;
+            if (hwnd == IntPtr.Zero || !CaptureNative.GetWindowRect(hwnd, out var rect))
+            {
+                return false;
+            }
+            using var bitmap = PrintWindowBitmap(hwnd, rect);
+            return bitmap is not null && !BlankScan.IsBlank(bitmap, out _, out _);
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException or InvalidOperationException
+                                   or FlaUI.Core.Exceptions.PropertyNotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Renders the window's own content into a 24-bit bitmap, or null when it has no area or PrintWindow fails.</summary>
+    private static Bitmap? PrintWindowBitmap(IntPtr hwnd, CaptureNative.NativeRect rect)
+    {
+        if (rect.Width <= 0 || rect.Height <= 0)
+        {
+            return null;
+        }
+        var bitmap = new Bitmap(rect.Width, rect.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+        using (var graphics = Graphics.FromImage(bitmap))
+        {
+            var hdc = graphics.GetHdc();
+            try
+            {
+                if (!CaptureNative.PrintWindow(hwnd, hdc, CaptureNative.PwRenderFullContent))
+                {
+                    bitmap.Dispose();
+                    return null;
+                }
+            }
+            finally
+            {
+                graphics.ReleaseHdc(hdc);
+            }
+        }
+        return bitmap;
     }
 
     public T WaitFor<T>(Func<T?> probe, TimeSpan timeout, string what) where T : class
@@ -226,22 +284,11 @@ public class BooAppFixture : IDisposable
                 {
                     continue;
                 }
-                using var bitmap = new Bitmap(rect.Width, rect.Height);
-                using (var graphics = Graphics.FromImage(bitmap))
+                using var bitmap = PrintWindowBitmap(hwnd, rect);
+                if (bitmap is null)
                 {
-                    var hdc = graphics.GetHdc();
-                    try
-                    {
-                        if (!CaptureNative.PrintWindow(hwnd, hdc, CaptureNative.PwRenderFullContent))
-                        {
-                            notes.Add($"PrintWindow failed for '{title}'");
-                            continue;
-                        }
-                    }
-                    finally
-                    {
-                        graphics.ReleaseHdc(hdc);
-                    }
+                    notes.Add($"PrintWindow failed for '{title}'");
+                    continue;
                 }
                 bitmap.Save(Path.Combine(directory, $"{stem}.boo-{saved}.png"), System.Drawing.Imaging.ImageFormat.Png);
                 notes.Add($"boo-{saved}: '{title}' {rect.Width} x {rect.Height}");
