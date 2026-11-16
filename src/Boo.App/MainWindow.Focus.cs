@@ -30,11 +30,15 @@ public partial class MainWindow
         {
             _focusTimer.Stop();
             StopFocusMonitoring();
-            SaveFocusSnapshot();
+            var saved = SaveFocusSnapshotTracked();
             UpdateFocusView();
-            ShowFocusStatusWhenSaved(e.Reason == FocusEndReason.Completed
-                ? "Session complete. Nice work. It is saved in your history."
-                : "Ended. Start a new session explicitly.");
+            ShowFocusStatusWhenSaved(saved,
+                e.Reason == FocusEndReason.Completed
+                    ? "Session complete. Nice work. It is saved in your history."
+                    : "Ended. Start a new session explicitly.",
+                e.Reason == FocusEndReason.Completed
+                    ? "Not saved: the session is complete, but focus history is unavailable, so it is not in your history."
+                    : "Not saved: the session ended, but focus history is unavailable, so it is not in your history.");
             _chirps.PlaySessionEnd(_settings.ChirpsEnabled, _listening);
         }
         finally
@@ -94,10 +98,12 @@ public partial class MainWindow
             _focusClock.Start();
             _focusTimer.Start();
             _focusCaptureTimer.Start();
-            SaveFocusSnapshot();
+            var saved = SaveFocusSnapshotTracked();
             UpdateFocusView();
             SetFace(_faceInputs with { FocusPaused = false, Happy = false });
-            ShowFocusStatusWhenSaved("Running; monitoring pauses on Stop, lock, sleep, or Pause.");
+            ShowFocusStatusWhenSaved(saved,
+                "Running; monitoring pauses on Stop, lock, sleep, or Pause.",
+                "Not saved: the session is running, but focus history is unavailable, so it is not being saved.");
         }
         catch (Exception ex)
         {
@@ -117,10 +123,12 @@ public partial class MainWindow
             _focus.Pause("User pause");
             _focusTimer.Stop();
             StopFocusMonitoring();
-            SaveFocusSnapshot();
+            var saved = SaveFocusSnapshotTracked();
             UpdateFocusView();
             SetFace(WithFocusFace(_faceInputs));
-            ShowFocusStatusWhenSaved("Paused. Resume is explicit; unlock/reconnect will not resume it.");
+            ShowFocusStatusWhenSaved(saved,
+                "Paused. Resume is explicit; unlock/reconnect will not resume it.",
+                "Not saved: the session is paused, but focus history is unavailable. Resume is explicit.");
         }
         catch (Exception ex)
         {
