@@ -476,6 +476,9 @@ class FakeClient:
         self.reads, self.writes = [], []
         self.after = {}  # method name -> callable(self), run once right after that method's FIRST call returns
         self.after_arm = None  # callable(self, number), run after each arm (e.g. the base moves on)
+        self.tip = 'b' * 40  # the base branch head
+        self.merged = []  # recently merged PRs into the base: {'number', 'mergeCommit': {'oid'}, 'mergedBy': {...}}
+        self.runs = {}  # (workflow file, sha) -> number of runs that exist
 
     def _read(self, name, key=None):
         self.reads.append((name, key))
@@ -502,7 +505,7 @@ class FakeClient:
 
     def base_sha(self, base):
         self._read('base_sha')
-        return 'b' * 40
+        return self.tip
 
     def open_prs(self):
         self._read('open_prs')
@@ -540,6 +543,17 @@ class FakeClient:
     def edit_comment(self, comment_id, body):
         self._write('edit_comment', comment_id, body)
 
+    def merged_prs(self, base):
+        self._read('merged_prs')
+        return [dict(m) for m in self.merged]
+
+    def workflow_runs(self, workflow, sha):
+        self._read('workflow_runs', (workflow, sha))
+        return self.runs.get((workflow, sha), 0)
+
+    def dispatch(self, workflow, ref):
+        self._write('dispatch', workflow, ref)
+
 
 def _sha(n):
     return f'{n:040x}'
@@ -564,7 +578,7 @@ def _world(number=200, head=None, **edit):
         _comment(f'QA PASS at {head}: all green.', cid=10),
         _comment(f'﻿CODEX REVIEW PASS — {head}\n\nno findings', cid=11),
         _comment(f'CODEX VERIFIED {head}\n\nReturned status ID **{stamp_id}**, context `codex-verified`, SUCCESS.',
-                 cid=12),
+                 cid=12, created='2026-11-16T02:00:00Z'),
     ]
     data = {'prs': [pr], 'comments': {number: comments}, 'checks': {head: checks}, 'statuses': {head: statuses},
             'behind': {head: 0}}
@@ -794,6 +808,122 @@ def self_test():
     two.after_arm = lambda f, n: f.behind.update({p['headRefOid']: 1 for p in f.prs if p['number'] != n})
     code, text = go(two, apply=True)
     check('a first arm moves the base on: no later PR is armed in the same run', len(arms(two)) == 1)
+
+    # Review P2 at d3810d4: two guards that no earlier case could tell apart from their removal.
+    def two_ready():
+        w, second = _world(), _world(number=201)
+        w.prs += second.prs
+        for attr in ('comments_by_pr', 'checks_by_sha', 'statuses_by_sha', 'behind'):
+            getattr(w, attr).update(getattr(second, attr))
+        return w
+
+    c = two_ready()  # the base does NOT move after the first arm
+    code, text = go(c, apply=True)
+    check('P2: two stamped-ready PRs, base unchanged after the first arm: exactly one arm in the run',
+          code == 0 and arms(c) == [('arm', 200, head)])
+
+    def replace_stamp(f):
+        f.statuses_by_sha[head].insert(0, {'id': 999, 'context': STAMP_CONTEXT, 'state': 'success',
+                                           'created_at': '2026-11-16T05:00:00Z'})
+        f.comments_by_pr[200].append(_comment(
+            f'CODEX VERIFIED {head}\n\nReturned status ID **999**, context `codex-verified`, SUCCESS.', cid=13,
+            created='2026-11-16T05:00:00Z'))
+    c = changed_after_read(replace_stamp)
+    code, text = go(c, apply=True)
+    check('P2: after the read, a NEW latest SUCCESS stamp with its own matching comment replaces the planned one: '
+          'NOT armed (same-ID policy)', code == 0 and not arms(c))
+
+    # (b) Every PR whose base is main is out of scope, not only #3.
+    c = _world(number=201, pr={'baseRefName': 'main'})
+    code, text = go(c, apply=True)
+    check('(b) a non-#3 PR with base main that looks stamped-ready: blocked, never armed, nothing written',
+          code == 0 and not c.writes and 'PR #201 state=blocked' in text)
+
+    # (c) A comment newer than the stamp comment that says BLOCK / NOT VERIFIED / SURVIVED vetoes the arm.
+    for word in ('BLOCK', 'NOT VERIFIED', 'SURVIVED'):
+        c = _world(c=lambda d, w=word: d['comments'][200].append(_comment(
+            f'CODEX REVIEW {w} — {head}: a finding', cid=20, created='2026-11-16T03:00:00Z')))
+        code, text = go(c, apply=True)
+        check(f'(c) a comment newer than the stamp says {word}: NOT armed (blocked)',
+              code == 0 and not arms(c) and 'state=blocked' in text)
+    c = _world(c=lambda d: d['comments'][200].append(_comment(
+        f'CODEX REVIEW BLOCK — {head}: old finding', cid=5, created='2026-11-16T01:30:00Z')))
+    code, text = go(c, apply=True)
+    check('(c) a BLOCK comment OLDER than the stamp comment does not veto: armed', arms(c) == [('arm', 200, head)])
+    c = _world(c=lambda d: d['comments'][200].append(_comment(
+        'this was blocked earlier; BLOCKED is not the word either', cid=20, created='2026-11-16T03:00:00Z')))
+    code, text = go(c, apply=True)
+    check('(c) whole words, case-sensitive: "blocked" / "BLOCKED" do not veto', arms(c) == [('arm', 200, head)])
+    c = _world(c=lambda d: d['comments'][200].append(dict(_comment(
+        'edited later to say BLOCK', cid=6, created='2026-11-16T01:30:00Z'), updated_at='2026-11-16T03:00:00Z')))
+    code, text = go(c, apply=True)
+    check('(c) an older comment EDITED after the stamp to say BLOCK vetoes', not arms(c))
+    c = changed_after_read(lambda f: f.comments_by_pr[200].append(_comment(
+        f'CODEX REVIEW BLOCK — {head}', cid=21, created='2026-11-16T03:00:00Z')))
+    code, text = go(c, apply=True)
+    check('(c) a BLOCK comment posted after the plan was read: the fresh preflight refuses', not arms(c))
+
+    # (d) After a merge done by a bot (auto-merge armed with the workflow token), dispatch tip CI once.
+    tip_workflows = ('windows-ci.yml', 'perf-guards.yml')
+
+    def bot_merged(c, runs=None):
+        c.merged = [{'number': 150, 'mergeCommit': {'oid': c.tip}, 'mergedBy': {'login': 'app/github-actions',
+                                                                                 'is_bot': True}}]
+        c.runs = runs or {}
+        return c
+
+    def dispatches(c):
+        return [w for w in c.writes if w[0] == 'dispatch']
+
+    c = bot_merged(_world(s=lambda d: d['statuses'].update({head: []})))
+    code, text = go(c, apply=True)
+    check('(d) tip is a bot merge with no tip runs: windows-ci and perf-guards dispatched once each on the base',
+          code == 0 and sorted(dispatches(c)) == [('dispatch', w, BASE) for w in sorted(tip_workflows)])
+    c = bot_merged(_world(s=lambda d: d['statuses'].update({head: []})),
+                   runs={(w, 'b' * 40): 1 for w in tip_workflows})
+    code, text = go(c, apply=True)
+    check('(d) the tip already has runs of those workflows: no dispatch (ledger = existing runs on that SHA)',
+          code == 0 and not dispatches(c))
+    c = bot_merged(_world(s=lambda d: d['statuses'].update({head: []})))
+    code, text = go(c, apply=False)
+    check('(d) dry run: the dispatch is planned and printed, nothing done',
+          code == 0 and not c.writes and 'dispatch' in text and 'windows-ci' in text)
+    c = bot_merged(_world(s=lambda d: d['statuses'].update({head: []})))
+    c.merged[0]['mergedBy'] = {'login': 'vikas53953', 'is_bot': False}
+    code, text = go(c, apply=True)
+    check('(d) a merge by a person starts push CI itself: no dispatch', code == 0 and not dispatches(c))
+    c = bot_merged(_world(s=lambda d: d['statuses'].update({head: []})))
+    c.merged[0]['mergeCommit'] = {'oid': 'c' * 40}
+    code, text = go(c, apply=True)
+    check('(d) the bot merge is no longer the tip (a later push has its own CI): no dispatch',
+          code == 0 and not dispatches(c))
+    c = bot_merged(_world(s=lambda d: d['statuses'].update({head: []})))
+    c.after['behind_by'] = lambda f: setattr(f, 'tip', 'd' * 40)
+    code, text = go(c, apply=True)
+    check('(d) the tip moved between the read and the dispatch: no dispatch', code == 0 and not dispatches(c))
+    c = bot_merged(_world())
+    c.fail = 'merged_prs'
+    code, text = go(c, apply=True)
+    check('(d) the merged-PR read fails: exit 1, no action at all', code == 1 and not c.writes)
+
+    # (a) No schedule in this repository's pr-loop workflow (schedules fire only from main); manual dispatch with a
+    # dry_run input that defaults to true. (d) every tip workflow can be dispatched.
+    flows = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.github', 'workflows')
+
+    def flow(name):
+        try:
+            with open(os.path.join(flows, name), encoding='utf-8') as handle:
+                return handle.read()
+        except OSError:
+            return ''
+    loop_yml = flow('pr-loop.yml')
+    check('(a) pr-loop.yml has no schedule trigger (a scheduler on main dispatches it with --ref lane/face)',
+          bool(loop_yml) and not re.search(r'^\s*schedule:', loop_yml, re.M))
+    check('(a) pr-loop.yml keeps workflow_dispatch with a dry_run input that defaults to true',
+          re.search(r'^  workflow_dispatch:\s*\n    inputs:\s*\n      dry_run:(?:\n        .*)*?\n        default: true',
+                    loop_yml, re.M) is not None)
+    check('(d) every tip workflow has a workflow_dispatch trigger',
+          all(re.search(r'^  workflow_dispatch:', flow(w), re.M) for w in tip_workflows))
 
     # Dry run (the default) plans and prints but performs nothing.
     c = _world()
