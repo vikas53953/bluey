@@ -87,6 +87,7 @@ public partial class MainWindow : Window
     private readonly ChirpPlayer _chirps;
     private bool _voiceTaskAuthorized;
     private bool _closingForExit;
+    private bool _shellDisposed;
     private bool _displayAffinitySupported = true;
     private NotchAppearance _appearance;
     private AppearanceStore? _appearanceStore;
@@ -139,6 +140,7 @@ public partial class MainWindow : Window
         SourceInitialized += Window_OnSourceInitialized;
         SystemParameters.StaticPropertyChanged += SystemParameters_OnStaticPropertyChanged;
         Closed += (_, _) => SystemParameters.StaticPropertyChanged -= SystemParameters_OnStaticPropertyChanged;
+        Closed += (_, _) => DisposeShell();
     }
 
     public DisplayInfo? SelectedDisplay => _selectedDisplay;
@@ -267,8 +269,19 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Stops everything, waits (bounded) for queued focus saves and releases the panel's resources. Runs once: when the
+    /// panel window really closes (only at app shutdown, which closes every window before App.OnExit runs) or from
+    /// App.OnExit, whichever comes first.
+    /// </summary>
     public void DisposeShell()
     {
+        if (_shellDisposed)
+        {
+            return;
+        }
+
+        _shellDisposed = true;
         _closingForExit = true;
         StopAll();
         FlushFocusHistory();
