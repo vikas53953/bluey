@@ -134,6 +134,28 @@ def gh_one(path, jq=None, allow_fail=False):
     return None if out is None else json.loads(out)
 
 
+RUN_LIST_CAP = 1000  # GitHub returns at most this many runs for a filtered run list
+RUN_JQ = ('.workflow_runs[] | {id, name, event, head_sha, head_branch, status, conclusion, run_attempt, '
+          'created_at, updated_at, prs: [.pull_requests[].number]}')
+
+
+def runs_for_window(repo, since, until, lister=None):
+    """Every Actions run created in [since, until), read one UTC day at a time."""
+    lister = lister or gh_lines
+    runs = {}
+    day = since.replace(hour=0, minute=0, second=0, microsecond=0)
+    while day < until:
+        end = day + dt.timedelta(days=1) - dt.timedelta(seconds=1)
+        created = urllib.parse.quote(f'{iso(day)}..{iso(end)}', safe='')
+        rows = lister(f'repos/{repo}/actions/runs?per_page=100&created={created}', RUN_JQ)
+        if len(rows) >= RUN_LIST_CAP:
+            raise SystemExit(f'GitHub caps a filtered run list at 1000; {iso(day)} hit it. Split the day.')
+        for row in rows:
+            runs[row['id']] = row
+        day += dt.timedelta(days=1)
+    return sorted((r for r in runs.values() if in_window(r['created_at'], since, until)), key=lambda r: r['id'])
+
+
 def fetch(repo, since, until, branches, remote):
     snap = {'repo': repo, 'branches': sorted(branches), 'since': iso(since), 'until': iso(until)}
 
@@ -160,22 +182,7 @@ def fetch(repo, since, until, branches, remote):
         item['body'] = verdict_lines(item['body'])
     snap['comments'] = [c for c in snap['comments'] if c['body']]
 
-    runs = {}
-    day = since.replace(hour=0, minute=0, second=0, microsecond=0)
-    while day < until:
-        end = day + dt.timedelta(days=1) - dt.timedelta(seconds=1)
-        created = urllib.parse.quote(f'{iso(day)}..{iso(end)}', safe='')
-        rows = gh_lines(
-            f'repos/{repo}/actions/runs?per_page=100&created={created}',
-            '.workflow_runs[] | {id, name, event, head_sha, head_branch, status, conclusion, run_attempt, '
-            'created_at, updated_at, prs: [.pull_requests[].number]}')
-        if len(rows) >= 1000:
-            raise SystemExit(f'GitHub caps a filtered run list at 1000; {iso(day)} hit it. Split the day.')
-        for row in rows:
-            runs[row['id']] = row
-        day += dt.timedelta(days=1)
-    snap['runs'] = sorted((r for r in runs.values() if in_window(r['created_at'], since, until)),
-                          key=lambda r: r['id'])
+    snap['runs'] = runs_for_window(repo, since, until)
 
     # Earlier attempts of re-run runs, then the jobs of every failed attempt (for "failures by job").
     attempts = []
@@ -734,6 +741,30 @@ def self_test():
     changed['runs'][0]['conclusion'] = 'success'
     if snapshot_sha(changed) == snapshot_sha(snap):
         bad.append('snapshot sha does not change with the data')
+    # A day with more runs than GitHub's 1,000 cap (13 Nov 2026 had more) is still read in full: the fake list below
+    # answers like GitHub, cutting every reply at 1,000 runs.
+    busy = [{'id': i, 'created_at': iso(parse_time('2026-11-13T00:00:00Z') + dt.timedelta(seconds=50 * i))}
+            for i in range(1500)] + [{'id': 9999, 'created_at': '2026-11-14T00:00:00Z'}]
+
+    def capped_lister(path, jq):
+        lo, hi = urllib.parse.unquote(path.split('created=', 1)[1]).split('..')
+        rows = [r for r in busy if lo <= r['created_at'] <= hi]
+        return rows[:RUN_LIST_CAP]
+    try:
+        got = runs_for_window('o/r', parse_time('2026-11-13T00:00:00Z'), parse_time('2026-11-14T00:00:00Z'), capped_lister)
+        if [r['id'] for r in got] != list(range(1500)):
+            bad.append(f'busy day: read {len(got)} runs, want all 1500 (and not the one at the window end)')
+    except SystemExit as e:
+        bad.append(f'busy day: stopped instead of reading every run ({e})')
+    one_second = [{'id': i, 'created_at': '2026-11-13T05:00:00Z'} for i in range(RUN_LIST_CAP)]
+
+    def same_second_lister(path, jq):
+        return one_second[:RUN_LIST_CAP]
+    try:
+        runs_for_window('o/r', parse_time('2026-11-13T00:00:00Z'), parse_time('2026-11-14T00:00:00Z'), same_second_lister)
+        bad.append('1,000 runs in one second must stop the run (it cannot be split further), not return a partial list')
+    except SystemExit:
+        pass
     if bad:
         print('SELF-TEST FAIL\n  ' + '\n  '.join(bad))
         return 1
