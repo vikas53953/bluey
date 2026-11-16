@@ -592,6 +592,11 @@ compares the PR's head with its merge base and fails (closed, on any git or even
 
 Ownership, the simplest honest rule: a handoff or decisions fragment belongs to the PR in its file name, which may
 change or delete it freely; any other PR may change only its status cell (for example to `merged 16 Nov (abc1234)`).
+A PR that **carries** another PR counts as its owner too: when a merge commit whose subject starts
+`Merge pull request #N` lies between the PR's merge base and its head, PR #N's fragments are judged as this PR's own.
+That is what an integration PR (`lane/face` → `main`) is: its diff against `main` holds every merged lane's fragments,
+and none of them is new work of the integration PR. A lane PR that merged `lane/face` in gains nothing from this
+(its merge base moves forward with the sync, so the lanes merged before it are not in its diff).
 Feature-map fragments belong to the feature, not to a PR: any PR may add, edit or delete one; `Test-FeatureMap.ps1`
 keeps what they claim true. A frozen HANDOFF row for an old PR is superseded by that PR's own `docs/handoff/<pr>.md`
 (written by that PR, for example when it next syncs). Frozen decision rows keep their wording; "proposed (PR #N); in
@@ -601,7 +606,9 @@ force on merge" already says what the merge does.
 pattern). **Do NOT** edit the frozen rows, rename the headings that mark them, edit the pointer lines, or commit the
 assembled view.
 
-Known gaps: the check judges files, not truth (whether a status is right is review's job). Two PRs that each add a
+Known gaps: the check judges files, not truth (whether a status is right is review's job). The carried-PR rule trusts
+the merge subject: a hand-written merge commit titled `Merge pull request #N` would pass off PR #N's fragment as
+carried; review catches that, as it catches a PR editing the workflow file. Two PRs that each add a
 feature-map fragment with `Replaces:` for the same old id do not conflict in git; after both merge,
 `Test-FeatureMap.ps1` (feature-map workflow, on every push to `lane/face`) reports the id replaced twice. A PR can edit
 `doc-fragments.yml` itself; like every gate here, that is caught by review and the required-check settings, not by the
