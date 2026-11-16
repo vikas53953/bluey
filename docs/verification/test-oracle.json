@@ -1,5 +1,5 @@
 {
-  "revision": 35,
+  "revision": 36,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -70,6 +70,7 @@
     "tests/Boo.Core.Tests/ParityMotionTests.cs": "a25acc807a997524b2b37310a0aab58567de114b484b7c829e3e2356f5dcf745",
     "tests/Boo.Core.Tests/PauseAllShortcutTests.cs": "65696aecc08b8d3b044f60c1bf34c5fc4bed2022ce5b9cdc4de31bcba4bd1f40",
     "tests/Boo.Core.Tests/PerfBudgetTests.cs": "ec87531510aa5563bc8aabd155f9a9558fc2005f2110057f6459f8002d813795",
+    "tests/Boo.Core.Tests/PerfProbeSnapshotTests.cs": "493243b1832bf34f79c4183c32a54d873bf5df6e72ebfca6f15ca95a87456cc5",
     "tests/Boo.Core.Tests/PointerAnnotationSequencerTests.cs": "b13dcf828a5f5ca319dd3f387f49270d3e4369d8c9c42ab5fb2f9ebd2d8d3dfa",
     "tests/Boo.Core.Tests/PointerFlightPlannerTests.cs": "3b58c8e0538410ce85ffe8256aec635156bb19656dc879fc85dbdda3a05d5901",
     "tests/Boo.Core.Tests/PresenceControllerTests.cs": "e06747f24204ccb67e74f869f0774ed48b16389a7e1ca70cc364c2a2f6489f48",
@@ -127,6 +128,8 @@
     "tests/Boo.Integration.Tests/ResearchRequestShapeTests.cs": "68607a9544c37c6b439e18aa658dad1bb5cf20da8563dd511611eddc16c9b36b",
     "tests/Boo.Integration.Tests/ResponseDeadlineTests.cs": "a981dcd5cb4d6f5ebd7a84d09ae455e05b627fcf87f3db8aadb4c87636a4ead7",
     "tests/Boo.Integration.Tests/ReviewCaptureDisposeTests.cs": "153e15534f883714d918604ce91ab9b8e07607283a968fbe6b9eeb3985d8fab8",
+    "tests/Boo.Integration.Tests/RuntimeProbeCountersTests.cs": "a0f23a76c7fdbe2f340231a0fc7d104f2f83d0f41cf5c838a7a84ffdb3aa2f65",
+    "tests/Boo.Integration.Tests/RuntimeProbeCountersThreadTests.cs": "25c0c1bb877fa035cd0d35ddffa66a1e8626abe479e983e30a908af82d56353d",
     "tests/Boo.Integration.Tests/SessionRecoveryTests.cs": "604ff4bb833ce2be64718fc82650417dca2091517d4d33a71359fd5fd9d62e36",
     "tests/Boo.Integration.Tests/StoragePrivacyTests.cs": "dd188faa6dd2e0e92b039971fef54aadcbf37176d43ca0ec71ee2363d3982811",
     "tests/Boo.Integration.Tests/TypeTextExecutorInvisibleCharacterTests.cs": "b5b24816cfedc99a800f21bc37c5c1eb80114a741ccdf96aa88386481fa2e34e",
@@ -167,14 +170,14 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-34.json",
-  "previousManifestSha256": "9279a3414103738c5b9a242e814a30cf2bbcf1cf03b14756364a90db0f1aa139",
-  "revisionReason": "Demo first-paint flake (demo-ci runs 43733044905, 43755644582, 43797565952): WPF publishes the companion window to UI Automation before its first render, so BooAppFixture.EnsurePanel/WaitForPanel returned a still-white maximised window and 00-panel-open.png failed the visual check (one flat colour 90-91%). The fixture now waits until the window's own PrintWindow rendering is not blank by the same rule as scripts/ci/Test-DemoVisual.ps1 (BlankScan port, with BlankScanTests). Pixel-read failures count as not painted, so the wait still fails closed at its timeout.",
+  "previousManifest": "docs/verification/test-oracle-history/revision-35.json",
+  "previousManifestSha256": "6cda79e15e4c9f3025eceb4c277e123601dc37c38c8b5373acf2f8aa2910e7bd",
+  "revisionReason": "Re-applied on top of lane/face revision 35 (PR #142 perf tests) after merging lane/face into PR #161. Demo first-paint flake (demo-ci runs 43733044905, 43755644582, 43797565952, 43797941480): WPF publishes the companion window to UI Automation before its first render, so BooAppFixture.EnsurePanel/WaitForPanel returned a still-white maximised window and 00-panel-open.png failed the visual check (one flat colour 90-91%). The fixture now waits until the window's own PrintWindow rendering is not blank by the same rule as scripts/ci/Test-DemoVisual.ps1 (BlankScan port, with BlankScanTests). Pixel-read failures count as not painted, so the wait still fails closed at its timeout.",
   "addedFiles": [
     "tests/Boo.Demo.Tests/BlankScan.cs",
     "tests/Boo.Demo.Tests/BlankScanTests.cs"
   ],
-  "revisionCommit": "1e8d8664928aac1c669bcd1517b0739bb89baec5",
+  "revisionCommit": "9b220d14ef2af6c731d8c94c1bf59dcd85d1811a",
   "changedFiles": [
     "tests/Boo.Demo.Tests/BooAppFixture.cs"
   ],
