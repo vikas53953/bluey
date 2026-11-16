@@ -123,8 +123,8 @@ public partial class MainWindow : Window
         _onMicrophoneActivity = onMicrophoneActivity;
         _onAppearanceChanged = onAppearanceChanged;
         _appearance = new NotchAppearance();
+        System.Windows.Automation.AutomationProperties.SetItemStatus(this, "rendered");
         InitializeComponent();
-        ContentRendered += MainWindow_OnContentRendered;
 
         _focusTimer = new DispatcherTimer(DispatcherPriority.Normal)
         {
