@@ -549,3 +549,60 @@ test project in the repository, wherever it lives (a test fixture project that r
 
 **Fix:** make the test run, or delete it in a reviewed change. **Do NOT** add `Skip =`, empty the file, or move the
 test into a project the gate does not recognise as a test project (one without xUnit).
+
+## Bookkeeping in fragment files (16 Nov 2026)
+
+Workflow `doc-fragments` (job `fragments`, Linux, under a minute, no secrets, no artifacts) runs
+`scripts/quality/doc_fragments.py` on every pull request. Why: three tables were edited by almost every PR (the PR
+table in `HANDOFF.md`, the table in `docs/DECISIONS.md`, the tables in `docs/FEATURE_MAP.md` with counter ids like
+A7/A8), so nearly every sync of a parallel PR conflicted there (#93, #104, #139, #149, #152). Those tables are now
+frozen history, each marked by a `> **Frozen table.**` line; every new row is a file owned by one PR or one feature, so
+two PRs never edit the same file.
+
+| Fragment | Holds | Header (exactly) |
+| --- | --- | --- |
+| `docs/handoff/<pr number>.md` | that PR's status row (one row; the PR cell is `[#N](https://github.com/<owner>/<repo>/pull/N)`, N = the file name) | `PR`, `Branch → base`, `State`, `Notes` |
+| `docs/decisions/<pr number>-<slug>.md` | that PR's decision row(s); Date like `16 Nov 2026` | `Date`, `Decision`, `Why`, `Source`, `Status` |
+| `docs/feature-map/<named-id>.md` | one feature row; id cell = file name (lowercase words joined by `-`, never a counter); first a `Section: <### heading of the map>` line, optionally `Replaces: <old id>` | `#`, `Feature`, `How verified`, `Proof` |
+
+Each file holds only those lines: the header, the `| --- |` line and the row(s), no other text, no empty cell. The
+combined view (frozen rows plus every fragment, sorted; a handoff fragment takes its PR's old row's place, a
+`Replaces:` fragment takes the old map row's place) is printed by
+`python -I scripts/quality/doc_fragments.py assemble`, or written with `--out` outside the repository or under the
+git-ignored `artifacts/`. It is never committed (else the conflict would just move there). `Test-FeatureMap.ps1` reads
+the feature-map fragments exactly like table rows (label, cited `file::Method` exists, every live/native test cited by
+some row).
+
+Step order, as in `pr-evidence`: the **base branch's** copy of the checker (read from git) judges the PR first, so a PR
+cannot loosen the script it is judged by; then the PR's own copy runs its self-test (every rule on a planted sample,
+including a real throwaway git repository) and the check.
+
+## BOO-DOCS-001
+**A row written into a frozen bookkeeping table, or a fragment that breaks the shape or ownership rules.** The check
+compares the PR's head with its merge base and fails (closed, on any git or event trouble) when:
+- a row of a frozen table is added, edited, removed or moved (`HANDOFF.md` under `### Pull requests`,
+  `docs/DECISIONS.md` above `## Detailed decision records`, `docs/FEATURE_MAP.md` under `## The map`), a heading that
+  marks one is gone, or a `> **Frozen table.**` line is edited or removed;
+- any fragment in the tree is malformed (name, header, cell count, empty cell, extra text, row count, PR link, date,
+  id cell, unknown `Section`, `Replaces` of an id not in the frozen map or of one id twice);
+- a **new** handoff or decisions fragment is named for another PR's number (open the PR first, then add
+  `docs/handoff/<its number>.md`);
+- another PR's handoff or decisions fragment is changed in anything but its status cell (`State` / `Status`), gains or
+  loses a row, or is deleted.
+
+Ownership, the simplest honest rule: a handoff or decisions fragment belongs to the PR in its file name, which may
+change or delete it freely; any other PR may change only its status cell (for example to `merged 16 Nov (abc1234)`).
+Feature-map fragments belong to the feature, not to a PR: any PR may add, edit or delete one; `Test-FeatureMap.ps1`
+keeps what they claim true. A frozen HANDOFF row for an old PR is superseded by that PR's own `docs/handoff/<pr>.md`
+(written by that PR, for example when it next syncs). Frozen decision rows keep their wording; "proposed (PR #N); in
+force on merge" already says what the merge does.
+
+**Fix:** move the row out of the frozen table into the right fragment file (the message names the folder and the
+pattern). **Do NOT** edit the frozen rows, rename the headings that mark them, edit the pointer lines, or commit the
+assembled view.
+
+Known gaps: the check judges files, not truth (whether a status is right is review's job). Two PRs that each add a
+feature-map fragment with `Replaces:` for the same old id do not conflict in git; after both merge,
+`Test-FeatureMap.ps1` (feature-map workflow, on every push to `lane/face`) reports the id replaced twice. A PR can edit
+`doc-fragments.yml` itself; like every gate here, that is caught by review and the required-check settings, not by the
+workflow. Not a required check until Vikas says so.

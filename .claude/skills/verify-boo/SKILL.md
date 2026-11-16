@@ -125,7 +125,11 @@ without citing a proof, or when any live/native test (`tools/Boo.VerifyLive`, `t
 
 When you add or change a feature:
 
-1. Add or update its row in `docs/FEATURE_MAP.md`. New features start as **UNVERIFIED**.
+1. Add or update its row: since 16 Nov the tables in `docs/FEATURE_MAP.md` are frozen history (BOO-DOCS-001), so the
+   row is a file `docs/feature-map/<named-id>.md` (a named id like `type-text-hidden-chars`, never a counter like A9):
+   a `Section: <### heading of the map>` line, then the map header, the `| --- |` line and one row whose id is the file
+   name. To change an old row, add `Replaces: <old id>` (the old row then stops counting). `Test-FeatureMap.ps1` reads
+   these fragments exactly like table rows. New features start as **UNVERIFIED**.
 2. If a user can reach it in the app, add a live step to `tools/Boo.VerifyLive/LiveJourneyTests.cs` (next `[Fact, Step(n)]`;
    reuse the fixture helpers; assert on UI Automation state, pixels or files, never on Boo's own text alone; capture
    `jN-*.png` and write `jN-*.txt`). If FlaUI cannot reach it (voice, audio, multi-monitor), label it **manual** and
