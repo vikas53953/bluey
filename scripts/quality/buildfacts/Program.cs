@@ -232,6 +232,15 @@ sealed class Extractor
             tokens.Add(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(msbuild))), "<dotnet>/");
         }
 
+        // This process's own .NET root (<root>/shared/Microsoft.NETCore.App/<version>/) and NuGet folder: established
+        // outside the build being read, like the MSBuild path above. The build's evaluated properties never add a trust root.
+        var runtime = Path.GetDirectoryName(typeof(object).Assembly.Location);
+        tokens.Add(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(runtime))), "<dotnet>/");
+        var nuget = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        tokens.Add(string.IsNullOrWhiteSpace(nuget)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages")
+            : nuget, "<nuget>/");
+
         foreach (var evaluation in evaluations)
         {
             tokens.AddFromProperties(Properties(evaluation));

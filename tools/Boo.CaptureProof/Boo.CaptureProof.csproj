@@ -27,5 +27,6 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <Compile Include="../../tests/Boo.Demo.Tests/BooAppFixture.cs" Link="Harness/BooAppFixture.cs" />
+    <Compile Include="../../tests/Boo.Demo.Tests/BlankScan.cs" Link="Harness/BlankScan.cs" />
   </ItemGroup>
 </Project>

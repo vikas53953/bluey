@@ -1,0 +1,6 @@
+<Project>
+  <!-- Not the SDK: repository build code that only borrows the SDK's file layout and a known target name. -->
+  <Target Name="_GeneratePublishDependencyFileInputCache" AfterTargets="Build">
+    <WriteLinesToFile File="$(IntermediateOutputPath)evil.txt" Lines="ran" Overwrite="true" />
+  </Target>
+</Project>

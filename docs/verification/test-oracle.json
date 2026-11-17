@@ -1,5 +1,5 @@
 {
-  "revision": 37,
+  "revision": 41,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -12,9 +12,14 @@
     "docs/verification/acceptance-shell-failures.md": "d56e2b3b22eec4d986285de30cf37104c237496c94c4bf4f41b5d83d7836cec3",
     "docs/verification/public-contracts.md": "43918f2fdedcb39cc617434f2d07a0895a77c8195fbf9b197b0313a5292fa632",
     "src/Boo.Core/Contracts.cs": "035ec5798f7b09b89068cab1b42b0667a484a42eb2d28fa14852b12b3a850caf",
+    "tests/Boo.App.Tests/Boo.App.Tests.csproj": "2d02836ba629be81d4641af63616f5bedf310e6c57dc029d7df3a76bd1fe7693",
+    "tests/Boo.App.Tests/FocusAcknowledgmentOrderTests.cs": "2fc661d843c9bc2531fcb33cb524639521c64155e7953de9302ff1ba6a7b597e",
+    "tests/Boo.App.Tests/RenderAcknowledgmentTests.cs": "79b6af2ac9fbe64e1f728d69a7f8cf0d85364ce4222b342fdde75737074a8bc1",
+    "tests/Boo.App.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "50c7561b8c6ce94f879102b86c461ec200b4c53a0d8f3e792000213fb279f591",
     "tests/Boo.Architecture.Tests/Boo.Architecture.Tests.csproj": "8587ecb45245fa2141bed6746514e6097653c2751ffcd1a878b06ff2b5665029",
     "tests/Boo.Architecture.Tests/CecilScan.cs": "39cc420a5770f94d4a9a13a300e8b3edd95f803508295b54ddf2cd07482e29e3",
+    "tests/Boo.Architecture.Tests/FocusStatusWriteRuleTests.cs": "2c0668abb6322210ce32294f8a6e020e9842b94022f604551b2845e9965a594b",
     "tests/Boo.Core.Tests/AccessibilityPreferencesTests.cs": "267b52de838c26b4549c27868f19a2f3655865c18ab0854c7ce69b89c7fd111a",
     "tests/Boo.Core.Tests/ActionPolicyTests.cs": "fd7bb663e0c1ce773d76760e49c7e2aac79efcb12d0db8f135e462168d063c15",
     "tests/Boo.Core.Tests/ActionPreviewTests.cs": "9b4fdc7645a68c482899bc1712e94cb7b6fa0d27e3da9b100b8e54391ff34148",
@@ -98,12 +103,16 @@
     "tests/Boo.Core.Tests/UpdateStatusTextTests.cs": "7a50ed32cbfcd8b1d6c2c721fdb99c03ae9e51a6f23cd451fbd69e933fd3ed9e",
     "tests/Boo.Core.Tests/UpdateVersionGateTests.cs": "4b0c027b856bf5c358687986ccbd5aad7bfa8b6b5c7a6a2c9923b9a3e9dbe4b3",
     "tests/Boo.Core.Tests/VoiceCommandTests.cs": "13decf186040e3e49ec0280e9afa5cc08f87ed1e3a062e48d77e0cdc3eedf0b4",
+    "tests/Boo.Demo.Tests/BlankScan.cs": "4cabf6c0eb6b97034945437cd5670cecf51c9fe6794c7d5706fca2aea3dc6864",
+    "tests/Boo.Demo.Tests/BlankScanTests.cs": "ecf191b86fb55fc632171dd91c136123bd2f130f3f52ab100a696fa9ee461014",
     "tests/Boo.Demo.Tests/Boo.Demo.Tests.csproj": "f3fad7e22de0b6b19a8b5bb208a3a6dcb4d76db4befa792f289ef188ed955d7b",
-    "tests/Boo.Demo.Tests/BooAppFixture.cs": "3674257f2b56f26ae5c1fb537e3d7498cd633d23b466988c7c45e91e06ec2179",
+    "tests/Boo.Demo.Tests/BooAppFixture.cs": "a6aacb17bac0e0216adcdd44edff98a06e4ce93ba601c3d98bfe757f74062a07",
     "tests/Boo.Demo.Tests/DemoTests.cs": "dcb58a575f973cd6d58f97af7612b97f6b1c4b0ab7c22f0c1b32f37e04611dac",
     "tests/Boo.Demo.Tests/FieldUndoDemoTests.cs": "1579cd9984aeae905a13c81e1bd11753f5e0d9be7ccddbc061aced1595945a8d",
+    "tests/Boo.Demo.Tests/FirstPaintWaitDemoTests.cs": "82366fb7e38e0bc01724edc572e072ab9f38932b37e01d999408e8aae28e50f7",
     "tests/Boo.Demo.Tests/HiddenTextApprovalCardDemoTests.cs": "2e51e67626e3920b3ed2b436467b1008d1762dc1b978c7e22135cde9b9275f9e",
     "tests/Boo.Demo.Tests/OrderedSteps.cs": "306e9963f703f5d3110060f5a03f66272dfda4959eba07c238be328da40776e2",
+    "tests/Boo.Demo.Tests/PaintedProbeTests.cs": "ee7eac45507845b80fc3f74e4634801bc0a328d8ac77bfc6a5c44abe492da3ae",
     "tests/Boo.Demo.Tests/UnobservedScreenActionDemoTests.cs": "b40a250d08fb9ae7c6837884a5c5cfdf0aabe45d884dfd5529fedc0f42cdaa61",
     "tests/Boo.Demo.Tests/UnobservedScreenActionVoiceDemoTests.cs": "ededc0bf9ca1162ea6c8841443414d58b9e37c9cb166bb42f69f37eaf7a14656",
     "tests/Boo.Demo.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
@@ -170,13 +179,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-36.json",
-  "previousManifestSha256": "ca54c5fc5b3c3db25bf62ebf0c6c2715c5f3920c56c27a30dbce26bda45866b2",
-  "revisionReason": "PR #158: FieldUndoDemoTests (whole-app field Undo on the published Boo.exe with the mock; issue #157 call-site wiring)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-40.json",
+  "previousManifestSha256": "191e8f2c7f62cbd7ee536ec0c001d3d53d35f4d169a8d4b99de3574f663cc559",
+  "revisionReason": "PR #170: FocusAcknowledgmentOrderTests (a saved focus status finds its history row already applied; mutation M05)",
   "addedFiles": [
-    "tests/Boo.Demo.Tests/FieldUndoDemoTests.cs"
+    "tests/Boo.App.Tests/FocusAcknowledgmentOrderTests.cs"
   ],
-  "revisionCommit": "529f649243746b23291ab5759a953ee3783bd558",
+  "revisionCommit": "6cb4a2325ba011be54de23d272aaaf183f8486ff",
   "changedFiles": [],
   "removedFiles": []
 }

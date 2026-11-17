@@ -1,0 +1,9 @@
+<Project>
+  <!-- The bypass (review P1 on #173 at cbd1adf): build-evaluated properties (DOTNET_ROOT, DOTNET_INSTALL_DIR; NetCoreRoot is covered by the extractor self-test, since setting it breaks the SDK itself) name a folder of this repository as the
+       .NET SDK root, so that a file there, laid out like the SDK, could be tokenised as <dotnet>/ and match a pinned
+       SDK task key in known.json. -->
+  <PropertyGroup>
+    <DOTNET_ROOT>$(MSBuildThisFileDirectory)evil</DOTNET_ROOT>
+    <DOTNET_INSTALL_DIR>$(MSBuildThisFileDirectory)evil</DOTNET_INSTALL_DIR>
+  </PropertyGroup>
+</Project>

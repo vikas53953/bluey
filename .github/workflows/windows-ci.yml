@@ -54,6 +54,22 @@ jobs:
       - name: Build
         run: dotnet build Boo.sln -c Release --no-restore -bl:artifacts/binlog/build.binlog
 
+      # BOO-CASS-001 (docs/quality/cassettes.md): replay the OpenAI cassettes (recorded replies and the hand-made bad-day
+      # set, with their latency and injected faults) through Boo's real OpenAI client. MOCK evidence: no key, no network;
+      # it never replaces the live-ai-smoke run. Both test gates must see every test run. The recorder (not in Boo.sln,
+      # used only by record-cassettes.yml) is built here so it cannot rot.
+      - name: Cassette replay tests (OpenAI client, mock)
+        shell: pwsh
+        run: |
+          dotnet test tools/Boo.Cassettes.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/cassettes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I scripts/test_gate.py trx artifacts/test-results/cassettes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh -NoProfile -File scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/test-results/cassettes -SourceDirectory tools/Boo.Cassettes.Tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tools/Boo.Cassettes.Record -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       # Provider tests use in-memory HTTP handlers; no OpenAI key or other secret is needed.
       - name: Core tests
         run: dotnet test tests/Boo.Core.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/core
@@ -74,9 +90,14 @@ jobs:
       - name: Architecture tests
         run: dotnet test tests/Boo.Architecture.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/architecture
 
+      # The real MainWindow driven in-process on an STA thread (tests/Boo.App.Tests): what the app promises to UI
+      # Automation at each WPF lifecycle step. Needs this runner's desktop session; no app process, no key.
+      - name: App lifecycle tests
+        run: dotnet test tests/Boo.App.Tests -c Release --no-build --logger trx --results-directory artifacts/test-results/app
+
       # Each project must have produced results with tests that ran, and none skipped or not executed.
-      - name: Test gate (unit, integration, provider, live-guard and architecture results)
-        run: python -I scripts/test_gate.py trx artifacts/test-results/core artifacts/test-results/integration artifacts/test-results/providers artifacts/test-results/liveguard artifacts/test-results/architecture
+      - name: Test gate (unit, integration, provider, live-guard, architecture and app lifecycle results)
+        run: python -I scripts/test_gate.py trx artifacts/test-results/core artifacts/test-results/integration artifacts/test-results/providers artifacts/test-results/liveguard artifacts/test-results/architecture artifacts/test-results/app
 
       - name: Publish app
         run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci -bl:artifacts/binlog/publish.binlog
@@ -153,6 +174,44 @@ jobs:
           name: build-facts
           path: artifacts/build-facts
           if-no-files-found: warn
+
+      # Architecture references (docs/quality/RULES.md, BOO-REF-001..008), judged on the build facts of the SHIPPED
+      # build above (both logs): every src/ project's ProjectReferences (items and the ones really followed into csc),
+      # packages (PackageReference, PackageDownload, restored direct dependencies), framework references, direct
+      # Reference/Analyzer files, target frameworks and build files imported from packages or NuGet MSBuild SDKs must be
+      # exactly what docs/architecture/layers.json allows. The PR's own judge reads the facts above (its own view). On
+      # a pull request the VERDICT that a PR cannot change: the BASE branch's own trusted_facts.py builds the BASE
+      # branch's extractor and build_facts.py (read from git, outside the repo) and runs them on this build's binary
+      # logs; the BASE branch's own arch_refs.py and layers.json then judge those facts (provenance verified, a looser
+      # layers.json refused). While the base has none of these yet (the PR that adds them), the PR's own copies run the
+      # same trusted path once, to show it works on this head; that is not an independent verdict.
+      - name: Architecture references (judged on the build facts)
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -uo pipefail
+          status=0
+          python -I scripts/quality/arch_refs.py --self-test || status=1
+          python -I scripts/quality/arch_refs.py judge artifacts/build-facts/build-facts.json || status=1
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF" || exit 1
+            BASE_SHA="$(git rev-parse FETCH_HEAD)" || exit 1
+            TRUSTED="$RUNNER_TEMP/trusted-facts"
+            if git cat-file -e FETCH_HEAD:scripts/quality/trusted_facts.py 2>/dev/null && git cat-file -e FETCH_HEAD:scripts/quality/arch_refs.py 2>/dev/null && git cat-file -e FETCH_HEAD:docs/architecture/layers.json 2>/dev/null; then
+              git show FETCH_HEAD:scripts/quality/trusted_facts.py > "$RUNNER_TEMP/base_trusted_facts.py"
+              git show FETCH_HEAD:scripts/quality/arch_refs.py > "$RUNNER_TEMP/base_arch_refs.py"
+              git show FETCH_HEAD:docs/architecture/layers.json > "$RUNNER_TEMP/base_layers.json"
+              python -I "$RUNNER_TEMP/base_trusted_facts.py" produce --base-sha "$BASE_SHA" --repo . --work "$TRUSTED" --solution Boo.sln --publish-dir artifacts/ci build=artifacts/binlog/build.binlog publish=artifacts/binlog/publish.binlog || status=1
+              python -I "$RUNNER_TEMP/base_arch_refs.py" judge "$TRUSTED/build-facts.json" --root . --layers "$RUNNER_TEMP/base_layers.json" --rise-only --pr-layers docs/architecture/layers.json --trusted-base "$BASE_SHA" || status=1
+            else
+              echo "The base branch ($BASE_REF) has no trusted_facts.py, arch_refs.py and layers.json yet: this PR introduces them, so there is no older judge. The PR's own copies run the trusted path once (not a verdict):"
+              python -I scripts/quality/trusted_facts.py produce --base-sha "$BASE_SHA" --repo . --work "$TRUSTED" --solution Boo.sln --publish-dir artifacts/ci build=artifacts/binlog/build.binlog publish=artifacts/binlog/publish.binlog || status=1
+              python -I scripts/quality/arch_refs.py judge "$TRUSTED/build-facts.json" --root . --rise-only --pr-layers docs/architecture/layers.json --trusted-base "$BASE_SHA" || status=1
+            fi
+          fi
+          exit $status
 
       # Every notch face state rendered offscreen to PNG (Boo.exe --notch-gallery), uploaded with the UI smoke screenshots.
       - name: Notch face gallery
