@@ -1,5 +1,5 @@
 {
-  "revision": 46,
+  "revision": 47,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -17,6 +17,7 @@
     "tests/Boo.App.Tests/IncidentalActionRenderTests.cs": "7c32c43bafa9872ced552bef27def444a4c63a0fa62808267db6e4444b004cb8",
     "tests/Boo.App.Tests/RenderAcknowledgmentTests.cs": "79b6af2ac9fbe64e1f728d69a7f8cf0d85364ce4222b342fdde75737074a8bc1",
     "tests/Boo.App.Tests/SilentReplyLifecycleTests.cs": "3ff55e609ac9a81c4ef22362542aebda9abcde7dca727085a080a7c6f419cfdb",
+    "tests/Boo.App.Tests/SilentReplyStopTests.cs": "c7b93cccde8e2e8711bca89466eeddde4a105216eb525d68dfd8fef8cf043e51",
     "tests/Boo.App.Tests/SilentReplyWiringTests.cs": "052856c41e85b7381f673f815be4724baf18785d0376ffa547f7c494ef958bc8",
     "tests/Boo.App.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "50c7561b8c6ce94f879102b86c461ec200b4c53a0d8f3e792000213fb279f591",
@@ -186,15 +187,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-45.json",
-  "previousManifestSha256": "8d620c950e75c8df1d817d3b48c5622b5f26c71009da9c1185c1c5bb351b5ad2",
-  "revisionReason": "#186 review: SilentReplyRecoveryEdgeTests, SpeechClientTests, SilentReplyLifecycleTests (whole-reply measure, bounded speech request, stale or failed recovery never plays or claims success)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-46.json",
+  "previousManifestSha256": "44134fd8ee591ec38774114649ff15a27f4abd87efa6f2242a747bfab8d81322",
+  "revisionReason": "#186 review P2: SilentReplyStopTests (Stop during recovered playback stops it, clears the playback clock, and a late recovery never plays)",
   "addedFiles": [
-    "tests/Boo.App.Tests/SilentReplyLifecycleTests.cs",
-    "tests/Boo.Core.Tests/SilentReplyRecoveryEdgeTests.cs",
-    "tests/Boo.Providers.Tests/SpeechClientTests.cs"
+    "tests/Boo.App.Tests/SilentReplyStopTests.cs"
   ],
-  "revisionCommit": "7086f64b0d963aef05fb08d28f07dbb9dcb9bad6",
+  "revisionCommit": "6d21b2011ee39fd2a856c28eda0ebe9a44d734a9",
   "changedFiles": [],
   "removedFiles": []
 }

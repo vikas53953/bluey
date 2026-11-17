@@ -34,6 +34,9 @@ public partial class MainWindow
     /// <summary>Plays reply audio; null means Boo's audio player. In-process tests set it (by reflection) to a recorder.</summary>
     private Action<byte[]>? _playReplyAudio = null;
 
+    /// <summary>Called by Stop beside stopping Boo's audio player; in-process tests set it (by reflection) to a recorder.</summary>
+    private Action? _stopReplyAudio = null;
+
     /// <summary>Feeds every accepted realtime event to the silent-reply check; a new reply or new input ends any pending recovery.</summary>
     private void ObserveReplyAudio(RealtimeEvent realtimeEvent)
     {

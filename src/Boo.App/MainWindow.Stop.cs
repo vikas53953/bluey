@@ -28,6 +28,9 @@ public partial class MainWindow
         _requestLease = null;
 
         StopAudioUploads();
+        CancelPendingRecovery();
+        Interlocked.Exchange(ref _playbackUntilMs, 0);
+        _stopReplyAudio?.Invoke();
 
         try
         {
