@@ -2068,6 +2068,7 @@ public partial class MainWindow : Window
                 }
                 ObserveTalkEvent(realtimeEvent);
                 ObserveSleepAfterReply(source, realtimeEvent);
+                ObserveReplyAudio(realtimeEvent);
                 switch (realtimeEvent.Kind)
                 {
                     case "input_audio_buffer.speech_started":
@@ -2117,6 +2118,7 @@ public partial class MainWindow : Window
                         break;
                     case "response.done":
                         StatusText.Text = realtimeEvent.Text ?? "Reply complete. Text and spoken output share the same turn.";
+                        RecoverSilentReply(source, generation);
                         var remainingPlayback = TimeSpan.FromMilliseconds(
                             Interlocked.Read(ref _playbackUntilMs) - Environment.TickCount64);
                         SetFace(_faceInputs with { Thinking = _realtimeToolsInFlight > 0 },

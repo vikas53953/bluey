@@ -1,5 +1,5 @@
 {
-  "revision": 44,
+  "revision": 45,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -16,6 +16,7 @@
     "tests/Boo.App.Tests/FocusAcknowledgmentOrderTests.cs": "2fc661d843c9bc2531fcb33cb524639521c64155e7953de9302ff1ba6a7b597e",
     "tests/Boo.App.Tests/IncidentalActionRenderTests.cs": "7c32c43bafa9872ced552bef27def444a4c63a0fa62808267db6e4444b004cb8",
     "tests/Boo.App.Tests/RenderAcknowledgmentTests.cs": "79b6af2ac9fbe64e1f728d69a7f8cf0d85364ce4222b342fdde75737074a8bc1",
+    "tests/Boo.App.Tests/SilentReplyWiringTests.cs": "7cc5fbd1d1239031b9750c6f708f1a416e8b33bcddc925b986312587f4e17360",
     "tests/Boo.App.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "50c7561b8c6ce94f879102b86c461ec200b4c53a0d8f3e792000213fb279f591",
     "tests/Boo.Architecture.Tests/Boo.Architecture.Tests.csproj": "8587ecb45245fa2141bed6746514e6097653c2751ffcd1a878b06ff2b5665029",
@@ -182,13 +183,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-43.json",
-  "previousManifestSha256": "5ef27d2a6a9c81e865ef4c855ff3f43dfd362f2d11e3d06d2cae13679af14fd9",
-  "revisionReason": "#177: SilentReplyRecoveryTests (a spoken reply with no speech but a transcript is read aloud by Boo)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-44.json",
+  "previousManifestSha256": "ce55a758fd58e7dbcdc41d78c707d9295802aa170dc52fe493aa7ee3191acbd9",
+  "revisionReason": "#177: SilentReplyWiringTests (MainWindow reads a silent spoken reply aloud; leaves spoken, muted and stopped replies alone)",
   "addedFiles": [
-    "tests/Boo.Core.Tests/SilentReplyRecoveryTests.cs"
+    "tests/Boo.App.Tests/SilentReplyWiringTests.cs"
   ],
-  "revisionCommit": "dc358e2044828f9927f2bc88a7a457370343f8b4",
+  "revisionCommit": "38b48c69cb1dcdf1dce720570016100e89a11b8c",
   "changedFiles": [],
   "removedFiles": []
 }
