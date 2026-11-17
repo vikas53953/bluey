@@ -142,6 +142,7 @@ public sealed class EyeHoldVoiceTests : IClassFixture<EyeHoldVoiceFixture>
                 up = clock.ElapsedMilliseconds;
                 Record($"physical left up at {up}ms; actual hold={up - down}ms; required hold[3000,3500]ms, full short WAV");
             }
+            Assert.InRange(up - down, 3000L, 3500L); // Bound the completed physical release, including input/scheduling delay.
             Assert.True(BooAppFixture.WaitUntil(() =>
             {
                 NoApproval(panel);
