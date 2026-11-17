@@ -82,14 +82,14 @@ public sealed class IncidentalActionsTests : IClassFixture<IncidentalFixture>
             var receipt = BooAppFixture.ReadShared(mockLog)[offset..];
             Assert.DoesNotContain("<truncated>", receipt, StringComparison.Ordinal);
             var entries = Regex.Matches(receipt, @"(?ms)^\d{4}-\d\d-\d\dT[^\r\n ]+ \[(request|response)\] ([^\r\n]*)\r?\n(.*?)(?=^\d{4}-\d\d-\d\dT[^\r\n ]+ \[|\z)").Cast<Match>().ToArray();
-            var request = Assert.Single(entries.Where(e => e.Groups[1].Value == "request" && e.Groups[2].Value == "POST /v1/responses"));
+            var request = Assert.Single(entries, e => e.Groups[1].Value == "request" && e.Groups[2].Value == "POST /v1/responses");
             using var requestJson = JsonDocument.Parse(request.Groups[3].Value);
             var questions = requestJson.RootElement.GetProperty("input").EnumerateArray()
                 .Where(x => x.GetProperty("role").GetString() == "user")
                 .SelectMany(x => x.GetProperty("content").EnumerateArray())
                 .Where(x => x.GetProperty("type").GetString() == "input_text")
                 .Select(x => x.GetProperty("text").GetString()).ToArray();
-            Assert.Single(questions.Where(q => q is not null && q.StartsWith("User request: " + Question + "\n", StringComparison.Ordinal)));
+            Assert.Single(questions, q => q is not null && q.StartsWith("User request: " + Question + "\n", StringComparison.Ordinal));
             var responseIndex = Array.IndexOf(entries, request) + 1;
             Assert.InRange(responseIndex, 0, entries.Length - 1);
             var response = entries[responseIndex];
