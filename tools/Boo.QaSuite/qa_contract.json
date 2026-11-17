@@ -1,5 +1,5 @@
 {
-  "contract_version": 17,
+  "contract_version": 18,
   "groups": {
     "contracts": {
       "C15E": "Boo.QaSuite.MockContracts.IncidentalActionsTests.Q15E_PlainQuestion_RejectsActualIncidentalAction_WithoutApprovalOrFileChange",
@@ -60,7 +60,12 @@
       "ST6": "Boo.LiveSmoke.SpokenAudioTests.A_silent_answer_from_OpenAI_fails_even_when_long_and_with_a_transcript",
       "ST7": "Boo.LiveSmoke.SpokenAudioTests.The_peak_level_counts_negative_samples_by_their_size",
       "VB0": "Boo.LiveSmoke.VoiceSmokeBoundTests.The_voice_smoke_session_caps_its_output_and_offers_no_tools",
-      "VB1": "Boo.LiveSmoke.VoiceSmokeBoundTests.The_voice_smoke_client_refuses_a_second_paid_response"
+      "VB1": "Boo.LiveSmoke.VoiceSmokeBoundTests.The_voice_smoke_client_refuses_a_second_paid_response",
+      "ST8": "Boo.LiveSmoke.SpokenAudioTests.Silent_provider_audio_with_the_right_transcript_is_named_a_provider_fault_and_still_fails",
+      "ST9": "Boo.LiveSmoke.SpokenAudioTests.Silence_is_not_named_a_provider_fault_when_the_transcript_is_wrong_or_the_audio_is_only_quiet",
+      "ST10": "Boo.LiveSmoke.SpokenAudioTests.The_verdict_passes_exactly_what_the_spoken_answer_rule_passes",
+      "ST11": "Boo.LiveSmoke.SpokenAudioTests.A_clearly_spoken_wrong_answer_is_rejected_and_the_right_one_accepted",
+      "ST12": "Boo.LiveSmoke.SpokenAudioTests.A_right_transcript_never_rescues_unspoken_audio"
     },
     "verifylive": {
       "Q12H": "Boo.VerifyLive.RingStopTests.Q12H_StopClosesRingAndPointer",
