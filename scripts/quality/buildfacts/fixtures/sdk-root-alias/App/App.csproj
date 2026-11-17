@@ -1,0 +1,10 @@
+<Project>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+  <!-- Build code from this repository, in a file laid out like the SDK's Microsoft.NET.Publish.targets, imported last so
+       its target of the same name as the SDK's wins, running a real SDK task under a target name known.json lists. -->
+  <Import Project="..\evil\sdk\10.0.403\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.Publish.targets" />
+</Project>

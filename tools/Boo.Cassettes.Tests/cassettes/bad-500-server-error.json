@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "name": "bad-500-server-error",
+  "origin": "synthetic",
+  "note": "Synthetic, hand-made from the documented OpenAI Responses API shape (not a real recording). First real recording: record-cassettes.yml after merge.",
+  "call": "respond",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses",
+    "model": "gpt-5-mini",
+    "format": "boo_screen_help_result",
+    "tools": [],
+    "bodyKeys": [
+      "model",
+      "store",
+      "reasoning",
+      "instructions",
+      "input",
+      "text"
+    ]
+  },
+  "response": {
+    "status": 500,
+    "headersDelayMs": 40,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "chunks": [
+      {
+        "delayMs": 0,
+        "json": {
+          "error": {
+            "message": "The server had an error while processing your request. Sorry about that!",
+            "type": "server_error",
+            "param": null,
+            "code": null
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "provider-failure",
+    "failureKind": "ServerError",
+    "status": 500,
+    "retryable": true,
+    "message": "OpenAI is having trouble right now. Try again in a moment."
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "name": "bad-503-html",
+  "origin": "synthetic",
+  "note": "Synthetic, hand-made from the documented OpenAI Responses API shape (not a real recording). First real recording: record-cassettes.yml after merge. A load balancer page, not JSON.",
+  "call": "respond",
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses",
+    "model": "gpt-5-mini",
+    "format": "boo_screen_help_result",
+    "tools": [],
+    "bodyKeys": [
+      "model",
+      "store",
+      "reasoning",
+      "instructions",
+      "input",
+      "text"
+    ]
+  },
+  "response": {
+    "status": 503,
+    "headersDelayMs": 40,
+    "headers": {
+      "content-type": "text/html"
+    },
+    "chunks": [
+      {
+        "delayMs": 0,
+        "text": "<html><head><title>503 Service Temporarily Unavailable</title></head><body><center><h1>503 Service Temporarily Unavailable</h1></center></body></html>"
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "provider-failure",
+    "failureKind": "ServerError",
+    "status": 503,
+    "retryable": true,
+    "message": "OpenAI is having trouble right now. Try again in a moment."
+  }
+}

@@ -10,12 +10,12 @@ static class SelfTest
         var failures = new List<string>();
         var t = new PathTokens();
         t.AddRepo(@"D:\a\bluey\bluey");
+        // The trust roots are established outside the build (Program.SetRoots: the running MSBuild's SDK, this
+        // process's own runtime and NuGet folder), never from its evaluated properties.
+        t.Add(@"C:\Program Files\dotnet", "<dotnet>/");
+        t.Add(@"C:\Users\runneradmin\.nuget\packages", "<nuget>/");
         t.AddFromProperties(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["NetCoreRoot"] = @"C:\Program Files\dotnet\",
-            ["DOTNET_HOST_PATH"] = @"C:\Program Files\dotnet\dotnet.exe",
-            ["NuGetPackageRoot"] = @"C:\Users\runneradmin\.nuget\packages\",
-            ["NuGetPackageFolders"] = @"C:\Users\runneradmin\.nuget\packages\;C:\Program Files\dotnet\sdk\NuGetFallbackFolder",
             ["ProgramFiles"] = @"C:\Program Files",
             ["ProgramFiles(x86)"] = @"C:\Program Files (x86)",
             ["TargetPlatformSdkPath"] = @"C:\Program Files (x86)\Windows Kits\10\",
@@ -73,6 +73,44 @@ static class SelfTest
         if (PathTokens.Leaks(JsonValue.Create(@"<dotnet>/sdk\10.0.403\\Microsoft\x"), "runneradmin").Count != 0)
         {
             failures.Add("leak guard: a tokenised path with doubled backslashes must pass");
+        }
+
+                // Review P1 on #173 (cbd1adf): a root named by the build's own evaluated properties never becomes a trust token
+        // (<dotnet>/, <nuget>/); only roots established outside the build do (the running MSBuild's SDK, this process).
+        var alias = new PathTokens();
+        alias.AddRepo(@"D:\a\bluey\bluey");
+        alias.Add(@"C:\Program Files\dotnet", "<dotnet>/");
+        alias.Add(@"C:\Users\runneradmin\.nuget\packages", "<nuget>/");
+        alias.AddFromProperties(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["DOTNET_ROOT"] = @"D:\a\bluey\bluey\evil",
+            ["NetCoreRoot"] = @"D:\a\bluey\bluey\evil\",
+            ["DOTNET_INSTALL_DIR"] = @"D:\a\bluey\bluey\evil",
+            ["DOTNET_HOST_PATH"] = @"D:\a\bluey\bluey\evil\dotnet.exe",
+            ["NuGetPackageRoot"] = @"D:\a\bluey\bluey\evilnuget\",
+            ["NUGET_PACKAGES"] = @"D:\a\bluey\bluey\evilnuget",
+            ["RestorePackagesPath"] = @"D:\a\bluey\bluey\evilnuget",
+            ["NuGetPackageFolders"] = @"D:\a\bluey\bluey\evilnuget;D:\a\bluey\bluey\evilfallback",
+            ["NuGetFallbackFolder"] = @"D:\a\bluey\bluey\evilfallback",
+        });
+        foreach (var (input, expected) in new (string In, string Out)[]
+        {
+            (@"D:\a\bluey\bluey\evil\sdk\10.0.403\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.Publish.targets",
+             @"evil\sdk\10.0.403\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.Publish.targets"),
+            (@"D:\a\bluey\bluey\evil\sdk\10.0.403\Microsoft.Build.Tasks.Core.dll", @"evil\sdk\10.0.403\Microsoft.Build.Tasks.Core.dll"),
+            (@"D:\a\bluey\bluey\evilnuget\microsoft.codecoverage\17.14.1\build\x.targets",
+             @"evilnuget\microsoft.codecoverage\17.14.1\build\x.targets"),
+            (@"D:\a\bluey\bluey\evilfallback\pkg\1.0.0\build\x.targets", @"evilfallback\pkg\1.0.0\build\x.targets"),
+            // Controls: the independently established roots still tokenise.
+            (@"C:\Program Files\dotnet\sdk\10.0.403\Microsoft.Build.Tasks.Core.dll", @"<dotnet>/sdk\10.0.403\Microsoft.Build.Tasks.Core.dll"),
+            (@"C:\Users\runneradmin\.nuget\packages\naudio\2.2.1\lib\NAudio.dll", @"<nuget>/naudio\2.2.1\lib\NAudio.dll"),
+        })
+        {
+            var got = alias.Norm(input);
+            if (got != expected)
+            {
+                failures.Add($"trust tokens: {input} -> {got}, expected {expected} (a build-evaluated property must not name the SDK or NuGet root)");
+            }
         }
 
         Spaces(failures);
@@ -160,10 +198,10 @@ static class SelfTest
     {
         var t = new PathTokens();
         t.AddRepo(@"D:\a\my repo\bluey");
+        t.Add(@"C:\Program Files\dotnet", "<dotnet>/");                   // trust roots: established outside the build
+        t.Add(@"C:\Users\runner admin\.nuget\packages", "<nuget>/");
         t.AddFromProperties(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["NetCoreRoot"] = @"C:\Program Files\dotnet\",
-            ["NuGetPackageRoot"] = @"C:\Users\runner admin\.nuget\packages\",
             ["ProgramFiles(x86)"] = @"C:\Program Files (x86)",
             ["TargetPlatformSdkPath"] = @"C:\Program Files (x86)\Windows Kits\10\",
             ["RUNNER_TEMP"] = @"D:\a\_temp",
