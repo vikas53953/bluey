@@ -10,7 +10,7 @@ on:
       qa_journey:
         description: One existing partial journey; does not certify missing branches
         type: choice
-        options: [none, file_undo, field_undo, approval_edges, sequential_approval, focus_edges, request_generation, eye_tap]
+        options: [none, file_undo, field_undo, approval_edges, sequential_approval, focus_edges, focus_sequence, request_generation, eye_tap]
         default: none
       verify_journey:
         description: One real-OpenAI journey; J0 prerequisite for j3-j6, standalone readiness for j12h
@@ -66,6 +66,7 @@ jobs:
           if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'GitHub hosted VM required; never the owner PC.' }
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
@@ -127,6 +128,7 @@ jobs:
             'field_undo' { 'FieldUndoEdgeTests.Q16F_ApprovedFieldUndo_RestoresOriginal_SecondUndoDoesNothing' }
             'approval_edges' { 'ApprovalEdgeTests.Q15_CancelEscapeOrReplacement_CannotApplyAnOldProposal' }
             'sequential_approval' { 'SequentialApprovalTests.QD15_TwoFileSteps_RequireSeparateApprovalsAndShowNextStep' }
+            'focus_sequence' { 'FocusSequenceTests.Q13S_FullUiSequence_WithPeriodicChecks_EventDeliveryUnverified' }
             'focus_edges' { 'FocusEdgeTests.Q13_EndFromPaused_AndReplaceRunningSession_KeepHistoryAndFacesHonest' }
             'request_generation' { 'RequestGenerationTests.Q18_NewerTypedRequestWins_OnlyItsAnswerAppearsDuringLateResultWatch' }
             'eye_tap' { 'EyeTapTests.Q10_PhysicalEyeTapUnder200Ms_OpensPanelWithoutListening' }

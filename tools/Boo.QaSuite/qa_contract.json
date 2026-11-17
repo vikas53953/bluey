@@ -1,5 +1,5 @@
 {
-  "contract_version": 16,
+  "contract_version": 17,
   "groups": {
     "contracts": {
       "C15E": "Boo.QaSuite.MockContracts.IncidentalActionsTests.Q15E_PlainQuestion_RejectsActualIncidentalAction_WithoutApprovalOrFileChange",
@@ -28,6 +28,7 @@
       "Q12G": "Boo.QaSuite.Journeys.PausedStopTests.Q12G_StopWhilePaused_PreservesSessionStatusAndPinnedFace",
       "Q12E": "Boo.QaSuite.Journeys.ApprovalStopTests.Q12E_NotchRightClick_ClearsPendingProposalAndAcknowledgesStop",
       "Q13R": "Boo.QaSuite.Journeys.FocusResumeTests.Q13R_PauseResume_OrdersFacesAndRetainsSessionAtPauseCheckpoint",
+      "Q13S": "Boo.QaSuite.Journeys.FocusSequenceTests.Q13S_FullUiSequence_WithPeriodicChecks_EventDeliveryUnverified",
       "Q13H": "Boo.QaSuite.Journeys.FocusEndTimingTests.Q13H_EndFromPaused_HappyIntervalContainsNominalDurationThenRetreats",
       "Q12F": "Boo.QaSuite.Journeys.TrayStopTests.Q12F_TrayStop_PausesRunningFocusAndKeepsItPinned",
       "Q16F": "Boo.QaSuite.Journeys.FieldUndoEdgeTests.Q16F_ApprovedFieldUndo_RestoresOriginal_SecondUndoDoesNothing"

@@ -58,6 +58,7 @@ PLAIN = {
     'Q12F': 'Actual tray Stop pauses a running session and keeps Paused pinned (j12f only)',
     'Q12G': 'Stop while focus already paused: pinned face and unchanged session (j12g only)',
     'Q12H': 'Stop removes a proven ring and pointer before natural expiry (j12h only)',
+    'Q13S': 'Partial focus UI sequence with real periodic checks; end-event delivery unverified',
     'Q13H': 'End from Paused: bounded Happy nominal-duration compatibility and retreat (partial j13)',
     'Q13R': 'Focus Pause/Resume ordered faces; persistence only at second Pause (partial j13)',
     'Q13': 'Focus edges: End from Paused and replace Running (no AI key; partial j13)',
