@@ -1,0 +1,35 @@
+{
+  "bypass": "build-evaluated properties (DOTNET_ROOT, DOTNET_INSTALL_DIR) alias a repository folder to the .NET SDK root, so repository build code laid out like the SDK would match pinned SDK task keys (review P1 on #173)",
+  "builds": [
+    {
+      "label": "build",
+      "args": [
+        "build",
+        "App/App.csproj",
+        "-c",
+        "Release"
+      ]
+    }
+  ],
+  "projects": [
+    "App/App.csproj"
+  ],
+  "visible": [
+    {
+      "label": "build",
+      "field": "tasks.task",
+      "contains": "WriteLinesToFile | _GeneratePublishDependencyFileInputCache | evil/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Publish.targets | <dotnet>/sdk/10.0.403/Microsoft.Build.Tasks.Core.dll"
+    },
+    {
+      "label": "build",
+      "field": "tasks.task",
+      "contains": "Csc | CoreCompile | <dotnet>/sdk/10.0.403/Roslyn/Microsoft.CSharp.Core.targets | <dotnet>/sdk/10.0.403/Roslyn/Microsoft.Build.Tasks.CodeAnalysis.dll"
+    }
+  ],
+  "check": {
+    "result": "fail",
+    "mustInclude": [
+      "unknown task ran: WriteLinesToFile | _GeneratePublishDependencyFileInputCache | evil/sdk/10.0.403/"
+    ]
+  }
+}
