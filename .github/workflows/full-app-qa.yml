@@ -67,6 +67,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       app_sha: ${{ steps.resolve.outputs.sha }}
+      started: ${{ steps.resolve.outputs.started }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -84,6 +85,7 @@ jobs:
             exit 1
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "started=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Require the OpenAI key and valid model ids (fail closed)
         shell: bash
@@ -147,7 +149,7 @@ jobs:
           $base = git merge-base origin/lane/face HEAD
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "QA_BASE_REF=$base" >> $env:GITHUB_ENV
-          "QA_JOB_STARTED=$([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))" >> $env:GITHUB_ENV
+          "QA_JOB_STARTED=${{ needs.preflight.outputs.started }}" >> $env:GITHUB_ENV
           python -m pip install jsonschema==4.23.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -I tools/Boo.QaSuite/qa_gate.py --self-test
