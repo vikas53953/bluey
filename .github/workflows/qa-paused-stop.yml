@@ -15,7 +15,7 @@ on:
       verify_journey:
         description: One existing real-OpenAI journey, with J0 launch prerequisite
         type: choice
-        options: [none, j3, j4, j5, j6]
+        options: [none, j3, j4, j5, j6, j12h]
         default: none
       typed_chat:
         description: Run existing S2 and J2 typed chat checks with cheap real OpenAI (two requests)
@@ -138,6 +138,7 @@ jobs:
             'j4' { 'J4_Research_ShowsRealSourceLinks' }
             'j5' { 'J5_ApplyThenUndo_OnlyAfterApproval' }
             'j6' { 'J6_FocusSession_25Minutes_OnTheDeveloperModeClock' }
+            'j12h' { 'Q12H_StopClosesRingAndPointer' }
             default { throw 'Unknown verify journey' }
           }
           if ($env:HOVER_EDGES -eq 'true') { $test = 'Boo.QaSuite.Journeys.HoverEdgeTests.Q7_HoverEdges_AllFourBranches_OnTheRealClock' }
@@ -171,6 +172,7 @@ jobs:
             if ($env:BASIC_HOVER -eq 'true') { $test = 'Boo.VerifyLive.LiveJourneyTests.J1_NotchWakes_OnHover' }
             if ($env:TYPED_CHAT -eq 'true') { $test = 'Boo.VerifyLive.LiveJourneyTests.J2_TypedChat_GetsARealAnswer' }
             if ($verifySelected) { $test = "Boo.VerifyLive.LiveJourneyTests.$verifyMethod" }
+            if ($env:VERIFY_JOURNEY -eq 'j12h') { $test = "Boo.VerifyLive.RingStopTests.$verifyMethod" }
             $expected = @($test)
             # These checks belong to an ordered shared-fixture suite: retain J0's launch/readiness step.
             # Both results are required; no retry, timeout change or discarded setup failure.

@@ -1,5 +1,5 @@
 {
-  "contract_version": 13,
+  "contract_version": 14,
   "groups": {
     "contracts": {
       "C66": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot"
@@ -61,6 +61,7 @@
       "VB1": "Boo.LiveSmoke.VoiceSmokeBoundTests.The_voice_smoke_client_refuses_a_second_paid_response"
     },
     "verifylive": {
+      "Q12H": "Boo.VerifyLive.RingStopTests.Q12H_StopClosesRingAndPointer",
       "J0": "Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey",
       "J1": "Boo.VerifyLive.LiveJourneyTests.J1_NotchWakes_OnHover",
       "J2": "Boo.VerifyLive.LiveJourneyTests.J2_TypedChat_GetsARealAnswer",
