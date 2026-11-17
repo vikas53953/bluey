@@ -1,7 +1,8 @@
 {
-  "contract_version": 14,
+  "contract_version": 15,
   "groups": {
     "contracts": {
+      "C15E": "Boo.QaSuite.MockContracts.IncidentalActionsTests.Q15E_PlainQuestion_RejectsActualIncidentalAction_WithoutApprovalOrFileChange",
       "C66": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot"
     },
     "antimock": {
