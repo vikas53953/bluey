@@ -1,0 +1,3 @@
+| Date | Decision | Why | Source | Status |
+| --- | --- | --- | --- | --- |
+| 17 Nov 2026 | Reuse the existing native-voice hosted synthetic-device job as a required separate full-app job; publish app_ref while retaining harness identity. | Zero physical endpoints do not block the existing hosted AudioSession path. Keep real-provider guards, original tests/budgets, screenshot checks, scanner and no-retry gate. Do not infer unimplemented j8/j9/j11 branches from the existing eye-hold proof. | PR #54; reference run44049313549; unchanged tools/Boo.NativeVoice and HostedVoiceAudio. | UNVERIFIED until exact-head hosted evidence; physical audio and remaining branches remain unverified. |
