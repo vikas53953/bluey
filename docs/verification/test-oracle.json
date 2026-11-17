@@ -1,5 +1,5 @@
 {
-  "revision": 41,
+  "revision": 42,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -13,6 +13,7 @@
     "docs/verification/public-contracts.md": "43918f2fdedcb39cc617434f2d07a0895a77c8195fbf9b197b0313a5292fa632",
     "src/Boo.Core/Contracts.cs": "035ec5798f7b09b89068cab1b42b0667a484a42eb2d28fa14852b12b3a850caf",
     "tests/Boo.App.Tests/Boo.App.Tests.csproj": "2d02836ba629be81d4641af63616f5bedf310e6c57dc029d7df3a76bd1fe7693",
+    "tests/Boo.App.Tests/FaceMomentTimerTests.cs": "a11ec8165e4f0d2f4f0d27885aa43109228305cd652b4a4232ce898499f523ba",
     "tests/Boo.App.Tests/FocusAcknowledgmentOrderTests.cs": "2fc661d843c9bc2531fcb33cb524639521c64155e7953de9302ff1ba6a7b597e",
     "tests/Boo.App.Tests/RenderAcknowledgmentTests.cs": "79b6af2ac9fbe64e1f728d69a7f8cf0d85364ce4222b342fdde75737074a8bc1",
     "tests/Boo.App.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
@@ -42,6 +43,7 @@
     "tests/Boo.Core.Tests/CrashRedactionTests.cs": "1da9038341b4f2a93c1089cda1e984a7b681c4ee7a902c34cb7b282afd9989d3",
     "tests/Boo.Core.Tests/CrashReportTests.cs": "32ebdad6b738650626c033e87806ed5881b60f3a93e710623f565d653d3b2ab6",
     "tests/Boo.Core.Tests/CubicBezierEaseTests.cs": "0d5cb06f82b7b7abae2f6f4e88aee9e44b47190ab60b3806de83fa64bbea4b3d",
+    "tests/Boo.Core.Tests/FaceMomentDeadlineTests.cs": "66ff4539a459d735212939da186a069e4a350f0ca6ac13d2b225eb38e298b975",
     "tests/Boo.Core.Tests/FaceMomentScheduleTests.cs": "7b63e12eb45e361febe64540a2b8a337f9c2df05bb9204ecb69a8859fe057b19",
     "tests/Boo.Core.Tests/FaceMomentsTests.cs": "5c385ad56ad0561db9aadec7a0516cb16064bd6feff99ea4ebc33fe835bca90e",
     "tests/Boo.Core.Tests/FaceMotionTests.cs": "99f3b33de80ce3e51ae6e9a067cf6e1b2ecd21b0a1be08f824d329f61b2ec2b3",
@@ -179,13 +181,14 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-40.json",
-  "previousManifestSha256": "191e8f2c7f62cbd7ee536ec0c001d3d53d35f4d169a8d4b99de3574f663cc559",
-  "revisionReason": "PR #170: FocusAcknowledgmentOrderTests (a saved focus status finds its history row already applied; mutation M05)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-41.json",
+  "previousManifestSha256": "7e12dd6bf6e7c0a3ef72e10b0b92fcceb4fab933b2ba1bac1fda60536a3b1da9",
+  "revisionReason": "Issue #111: face-moment timer priority guard, dispatcher-integration observations and measured frame-load sample (FaceMomentTimerTests); clock-controlled Happy deadline guards (FaceMomentDeadlineTests). New files only.",
   "addedFiles": [
-    "tests/Boo.App.Tests/FocusAcknowledgmentOrderTests.cs"
+    "tests/Boo.App.Tests/FaceMomentTimerTests.cs",
+    "tests/Boo.Core.Tests/FaceMomentDeadlineTests.cs"
   ],
-  "revisionCommit": "6cb4a2325ba011be54de23d272aaaf183f8486ff",
+  "revisionCommit": "64894ac7c1fc0d35a9b0c6798caf1eefa9bbfe78",
   "changedFiles": [],
   "removedFiles": []
 }
