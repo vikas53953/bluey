@@ -94,8 +94,7 @@ internal static class StructuredReplies
             text = textElement.GetString() ?? string.Empty;
             if (root.TryGetProperty("marks", out var marksElement))
                 ParseMarks(vendor, marksElement, marks);
-            // Parsed (and validated) whatever the request allowed: an action on a plain question is reported, inert,
-            // so the app can acknowledge it (issue #181). Only an explicit task may offer one for approval (RenderReply).
+            // INVARIANT: actions are validated and reported even on a plain question; see IncidentalActionTests.A_plain_question_reports_an_incidental_action_so_the_app_can_acknowledge_it
             if (root.TryGetProperty("actions", out var actionsElement))
                 ParseActions(vendor, actionsElement, request.Generation, controls, actions);
         }
