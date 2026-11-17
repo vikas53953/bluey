@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
-
+using System.Net.Http;
 using Boo.Core;
 using Boo.Providers;
 
@@ -21,8 +21,11 @@ public partial class MainWindow
     internal const string RecoveryUnavailableStatus = "Spoken reply is unavailable; text remains visible.";
 
     private readonly SilentReplyRecovery _replyRecovery = new();
-    private Func<string, CancellationToken, Task<byte[]>>? _speakText;
-    private Action<byte[]>? _playReplyAudio;
+    /// <summary>Speech for a recovery; null means OpenAI text-to-speech. In-process tests set it (by reflection) to a recorder.</summary>
+    private Func<string, CancellationToken, Task<byte[]>>? _speakText = null;
+
+    /// <summary>Plays recovered speech; null means Boo's audio player. In-process tests set it (by reflection) to a recorder.</summary>
+    private Action<byte[]>? _playReplyAudio = null;
 
     /// <summary>Feeds every accepted realtime event of the current reply to the silent-reply check.</summary>
     private void ObserveReplyAudio(RealtimeEvent realtimeEvent)
