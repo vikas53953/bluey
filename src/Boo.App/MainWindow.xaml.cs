@@ -203,9 +203,7 @@ public partial class MainWindow : Window
 
     private DispatcherTimer CreateFaceMomentTimer()
     {
-        // Normal, not Background (issue #111): a Background tick is only dequeued when no input or posted message is
-        // pending and after all Render/Input/Loaded work, so under the notch's frame loop the Happy face stayed up
-        // 36-91 ms past its deadline. The tick stays short and UI-owned (expire + SetFace; no I/O).
+        // INVARIANT: the expiry tick runs at Normal priority, see FaceMomentTimerTests.TheFaceMomentTimer_RunsAtExactlyNormalPriority
         var timer = new DispatcherTimer(DispatcherPriority.Normal);
         timer.Tick += (_, _) =>
         {
@@ -297,7 +295,7 @@ public partial class MainWindow : Window
         _shellDisposed = true;
         _closingForExit = true;
         StopAll();
-        _faceMomentTimer?.Stop(); // defensive: StopAll's final SetFace already clears every moment and stops it
+        _faceMomentTimer?.Stop();
         FlushFocusHistory();
         DisposeHoldToTalk();
         _focusTimer.Stop();
