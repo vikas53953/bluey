@@ -27,7 +27,11 @@ public sealed class RingStopTests : IClassFixture<LiveAppFixture>
         try
         {
             Assert.True(WindowsAnimations.IsOn(), "SETUP: animations required for pointer proof.");
-            var panel = _boo.EnsurePanel();
+            _boo.WaitForNotch(TimeSpan.FromSeconds(60));
+            Assert.Null(_boo.FindPanel());
+            Record("notch ready; one Ctrl+Alt+B open action");
+            BooAppFixture.PressOpenShortcut();
+            var panel = _boo.WaitForPanel(TimeSpan.FromSeconds(8));
             AutomationElement Find(string id) => panel.FindFirstDescendant(cf => cf.ByAutomationId(id))
                 ?? throw new InvalidOperationException("Missing " + id);
             var display = Find("DisplayBox").AsComboBox();

@@ -13,7 +13,7 @@ on:
         options: [none, file_undo, field_undo, approval_edges, sequential_approval, focus_edges, request_generation, eye_tap]
         default: none
       verify_journey:
-        description: One existing real-OpenAI journey, with J0 launch prerequisite
+        description: One real-OpenAI journey; J0 prerequisite for j3-j6, standalone readiness for j12h
         type: choice
         options: [none, j3, j4, j5, j6, j12h]
         default: none
@@ -175,8 +175,9 @@ jobs:
             if ($env:VERIFY_JOURNEY -eq 'j12h') { $test = "Boo.VerifyLive.RingStopTests.$verifyMethod" }
             $expected = @($test)
             # These checks belong to an ordered shared-fixture suite: retain J0's launch/readiness step.
-            # Both results are required; no retry, timeout change or discarded setup failure.
-            if ($env:TYPED_CHAT -eq 'true' -or $verifySelected) { $expected = @('Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey', $test) }
+            # Both results are required for that suite; standalone Q12H owns readiness in its own fixture.
+            # No retry, timeout change or discarded setup failure.
+            if ($env:TYPED_CHAT -eq 'true' -or ($verifySelected -and $env:VERIFY_JOURNEY -ne 'j12h')) { $expected = @('Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey', $test) }
             $filter = ($expected | ForEach-Object { "FullyQualifiedName=$_" }) -join '|'
             dotnet test tools/Boo.VerifyLive -c Release --no-build --filter $filter --logger trx --results-directory artifacts/paused-stop/verifylive-trx
             $testExit = $LASTEXITCODE
