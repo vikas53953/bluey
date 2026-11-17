@@ -143,6 +143,8 @@ public sealed class LiveVoiceRoundTripTests
         Assert.True(HeardQuestion.IsMatch(heard),
             $"OpenAI's transcript of the spoken question should say 'two plus three' but was '{heard}' " +
             "(bad or silent audio, or speech-to-text failed).");
+        // Issue #177: the question asks for a short sentence ("The answer is five."), not one word. A one-word "five"
+        // carried only 0.20-0.42 s of speech (median 0.26 s, 13 hosted runs), too close to the 0.15 s floor, which stays.
         // "Spoken" means real speech, not a length: a correct one-word answer carries about 0.25 s of speech whatever
         // trailing silence follows it (run 43556992022: 0.45 s long, 0.26 s of speech), and silence must never pass.
         // The rule is SpokenAudio.IsSpokenAnswer, tested offline in SpokenAudioTests.
