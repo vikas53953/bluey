@@ -38,8 +38,8 @@ def theory_metadata(contract):
             assert case['name'] not in names and key not in tuples, 'theory_case_duplicate'
             names.add(case['name']); tuples.add(key)
     discovered = {}
-    for folder in ['tools/Boo.QaSuite','tools/Boo.LiveSmoke','tools/Boo.VerifyLive']:
-        for path in Path(folder).rglob('*Tests.cs'):
+    for folder in ['tools/Boo.QaSuite','tools/Boo.LiveSmoke','tools/Boo.VerifyLive','tools/Boo.NativeVoice']:
+        for path in Path(folder).rglob('*.cs' if folder.endswith('Boo.NativeVoice') else '*Tests.cs'):
             if 'obj' in path.parts or 'bin' in path.parts: continue
             text = path.read_text(encoding='utf-8-sig')
             ns = re.search(r'namespace ([\w.]+)',text)
@@ -164,8 +164,8 @@ def validate(report, contract, root, run_id, started):
 def source_mapping(contract):
     methods = []
     theories = {}
-    for root in ['tools/Boo.QaSuite','tools/Boo.LiveSmoke','tools/Boo.VerifyLive']:
-        for p in Path(root).rglob('*Tests.cs'):
+    for root in ['tools/Boo.QaSuite','tools/Boo.LiveSmoke','tools/Boo.VerifyLive','tools/Boo.NativeVoice']:
+        for p in Path(root).rglob('*.cs' if root.endswith('Boo.NativeVoice') else '*Tests.cs'):
             if 'obj' in p.parts or 'bin' in p.parts: continue
             s = p.read_text(encoding='utf-8-sig')
             s = re.sub(r'/\*.*?\*/|//[^\n]*', '', s, flags=re.S)

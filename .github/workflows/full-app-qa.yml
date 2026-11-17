@@ -65,7 +65,26 @@ jobs:
   preflight:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      app_sha: ${{ steps.resolve.outputs.sha }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.app_ref || github.sha }}
+          persist-credentials: false
+      - name: Resolve app once and require exact-head QA
+        id: resolve
+        shell: bash
+        env:
+          HARNESS_SHA: ${{ github.sha }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          if [ "$sha" != "$HARNESS_SHA" ]; then
+            echo "::error::Exact-head QA requires app_ref to resolve to the harness SHA."
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
       - name: Require the OpenAI key and valid model ids (fail closed)
         shell: bash
         env:
@@ -92,7 +111,7 @@ jobs:
           echo "OpenAI key present (${#OPENAI_KEY} characters). App ref: $APP_REF. Models: chat=$M1 journeys=$M2 focus=$M3 voice=$M4"
 
   suite:
-    needs: preflight
+    needs: [preflight, native-voice]
     runs-on: windows-latest
     timeout-minutes: 90
     env:
@@ -137,7 +156,7 @@ jobs:
       - name: Check out the app under test
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.app_ref || github.sha }}
+          ref: ${{ needs.preflight.outputs.app_sha }}
           path: app-under-test
           persist-credentials: false
           clean: true
@@ -157,6 +176,17 @@ jobs:
           "app=$app" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
           "harness=$harness" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
           "App under test: $app. Test harness: $harness."
+
+      - name: Download same-run native receipts
+        uses: actions/download-artifact@v4
+        with:
+          name: native-voice-evidence
+          path: artifacts/qa-evidence/native
+      - name: Validate native exact-head receipts
+        shell: pwsh
+        run: |
+          python -I tools/Boo.QaSuite/native_receipts.py artifacts/qa-evidence/native ${{ needs.preflight.outputs.app_sha }} ${{ github.sha }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Refuse if any AI host is redirected (no mock may answer)
         shell: pwsh
@@ -389,7 +419,7 @@ jobs:
       - name: Check out the app under test
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.app_ref || github.sha }}
+          ref: ${{ needs.preflight.outputs.app_sha }}
           path: app-under-test
           persist-credentials: false
           clean: true
@@ -487,7 +517,7 @@ jobs:
       - name: Record the tested commit (the evidence must name this exact SHA)
         shell: pwsh
         env:
-          REQUESTED_REF: ${{ inputs.app_ref || github.sha }}
+          REQUESTED_REF: ${{ needs.preflight.outputs.app_sha }}
         run: |
           $sha = (git rev-parse HEAD).Trim()
           if ($env:REQUESTED_REF) { "Requested ref: $env:REQUESTED_REF" }
@@ -496,7 +526,7 @@ jobs:
       - name: Check out the same app under test as the full suite
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.app_ref || github.sha }}
+          ref: ${{ needs.preflight.outputs.app_sha }}
           path: app-under-test
           persist-credentials: false
       - name: Pin native app and harness identity
@@ -512,6 +542,8 @@ jobs:
           python-version: '3.12'
       - name: Pinned artifact scanner
         run: 'python -m pip install --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt'
+      - name: Native receipt gate regressions (no provider)
+        run: python -I tools/Boo.QaSuite/native_receipts.py --self-test
       - name: Validate credential and models before paid calls
         shell: pwsh
         env:
@@ -531,7 +563,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet test tools/Boo.NativeVoice.Unit -c Release --logger trx --results-directory artifacts/native-voice/unit
           exit $LASTEXITCODE
-      - name: One real native voice turn (no retries)
+      - name: Both native journeys (three bounded responses total, no retries)
         timeout-minutes: 6
         shell: pwsh
         env:
@@ -543,6 +575,12 @@ jobs:
           git -C app-under-test rev-parse HEAD | Set-Content artifacts/native-voice/app-sha.txt
           dotnet test tools/Boo.NativeVoice -c Release --no-build --logger trx --results-directory artifacts/native-voice/trx
           exit $LASTEXITCODE
+      - name: Exact native identities and receipts
+        if: always()
+        shell: pwsh
+        run: |
+          python -I tools/Boo.QaSuite/native_receipts.py artifacts/native-voice ${{ needs.preflight.outputs.app_sha }} ${{ github.sha }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test gate (no empty or skipped native journey)
         if: always()
         shell: pwsh

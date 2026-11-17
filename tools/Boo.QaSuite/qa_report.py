@@ -27,6 +27,7 @@ NS = {'t': 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}
 # group folder -> plain-words name; every one must have run (a missing group is a red, never a silent gap)
 GROUPS = {
     'contracts': 'Mock selected-folder request contract',
+    'native': 'Native Boo.exe voice with hosted synthetic audio devices',
     'antimock': 'Anti-mock checks',
     'journeys': 'Suite journeys (launch, hover, chat, Stop, focus, settings)',
     'smoke': 'Live round trip (and voice, once PR #47 lands)',
@@ -36,6 +37,8 @@ GROUPS = {
 OPTIONAL = {'verifylive'}  # skipped only when the dispatch says journeys=false; then listed as UNVERIFIED
 
 PLAIN = {
+    'NV0': 'Native eye-hold real voice via hosted synthetic devices; physical audio unverified',
+    'NV1': 'Native failed-capture task voice boundary via hosted synthetic devices',
     'C66': 'Selected-folder context gated by explicit task and configured root (mock HTTP)',
     'AM0': 'Shipped build holds no mock or test code',
     'AM1': 'No AI host redirected, no proxy, no hosts pin',

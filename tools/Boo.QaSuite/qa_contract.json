@@ -1,5 +1,5 @@
 {
-  "contract_version": 18,
+  "contract_version": 19,
   "groups": {
     "contracts": {
       "C15E": "Boo.QaSuite.MockContracts.IncidentalActionsTests.Q15E_PlainQuestion_RejectsActualIncidentalAction_WithoutApprovalOrFileChange",
@@ -81,6 +81,10 @@
       "TR0": "Boo.VerifyLive.Regressions.TranscriptDuplicateRowsRegressionTests.SameQuestionTwice_ScreenReadersSeeBothRows",
       "TR1": "Boo.VerifyLive.Regressions.TranscriptOrderAndScrollRegressionTests.DistinctQuestions_AppearInOrder_AndTheNewestRowIsAlwaysInView",
       "SR0": "Boo.VerifyLive.Regressions.StopStatusRegressionTests.StopDuringPendingQuestion_StatusNoLongerSaysThinking"
+    },
+    "native": {
+      "NV0": "Boo.NativeVoice.NativeVoiceJourney.PublishedApp_HoldToTalk_RendersRealSpokenReply",
+      "NV1": "Boo.NativeVoice.FailedCaptureVoiceJourney.PublishedApp_TypedTaskWithFailedCapture_RealVoiceTurnCompletesWithoutAScreenAction"
     }
   },
   "retired": {},
