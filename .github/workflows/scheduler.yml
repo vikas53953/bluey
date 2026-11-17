@@ -19,8 +19,8 @@ on:
   schedule:
     - cron: '17 21 * * *'     # daily: live-sentinel (the same time as its own schedule on lane/face)
     - cron: '41 2 * * *'      # nightly: properties (the same time as its own schedule on lane/face)
-    # - cron: '17 6 * * 1'    # weekly: trust-metrics (OFF, see the trust-metrics job)
-    # - cron: '*/10 * * * *'  # pr-loop (OFF, see the pr-loop job)
+    - cron: '17 6 * * 1'      # weekly: trust-metrics (Monday)
+    - cron: '*/10 * * * *'    # pr-loop (dry run unless the owner switches acting on)
   workflow_dispatch:
     inputs:
       target:
@@ -30,6 +30,8 @@ on:
         options:
           - live-sentinel
           - properties
+          - trust-metrics
+          - pr-loop
 
 permissions:
   actions: write
@@ -109,14 +111,9 @@ jobs:
           done
           echo "Started $TARGET on lane/face: ${url:-run link not visible yet, see the $TARGET runs}" | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # OFF. Until 16 Nov, trust-metrics.yml had never run, so GitHub had not registered it and a dispatch answered
-  # HTTP 404. PR #166 gave it a `pull_request` trigger on its own file; that run registered it (a dispatch now works).
-  # The same run showed lane/face's scripts/quality/trust_metrics.py stops on any day with 1,000+ runs, so a weekly
-  # run on lane/face would fail until #166's fix is there.
-  # TURN ON when PR #166 has merged into lane/face: remove `if: false`, uncomment the weekly cron above, and add
-  # trust-metrics to the dispatch choices.
+  # ON (17 Nov): PR #166 (trust_metrics.py fix for days with 1,000+ runs) is merged into lane/face (9df81b7).
   trust-metrics:
-    if: false
+    if: ${{ github.event.schedule == '17 6 * * 1' || inputs.target == 'trust-metrics' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -124,14 +121,28 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TARGET: trust-metrics.yml
     steps:
+      - name: Skip if main already runs it on its own schedule
+        id: own
+        run: |
+          if gh api "repos/$GH_REPO/contents/.github/workflows/$TARGET?ref=main" --jq .path > /dev/null 2> own.err; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "$TARGET is on main, so its own schedule runs it there. Not starting a second run."
+          elif grep -q "HTTP 404" own.err; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::could not tell whether main has $TARGET:"; cat own.err; exit 1
+          fi
       - name: Start trust-metrics on lane/face
-        run: gh workflow run "$TARGET" --ref lane/face
+        if: ${{ steps.own.outputs.skip == 'false' }}
+        run: |
+          gh workflow run "$TARGET" --ref lane/face
+          echo "Started $TARGET on lane/face" | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # OFF. The PR loop (scripts/pr_loop.py, workflow pr-loop.yml) is still under review in PR #162.
-  # TURN ON when #162 has merged into lane/face: remove `if: false`, uncomment the `*/10` cron above, and add pr-loop
-  # to the dispatch choices. GitHub may delay or drop crons this frequent; the loop must not depend on every tick.
+  # ON (17 Nov): the PR loop (#162) is merged into lane/face (30fc957). Started with no inputs, so pr-loop.yml runs
+  # as a DRY RUN: it prints its plan and takes no action. Letting it act (dry_run=false) stays the owner's decision.
+  # GitHub may delay or drop crons this frequent; the loop must not depend on every tick.
   pr-loop:
-    if: false
+    if: ${{ github.event.schedule == '*/10 * * * *' || inputs.target == 'pr-loop' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -139,5 +150,19 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TARGET: pr-loop.yml
     steps:
-      - name: Start pr-loop on lane/face
-        run: gh workflow run "$TARGET" --ref lane/face
+      - name: Skip if main already runs it on its own schedule
+        id: own
+        run: |
+          if gh api "repos/$GH_REPO/contents/.github/workflows/$TARGET?ref=main" --jq .path > /dev/null 2> own.err; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "$TARGET is on main, so its own schedule runs it there. Not starting a second run."
+          elif grep -q "HTTP 404" own.err; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::could not tell whether main has $TARGET:"; cat own.err; exit 1
+          fi
+      - name: Start pr-loop on lane/face (dry run)
+        if: ${{ steps.own.outputs.skip == 'false' }}
+        run: |
+          gh workflow run "$TARGET" --ref lane/face
+          echo "Started $TARGET on lane/face (dry run)" | tee -a "$GITHUB_STEP_SUMMARY"
