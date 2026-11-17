@@ -48,7 +48,6 @@ public sealed class LiveVoiceRoundTripTests
     private const int BytesPerSecond = SampleRate * 2;
     private static readonly TimeSpan TurnTimeout = TimeSpan.FromSeconds(90);
     private static readonly Regex HeardQuestion = new(@"\b(two|2)\s*(plus|\+|and)\s*(three|3)\b", RegexOptions.IgnoreCase);
-    private static readonly Regex SaidAnswer = new(@"\b(five|5)\b", RegexOptions.IgnoreCase);
 
     private readonly ITestOutputHelper _output;
 
@@ -143,6 +142,8 @@ public sealed class LiveVoiceRoundTripTests
         Assert.True(HeardQuestion.IsMatch(heard),
             $"OpenAI's transcript of the spoken question should say 'two plus three' but was '{heard}' " +
             "(bad or silent audio, or speech-to-text failed).");
+        // Issue #177: the question asks for a short sentence ("The answer is five."), not one word. A one-word "five"
+        // carried only 0.20-0.42 s of speech (median 0.26 s, 13 hosted runs), too close to the 0.15 s floor, which stays.
         // "Spoken" means real speech, not a length: a correct one-word answer carries about 0.25 s of speech whatever
         // trailing silence follows it (run 43556992022: 0.45 s long, 0.26 s of speech), and silence must never pass.
         // The rule is SpokenAudio.IsSpokenAnswer, tested offline in SpokenAudioTests.
@@ -154,12 +155,10 @@ public sealed class LiveVoiceRoundTripTests
         Assert.True(raw.Pcm.AsSpan().SequenceEqual(answerAudio),
             $"The raw messages hold {raw.Pcm.Length} audio bytes but Boo's events delivered {answerAudio.Length}.");
         var audioChunks = events.Count(e => e.Kind == "response.output_audio.delta" && e.Audio is not null);
-        Assert.True(SpokenAudio.IsSpokenAnswer(answerAudio, SampleRate),
-            $"The answer should be spoken (at least {SpokenAudio.MinimumSpeechSeconds:0.00} s of speech above the quiet " +
-            $"floor) but its {answerSeconds:0.00} s of audio held only {speechSeconds:0.00} s of speech: OpenAI sent " +
-            $"{audioChunks} audio chunk(s) whose loudest sample is {SpokenAudio.PeakLevel(answerAudio)} of 32767 while its " +
-            $"transcript said '{answer}' (a silent spoken answer; per-event trace in live-voice-01-events.txt).");
-        Assert.True(SaidAnswer.IsMatch(answer), $"The spoken answer should say 'five' but its transcript was '{answer}'.");
+        // The whole acceptance rule (spoken audio, then a transcript saying five or 5) is one pure function, tested
+        // offline in SpokenAudioTests, so dropping any part of it is caught without a paid call.
+        var acceptance = SpokenAudio.AnswerAcceptance(answerAudio, SampleRate, answer, audioChunks);
+        Assert.True(acceptance is null, acceptance);
     }
 
     /// <summary>A model id from the environment, or the default; a malformed id fails closed.</summary>

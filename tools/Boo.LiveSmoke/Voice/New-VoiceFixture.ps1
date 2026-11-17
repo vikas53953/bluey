@@ -14,7 +14,7 @@
   expected words in LiveVoiceRoundTripTests in the same commit.
 #>
 param(
-    [string]$Text = 'What is two plus three? Please answer with just the number.',
+    [string]$Text = 'What is two plus three? Answer in one short sentence that starts with: The answer is.',
     [string]$OutFile = (Join-Path $PSScriptRoot 'what-is-two-plus-three.wav')
 )
 $ErrorActionPreference = 'Stop'

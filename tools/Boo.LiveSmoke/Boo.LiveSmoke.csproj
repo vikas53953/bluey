@@ -34,6 +34,7 @@
          (live-ai-smoke run 43575903395) and a silent answer whose transcript said "5" (live-sentinel run 43576162645). -->
     <None Include="Voice/answer-five-real-speech.wav" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Voice/answer-silent-from-provider.wav" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Voice/answer-silent-from-provider-177.wav" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
