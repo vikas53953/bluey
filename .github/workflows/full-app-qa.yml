@@ -239,6 +239,8 @@ jobs:
           }
           python -I tools/Boo.QaSuite/qa_report.py --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I tools/Boo.QaSuite/mock_receipt.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Audio environment capability probe (no provider calls)
         shell: pwsh
@@ -259,18 +261,11 @@ jobs:
         with:
           name: mock-contracts-evidence
           path: artifacts/qa-evidence/contracts-mock
-      - name: Add the C15E receipt to the contracts results
+      - name: Add the C15E receipt to the contracts results (exact identity, same run)
         shell: pwsh
         run: |
-          $test = 'Boo.QaSuite.MockContracts.IncidentalActionsTests.Q15E_PlainQuestion_RejectsActualIncidentalAction_WithoutApprovalOrFileChange'
-          $files = @(Get-ChildItem artifacts/qa-evidence/contracts-mock/trx -Filter *.trx)
-          if ($files.Count -ne 1) { throw "Expected exactly one mock C15E .trx, found $($files.Count)" }
-          [xml]$trx = Get-Content $files[0].FullName -Raw
-          $rows = @($trx.TestRun.Results.UnitTestResult)
-          if ($rows.Count -ne 1 -or $rows[0].testName -ne $test) { throw 'The mock receipt is not exactly the C15E test' }
-          $identity = Get-Content artifacts/qa-evidence/contracts-mock/identity.txt -Raw
-          if ($identity -notmatch "app=${{ needs.preflight.outputs.app_sha }}") { throw 'The mock receipt is for a different app SHA' }
-          Copy-Item $files[0].FullName (Join-Path artifacts/qa-evidence/contracts/trx 'mock-c15e.trx')
+          python -I tools/Boo.QaSuite/mock_receipt.py artifacts/qa-evidence/contracts-mock ${{ needs.preflight.outputs.app_sha }} ${{ github.sha }} ${{ github.run_id }} artifacts/qa-evidence/contracts/trx/mock-c15e.trx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # PROBE RUN only: plant the classic mock trick (the demo-ci hosts redirect). Every real-AI check must now refuse.
       - name: Plant a mock (probe run only)
@@ -712,7 +707,7 @@ jobs:
         run: |
           $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts/mock-contracts'
           New-Item -ItemType Directory -Force $evidence | Out-Null
-          "app=${{ needs.preflight.outputs.app_sha }}`nharness=$(git rev-parse HEAD)`nrun=${{ github.run_id }}`nlabel=mock; real provider calls=0" | Set-Content "$evidence/identity.txt"
+          "app=$(git -C app-under-test rev-parse HEAD)`nharness=$(git rev-parse HEAD)`nrun=${{ github.run_id }}`nlabel=mock; real provider calls=0" | Set-Content "$evidence/identity.txt"
           Get-FileHash $env:BOO_UI_EXE | Format-List | Out-File "$evidence/exe-hash.txt"
           $hostsPath = Join-Path $env:SystemRoot 'System32/drivers/etc/hosts'
           $hostsBefore = [IO.File]::ReadAllBytes($hostsPath)
