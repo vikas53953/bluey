@@ -1,3 +1,3 @@
 | Date | Decision | Why | Source | Status |
-| --- | --- | --- | --- |
+| --- | --- | --- | --- | --- |
 | 17 Nov 2026 | Contract21 requires Q12C: real held CtrlAltSpace Listening with positive input, F12 while still held, shared1s acknowledgment/clear,3s held and3s post-release stability watches. | Freeze input at acknowledged Stop, require incomplete WAV so natural exhaustion cannot pass. Zero further input/playback/transcript change;100ms observation health retained. | ListeningStopVoiceTests.cs; exact focused verify_journey=j12c. | UNVERIFIED until review, compilation and predeclared hosted run; physical audio/provider request count unverified. |
