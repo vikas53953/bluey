@@ -2103,14 +2103,7 @@ public partial class MainWindow : Window
                         SetFace(_faceInputs with { Thinking = false, Responding = true }, TimeSpan.FromSeconds(4), FaceMomentKind.Responding);
                         if (realtimeEvent.Audio is not null && SpeechMute.IsChecked != true)
                         {
-                            try
-                            {
-                                (_audio ??= CreateAudio()).Play(realtimeEvent.Audio);
-                            }
-                            catch (Exception ex) when (ex is InvalidOperationException)
-                            {
-                                StatusText.Text = SanitizedError(ex, "Spoken reply is unavailable; text remains visible.");
-                            }
+                            PlayReplyAudio(realtimeEvent.Audio);
                         }
                         break;
                     case "response.function_call_arguments.done":

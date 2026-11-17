@@ -86,6 +86,9 @@ public partial class MainWindow
         {
             return;
         }
+        var now = Environment.TickCount64;
+        var start = Math.Max(now, Interlocked.Read(ref _playbackUntilMs));
+        Interlocked.Exchange(ref _playbackUntilMs, start + (long)Math.Ceiling(audio.Length / PlaybackBytesPerMs));
         PlayReplyAudio(audio);
         StatusText.Text = RecoveredReplyStatus;
         Trace.TraceInformation(string.Create(CultureInfo.InvariantCulture,
@@ -108,12 +111,12 @@ public partial class MainWindow
         return new SpeechClient(_http, () => StoreFor(AiProvider.OpenAI).Load(), voice).SpeakAsync(text, cancellation);
     }
 
-    /// <summary>Plays reply audio on the same player and playback clock as the realtime audio deltas.</summary>
+    /// <summary>
+    /// The one way reply audio reaches the speaker: each realtime audio delta and any recovered speech. When the player
+    /// fails, the text stays visible and the status line says so.
+    /// </summary>
     private void PlayReplyAudio(byte[] audio)
     {
-        var now = Environment.TickCount64;
-        var start = Math.Max(now, Interlocked.Read(ref _playbackUntilMs));
-        Interlocked.Exchange(ref _playbackUntilMs, start + (long)Math.Ceiling(audio.Length / PlaybackBytesPerMs));
         if (_playReplyAudio is { } play)
         {
             play(audio);

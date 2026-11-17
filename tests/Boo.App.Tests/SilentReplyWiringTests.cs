@@ -16,7 +16,8 @@ namespace Boo.App.Tests;
 /// deltas, transcript "Five") is replayed through MainWindow's own realtime event handler, in-process. Boo must ask for
 /// speech of the transcript once and hand audible speech to its player; it must leave a real spoken answer alone, do
 /// nothing when speech is muted, and play nothing when Stop comes before the speech arrives. The speech request and the
-/// player are swapped for recorders (private fields, set by reflection), so no network or sound device is involved.
+/// player are swapped for recorders (private fields, set by reflection), so no network or sound device is involved;
+/// the player recorder sees every reply audio chunk, and only what reaches it after response.done counts as recovery.
 /// </summary>
 public sealed class SilentReplyWiringTests
 {
@@ -32,29 +33,30 @@ public sealed class SilentReplyWiringTests
             WithWindow(window =>
             {
                 var silent = Replay(window, "answer-silent-from-provider-177.wav", "Five", muted: false, stopBeforeSpeech: false);
-                lines.Add($"silent: asked={string.Join("|", silent.Asked)} played={silent.Played.Count} speech={silent.PlayedSpeechSeconds:0.00} status={silent.Status}");
+                lines.Add($"silent: deltas={silent.Deltas} asked={string.Join("|", silent.Asked)} recovered={silent.Recovered.Count} speech={silent.RecoveredSpeechSeconds:0.00} status={silent.Status}");
                 var spoken = Replay(window, "answer-five-real-speech.wav", "5", muted: false, stopBeforeSpeech: false);
-                lines.Add($"spoken: asked={spoken.Asked.Count} played={spoken.Played.Count}");
+                lines.Add($"spoken: asked={spoken.Asked.Count} recovered={spoken.Recovered.Count}");
                 var muted = Replay(window, "answer-silent-from-provider-177.wav", "Five", muted: true, stopBeforeSpeech: false);
-                lines.Add($"muted: asked={muted.Asked.Count} played={muted.Played.Count}");
+                lines.Add($"muted: deltas={muted.Deltas} asked={muted.Asked.Count} recovered={muted.Recovered.Count}");
                 var stopped = Replay(window, "answer-silent-from-provider-177.wav", "Five", muted: false, stopBeforeSpeech: true);
-                lines.Add($"stopped: asked={stopped.Asked.Count} played={stopped.Played.Count}");
+                lines.Add($"stopped: asked={stopped.Asked.Count} recovered={stopped.Recovered.Count}");
             });
             return lines;
         });
 
         Assert.Equal(4, outcome.Count);
-        Assert.StartsWith("silent: asked=Five played=1 speech=", outcome[0], StringComparison.Ordinal);
+        Assert.StartsWith("silent: deltas=11 asked=Five recovered=1 speech=", outcome[0], StringComparison.Ordinal);
         Assert.EndsWith(" status=" + MainWindowStatus("RecoveredReplyStatus"), outcome[0], StringComparison.Ordinal);
         Assert.DoesNotContain("speech=0.00", outcome[0], StringComparison.Ordinal);
-        Assert.Equal("spoken: asked=0 played=0", outcome[1]);
-        Assert.Equal("muted: asked=0 played=0", outcome[2]);
-        Assert.Equal("stopped: asked=1 played=0", outcome[3]);
+        Assert.Equal("spoken: asked=0 recovered=0", outcome[1]);
+        Assert.Equal("muted: deltas=0 asked=0 recovered=0", outcome[2]);
+        Assert.Equal("stopped: asked=1 recovered=0", outcome[3]);
     }
 
-    private sealed record Run(List<string> Asked, List<byte[]> Played, string Status)
+    /// <summary>Deltas: reply audio chunks handed to the player before response.done. Recovered: audio handed to it after.</summary>
+    private sealed record Run(int Deltas, List<string> Asked, List<byte[]> Recovered, string Status)
     {
-        public double PlayedSpeechSeconds => Played.Sum(audio => ReplyAudio.SpeechSeconds(audio, 24000));
+        public double RecoveredSpeechSeconds => Recovered.Sum(audio => ReplyAudio.SpeechSeconds(audio, 24000));
     }
 
     /// <summary>Replays one reply's frames through MainWindow's realtime handler for a freshly begun request.</summary>
@@ -88,6 +90,7 @@ public sealed class SilentReplyWiringTests
             Send(new RealtimeEvent("response.output_audio.delta", Audio: pcm[at..Math.Min(pcm.Length, at + WireChunk)]));
         }
         Send(new RealtimeEvent("response.output_audio_transcript.done", Text: transcript));
+        var deltas = played.Count;
         Send(new RealtimeEvent("response.done"));
         if (stopBeforeSpeech)
         {
@@ -100,7 +103,7 @@ public sealed class SilentReplyWiringTests
         var status = ((TextBlock)window.FindName("StatusText")).Text;
         Set(window, "_realtime", null);
         Set(window, "_realtimeConnected", false);
-        return new Run(asked, played, status);
+        return new Run(deltas, asked, played.Skip(deltas).ToList(), status);
     }
 
     private static string MainWindowStatus(string name) =>
