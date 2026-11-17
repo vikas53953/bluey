@@ -14,6 +14,12 @@ public static class SpokenAudio
     /// <summary>The least speech a spoken answer must hold. Real one-word answers measured 0.26-0.28 s.</summary>
     public const double MinimumSpeechSeconds = 0.15;
 
+    /// <summary>
+    /// An answer clip whose loudest sample stays below this is digital silence (issue #177: OpenAI sent peak 5 while its
+    /// transcript gave the right answer). Used only to name such a failure a provider fault; it never passes anything.
+    /// </summary>
+    public const int ProviderSilencePeak = 50;
+
     private const double WindowSeconds = 0.020;
 
     /// <summary>Seconds of 20 ms windows louder than <see cref="QuietRms"/> in little-endian 16-bit mono PCM.</summary>
@@ -54,6 +60,24 @@ public static class SpokenAudio
     /// </summary>
     public static bool IsSpokenAnswer(ReadOnlySpan<byte> pcm16Mono, int sampleRate) =>
         SpeechSeconds(pcm16Mono, sampleRate) >= MinimumSpeechSeconds;
+
+    /// <summary>
+    /// The live voice test's verdict on the answer audio: null exactly when <see cref="IsSpokenAnswer"/> accepts it,
+    /// otherwise the failure message. It never accepts anything <see cref="IsSpokenAnswer"/> rejects; it only words the
+    /// failure.
+    /// </summary>
+    public static string? AnswerVerdict(ReadOnlySpan<byte> pcm16Mono, int sampleRate, string transcript, bool transcriptSaysTheAnswer, int audioChunks)
+    {
+        if (IsSpokenAnswer(pcm16Mono, sampleRate))
+        {
+            return null;
+        }
+        var seconds = pcm16Mono.Length / 2.0 / sampleRate;
+        return $"The answer should be spoken (at least {MinimumSpeechSeconds:0.00} s of speech above the quiet " +
+               $"floor) but its {seconds:0.00} s of audio held only {SpeechSeconds(pcm16Mono, sampleRate):0.00} s of speech: OpenAI sent " +
+               $"{audioChunks} audio chunk(s) whose loudest sample is {PeakLevel(pcm16Mono)} of 32767 while its " +
+               $"transcript said '{transcript}' (a silent spoken answer; per-event trace in live-voice-01-events.txt).";
+    }
 
     /// <summary>
     /// Proves the measure itself before a live result is trusted (fails closed): one second of silence must hold no

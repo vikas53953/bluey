@@ -154,11 +154,8 @@ public sealed class LiveVoiceRoundTripTests
         Assert.True(raw.Pcm.AsSpan().SequenceEqual(answerAudio),
             $"The raw messages hold {raw.Pcm.Length} audio bytes but Boo's events delivered {answerAudio.Length}.");
         var audioChunks = events.Count(e => e.Kind == "response.output_audio.delta" && e.Audio is not null);
-        Assert.True(SpokenAudio.IsSpokenAnswer(answerAudio, SampleRate),
-            $"The answer should be spoken (at least {SpokenAudio.MinimumSpeechSeconds:0.00} s of speech above the quiet " +
-            $"floor) but its {answerSeconds:0.00} s of audio held only {speechSeconds:0.00} s of speech: OpenAI sent " +
-            $"{audioChunks} audio chunk(s) whose loudest sample is {SpokenAudio.PeakLevel(answerAudio)} of 32767 while its " +
-            $"transcript said '{answer}' (a silent spoken answer; per-event trace in live-voice-01-events.txt).");
+        var verdict = SpokenAudio.AnswerVerdict(answerAudio, SampleRate, answer, SaidAnswer.IsMatch(answer), audioChunks);
+        Assert.True(verdict is null, verdict);
         Assert.True(SaidAnswer.IsMatch(answer), $"The spoken answer should say 'five' but its transcript was '{answer}'.");
     }
 
