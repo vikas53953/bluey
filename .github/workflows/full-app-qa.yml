@@ -113,7 +113,7 @@ jobs:
           echo "OpenAI key present (${#OPENAI_KEY} characters). App ref: $APP_REF. Models: chat=$M1 journeys=$M2 focus=$M3 voice=$M4"
 
   suite:
-    needs: [preflight, native-voice]
+    needs: [preflight, native-voice, mock-contracts]
     runs-on: windows-latest
     timeout-minutes: 90
     env:
@@ -251,6 +251,26 @@ jobs:
           $rc = $LASTEXITCODE
           ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/qa-evidence/contracts/trx -SourceDirectory tools/Boo.QaSuite/Contracts
           if ($rc -ne 0 -or $LASTEXITCODE -ne 0) { exit 1 }
+
+      # C15E (mock j15e) ran on its own VM in this same run (job mock-contracts), so the live suite's VM never holds a
+      # mock redirect. Its one .trx joins the contracts results, so the report and the gate count C15E from this run.
+      - name: Download same-run mock contract receipt (C15E)
+        uses: actions/download-artifact@v4
+        with:
+          name: mock-contracts-evidence
+          path: artifacts/qa-evidence/contracts-mock
+      - name: Add the C15E receipt to the contracts results
+        shell: pwsh
+        run: |
+          $test = 'Boo.QaSuite.MockContracts.IncidentalActionsTests.Q15E_PlainQuestion_RejectsActualIncidentalAction_WithoutApprovalOrFileChange'
+          $files = @(Get-ChildItem artifacts/qa-evidence/contracts-mock/trx -Filter *.trx)
+          if ($files.Count -ne 1) { throw "Expected exactly one mock C15E .trx, found $($files.Count)" }
+          [xml]$trx = Get-Content $files[0].FullName -Raw
+          $rows = @($trx.TestRun.Results.UnitTestResult)
+          if ($rows.Count -ne 1 -or $rows[0].testName -ne $test) { throw 'The mock receipt is not exactly the C15E test' }
+          $identity = Get-Content artifacts/qa-evidence/contracts-mock/identity.txt -Raw
+          if ($identity -notmatch "app=${{ needs.preflight.outputs.app_sha }}") { throw 'The mock receipt is for a different app SHA' }
+          Copy-Item $files[0].FullName (Join-Path artifacts/qa-evidence/contracts/trx 'mock-c15e.trx')
 
       # PROBE RUN only: plant the classic mock trick (the demo-ci hosts redirect). Every real-AI check must now refuse.
       - name: Plant a mock (probe run only)
@@ -642,10 +662,115 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # C15E: the mock j15e contract (an incidental action on a plain question is refused with the required acknowledgment).
+  # It needs the QaMockAi server and an api.openai.com hosts redirect, so it runs on its OWN VM: the live suite's VM
+  # never holds a redirect, and its anti-mock checks stay meaningful. Same run id, same app SHA, so the report counts it
+  # as current-run evidence. Label: mock, zero real provider calls.
+  mock-contracts:
+    needs: preflight
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      BOO_CAPTURE_SCOPE: boo-windows
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'Hosted VM required' }
+      - name: Check out the test harness (this workflow's commit)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out the app under test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.app_sha }}
+          path: app-under-test
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build the app under test and the mock harness
+        shell: pwsh
+        run: |
+          dotnet publish app-under-test/src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/mock-app
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tools/Boo.QaMockAi -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tools/Boo.QaSuite -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: One mock j15e journey (C15E), no real AI and no retries
+        shell: pwsh
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\mock-app\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\mock-contracts
+          BOO_DEMO_WORKSPACE: ${{ github.workspace }}\tests\fixtures\native\Boo.QaWorkspace
+          BOO_QA_MOCK_LOG: ${{ github.workspace }}\artifacts\mock-contracts\mock-requests.log
+        run: |
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts/mock-contracts'
+          New-Item -ItemType Directory -Force $evidence | Out-Null
+          "app=${{ needs.preflight.outputs.app_sha }}`nharness=$(git rev-parse HEAD)`nrun=${{ github.run_id }}`nlabel=mock; real provider calls=0" | Set-Content "$evidence/identity.txt"
+          Get-FileHash $env:BOO_UI_EXE | Format-List | Out-File "$evidence/exe-hash.txt"
+          $hostsPath = Join-Path $env:SystemRoot 'System32/drivers/etc/hosts'
+          $hostsBefore = [IO.File]::ReadAllBytes($hostsPath)
+          $mock = $null
+          $imported = @()
+          try {
+            Add-Content -LiteralPath $hostsPath -Value "`n127.0.0.1 api.openai.com"
+            ipconfig /flushdns | Out-Null
+            $cert = Join-Path $evidence 'mock-api-openai.cer'
+            $dll = @(Get-ChildItem tools/Boo.QaMockAi/bin/Release -Recurse -Filter Boo.QaMockAi.dll)
+            if ($dll.Count -ne 1) { throw 'Expected one mock binary' }
+            $mock = Start-Process dotnet -ArgumentList "`"$($dll[0].FullName)`" --port 443 --cert-out `"$cert`" --log `"$env:BOO_QA_MOCK_LOG`" --workspace `"$env:BOO_DEMO_WORKSPACE`"" -PassThru -WindowStyle Hidden -RedirectStandardOutput "$evidence/mock-stdout.txt" -RedirectStandardError "$evidence/mock-stderr.txt"
+            $deadline = (Get-Date).AddSeconds(60)
+            while (-not (Test-Path -LiteralPath $cert) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+            if (-not (Test-Path -LiteralPath $cert)) { throw 'Mock did not create certificate' }
+            $imported = @(Import-Certificate -FilePath $cert -CertStoreLocation Cert:\LocalMachine\Root)
+            $probe = Invoke-WebRequest https://api.openai.com/v1/models -TimeoutSec 15
+            if ($probe.StatusCode -ne 200) { throw 'Mock health probe failed' }
+            $test = 'Boo.QaSuite.MockContracts.IncidentalActionsTests.Q15E_PlainQuestion_RejectsActualIncidentalAction_WithoutApprovalOrFileChange'
+            dotnet test tools/Boo.QaSuite -c Release --no-build --filter "FullyQualifiedName=$test" --logger trx --results-directory "$evidence/trx"
+            exit $LASTEXITCODE
+          } finally {
+            if ($mock) { Stop-Process -Id $mock.Id -Force -ErrorAction SilentlyContinue }
+            [IO.File]::WriteAllBytes($hostsPath, $hostsBefore)
+            ipconfig /flushdns | Out-Null
+            foreach ($certificate in $imported) { Remove-Item -LiteralPath "Cert:\LocalMachine\Root\$($certificate.Thumbprint)" }
+          }
+      - name: Prepare scanner
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Key scan before upload
+        id: keyscan_artifacts_mock_contracts
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/mock-contracts; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/mock-contracts' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/mock-contracts')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+      - name: Upload mock contract evidence
+        if: ${{ !cancelled() && steps.keyscan_artifacts_mock_contracts.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mock-contracts-evidence
+          path: artifacts/mock-contracts
+          if-no-files-found: error
+          retention-days: 7
+
   # THE VERDICT. Always runs; green only if the suite passed AND the probe proved the suite goes red. A skip, a cancel
   # or a missing key is never a pass.
   full-app-qa:
-    needs: [preflight, suite, red-probe, native-voice]
+    needs: [preflight, suite, red-probe, native-voice, mock-contracts]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -656,9 +781,10 @@ jobs:
           SUITE: ${{ needs.suite.result }}
           PROBE: ${{ needs.red-probe.result }}
           NATIVE: ${{ needs.native-voice.result }}
+          MOCK: ${{ needs.mock-contracts.result }}
         run: |
-          echo "preflight: $PREFLIGHT, suite: $SUITE, red-probe: $PROBE, native-voice: $NATIVE"
-          if [ "$PREFLIGHT" != "success" ] || [ "$SUITE" != "success" ] || [ "$PROBE" != "success" ] || [ "$NATIVE" != "success" ]; then
+          echo "preflight: $PREFLIGHT, suite: $SUITE, red-probe: $PROBE, native-voice: $NATIVE, mock-contracts: $MOCK"
+          if [ "$PREFLIGHT" != "success" ] || [ "$SUITE" != "success" ] || [ "$PROBE" != "success" ] || [ "$NATIVE" != "success" ] || [ "$MOCK" != "success" ]; then
             echo "::error title=full-app-qa::Not a pass (preflight: $PREFLIGHT, suite: $SUITE, red-probe: $PROBE)."
             exit 1
           fi
