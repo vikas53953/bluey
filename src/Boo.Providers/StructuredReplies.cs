@@ -94,7 +94,9 @@ internal static class StructuredReplies
             text = textElement.GetString() ?? string.Empty;
             if (root.TryGetProperty("marks", out var marksElement))
                 ParseMarks(vendor, marksElement, marks);
-            if (request.AllowActions && root.TryGetProperty("actions", out var actionsElement))
+            // Parsed (and validated) whatever the request allowed: an action on a plain question is reported, inert,
+            // so the app can acknowledge it (issue #181). Only an explicit task may offer one for approval (RenderReply).
+            if (root.TryGetProperty("actions", out var actionsElement))
                 ParseActions(vendor, actionsElement, request.Generation, controls, actions);
         }
 
