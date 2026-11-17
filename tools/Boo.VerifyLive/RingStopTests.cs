@@ -40,9 +40,10 @@ public sealed class RingStopTests : IClassFixture<LiveAppFixture>
             using var target = TargetWindow.Show(new Rectangle(screen.Width / 4, screen.Height / 4,
                 Math.Min(760, screen.Width / 2), Math.Min(520, screen.Height / 2)));
             var button = target.ButtonScreenRectangle();
+            // Text entry activates Boo; finish it before establishing the capture target (as in J3).
+            Find("InputBox").AsTextBox().Text = "Explain the window titled 'Boo live target' and point at its big 'Send report' button.";
             target.BringToFront(_boo.Automation);
             Assert.True(BooAppFixture.WaitUntil(() => target.IsForeground() && target.IsTopAt(button), TimeSpan.FromSeconds(5)));
-            Find("InputBox").AsTextBox().Text = "Explain the window titled 'Boo live target' and point at its big 'Send report' button.";
             Assert.Empty(Overlays());
             var lastAbsent = clock.ElapsedMilliseconds;
             Assert.True(target.IsForeground() && target.IsTopAt(button), "SETUP: target lost foreground/top before Send.");
