@@ -78,7 +78,12 @@ public static class SpokenAudio
     /// </summary>
     public static string? AnswerAcceptance(ReadOnlySpan<byte> pcm16Mono, int sampleRate, string transcript, int audioChunks)
     {
-        return AnswerVerdict(pcm16Mono, sampleRate, transcript, AnswerWords.IsMatch(transcript), audioChunks);
+        var saysTheAnswer = AnswerWords.IsMatch(transcript);
+        if (AnswerVerdict(pcm16Mono, sampleRate, transcript, saysTheAnswer, audioChunks) is { } notSpoken)
+        {
+            return notSpoken;
+        }
+        return saysTheAnswer ? null : $"The spoken answer should say 'five' but its transcript was '{transcript}'.";
     }
 
     public static string? AnswerVerdict(ReadOnlySpan<byte> pcm16Mono, int sampleRate, string transcript, bool transcriptSaysTheAnswer, int audioChunks)
