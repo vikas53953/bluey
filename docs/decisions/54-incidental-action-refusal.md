@@ -1,0 +1,3 @@
+| Date | Decision | Why | Source | Status |
+| --- | --- | --- | --- | --- |
+| 17 Nov 2026 | Add one focused mock j15e proof with actual paired request/response JSON, interval approval observations, unchanged recursive bytes and exact refusal message. | Plain question must not expose incidental provider actions. Missing/truncated receipts or screenshot failures cannot establish proof. Source predicts missing acknowledgment; preserve hosted red before product finding. | PR #54; `tools/Boo.QaSuite/MockContracts/IncidentalActionsTests.cs`; own `qa-incidental-actions.yml` uses existing mock without editing queued files. | UNVERIFIED; mock only, no live or aggregate acceptance. |
