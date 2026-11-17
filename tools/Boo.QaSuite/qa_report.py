@@ -15,6 +15,12 @@ import re
 import sys
 import subprocess
 import xml.etree.ElementTree as ET
+import importlib.util
+
+# CI runs with -I: load the trusted sibling by absolute path, without widening sys.path.
+_gate_spec = importlib.util.spec_from_file_location('boo_qa_acceptance', pathlib.Path(__file__).with_name('qa_gate.py'))
+_gate = importlib.util.module_from_spec(_gate_spec)
+_gate_spec.loader.exec_module(_gate)
 
 NS = {'t': 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}
 
@@ -126,6 +132,16 @@ def states_seen(folder):
 
 def build(folder, run_url='', app_sha='', harness_sha='', models=''):
     rows = read_trx(folder)
+    load, emit, theory_metadata, theory_results = _gate.load, _gate.emit, _gate.theory_metadata, _gate.theory_results
+    contract = load(pathlib.Path(__file__).with_name('qa_contract.json'))
+    metadata = theory_metadata(contract)
+    emitted = emit(folder,contract)
+    theory_ok = {}
+    for group, ids in contract['groups'].items():
+        for sid, method in ids.items():
+            if method in metadata:
+                matches = [r for r in emitted['groups'][group] if r['id']==sid]
+                theory_ok[sid] = len(matches)==1 and theory_results(matches[0].get('cases'),metadata[method])
     link = f'[run]({run_url})' if run_url else 'this run'
     table = ['| Check | Label | Result | Evidence |', '| --- | --- | --- | --- |']
     problems = []
@@ -145,10 +161,10 @@ def build(folder, run_url='', app_sha='', harness_sha='', models=''):
                 what = 'Voice provider: real OpenAI synthetic audio round trip (component; no Boo.exe UI)'
             elif name.endswith('TypedQuestion_GetsAnAnswerFromTheRealProvider'):
                 what = 'Live round trip: typed question + screenshot, real OpenAI answer'
-            ok = outcome == 'Passed'
+            ok = outcome == 'Passed' and theory_ok.get(sid, True)
             if not ok:
                 problems.append(f'{what}: {outcome} {message}')
-            result = 'passed' if ok else f'FAILED ({outcome}): {message}'.replace('|', '/')
+            result = 'passed' if ok else (f'FAILED ({outcome}): {message}' + ('; complete declared cases required' if sid in theory_ok and not theory_ok[sid] else '')).replace('|', '/')
             label = 'mock' if group == 'contracts' or any(cls in name for cls in (
                 '.SpokenAudioTests.', '.AnswerAudioFramesTests.', '.RealtimeReceiveLoopTests.', '.VoiceSmokeBoundTests.',
                 '.StopStatusRegressionTests.')) else 'live'
@@ -176,6 +192,8 @@ def build(folder, run_url='', app_sha='', harness_sha='', models=''):
     else:
         table.append(f'| Audio environment | UNVERIFIED | capability probe did not produce a receipt | {link} |')
     ran = {short_id(r[1]): r[2] for r in rows if short_id(r[1])}
+    for sid, complete in theory_ok.items():
+        ran[sid] = 'Passed' if complete else 'Incomplete or failed cases'
     voice_results = [r for r in rows if r[0] == 'smoke' and 'voice' in r[1].lower()]
     voice_passed = bool(voice_results) and all(r[2] == 'Passed' for r in voice_results)
     for jid, title, checks in JOURNEYS:
@@ -225,12 +243,27 @@ def self_test():
         ok = ok and cond
 
     def trx(path, results):
+        from xml.sax.saxutils import escape
         path.mkdir(parents=True, exist_ok=True)
         body = ''.join(
-            f'<UnitTestResult testName="{n}" outcome="{o}"><Output><ErrorInfo><Message>{m}</Message></ErrorInfo></Output></UnitTestResult>'
+            f'<UnitTestResult testName="{escape(n, {chr(34): "&quot;"})}" outcome="{o}"><Output><ErrorInfo><Message>{m}</Message></ErrorInfo></Output></UnitTestResult>'
             for n, o, m in results)
         (path / 'r.trx').write_text(f'<TestRun xmlns="{NS["t"]}"><Results>{body}</Results></TestRun>', encoding='utf-8')
 
+    load = _gate.load
+    declared = load(pathlib.Path(__file__).with_name('qa_contract.json'))['theory_cases']
+    q15 = next(cases for method,cases in declared.items() if '.Q15_' in method)
+    with tempfile.TemporaryDirectory() as d:
+        root = pathlib.Path(d)
+        for cases in [q15[:1], q15[:-1], q15]:
+            outcomes = [(c['name'],'Passed','') for c in cases]
+            trx(root/'journeys'/'trx',outcomes)
+            text,green = build(root)
+            check('Q15 narrative requires all declared cases: ' + str(len(cases)),
+                  ('complete declared cases required' in text) == (len(cases)!=3) and not green)
+        trx(root/'journeys'/'trx',[(c['name'],'Failed' if i==0 else 'Passed','') for i,c in enumerate(q15)])
+        text,green = build(root)
+        check('Q15 last Passed cannot hide earlier Failed', 'complete declared cases required' in text and not green)
     with tempfile.TemporaryDirectory() as d:
         root = pathlib.Path(d)
         for outcomes, expected in [([('Q16', 'Passed')], False),
@@ -245,6 +278,10 @@ def self_test():
         root = pathlib.Path(d)
         for g in GROUPS:
             trx(root / g / 'trx', [('Boo.QaSuite.Contracts.X.C66_Folder' if g == 'contracts' else f'Boo.QaSuite.X.T{g}.S0_Thing', 'Passed', '')])
+        load = _gate.load
+        declared = load(pathlib.Path(__file__).with_name('qa_contract.json'))['theory_cases']
+        c66 = next(cases for method,cases in declared.items() if '.C66_' in method)
+        trx(root / 'contracts' / 'trx', [(c['name'],'Passed','') for c in c66])
         trx(root / 'verifylive' / 'trx', [('Boo.VerifyLive.Regressions.StopStatusRegressionTests.StopDuringPendingQuestion_StatusNoLongerSaysThinking', 'Passed', '')])
         (root / 'journeys' / 'qa-notch-states-journeys.txt').write_text('# expected Listening and Happy\n10 Hidden\n20 Thinking\ninvalid 30 Nudge\n', encoding='utf-8')
         text, green = build(root)

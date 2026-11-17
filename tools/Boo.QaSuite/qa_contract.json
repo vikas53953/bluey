@@ -1,5 +1,5 @@
 {
-  "contract_version": 15,
+  "contract_version": 16,
   "groups": {
     "contracts": {
       "C15E": "Boo.QaSuite.MockContracts.IncidentalActionsTests.Q15E_PlainQuestion_RejectsActualIncidentalAction_WithoutApprovalOrFileChange",
@@ -77,5 +77,83 @@
       "SR0": "Boo.VerifyLive.Regressions.StopStatusRegressionTests.StopDuringPendingQuestion_StatusNoLongerSaysThinking"
     }
   },
-  "retired": {}
+  "retired": {},
+  "theory_cases": {
+    "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot": [
+      {
+        "name": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot(allowActions: True, selectedRoot: True, expected: True, withFrame: False)",
+        "arguments": [
+          true,
+          true,
+          true,
+          false
+        ]
+      },
+      {
+        "name": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot(allowActions: True, selectedRoot: True, expected: True, withFrame: True)",
+        "arguments": [
+          true,
+          true,
+          true,
+          true
+        ]
+      },
+      {
+        "name": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot(allowActions: True, selectedRoot: False, expected: False, withFrame: False)",
+        "arguments": [
+          true,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "name": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot(allowActions: True, selectedRoot: False, expected: False, withFrame: True)",
+        "arguments": [
+          true,
+          false,
+          false,
+          true
+        ]
+      },
+      {
+        "name": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot(allowActions: False, selectedRoot: True, expected: False, withFrame: False)",
+        "arguments": [
+          false,
+          true,
+          false,
+          false
+        ]
+      },
+      {
+        "name": "Boo.QaSuite.Contracts.SelectedFolderContractTests.C66_SelectedFolderContext_RequiresAnExplicitTaskAndConfiguredRoot(allowActions: False, selectedRoot: True, expected: False, withFrame: True)",
+        "arguments": [
+          false,
+          true,
+          false,
+          true
+        ]
+      }
+    ],
+    "Boo.QaSuite.Journeys.ApprovalEdgeTests.Q15_CancelEscapeOrReplacement_CannotApplyAnOldProposal": [
+      {
+        "name": "Boo.QaSuite.Journeys.ApprovalEdgeTests.Q15_CancelEscapeOrReplacement_CannotApplyAnOldProposal(branch: \"cancel\")",
+        "arguments": [
+          "cancel"
+        ]
+      },
+      {
+        "name": "Boo.QaSuite.Journeys.ApprovalEdgeTests.Q15_CancelEscapeOrReplacement_CannotApplyAnOldProposal(branch: \"escape\")",
+        "arguments": [
+          "escape"
+        ]
+      },
+      {
+        "name": "Boo.QaSuite.Journeys.ApprovalEdgeTests.Q15_CancelEscapeOrReplacement_CannotApplyAnOldProposal(branch: \"replacement\")",
+        "arguments": [
+          "replacement"
+        ]
+      }
+    ]
+  }
 }
