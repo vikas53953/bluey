@@ -1,5 +1,5 @@
 {
-  "revision": 42,
+  "revision": 43,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -14,6 +14,7 @@
     "src/Boo.Core/Contracts.cs": "035ec5798f7b09b89068cab1b42b0667a484a42eb2d28fa14852b12b3a850caf",
     "tests/Boo.App.Tests/Boo.App.Tests.csproj": "2d02836ba629be81d4641af63616f5bedf310e6c57dc029d7df3a76bd1fe7693",
     "tests/Boo.App.Tests/FocusAcknowledgmentOrderTests.cs": "2fc661d843c9bc2531fcb33cb524639521c64155e7953de9302ff1ba6a7b597e",
+    "tests/Boo.App.Tests/IncidentalActionRenderTests.cs": "822096614e369b627929475e83b7967f3064a88e28c513ae8fea00ae0cf155ea",
     "tests/Boo.App.Tests/RenderAcknowledgmentTests.cs": "79b6af2ac9fbe64e1f728d69a7f8cf0d85364ce4222b342fdde75737074a8bc1",
     "tests/Boo.App.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "50c7561b8c6ce94f879102b86c461ec200b4c53a0d8f3e792000213fb279f591",
@@ -180,13 +181,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-41.json",
-  "previousManifestSha256": "7e12dd6bf6e7c0a3ef72e10b0b92fcceb4fab933b2ba1bac1fda60536a3b1da9",
-  "revisionReason": "PR (#181): IncidentalActionTests (a plain question reports an incidental action so the app can acknowledge it)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-42.json",
+  "previousManifestSha256": "76ac533dc4cff81f8483860177274027a3168ab8250cc03a6f2ffbd588b51989",
+  "revisionReason": "PR #182: IncidentalActionRenderTests (MainWindow shows the exact acknowledgment for a plain question's action, never for a task; mutations M03, M04)",
   "addedFiles": [
-    "tests/Boo.Providers.Tests/IncidentalActionTests.cs"
+    "tests/Boo.App.Tests/IncidentalActionRenderTests.cs"
   ],
-  "revisionCommit": "64894ac7c1fc0d35a9b0c6798caf1eefa9bbfe78",
+  "revisionCommit": "1d386c7f370e8a70586a2976399ee750a91e90df",
   "changedFiles": [],
   "removedFiles": []
 }
