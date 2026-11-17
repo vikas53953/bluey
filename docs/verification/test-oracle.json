@@ -1,5 +1,5 @@
 {
-  "revision": 43,
+  "revision": 44,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -93,6 +93,7 @@
     "tests/Boo.Core.Tests/SettingsDefaultsTests.cs": "b867d27a146e068ef5364cd449f0b01903ee00c83ef40541190496e5162d8d8a",
     "tests/Boo.Core.Tests/SettingsRoundTripTests.cs": "d9ad8cb8dfa7aa99016997271a045de0af9e91faf7ea7e8597d713b675f25095",
     "tests/Boo.Core.Tests/ShortcutStatusTests.cs": "fe065ecb9bf3b10124516db983f741afe36b88dd9e770f07a6fb87fd538d8356",
+    "tests/Boo.Core.Tests/SilentReplyRecoveryTests.cs": "96ce86489b63fb3f14150097dc575f69bf41f8126a2cd561931b45c07c0be01d",
     "tests/Boo.Core.Tests/StartupRegistrationTests.cs": "dcd5b440b8191dd0adfb49e700e5c53ca45a42aa8e5814d809de997e86ebf64a",
     "tests/Boo.Core.Tests/TestThreadPool.cs": "9aee9db37060b844fc341d9a202b11c064a61e95a17dbd6f94cf961ddbc4f52f",
     "tests/Boo.Core.Tests/TypeTextInvisibleCharacterTests.cs": "b97367e6b0abd1bffecf139b78c7852939d8bfb06a7da4929bfb66d7ec9ac8ab",
@@ -181,13 +182,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-42.json",
-  "previousManifestSha256": "76ac533dc4cff81f8483860177274027a3168ab8250cc03a6f2ffbd588b51989",
-  "revisionReason": "PR #182: IncidentalActionRenderTests (MainWindow shows the exact acknowledgment for a plain question's action, never for a task; mutations M03, M04)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-43.json",
+  "previousManifestSha256": "5ef27d2a6a9c81e865ef4c855ff3f43dfd362f2d11e3d06d2cae13679af14fd9",
+  "revisionReason": "#177: SilentReplyRecoveryTests (a spoken reply with no speech but a transcript is read aloud by Boo)",
   "addedFiles": [
-    "tests/Boo.App.Tests/IncidentalActionRenderTests.cs"
+    "tests/Boo.Core.Tests/SilentReplyRecoveryTests.cs"
   ],
-  "revisionCommit": "758ce6c31aac61365bf35af5dc3d3f3acddde183",
+  "revisionCommit": "dc358e2044828f9927f2bc88a7a457370343f8b4",
   "changedFiles": [],
   "removedFiles": []
 }
