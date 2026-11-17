@@ -83,15 +83,19 @@ public sealed class IncidentalActionRenderTests
             seen);
     }
 
-    /// <summary>Calls MainWindow's private reply renderer for the current request generation, as a reply would arrive.</summary>
+    /// <summary>
+    /// Begins a request the way Send does (MainWindow's private BeginRequest, so the request coordinator holds it as
+    /// current) and hands the reply to MainWindow's private renderer for that request, as an arriving reply would be.
+    /// </summary>
     private static object? Invoke(MainWindow window, AssistantReply reply, bool explicitTask)
     {
         const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
-        var generation = typeof(MainWindow).GetField("_generation", Private)
-            ?? throw new MissingFieldException(nameof(MainWindow), "_generation");
+        var begin = typeof(MainWindow).GetMethod("BeginRequest", Private, Type.EmptyTypes)
+            ?? throw new MissingMethodException(nameof(MainWindow), "BeginRequest");
         var render = typeof(MainWindow).GetMethod("RenderReply", Private)
             ?? throw new MissingMethodException(nameof(MainWindow), "RenderReply");
-        return render.Invoke(window, [reply, (long)generation.GetValue(window)!, null, explicitTask, null, false]);
+        var lease = (RequestLease)begin.Invoke(window, null)!;
+        return render.Invoke(window, [reply, lease.Generation, null, explicitTask, null, false]);
     }
 
     /// <summary>MainWindow.xaml needs App.xaml's resources; the Application is never Run(), so OnStartup never runs.</summary>

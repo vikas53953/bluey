@@ -14,7 +14,7 @@
     "src/Boo.Core/Contracts.cs": "035ec5798f7b09b89068cab1b42b0667a484a42eb2d28fa14852b12b3a850caf",
     "tests/Boo.App.Tests/Boo.App.Tests.csproj": "2d02836ba629be81d4641af63616f5bedf310e6c57dc029d7df3a76bd1fe7693",
     "tests/Boo.App.Tests/FocusAcknowledgmentOrderTests.cs": "2fc661d843c9bc2531fcb33cb524639521c64155e7953de9302ff1ba6a7b597e",
-    "tests/Boo.App.Tests/IncidentalActionRenderTests.cs": "822096614e369b627929475e83b7967f3064a88e28c513ae8fea00ae0cf155ea",
+    "tests/Boo.App.Tests/IncidentalActionRenderTests.cs": "7c32c43bafa9872ced552bef27def444a4c63a0fa62808267db6e4444b004cb8",
     "tests/Boo.App.Tests/RenderAcknowledgmentTests.cs": "79b6af2ac9fbe64e1f728d69a7f8cf0d85364ce4222b342fdde75737074a8bc1",
     "tests/Boo.App.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "50c7561b8c6ce94f879102b86c461ec200b4c53a0d8f3e792000213fb279f591",
@@ -187,7 +187,7 @@
   "addedFiles": [
     "tests/Boo.App.Tests/IncidentalActionRenderTests.cs"
   ],
-  "revisionCommit": "1d386c7f370e8a70586a2976399ee750a91e90df",
+  "revisionCommit": "758ce6c31aac61365bf35af5dc3d3f3acddde183",
   "changedFiles": [],
   "removedFiles": []
 }
