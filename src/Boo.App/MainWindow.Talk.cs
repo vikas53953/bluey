@@ -212,6 +212,7 @@ public partial class MainWindow
 
     private void InterruptPlayback()
     {
+        CancelPendingRecovery();
         Interlocked.Exchange(ref _playbackUntilMs, 0);
         _endOfSpeech = null;
         _audio?.ClearPlayback();
@@ -225,6 +226,7 @@ public partial class MainWindow
     private async void StartPushToTalk()
     {
         CancelPendingSleep();
+        CancelPendingRecovery();
         PushToTalkUplink? uplink = null;
         var lease = _requestLease;
         try

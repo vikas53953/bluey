@@ -889,6 +889,7 @@ public partial class MainWindow : Window
     private void StopListening()
     {
         var hadVoiceSession = _listening || _realtimeConnected || _audioUploads is not null || _realtime is not null;
+        CancelPendingRecovery();
         DiscardPushToTalkUplink();
         StopAudioUploads();
         try

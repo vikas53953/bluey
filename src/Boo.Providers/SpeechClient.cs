@@ -1,3 +1,5 @@
+using System.IO;
+using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -9,7 +11,11 @@ namespace Boo.Providers;
 /// Reads a short text aloud with OpenAI's text-to-speech (POST /v1/audio/speech), returning raw 24 kHz 16-bit mono PCM:
 /// the same format the realtime voice sends, so Boo's player plays it unchanged. Used only to recover a spoken reply
 /// whose audio came back silent while its transcript had words (issue #177; <see cref="SilentReplyRecovery"/>).
-/// One request per call, never retried. The key is sent only in the Authorization header and never logged.
+/// One request per call, never retried. The body is read as a stream and refused past <see cref="MaxAudioBytes"/>, so
+/// the limit bounds memory too. Only a cancellation the caller asked for is reported as cancellation; a timeout, a
+/// transport or body-read error, an error status or unusable audio is an <see cref="InvalidOperationException"/>
+/// (a <see cref="ProviderException"/> where classified). The key is sent only in the Authorization header and never
+/// logged; nothing here logs the text or the response body.
 /// </summary>
 public sealed class SpeechClient
 {
@@ -60,26 +66,45 @@ public sealed class SpeechClient
         };
         message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Trim());
 
-        HttpResponseMessage response;
         try
         {
-            response = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            using var response = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw await ProviderHttpFailures.StatusAsync("speech", response, cancellationToken).ConfigureAwait(false);
+            }
+            await using var body = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            return await ReadBoundedPcmAsync(body, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new InvalidOperationException("OpenAI speech timed out.", exception);
         }
         catch (HttpRequestException exception)
         {
             throw ProviderHttpFailures.Transport("speech", exception);
         }
-
-        using (response)
+        catch (IOException exception)
         {
-            if (!response.IsSuccessStatusCode)
-            {
-                throw await ProviderHttpFailures.StatusAsync("speech", response, cancellationToken).ConfigureAwait(false);
-            }
-            var audio = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-            if (audio.Length == 0 || audio.Length > MaxAudioBytes)
-                throw new InvalidOperationException("OpenAI speech returned no usable audio.");
-            return audio.Length % 2 == 0 ? audio : audio[..^1];
+            throw new InvalidOperationException("OpenAI speech returned an unreadable result.", exception);
         }
+    }
+
+    /// <summary>Reads raw PCM up to <see cref="MaxAudioBytes"/>; more is refused, nothing is refused as empty audio.</summary>
+    internal static async Task<byte[]> ReadBoundedPcmAsync(Stream body, CancellationToken cancellationToken)
+    {
+        using var audio = new MemoryStream();
+        var buffer = new byte[64 * 1024];
+        int read;
+        while ((read = await body.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            if (audio.Length + read > MaxAudioBytes)
+                throw new InvalidOperationException("OpenAI speech returned more audio than a recovery allows.");
+            audio.Write(buffer, 0, read);
+        }
+        if (audio.Length < 2)
+            throw new InvalidOperationException("OpenAI speech returned no usable audio.");
+        var pcm = audio.ToArray();
+        return pcm.Length % 2 == 0 ? pcm : pcm[..^1];
     }
 }

@@ -1,5 +1,5 @@
 {
-  "revision": 45,
+  "revision": 46,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -16,6 +16,7 @@
     "tests/Boo.App.Tests/FocusAcknowledgmentOrderTests.cs": "2fc661d843c9bc2531fcb33cb524639521c64155e7953de9302ff1ba6a7b597e",
     "tests/Boo.App.Tests/IncidentalActionRenderTests.cs": "7c32c43bafa9872ced552bef27def444a4c63a0fa62808267db6e4444b004cb8",
     "tests/Boo.App.Tests/RenderAcknowledgmentTests.cs": "79b6af2ac9fbe64e1f728d69a7f8cf0d85364ce4222b342fdde75737074a8bc1",
+    "tests/Boo.App.Tests/SilentReplyLifecycleTests.cs": "3ff55e609ac9a81c4ef22362542aebda9abcde7dca727085a080a7c6f419cfdb",
     "tests/Boo.App.Tests/SilentReplyWiringTests.cs": "052856c41e85b7381f673f815be4724baf18785d0376ffa547f7c494ef958bc8",
     "tests/Boo.App.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "50c7561b8c6ce94f879102b86c461ec200b4c53a0d8f3e792000213fb279f591",
@@ -94,6 +95,7 @@
     "tests/Boo.Core.Tests/SettingsDefaultsTests.cs": "b867d27a146e068ef5364cd449f0b01903ee00c83ef40541190496e5162d8d8a",
     "tests/Boo.Core.Tests/SettingsRoundTripTests.cs": "d9ad8cb8dfa7aa99016997271a045de0af9e91faf7ea7e8597d713b675f25095",
     "tests/Boo.Core.Tests/ShortcutStatusTests.cs": "fe065ecb9bf3b10124516db983f741afe36b88dd9e770f07a6fb87fd538d8356",
+    "tests/Boo.Core.Tests/SilentReplyRecoveryEdgeTests.cs": "3efd013a843308b4f32cee459ebfdf70069273e1166ea790262674fcb9952559",
     "tests/Boo.Core.Tests/SilentReplyRecoveryTests.cs": "96ce86489b63fb3f14150097dc575f69bf41f8126a2cd561931b45c07c0be01d",
     "tests/Boo.Core.Tests/StartupRegistrationTests.cs": "dcd5b440b8191dd0adfb49e700e5c53ca45a42aa8e5814d809de997e86ebf64a",
     "tests/Boo.Core.Tests/TestThreadPool.cs": "9aee9db37060b844fc341d9a202b11c064a61e95a17dbd6f94cf961ddbc4f52f",
@@ -166,6 +168,7 @@
     "tests/Boo.Providers.Tests/ProviderTestKit.cs": "1cc496f2a7a3e94b9dca7c29e7640054c46d2994080e4c82c59340e383f9376f",
     "tests/Boo.Providers.Tests/ResponsesResultShapeTests.cs": "f9bd5f1477847d7bff7c9b514fa5986cfffd297d2a2fab2a37101b6a12edc898",
     "tests/Boo.Providers.Tests/SmokeTests.cs": "612081b6ffe0ec94ddad95aff43e5c33ab6e353039650a2360b9f0e54866f0b4",
+    "tests/Boo.Providers.Tests/SpeechClientTests.cs": "2cf14827a6057fcca170f8e5ec1e86796bb5a727903667e7e4a91a9bd665bd18",
     "tests/Boo.Providers.Tests/StructuredReplyFuzzTests.cs": "611ba9f0013fe1587ba5ef762fec7d8c8d7ed4333d633409e07d1f7ce325b905",
     "tests/Boo.Ui.Tests/Boo.Ui.Tests.csproj": "1f2bc76c58ebe16aee50f459b595afe8ae2c3201f412eae3aa80bfa6beb96ada",
     "tests/Boo.Ui.Tests/BooAppFixture.cs": "a1014e3386411a12944425fc931b099ce824863622971c5e80d04b1db740fee1",
@@ -183,13 +186,15 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-44.json",
-  "previousManifestSha256": "ce55a758fd58e7dbcdc41d78c707d9295802aa170dc52fe493aa7ee3191acbd9",
-  "revisionReason": "#177: SilentReplyWiringTests (MainWindow reads a silent spoken reply aloud; leaves spoken, muted and stopped replies alone)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-45.json",
+  "previousManifestSha256": "8d620c950e75c8df1d817d3b48c5622b5f26c71009da9c1185c1c5bb351b5ad2",
+  "revisionReason": "#186 review: SilentReplyRecoveryEdgeTests, SpeechClientTests, SilentReplyLifecycleTests (whole-reply measure, bounded speech request, stale or failed recovery never plays or claims success)",
   "addedFiles": [
-    "tests/Boo.App.Tests/SilentReplyWiringTests.cs"
+    "tests/Boo.App.Tests/SilentReplyLifecycleTests.cs",
+    "tests/Boo.Core.Tests/SilentReplyRecoveryEdgeTests.cs",
+    "tests/Boo.Providers.Tests/SpeechClientTests.cs"
   ],
-  "revisionCommit": "6e789bd8a70551571e6926ced3a156dc65147b41",
+  "revisionCommit": "7086f64b0d963aef05fb08d28f07dbb9dcb9bad6",
   "changedFiles": [],
   "removedFiles": []
 }
