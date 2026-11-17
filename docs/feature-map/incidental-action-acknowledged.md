@@ -1,0 +1,5 @@
+Section: Actions, approval and Undo
+
+| # | Feature | How verified | Proof |
+| --- | --- | --- | --- |
+| incidental-action-acknowledged | **An action the AI proposes on a plain question is acknowledged, never offered.** The reply parser validates and reports it (inert, stamped with Boo's generation), the app shows "Boo suggested an action, but no explicit task request authorized it.", and no approval card appears and no file changes. A plain question whose action is outside the catalog fails closed, like a task | automated mock | `tests/Boo.Providers.Tests/IncidentalActionTests.cs::A_plain_question_reports_an_incidental_action_so_the_app_can_acknowledge_it`; `tests/Boo.Providers.Tests/IncidentalActionTests.cs::A_plain_question_with_an_action_outside_the_catalog_fails_closed_like_a_task_does` (windows-ci); end to end on the published app with the QaMockAi server: #54's `IncidentalActionsTests.Q15E_PlainQuestion_RejectsActualIncidentalAction_WithoutApprovalOrFileChange`; issue #181 |
