@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Boo.LiveSmoke;
 
 /// <summary>
@@ -66,6 +68,19 @@ public static class SpokenAudio
     /// otherwise the failure message. It never accepts anything <see cref="IsSpokenAnswer"/> rejects; it only words the
     /// failure.
     /// </summary>
+    /// <summary>The words a correct answer to "what is two plus three" must contain (five or 5).</summary>
+    public static readonly Regex AnswerWords = new(@"\b(five|5)\b", RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// The live voice test's whole acceptance rule for OpenAI's answer, in one pure function so it is tested offline:
+    /// null only when the answer audio is spoken (<see cref="AnswerVerdict"/>) and its transcript says five or 5;
+    /// otherwise the failure message.
+    /// </summary>
+    public static string? AnswerAcceptance(ReadOnlySpan<byte> pcm16Mono, int sampleRate, string transcript, int audioChunks)
+    {
+        return AnswerVerdict(pcm16Mono, sampleRate, transcript, AnswerWords.IsMatch(transcript), audioChunks);
+    }
+
     public static string? AnswerVerdict(ReadOnlySpan<byte> pcm16Mono, int sampleRate, string transcript, bool transcriptSaysTheAnswer, int audioChunks)
     {
         if (IsSpokenAnswer(pcm16Mono, sampleRate))

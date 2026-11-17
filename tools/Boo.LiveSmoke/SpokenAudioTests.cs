@@ -158,6 +158,30 @@ public sealed class SpokenAudioTests
         }
     }
 
+    [Fact]
+    public void A_clearly_spoken_wrong_answer_is_rejected_and_the_right_one_accepted()
+    {
+        // Issue #177 (c), live-ai-smoke run 44023109153: OpenAI heard "2 plus 3" and answered aloud, clearly, "7". The
+        // audio passes the spoken-answer rule, so only the transcript check can reject it. Real spoken audio here:
+        var spoken = Fixture("answer-five-real-speech.wav");
+        Assert.True(SpokenAudio.IsSpokenAnswer(spoken, Rate), "the fixture is clearly spoken");
+        var wrong = SpokenAudio.AnswerAcceptance(spoken, Rate, "7", audioChunks: 2);
+        Assert.NotNull(wrong);
+        Assert.Contains("'7'", wrong, StringComparison.Ordinal);
+        Assert.NotNull(SpokenAudio.AnswerAcceptance(spoken, Rate, "The answer is seven.", audioChunks: 2));
+        Assert.NotNull(SpokenAudio.AnswerAcceptance(spoken, Rate, "15", audioChunks: 2));
+        Assert.Null(SpokenAudio.AnswerAcceptance(spoken, Rate, "The answer is 5.", audioChunks: 2));
+        Assert.Null(SpokenAudio.AnswerAcceptance(spoken, Rate, "Five", audioChunks: 2));
+    }
+
+    [Fact]
+    public void A_right_transcript_never_rescues_unspoken_audio()
+    {
+        // The rule needs both parts: silence or too little speech fails even with "five" in the transcript.
+        Assert.NotNull(SpokenAudio.AnswerAcceptance(Fixture("answer-silent-from-provider-177.wav"), Rate, "Five", audioChunks: 11));
+        Assert.NotNull(SpokenAudio.AnswerAcceptance(LoudThenSilent(windows: 7, silentWindows: 30), Rate, "The answer is 5.", audioChunks: 1));
+    }
+
     /// <summary>Little-endian 16-bit PCM of exactly these samples.</summary>
     private static byte[] Samples(params short[] values)
     {

@@ -48,7 +48,6 @@ public sealed class LiveVoiceRoundTripTests
     private const int BytesPerSecond = SampleRate * 2;
     private static readonly TimeSpan TurnTimeout = TimeSpan.FromSeconds(90);
     private static readonly Regex HeardQuestion = new(@"\b(two|2)\s*(plus|\+|and)\s*(three|3)\b", RegexOptions.IgnoreCase);
-    private static readonly Regex SaidAnswer = new(@"\b(five|5)\b", RegexOptions.IgnoreCase);
 
     private readonly ITestOutputHelper _output;
 
@@ -156,9 +155,10 @@ public sealed class LiveVoiceRoundTripTests
         Assert.True(raw.Pcm.AsSpan().SequenceEqual(answerAudio),
             $"The raw messages hold {raw.Pcm.Length} audio bytes but Boo's events delivered {answerAudio.Length}.");
         var audioChunks = events.Count(e => e.Kind == "response.output_audio.delta" && e.Audio is not null);
-        var verdict = SpokenAudio.AnswerVerdict(answerAudio, SampleRate, answer, SaidAnswer.IsMatch(answer), audioChunks);
-        Assert.True(verdict is null, verdict);
-        Assert.True(SaidAnswer.IsMatch(answer), $"The spoken answer should say 'five' but its transcript was '{answer}'.");
+        // The whole acceptance rule (spoken audio, then a transcript saying five or 5) is one pure function, tested
+        // offline in SpokenAudioTests, so dropping any part of it is caught without a paid call.
+        var acceptance = SpokenAudio.AnswerAcceptance(answerAudio, SampleRate, answer, audioChunks);
+        Assert.True(acceptance is null, acceptance);
     }
 
     /// <summary>A model id from the environment, or the default; a malformed id fails closed.</summary>
