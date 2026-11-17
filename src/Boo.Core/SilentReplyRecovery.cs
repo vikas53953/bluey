@@ -65,7 +65,23 @@ public sealed class SilentReplyRecovery
             return null;
         }
         _decided = true;
-        return null;
+        var text = _transcript.Trim();
+        if (speechMuted || text.Length == 0)
+        {
+            return null;
+        }
+        var audio = _audio.ToArray();
+        if (ReplyAudio.SpeechSeconds(audio, sampleRate) > 0)
+        {
+            return null;
+        }
+        var peak = ReplyAudio.PeakLevel(audio);
+        return new SilentReplyDecision(
+            text.Length <= MaxRecoveryCharacters ? text : text[..MaxRecoveryCharacters],
+            peak < ReplyAudio.ProviderSilencePeak,
+            peak,
+            audio.Length / 2.0 / sampleRate,
+            _chunks);
     }
 }
 
