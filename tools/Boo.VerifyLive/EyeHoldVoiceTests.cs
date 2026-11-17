@@ -191,8 +191,8 @@ public sealed class EyeHoldVoiceTests : IClassFixture<EyeHoldVoiceFixture>
     private static bool HeardQuestion(string s) => s.StartsWith("You: ", StringComparison.Ordinal)
         && Regex.IsMatch(s, @"\b(two|2)\b", RegexOptions.IgnoreCase)
         && Regex.IsMatch(s, @"\b(three|3)\b", RegexOptions.IgnoreCase);
-    private static void NoApproval(Window panel) => Assert.DoesNotContain(panel.FindAllDescendants(), e =>
-        !e.IsOffscreen && e.Properties.Name.ValueOrDefault == "Review action");
+    private static void NoApproval(Window panel) => Assert.DoesNotContain(
+        panel.FindAllDescendants(cf => cf.ByName("Review action")), e => !e.IsOffscreen);
     private long Counter(string property)
     {
         var path = Path.Combine(_boo.ArtifactsDirectory, "j10b-device.jsonl");
