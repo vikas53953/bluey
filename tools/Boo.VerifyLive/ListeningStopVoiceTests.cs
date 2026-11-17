@@ -259,10 +259,10 @@ public sealed class ListeningStopVoiceTests : IClassFixture<ListeningStopVoiceFi
         private readonly object _gate = new();
         private readonly List<(long Start, long End, string State)> _reads = new();
         private volatile bool _stop;
-        private readonly int _panelHandle;
+        private readonly IntPtr _panelHandle;
         public long Mark => _clock.ElapsedMilliseconds;
         public int Count { get { lock (_gate) return _reads.Count; } }
-        public FaceRecorder(BooAppFixture boo, int panelHandle)
+        public FaceRecorder(BooAppFixture boo, IntPtr panelHandle)
         {
             _boo = boo;
             _panelHandle = panelHandle;
@@ -285,7 +285,7 @@ public sealed class ListeningStopVoiceTests : IClassFixture<ListeningStopVoiceFi
                     notch ??= _boo.App.GetAllTopLevelWindows(automation).Single(w =>
                         w.Properties.Name.Value is BooAppFixture.NotchName or BooAppFixture.NotchTitle);
                     state = notch.Properties.ItemStatus.Value;
-                    NoApproval(automation.FromHandle(new IntPtr(_panelHandle)).AsWindow());
+                    NoApproval(automation.FromHandle(_panelHandle).AsWindow());
                 }
                 catch (Exception ex) { state = "ERROR:" + ex.GetType().Name; notch = null; }
                 lock (_gate) _reads.Add((start, Mark, state));
