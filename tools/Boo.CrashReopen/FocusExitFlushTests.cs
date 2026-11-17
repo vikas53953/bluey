@@ -68,13 +68,52 @@ public sealed class QuitWithAPendingSaveTests : IClassFixture<ExitFlushFixture>
         }
     }
 
-    /// <summary>Opens Boo's tray menu and returns its Quit item without invoking it.</summary>
+    /// <summary>
+    /// Opens Boo's tray menu the way a person does (the overflow arrow when the icon is hidden, then a right-click on the
+    /// "Boo companion" icon) and returns its Quit item without invoking it.
+    /// </summary>
     private FlaUI.Core.AutomationElements.MenuItem OpenTrayQuit()
     {
-        var quit = TrayMenu.Open(_app, name => name == "Quit", "a Quit item");
+        var automation = _app.Automation;
+        var desktop = automation.GetDesktop();
+        var explorer = new HashSet<int>();
+        foreach (var process in Process.GetProcessesByName("explorer"))
+        {
+            using (process) explorer.Add(process.Id);
+        }
+        Assert.NotEmpty(explorer);
+        static bool Visible(AutomationElement e) => !e.IsOffscreen && e.BoundingRectangle.Width > 0 && e.BoundingRectangle.Height > 0;
+        AutomationElement[] Shell(Func<AutomationElement, bool> match) => desktop.FindAllChildren()
+            .Where(root => explorer.Contains(root.Properties.ProcessId.ValueOrDefault))
+            .SelectMany(root => root.FindAllDescendants().Prepend(root))
+            .Where(match).ToArray();
+        static bool Named(AutomationElement e, string name) => e.Properties.Name.TryGetValue(out var actual) && actual == name;
+
+        AutomationElement[] Icons() => Shell(e => Named(e, "Boo companion") && Visible(e));
+        var icons = Icons();
+        if (icons.Length == 0)
+        {
+            var overflow = Assert.Single(Shell(e => e.Properties.ControlType.ValueOrDefault == ControlType.Button
+                && Named(e, "Show Hidden Icons") && Visible(e)));
+            var box = overflow.BoundingRectangle;
+            Mouse.Click(new Point(box.Left + box.Width / 2, box.Top + box.Height / 2), MouseButton.Left);
+            Assert.True(BooAppFixture.WaitUntil(() => (icons = Icons()).Length > 0, TimeSpan.FromSeconds(3)), "The Boo tray icon did not appear.");
+        }
+        var bounds = Assert.Single(icons).BoundingRectangle;
+        // The centre of the icon is Explorer's picture; the button's left padding is the button itself.
+        Mouse.RightClick(new Point(bounds.Left + Math.Max(1, bounds.Width / 8), bounds.Top + bounds.Height / 2));
+        AutomationElement? quit = null;
+        Assert.True(BooAppFixture.WaitUntil(() =>
+        {
+            quit = desktop.FindAllDescendants(cf => cf.ByProcessId(_app.App.ProcessId).And(cf.ByControlType(ControlType.Menu)))
+                .Where(Visible)
+                .SelectMany(menu => menu.FindAllDescendants(cf => cf.ByControlType(ControlType.MenuItem)))
+                .SingleOrDefault(item => Named(item, "Quit") && Visible(item));
+            return quit is not null;
+        }, TimeSpan.FromSeconds(5)), "Boo's tray menu did not show a Quit item.");
         _boo.Capture("exit-flush-tray-menu");
         _boo.Record("tray menu open with Quit");
-        return quit;
+        return quit!.AsMenuItem();
     }
 }
 
