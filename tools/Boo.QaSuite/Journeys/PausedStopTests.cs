@@ -41,7 +41,13 @@ public sealed class PausedStopTests : IClassFixture<NoKeyFixture>
             var bounds = notch.BoundingRectangle;
             Mouse.Position = new Point(bounds.Left + bounds.Width / 2, bounds.Top + 300);
             recorder = new NotchStateRecorder(_boo, "paused-stop");
-            void Press(string id) => QaUi.Find(_boo, panel, id).AsButton().Invoke();
+            var buttons = new[] { "FocusEndButton", "FocusPauseButton", "FocusStartButton" }.ToDictionary(id => id, id => QaUi.Find(_boo, panel, id).AsButton());
+            void Press(string id)
+            {
+                // QA_TIMED_INVOKE_BEGIN
+                buttons[id].Invoke();
+                // QA_TIMED_INVOKE_END
+            }
             string Status() => QaUi.NameOf(panel, "FocusStatus");
             var task = "j12g " + Guid.NewGuid().ToString("N");
             var store = new SessionStore(Path.Combine(_boo.DataDirectory, "sessions.db"));

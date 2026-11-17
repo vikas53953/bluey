@@ -1,0 +1,3 @@
+| Date | Decision | Why | Source | Status |
+| --- | --- | --- | --- | --- |
+| 17 Nov 2026 | Pre-resolve focus buttons and tray menu wrappers before marked actions in Q13H/S/R, Q12F/G, Q13 edges and Q7 setup. Q13H measured invocation contains only cached End.Invoke. | Issue111 diagnosis shows test descendant search queues observer reads; preserve every assertion,100ms bracket and2500ms nominal. Q12G keyboard and Q7 pointer measurement windows inspected; their setup controls are cached too. | Issue111 13:18Z diagnosis (https://github.com/vikas53953/bluey/issues/111) and current PR54 diff; timing_guard.py guards annotated cached Invoke blocks and Press helpers. | UNVERIFIED until independent review, compilation and declared series; prior REDs retained. |

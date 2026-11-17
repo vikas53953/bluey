@@ -32,7 +32,13 @@ public sealed class FocusResumeTests : IClassFixture<NoKeyFixture>
             var panel = QaUi.OpenPanel(_boo);
             AutomationElement Find(string id) => panel.FindFirstDescendant(cf => cf.ByAutomationId(id))
                 ?? throw new InvalidOperationException("Missing required element: " + id);
-            void Press(string id) => Find(id).AsButton().Invoke();
+            var buttons = new[] { "FocusEndButton", "FocusPauseButton", "FocusResumeButton", "FocusStartButton" }.ToDictionary(id => id, id => Find(id).AsButton());
+            void Press(string id)
+            {
+                // QA_TIMED_INVOKE_BEGIN
+                buttons[id].Invoke();
+                // QA_TIMED_INVOKE_END
+            }
             string Status() => Find("FocusStatus").Properties.Name.Value;
             var notch = _boo.WaitForNotch(QaUi.UiTimeout);
             var subscription = notch.RegisterPropertyChangedEvent(TreeScope.Element,

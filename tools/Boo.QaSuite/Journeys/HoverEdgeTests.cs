@@ -165,10 +165,15 @@ public sealed class HoverEdgeTests : IClassFixture<NoKeyFixture>
             panel = QaUi.OpenPanel(_boo);
             QaUi.Find(_boo, panel, "FocusTaskBox").AsTextBox().Text = "j7 pinned pause";
             QaUi.Find(_boo, panel, "FocusDurationBox").AsTextBox().Text = "25";
-            QaUi.Find(_boo, panel, "FocusStartButton").AsButton().Invoke();
-            QaUi.Find(_boo, panel, "FocusPauseButton").AsButton().Invoke();
+            var startButton = QaUi.Find(_boo, panel, "FocusStartButton").AsButton();
+            var pauseButton = QaUi.Find(_boo, panel, "FocusPauseButton").AsButton();
+            var closeButton = QaUi.Find(_boo, panel, "CloseButton").AsButton();
+            // QA_TIMED_INVOKE_BEGIN
+            startButton.Invoke();
+            pauseButton.Invoke();
+            // QA_TIMED_INVOKE_END
             Assert.True(BooAppFixture.WaitUntil(() => notch.Properties.ItemStatus.ValueOrDefault == "Paused", TimeSpan.FromSeconds(5)));
-            QaUi.Find(_boo, panel, "CloseButton").AsButton().Invoke();
+            closeButton.Invoke();
             var d = clock.ElapsedMilliseconds;
             Move(hover, "d hover paused");
             ObserveUntil(d + 400);

@@ -97,7 +97,15 @@ public sealed class FocusSequenceTests : IClassFixture<LiveAppFixture>
             Bound();
             AutomationElement Find(string id) => panel.FindFirstDescendant(cf => cf.ByAutomationId(id))
                 ?? throw new InvalidOperationException("Missing required element: " + id);
-            void Press(string id) { Bound(); Find(id).AsButton().Invoke(); Bound(); }
+            var buttons = new[] { "FocusEndButton", "FocusPauseButton", "FocusResumeButton", "FocusStartButton" }.ToDictionary(id => id, id => Find(id).AsButton());
+            void Press(string id)
+            {
+                Bound();
+                // QA_TIMED_INVOKE_BEGIN
+                buttons[id].Invoke();
+                // QA_TIMED_INVOKE_END
+                Bound();
+            }
             string Status() => Find("FocusStatus").Properties.Name.Value;
             var notch = _boo.WaitForNotch(QaUi.UiTimeout);
             string Face() { Assert.Equal(pid, notch.Properties.ProcessId.Value); return notch.Properties.ItemStatus.Value; }
@@ -175,7 +183,7 @@ public sealed class FocusSequenceTests : IClassFixture<LiveAppFixture>
             int Captures(long mark) => Dedup(recorder.ReadIntervals.Where(r => r.Start > mark).Select(r => r.State)).Count(s => s == "Capture");
             var taskA = "Review Boo focus controls for QA " + Guid.NewGuid().ToString("N");
             var initial = recorder.Mark();
-            endCleanup = () => Find("FocusEndButton").AsButton().Invoke();
+            endCleanup = () => buttons["FocusEndButton"].Invoke();
             var a = Start(taskA);
             Wait(() => Completed(a) >= 2 && Captures(initial) >= 2, 150000, "Two persisted real classifications and Capture transitions missing; no retry");
             Health(initial);

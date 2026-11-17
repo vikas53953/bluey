@@ -56,6 +56,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -I tools/Boo.QaSuite/qa_gate.py --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I tools/Boo.QaSuite/timing_guard.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -I tools/Boo.QaSuite/qa_report.py --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git fetch origin lane/face

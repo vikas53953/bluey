@@ -18,7 +18,13 @@ public sealed class FocusEdgeTests : IClassFixture<NoKeyFixture>
         using var recorder = new NotchStateRecorder(_boo, "focus-edges");
         var panel = QaUi.OpenPanel(_boo);
         var store = new SessionStore(Path.Combine(_boo.DataDirectory, "sessions.db"));
-        void Press(string id) => QaUi.Find(_boo, panel, id).AsButton().Invoke();
+        var buttons = new[] { "FocusEndButton", "FocusPauseButton", "FocusStartButton" }.ToDictionary(id => id, id => QaUi.Find(_boo, panel, id).AsButton());
+        void Press(string id)
+        {
+            // QA_TIMED_INVOKE_BEGIN
+            buttons[id].Invoke();
+            // QA_TIMED_INVOKE_END
+        }
         void Status(string prefix) => Assert.True(BooAppFixture.WaitUntil(
             () => QaUi.NameOf(panel, "FocusStatus").StartsWith(prefix, StringComparison.Ordinal),
             TimeSpan.FromSeconds(5)), $"Expected {prefix}; got {QaUi.NameOf(panel, "FocusStatus")}");
@@ -26,7 +32,7 @@ public sealed class FocusEdgeTests : IClassFixture<NoKeyFixture>
         {
             QaUi.Find(_boo, panel, "FocusTaskBox").AsTextBox().Text = task;
             QaUi.Find(_boo, panel, "FocusDurationBox").AsTextBox().Text = "25";
-            var startButton = QaUi.Find(_boo, panel, "FocusStartButton").AsButton();
+            var startButton = buttons["FocusStartButton"];
             beforeStart?.Invoke();
             startButton.Invoke();
             Status("Running");

@@ -30,7 +30,13 @@ public sealed class FocusEndTimingTests : IClassFixture<FocusEndTimingFixture>
             var panel = QaUi.OpenPanel(_boo);
             AutomationElement Find(string id) => panel.FindFirstDescendant(cf => cf.ByAutomationId(id))
                 ?? throw new InvalidOperationException("Missing required element: " + id);
-            void Press(string id) => Find(id).AsButton().Invoke();
+            var buttons = new[] { "FocusEndButton", "FocusPauseButton", "FocusStartButton" }.ToDictionary(id => id, id => Find(id).AsButton());
+            void Press(string id)
+            {
+                // QA_TIMED_INVOKE_BEGIN
+                buttons[id].Invoke();
+                // QA_TIMED_INVOKE_END
+            }
             var notch = _boo.WaitForNotch(QaUi.UiTimeout);
             var recorder = new NotchStateRecorder(_boo, "focus-end-timing");
             cleanup.Add(recorder.Dispose);
@@ -56,12 +62,15 @@ public sealed class FocusEndTimingTests : IClassFixture<FocusEndTimingFixture>
             Assert.Equal(FocusStatus.Paused, session.Status);
             _boo.CaptureScreen("qa-j13h-paused");
             Thread.Sleep(150);
+            var endButton = buttons["FocusEndButton"];
             var mark = recorder.Mark();
             var eventStart = events.Count;
             var before = recorder.ReadIntervals;
             Assert.Equal("Paused", before[^1].State);
             var invocationStart = recorder.Mark();
-            Press("FocusEndButton");
+            // QA_TIMED_INVOKE_BEGIN
+            endButton.Invoke();
+            // QA_TIMED_INVOKE_END
             var invocationEnd = recorder.Mark();
             log.Add($"End invocation [{invocationStart},{invocationEnd}] session={session.Id}");
             Assert.True(BooAppFixture.WaitUntil(() => recorder.HasSeenSince("Happy", mark), TimeSpan.FromSeconds(2)));

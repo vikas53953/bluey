@@ -33,7 +33,13 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
             var panel = QaUi.OpenPanelOnceReady(_boo, Record);
             AutomationElement Find(string id) => panel!.FindFirstDescendant(cf => cf.ByAutomationId(id))
                 ?? throw new InvalidOperationException("Missing required element: " + id);
-            void Press(string id) => Find(id).AsButton().Invoke();
+            var buttons = new[] { "FocusEndButton", "FocusStartButton" }.ToDictionary(id => id, id => Find(id).AsButton());
+            void Press(string id)
+            {
+                // QA_TIMED_INVOKE_BEGIN
+                buttons[id].Invoke();
+                // QA_TIMED_INVOKE_END
+            }
             var task = "j12f " + Guid.NewGuid().ToString("N");
             Find("FocusTaskBox").AsTextBox().Text = task;
             Find("FocusDurationBox").AsTextBox().Text = "25";
@@ -270,10 +276,13 @@ public sealed class TrayStopTests : IClassFixture<NoKeyFixture>
             _boo.CaptureScreen("qa-j12f-tray-menu");
             Assert.True(clock.ElapsedMilliseconds - running < 9000, "Running-to-Stop setup exceeded bounded window; no retry.");
             Thread.Sleep(150);
+            var stopItem = stop.AsMenuItem();
             var mark = recorder.Mark();
             var eventStart = events.Count;
             Record("single tray Stop Invoke begin");
-            stop.AsMenuItem().Invoke();
+            // QA_TIMED_INVOKE_BEGIN
+            stopItem.Invoke();
+            // QA_TIMED_INVOKE_END
             Record("single tray Stop Invoke complete");
             Assert.True(BooAppFixture.WaitUntil(() => Find("FocusStatus").Properties.Name.Value == "Paused by Stop; Resume is explicit."
                 && notch.Properties.ItemStatus.Value == "Paused", TimeSpan.FromSeconds(3)));
