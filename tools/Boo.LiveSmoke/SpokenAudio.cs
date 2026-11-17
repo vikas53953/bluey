@@ -73,9 +73,16 @@ public static class SpokenAudio
             return null;
         }
         var seconds = pcm16Mono.Length / 2.0 / sampleRate;
-        return $"The answer should be spoken (at least {MinimumSpeechSeconds:0.00} s of speech above the quiet " +
+        var peak = PeakLevel(pcm16Mono);
+        var provider = transcriptSaysTheAnswer && peak < ProviderSilencePeak
+            ? $"PROVIDER FAULT (silent answer audio from OpenAI): its own transcript gave the right answer ('{transcript}') " +
+              $"but every one of the {audioChunks} audio chunk(s) it sent stays at or below {peak} of 32767 over {seconds:0.00} s, " +
+              "which is digital silence, not a Boo decode problem (the raw bytes equal the decoded bytes, checked above). " +
+              "Still a failure. "
+            : string.Empty;
+        return provider + $"The answer should be spoken (at least {MinimumSpeechSeconds:0.00} s of speech above the quiet " +
                $"floor) but its {seconds:0.00} s of audio held only {SpeechSeconds(pcm16Mono, sampleRate):0.00} s of speech: OpenAI sent " +
-               $"{audioChunks} audio chunk(s) whose loudest sample is {PeakLevel(pcm16Mono)} of 32767 while its " +
+               $"{audioChunks} audio chunk(s) whose loudest sample is {peak} of 32767 while its " +
                $"transcript said '{transcript}' (a silent spoken answer; per-event trace in live-voice-01-events.txt).";
     }
 
