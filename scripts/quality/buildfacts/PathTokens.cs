@@ -4,8 +4,11 @@ using System.Text.RegularExpressions;
 
 // Machine roots -> stable tokens, and the guard that refuses any machine path left after that.
 //
-// Every root comes from the build being read (its evaluated properties: the SDK, NuGet folders, Program Files, the
-// Windows SDK, temp, home, the runner's tool cache) or from this process, plus every folder above the repository.
+// Roots that GRANT trust (<dotnet>/ for the SDK, <nuget>/ for restored packages: known.json and the judges trust paths
+// under them) come only from outside the build being read: the MSBuild that actually ran it and this process's own
+// runtime and NuGet folder (Program.SetRoots). A build's evaluated properties are build code's own say and can name
+// any folder, so they only ever add scrub-only roots (Program Files, the Windows SDK, temp, home, the tool cache, ...),
+// which no rule trusts. Plus every folder above the repository.
 // Each root is matched case-insensitively, with either slash, and in its 8.3 short and long forms, longest first, so
 // `C:\Program Files (x86)\...` never becomes `<programfiles>/ (x86)\...`. Values are read only to find roots; no
 // property value is ever written by this class.
@@ -14,10 +17,6 @@ sealed class PathTokens
     // property name -> token. A value may be a ';' list. "dir:" means "the folder of this file".
     public static readonly (string Property, string Token)[] FromProperties =
     [
-        ("NetCoreRoot", "<dotnet>/"), ("DOTNET_ROOT", "<dotnet>/"), ("DOTNET_INSTALL_DIR", "<dotnet>/"),
-        ("dir:DOTNET_HOST_PATH", "<dotnet>/"),
-        ("NuGetPackageRoot", "<nuget>/"), ("NuGetPackageFolders", "<nuget>/"), ("RestorePackagesPath", "<nuget>/"),
-        ("NUGET_PACKAGES", "<nuget>/"), ("NuGetFallbackFolder", "<nuget-fallback>/"),
         ("TargetPlatformSdkPath", "<winsdk>/"), ("WindowsSdkPath", "<winsdk>/"), ("WindowsSdkDir", "<winsdk>/"),
         ("NETFXKitsDir", "<winsdk-netfx>/"), ("SDKReferenceDirectoryRoot", "<sdk-references>/"),
         ("SDKExtensionDirectoryRoot", "<sdk-extensions>/"), ("TargetFrameworkRootPath", "<reference-assemblies>/"),
@@ -57,11 +56,19 @@ sealed class PathTokens
         }
     }
 
-    // Roots from one evaluation's properties (the build's own view of this machine).
+    // Tokens that grant trust: a path under them is taken as the SDK's or a restored package's. Never from properties.
+    public static readonly string[] TrustTokens = ["<dotnet>/", "<nuget>/", "<nuget-fallback>/"];
+
+    // Scrub-only roots from one evaluation's properties (the build's own view of this machine).
     public void AddFromProperties(IReadOnlyDictionary<string, string> props)
     {
         foreach (var (property, token) in FromProperties)
         {
+            if (TrustTokens.Contains(token))
+            {
+                throw new InvalidOperationException($"{property} maps to trust token {token}; trust roots never come from properties");
+            }
+
             var name = property.StartsWith("dir:", StringComparison.Ordinal) ? property[4..] : property;
             if (!props.TryGetValue(name, out var value))
             {
