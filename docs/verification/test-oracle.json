@@ -1,5 +1,5 @@
 {
-  "revision": 43,
+  "revision": 44,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -143,6 +143,7 @@
     "tests/Boo.Integration.Tests/SessionRecoveryTests.cs": "604ff4bb833ce2be64718fc82650417dca2091517d4d33a71359fd5fd9d62e36",
     "tests/Boo.Integration.Tests/StoragePrivacyTests.cs": "dd188faa6dd2e0e92b039971fef54aadcbf37176d43ca0ec71ee2363d3982811",
     "tests/Boo.Integration.Tests/TypeTextExecutorInvisibleCharacterTests.cs": "b5b24816cfedc99a800f21bc37c5c1eb80114a741ccdf96aa88386481fa2e34e",
+    "tests/Boo.Integration.Tests/VoiceCarefulAnswerTests.cs": "57ccabfd551421512ad0748cd42ae4e0b0b02ba13a979fd718666a11de16c805",
     "tests/Boo.Integration.Tests/VoiceToolProtocolTests.cs": "c95200c7c8ae01709e3f2f2aa5a8a5b223b831c86da47a874fe31e1e07f3bb72",
     "tests/Boo.LiveGuard.Tests/Boo.LiveGuard.Tests.csproj": "60db626ed4d77856c6f35ffb5cf2000827e486d016f505e55733f5fbcb52e981",
     "tests/Boo.LiveGuard.Tests/RealAiHostGuardTests.cs": "0f5a1b2b02d692058bcc5637d9667a45eafd36048bd91ffbc72f2dbe2af1b536",
@@ -181,13 +182,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-42.json",
-  "previousManifestSha256": "76ac533dc4cff81f8483860177274027a3168ab8250cc03a6f2ffbd588b51989",
-  "revisionReason": "PR #182: IncidentalActionRenderTests (MainWindow shows the exact acknowledgment for a plain question's action, never for a task; mutations M03, M04)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-43.json",
+  "previousManifestSha256": "5ef27d2a6a9c81e865ef4c855ff3f43dfd362f2d11e3d06d2cae13679af14fd9",
+  "revisionReason": "#179: VoiceCarefulAnswerTests (every voice session asks for careful numeric and factual answers)",
   "addedFiles": [
-    "tests/Boo.App.Tests/IncidentalActionRenderTests.cs"
+    "tests/Boo.Integration.Tests/VoiceCarefulAnswerTests.cs"
   ],
-  "revisionCommit": "758ce6c31aac61365bf35af5dc3d3f3acddde183",
+  "revisionCommit": "dc358e2044828f9927f2bc88a7a457370343f8b4",
   "changedFiles": [],
   "removedFiles": []
 }
