@@ -37,6 +37,7 @@ GROUPS = {
 OPTIONAL = {'verifylive'}  # skipped only when the dispatch says journeys=false; then listed as UNVERIFIED
 
 PLAIN = {
+    'Q10B': 'Physical eye hold3000-3500ms; full offline short WAV; real native reply via hosted synthetic audio',
     'NV0': 'Native eye-hold real voice via hosted synthetic devices; physical audio unverified',
     'NV1': 'Native failed-capture task voice boundary via hosted synthetic devices',
     'C66': 'Selected-folder context gated by explicit task and configured root (mock HTTP)',

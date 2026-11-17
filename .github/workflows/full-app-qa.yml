@@ -318,11 +318,21 @@ jobs:
           ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/qa-evidence/smoke/trx -SourceDirectory tools/Boo.LiveSmoke
           if ($rc -ne 0 -or $LASTEXITCODE -ne 0) { exit 1 }
 
+      - name: Generate short eye-hold fixture offline (no provider)
+        if: ${{ !cancelled() && (inputs.journeys || github.event_name == 'pull_request') }}
+        shell: powershell
+        run: |
+          & tools/Boo.LiveSmoke/Voice/New-VoiceFixture.ps1 -Text 'What is two plus three?' -OutFile artifacts/qa-evidence/j10b-question.wav
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I -c "import wave; w=wave.open('artifacts/qa-evidence/j10b-question.wav'); assert (w.getnchannels(),w.getsampwidth(),w.getframerate())==(1,2,24000); assert 0.1 <= w.getnframes()/24000 <= 2.5"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: verify-boo journeys j0-j6 (real OpenAI)
         if: ${{ !cancelled() && (inputs.journeys || github.event_name == 'pull_request') }}
         timeout-minutes: 30
         shell: pwsh
         env:
+          BOO_QA_EYE_HOLD_INPUT: ${{ github.workspace }}\artifacts\qa-evidence\j10b-question.wav
           BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\qa-evidence\verifylive
           BOO_LIVE_MODEL: ${{ inputs.journeys_model || 'gpt-6-luna' }}
           BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}

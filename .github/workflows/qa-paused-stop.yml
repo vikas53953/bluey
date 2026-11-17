@@ -15,7 +15,7 @@ on:
       verify_journey:
         description: One real-OpenAI journey; J0 prerequisite for j3-j6, standalone readiness for j12h
         type: choice
-        options: [none, j3, j4, j5, j6, j12h]
+        options: [none, j3, j4, j5, j6, j12h, j10b]
         default: none
       typed_chat:
         description: Run existing S2 and J2 typed chat checks with cheap real OpenAI (two requests)
@@ -141,6 +141,7 @@ jobs:
             'j5' { 'J5_ApplyThenUndo_OnlyAfterApproval' }
             'j6' { 'J6_FocusSession_25Minutes_OnTheDeveloperModeClock' }
             'j12h' { 'Q12H_StopClosesRingAndPointer' }
+            'j10b' { 'Q10B_EyeHold_RecordsAndReleasesARealVoiceTurn' }
             default { throw 'Unknown verify journey' }
           }
           if ($env:HOVER_EDGES -eq 'true') { $test = 'Boo.QaSuite.Journeys.HoverEdgeTests.Q7_HoverEdges_AllFourBranches_OnTheRealClock' }
@@ -175,11 +176,19 @@ jobs:
             if ($env:TYPED_CHAT -eq 'true') { $test = 'Boo.VerifyLive.LiveJourneyTests.J2_TypedChat_GetsARealAnswer' }
             if ($verifySelected) { $test = "Boo.VerifyLive.LiveJourneyTests.$verifyMethod" }
             if ($env:VERIFY_JOURNEY -eq 'j12h') { $test = "Boo.VerifyLive.RingStopTests.$verifyMethod" }
+            if ($env:VERIFY_JOURNEY -eq 'j10b') {
+              $test = "Boo.VerifyLive.EyeHoldVoiceTests.$verifyMethod"
+              $env:BOO_QA_EYE_HOLD_INPUT = Join-Path $env:GITHUB_WORKSPACE 'artifacts/paused-stop/j10b-question.wav'
+              powershell -NoProfile -File tools/Boo.LiveSmoke/Voice/New-VoiceFixture.ps1 -Text 'What is two plus three?' -OutFile $env:BOO_QA_EYE_HOLD_INPUT
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              python -I -c "import os,wave; w=wave.open(os.environ['BOO_QA_EYE_HOLD_INPUT']); assert (w.getnchannels(),w.getsampwidth(),w.getframerate())==(1,2,24000); assert 0.1 <= w.getnframes()/24000 <= 2.5"
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
             $expected = @($test)
             # These checks belong to an ordered shared-fixture suite: retain J0's launch/readiness step.
             # Both results are required for that suite; standalone Q12H owns readiness in its own fixture.
             # No retry, timeout change or discarded setup failure.
-            if ($env:TYPED_CHAT -eq 'true' -or ($verifySelected -and $env:VERIFY_JOURNEY -ne 'j12h')) { $expected = @('Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey', $test) }
+            if ($env:TYPED_CHAT -eq 'true' -or ($verifySelected -and $env:VERIFY_JOURNEY -notin @('j12h','j10b'))) { $expected = @('Boo.VerifyLive.LiveJourneyTests.J0_NotchWakes_OnHotkey', $test) }
             $filter = ($expected | ForEach-Object { "FullyQualifiedName=$_" }) -join '|'
             dotnet test tools/Boo.VerifyLive -c Release --no-build --filter $filter --logger trx --results-directory artifacts/paused-stop/verifylive-trx
             $testExit = $LASTEXITCODE

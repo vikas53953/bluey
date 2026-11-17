@@ -1,0 +1,3 @@
+| Date | Decision | Why | Source | Status |
+| --- | --- | --- | --- | --- |
+| 17 Nov 2026 | Q10B requires physical eye hold3000-3500ms, complete short PCM24k/mono16 WAV, actual Listening/Responding, real2+3/five and consumed audio. | Existing6.7045s fixture cannot prove about3s hold. Reuse existing offline System.Speech generator with short question; reject duration above2.5s before paid invocation. Preserve100ms observer health and no retries. | EyeHoldVoiceTests.cs; focused verify_journey=j10b selector; contract20. | UNVERIFIED until compiled/reviewed and N1 hosted invocation; capture-loss/physical audio remain unverified. |
