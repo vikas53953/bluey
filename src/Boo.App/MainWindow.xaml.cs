@@ -87,6 +87,7 @@ public partial class MainWindow : Window
     private readonly ChirpPlayer _chirps;
     private bool _voiceTaskAuthorized;
     private bool _closingForExit;
+    private bool _shellDisposed;
     private bool _displayAffinitySupported = true;
     private NotchAppearance _appearance;
     private AppearanceStore? _appearanceStore;
@@ -140,6 +141,7 @@ public partial class MainWindow : Window
         SourceInitialized += Window_OnSourceInitialized;
         SystemParameters.StaticPropertyChanged += SystemParameters_OnStaticPropertyChanged;
         Closed += (_, _) => SystemParameters.StaticPropertyChanged -= SystemParameters_OnStaticPropertyChanged;
+        Closed += (_, _) => DisposeShell();
     }
 
 
@@ -277,10 +279,22 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Stops everything, waits (bounded) for queued focus saves and releases the panel's resources. Runs once: when the
+    /// panel window really closes (only at app shutdown, which closes every window before App.OnExit runs) or from
+    /// App.OnExit, whichever comes first.
+    /// </summary>
     public void DisposeShell()
     {
+        if (_shellDisposed)
+        {
+            return;
+        }
+
+        _shellDisposed = true;
         _closingForExit = true;
         StopAll();
+        FlushFocusHistory();
         DisposeHoldToTalk();
         _focusTimer.Stop();
         _focusCaptureTimer.Stop();
@@ -1030,7 +1044,7 @@ public partial class MainWindow : Window
             }
             if (!string.IsNullOrWhiteSpace(nudge.Text))
             {
-                FocusStatus.Text = $"Nudge: {nudge.Text}";
+                SetFocusStatus($"Nudge: {nudge.Text}");
             }
             if (string.IsNullOrWhiteSpace(nudge.PointerTarget) || !_displayAffinitySupported)
             {
@@ -1301,7 +1315,7 @@ public partial class MainWindow : Window
                 StopFocusMonitoring();
                 SaveFocusSnapshot();
                 UpdateFocusView();
-                FocusStatus.Text = "Paused after sleep. Press Resume to continue.";
+                SetFocusStatus("Paused after sleep. Press Resume to continue.");
                 SetFace(WithFocusFace(_faceInputs));
                 return;
             }
@@ -1338,7 +1352,7 @@ public partial class MainWindow : Window
             {
                 // The original failure is the one worth reporting.
             }
-            FocusStatus.Text = SanitizedError(ex, "Focus monitoring stopped safely.");
+            SetFocusStatus(SanitizedError(ex, "Focus monitoring stopped safely."));
         }
     }
 
@@ -1388,7 +1402,7 @@ public partial class MainWindow : Window
             var age = Math.Max(0, (_timeProvider.GetUtcNow() - frame.Context.CapturedAt).TotalSeconds);
             if (_focus.RecordCheck(check, age))
             {
-                FocusStatus.Text = "Nudge: return to the task when you are ready. Boo did not change your apps.";
+                SetFocusStatus("Nudge: return to the task when you are ready. Boo did not change your apps.");
                 var minutesLeft = Math.Max(1, (int)Math.Ceiling((snapshot.Duration - snapshot.Elapsed) / 60));
                 var nudgeTask = string.IsNullOrWhiteSpace(snapshot.Task) ? "your task" : snapshot.Task.Trim();
                 SetFace(_faceInputs with
@@ -1401,7 +1415,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                FocusStatus.Text = $"Observed {check.Activity.ToString().ToLowerInvariant()} · periodic estimate";
+                SetFocusStatus($"Observed {check.Activity.ToString().ToLowerInvariant()} · periodic estimate");
             }
             SaveFocusSnapshot();
         }
@@ -1417,7 +1431,7 @@ public partial class MainWindow : Window
                 var unknown = new FocusCheck(snapshot.Elapsed, FocusActivity.Uncertain, 0, 0);
                 _focus.RecordCheck(unknown, 0);
                 SaveFocusSnapshot();
-                FocusStatus.Text = SanitizedError(ex, "Focus observation unavailable; this interval is unknown.");
+                SetFocusStatus(SanitizedError(ex, "Focus observation unavailable; this interval is unknown."));
             }
         }
         finally
@@ -1482,27 +1496,6 @@ public partial class MainWindow : Window
         UpdateCaptureIndicator();
     }
 
-    private void SaveFocusSnapshot(FocusSessionController? controller = null)
-    {
-        controller ??= _focus;
-        if (controller is null || _sessionStore is null)
-        {
-            return;
-        }
-        try
-        {
-            var snapshot = controller.Snapshot;
-            _sessionStore.Save(snapshot);
-            _lastFocusSaveRealElapsed = snapshot.RealElapsed;
-            LoadHistory();
-        }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
-        {
-            _sessionStore = null;
-            SetHistoryUnavailable();
-        }
-    }
-
     private void InitializeHistory()
     {
         try
@@ -1510,7 +1503,7 @@ public partial class MainWindow : Window
             _sessionStore = new SessionStore(Path.Combine(_dataDirectory, "sessions.db"));
             if (_sessionStore.RecoverInterrupted() > 0)
             {
-                FocusStatus.Text = "Your last focus session was interrupted when Boo closed. It is saved as paused in history.";
+                SetFocusStatus("Your last focus session was interrupted when Boo closed. It is saved as paused in history.");
             }
             LoadHistory();
         }
@@ -1530,14 +1523,7 @@ public partial class MainWindow : Window
         }
         try
         {
-            var rows = _sessionStore.List()
-                .Take(20)
-                .Select(session => FocusTimeline.ToHistoryRow(session, HistoryBarWidth))
-                .ToList();
-            HistoryList.ItemsSource = rows;
-            HistoryStatus.Text = rows.Count == 0
-                ? "No saved sessions. Unknown gaps and pauses remain distinct when a session is recorded."
-                : "Periodic observations are estimates; unknown gaps and pauses are not counted as exact active time.";
+            ApplyHistoryRows(ReadHistoryRows(_sessionStore));
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException or ArgumentException or OverflowException)
         {
@@ -1552,7 +1538,7 @@ public partial class MainWindow : Window
         HistoryStatus.Text = HistoryUnavailableMessage;
     }
 
-    private void RefreshHistoryButton_OnClick(object sender, RoutedEventArgs e) => LoadHistory();
+    private void RefreshHistoryButton_OnClick(object sender, RoutedEventArgs e) => RefreshHistoryInBackground();
 
     private void UpdateFocusView()
     {

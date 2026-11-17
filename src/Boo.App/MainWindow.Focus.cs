@@ -30,11 +30,15 @@ public partial class MainWindow
         {
             _focusTimer.Stop();
             StopFocusMonitoring();
-            SaveFocusSnapshot();
+            var saved = SaveFocusSnapshotTracked();
             UpdateFocusView();
-            FocusStatus.Text = e.Reason == FocusEndReason.Completed
-                ? "Session complete. Nice work. It is saved in your history."
-                : "Ended. Start a new session explicitly.";
+            ShowFocusStatusWhenSaved(saved,
+                e.Reason == FocusEndReason.Completed
+                    ? "Session complete. Nice work. It is saved in your history."
+                    : "Ended. Start a new session explicitly.",
+                e.Reason == FocusEndReason.Completed
+                    ? "Not saved: the session is complete, but focus history is unavailable, so it is not in your history."
+                    : "Not saved: the session ended, but focus history is unavailable, so it is not in your history.");
             _chirps.PlaySessionEnd(_settings.ChirpsEnabled, _listening);
         }
         finally
@@ -63,12 +67,12 @@ public partial class MainWindow
     {
         if (string.IsNullOrWhiteSpace(FocusTaskBox.Text))
         {
-            FocusStatus.Text = "Name the focus task first.";
+            SetFocusStatus("Name the focus task first.");
             return;
         }
         if (!double.TryParse(FocusDurationBox.Text, out var minutes) || minutes <= 0)
         {
-            FocusStatus.Text = "Enter a positive duration in minutes.";
+            SetFocusStatus("Enter a positive duration in minutes.");
             return;
         }
 
@@ -94,14 +98,16 @@ public partial class MainWindow
             _focusClock.Start();
             _focusTimer.Start();
             _focusCaptureTimer.Start();
-            SaveFocusSnapshot();
+            var saved = SaveFocusSnapshotTracked();
             UpdateFocusView();
-            FocusStatus.Text = "Running; monitoring pauses on Stop, lock, sleep, or Pause.";
             SetFace(_faceInputs with { FocusPaused = false, Happy = false });
+            ShowFocusStatusWhenSaved(saved,
+                "Running; monitoring pauses on Stop, lock, sleep, or Pause.",
+                "Not saved: the session is running, but focus history is unavailable, so it is not being saved.");
         }
         catch (Exception ex)
         {
-            FocusStatus.Text = SanitizedError(ex, "Focus session is not available yet.");
+            SetFocusStatus(SanitizedError(ex, "Focus session is not available yet."));
         }
     }
 
@@ -117,14 +123,16 @@ public partial class MainWindow
             _focus.Pause("User pause");
             _focusTimer.Stop();
             StopFocusMonitoring();
-            SaveFocusSnapshot();
+            var saved = SaveFocusSnapshotTracked();
             UpdateFocusView();
-            FocusStatus.Text = "Paused. Resume is explicit; unlock/reconnect will not resume it.";
             SetFace(WithFocusFace(_faceInputs));
+            ShowFocusStatusWhenSaved(saved,
+                "Paused. Resume is explicit; unlock/reconnect will not resume it.",
+                "Not saved: the session is paused, but focus history is unavailable. Resume is explicit.");
         }
         catch (Exception ex)
         {
-            FocusStatus.Text = SanitizedError(ex, "Could not pause focus.");
+            SetFocusStatus(SanitizedError(ex, "Could not pause focus."));
         }
     }
 
@@ -135,7 +143,7 @@ public partial class MainWindow
         if (takeBreak && _focus is { Status: Boo.Core.FocusStatus.Running })
         {
             FocusPauseButton_OnClick(this, new RoutedEventArgs());
-            FocusStatus.Text = "On a 5 minute break. Press Resume when you are back.";
+            SetFocusStatus("On a 5 minute break. Press Resume when you are back.");
         }
     }
 
@@ -158,12 +166,12 @@ public partial class MainWindow
             _focusClock.Start();
             _focusTimer.Start();
             UpdateFocusView();
-            FocusStatus.Text = "Running after explicit Resume.";
+            SetFocusStatus("Running after explicit Resume.");
             SetFace(WithFocusFace(_faceInputs));
         }
         catch (Exception ex)
         {
-            FocusStatus.Text = SanitizedError(ex, "Could not resume focus.");
+            SetFocusStatus(SanitizedError(ex, "Could not resume focus."));
         }
     }
 
@@ -179,7 +187,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            FocusStatus.Text = SanitizedError(ex, "Could not end focus.");
+            SetFocusStatus(SanitizedError(ex, "Could not end focus."));
         }
     }
 
