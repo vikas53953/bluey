@@ -1,0 +1,3 @@
+| Date | Decision | Why | Source | Status |
+| --- | --- | --- | --- | --- |
+| 17 Nov 2026 | Add standalone native Q12H for j12h: prove ring and pointer, one Stop chord, shared 1 s acknowledgment/removal deadline, 3 s absence watch and next capture manifest. | Direct UIA errors fail; creation lower bound and 2 s margin exclude natural 10 s expiry. Q12H owns readiness and one panel-open action; separate J0 fixture is not a prerequisite. Contract 14 adds Q12H without completing j12. | PR #54; `tools/Boo.VerifyLive/RingStopTests.cs::Q12H_StopClosesRingAndPointer`; focused selector `verify_journey=j12h` requires exactly one result. | UNVERIFIED pending hosted native evidence; no base sync or voice retry. |
