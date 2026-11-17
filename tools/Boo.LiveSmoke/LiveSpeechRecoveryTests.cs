@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Net.Http;
 using Boo.Core;
 using Boo.Demo.Tests;
 using Boo.Providers;
