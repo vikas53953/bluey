@@ -4,7 +4,7 @@
 1. **Typed:** Boo is started, a question ("Explain what is on my screen in one short sentence.") is typed into it, Boo
    sends a screenshot plus the question to the real AI, and the test passes only if a real answer shows up in Boo's
    conversation list.
-2. **Voice:** a synthetic spoken question ("What is two plus three? Please answer with just the number.", a WAV made
+2. **Voice:** a synthetic spoken question ("What is two plus three? Answer in one short sentence that starts with: The answer is.", a WAV made
    offline by Windows' speech synthesizer and checked in, never a microphone) goes through Boo's own OpenAI Realtime
    client in push-to-talk mode. It passes only if OpenAI's transcript of the question says "two plus three" and the
    spoken answer (real audio) says "five". Microphone capture and speaker playback are not covered (a VM has neither).

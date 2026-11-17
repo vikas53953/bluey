@@ -106,6 +106,82 @@ public sealed class SpokenAudioTests
         Assert.False(SpokenAudio.IsSpokenAnswer(new byte[pcm.Length], Rate));
     }
 
+    [Fact]
+    public void Silent_provider_audio_with_the_right_transcript_is_named_a_provider_fault_and_still_fails()
+    {
+        // Issue #177, live-ai-smoke run 44022596617 (lane/face 1bafb77): OpenAI's transcript said "Five" but the 4.05 s of
+        // audio it sent is digital silence (loudest sample 5 of 32767, in the raw base64 itself). The failure must say so.
+        var pcm = Fixture("answer-silent-from-provider-177.wav");
+        Assert.True(SpokenAudio.PeakLevel(pcm) < SpokenAudio.ProviderSilencePeak, "the fixture is digital silence");
+        var verdict = SpokenAudio.AnswerVerdict(pcm, Rate, "Five", transcriptSaysTheAnswer: true, audioChunks: 11);
+        Assert.NotNull(verdict);
+        Assert.StartsWith("PROVIDER FAULT", verdict, StringComparison.Ordinal);
+        Assert.Contains("'Five'", verdict, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Silence_is_not_named_a_provider_fault_when_the_transcript_is_wrong_or_the_audio_is_only_quiet()
+    {
+        // Provider silence is named only for silence that comes with a correct transcript. Silence with a wrong
+        // transcript, and the #118 fixture (a quiet noise floor, loudest sample 335, so not digital silence), keep the
+        // plain silent-answer failure.
+        var silent = Fixture("answer-silent-from-provider-177.wav");
+        var wrong = SpokenAudio.AnswerVerdict(silent, Rate, "Seven", transcriptSaysTheAnswer: false, audioChunks: 11);
+        Assert.NotNull(wrong);
+        Assert.DoesNotContain("PROVIDER FAULT", wrong, StringComparison.Ordinal);
+        var quietNoise = SpokenAudio.AnswerVerdict(Fixture("answer-silent-from-provider.wav"), Rate, "5", transcriptSaysTheAnswer: true, audioChunks: 3);
+        Assert.NotNull(quietNoise);
+        Assert.DoesNotContain("PROVIDER FAULT", quietNoise, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_verdict_passes_exactly_what_the_spoken_answer_rule_passes()
+    {
+        // The verdict only words a failure: it is null exactly when IsSpokenAnswer accepts the audio, whatever the
+        // transcript, so naming a provider fault can never turn a red into a green.
+        var cases = new[]
+        {
+            Fixture("answer-five-real-speech.wav"),
+            Fixture("answer-silent-from-provider.wav"),
+            Fixture("answer-silent-from-provider-177.wav"),
+            new byte[Rate * 2],
+            LoudThenSilent(windows: 7, silentWindows: 30),
+            LoudThenSilent(windows: 8, silentWindows: 30),
+        };
+        foreach (var pcm in cases)
+        {
+            foreach (var correct in new[] { true, false })
+            {
+                var verdict = SpokenAudio.AnswerVerdict(pcm, Rate, correct ? "5" : "7", correct, audioChunks: 1);
+                Assert.Equal(SpokenAudio.IsSpokenAnswer(pcm, Rate), verdict is null);
+            }
+        }
+    }
+
+    [Fact]
+    public void A_clearly_spoken_wrong_answer_is_rejected_and_the_right_one_accepted()
+    {
+        // Issue #177 (c), live-ai-smoke run 44023109153: OpenAI heard "2 plus 3" and answered aloud, clearly, "7". The
+        // audio passes the spoken-answer rule, so only the transcript check can reject it. Real spoken audio here:
+        var spoken = Fixture("answer-five-real-speech.wav");
+        Assert.True(SpokenAudio.IsSpokenAnswer(spoken, Rate), "the fixture is clearly spoken");
+        var wrong = SpokenAudio.AnswerAcceptance(spoken, Rate, "7", audioChunks: 2);
+        Assert.NotNull(wrong);
+        Assert.Contains("'7'", wrong, StringComparison.Ordinal);
+        Assert.NotNull(SpokenAudio.AnswerAcceptance(spoken, Rate, "The answer is seven.", audioChunks: 2));
+        Assert.NotNull(SpokenAudio.AnswerAcceptance(spoken, Rate, "15", audioChunks: 2));
+        Assert.Null(SpokenAudio.AnswerAcceptance(spoken, Rate, "The answer is 5.", audioChunks: 2));
+        Assert.Null(SpokenAudio.AnswerAcceptance(spoken, Rate, "Five", audioChunks: 2));
+    }
+
+    [Fact]
+    public void A_right_transcript_never_rescues_unspoken_audio()
+    {
+        // The rule needs both parts: silence or too little speech fails even with "five" in the transcript.
+        Assert.NotNull(SpokenAudio.AnswerAcceptance(Fixture("answer-silent-from-provider-177.wav"), Rate, "Five", audioChunks: 11));
+        Assert.NotNull(SpokenAudio.AnswerAcceptance(LoudThenSilent(windows: 7, silentWindows: 30), Rate, "The answer is 5.", audioChunks: 1));
+    }
+
     /// <summary>Little-endian 16-bit PCM of exactly these samples.</summary>
     private static byte[] Samples(params short[] values)
     {
