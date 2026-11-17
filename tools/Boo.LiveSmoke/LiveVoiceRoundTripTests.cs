@@ -134,6 +134,7 @@ public sealed class LiveVoiceRoundTripTests
         WriteEventTrace(events.ToArray());
         var raw = AnswerAudioFrames.Assemble(rawMessages.ToArray());
         WriteRawAudio(raw, answerAudio);
+        WriteSessionEcho(rawMessages.ToArray());
         _output.WriteLine($"voice: raw {raw.Lines[0]}; decode problems: {(raw.Problems.Count == 0 ? "none" : string.Join("; ", raw.Problems))}");
         _output.WriteLine($"voice: heard='{heard}' answer='{answer}' answerAudio={answerSeconds:0.0}s in {seconds:0.0}s");
 
@@ -276,6 +277,20 @@ public sealed class LiveVoiceRoundTripTests
         File.WriteAllBytes(Path.Combine(folder, "live-voice-01-answer.pcm"), answerAudio);
         File.WriteAllText(Path.Combine(folder, "live-voice-01-frames.txt"),
             string.Join('\n', raw.Lines.Concat(raw.Problems.Select(p => "PROBLEM " + p))) + "\n");
+    }
+
+    /// <summary>
+    /// Issue #179: the server's own echo of the session it applied (the raw session.updated message: model, instructions,
+    /// audio formats, tools, and any sampling setting the server reports). Recorded so a wrong answer can be judged
+    /// against what OpenAI actually ran, not what Boo meant to send. It holds no key and is key-scanned before upload.
+    /// </summary>
+    private static void WriteSessionEcho(IReadOnlyList<string> rawMessages)
+    {
+        var folder = Environment.GetEnvironmentVariable("BOO_UI_ARTIFACTS");
+        if (string.IsNullOrWhiteSpace(folder)) return;
+        Directory.CreateDirectory(folder);
+        var echo = rawMessages.FirstOrDefault(m => m.Contains("\"type\":\"session.updated\"", StringComparison.Ordinal));
+        File.WriteAllText(Path.Combine(folder, "live-voice-01-session-updated.json"), (echo ?? "<no session.updated message seen>") + "\n");
     }
 
     /// <summary>The answer's PCM in a WAV container, so a reviewer can listen to what Boo said.</summary>
