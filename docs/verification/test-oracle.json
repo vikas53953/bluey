@@ -1,5 +1,5 @@
 {
-  "revision": 42,
+  "revision": 44,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -15,6 +15,7 @@
     "tests/Boo.App.Tests/Boo.App.Tests.csproj": "2d02836ba629be81d4641af63616f5bedf310e6c57dc029d7df3a76bd1fe7693",
     "tests/Boo.App.Tests/FaceMomentTimerTests.cs": "a11ec8165e4f0d2f4f0d27885aa43109228305cd652b4a4232ce898499f523ba",
     "tests/Boo.App.Tests/FocusAcknowledgmentOrderTests.cs": "2fc661d843c9bc2531fcb33cb524639521c64155e7953de9302ff1ba6a7b597e",
+    "tests/Boo.App.Tests/IncidentalActionRenderTests.cs": "7c32c43bafa9872ced552bef27def444a4c63a0fa62808267db6e4444b004cb8",
     "tests/Boo.App.Tests/RenderAcknowledgmentTests.cs": "79b6af2ac9fbe64e1f728d69a7f8cf0d85364ce4222b342fdde75737074a8bc1",
     "tests/Boo.App.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "50c7561b8c6ce94f879102b86c461ec200b4c53a0d8f3e792000213fb279f591",
@@ -161,6 +162,7 @@
     "tests/Boo.Providers.Tests/Boo.Providers.Tests.csproj": "98f107dd3c01f6f2b7267926085980da9cc8bb87c82046aeb862775d58a59f0e",
     "tests/Boo.Providers.Tests/GeminiClientTests.cs": "37fbe3aa75e1be5292f89ad8e980e9a134a4315b499c2bbc3a3a54ac5c3c53af",
     "tests/Boo.Providers.Tests/GeminiRequestShapeTests.cs": "011a0038debc428e8aa9b6de7ae95ad203001617addf9605d70cb4b2991c9fcf",
+    "tests/Boo.Providers.Tests/IncidentalActionTests.cs": "d086ac07ec947b427c35e55b8cca382a72cb644c434b6d77b3f79c11389c1b6c",
     "tests/Boo.Providers.Tests/ProviderTestKit.cs": "1cc496f2a7a3e94b9dca7c29e7640054c46d2994080e4c82c59340e383f9376f",
     "tests/Boo.Providers.Tests/ResponsesResultShapeTests.cs": "f9bd5f1477847d7bff7c9b514fa5986cfffd297d2a2fab2a37101b6a12edc898",
     "tests/Boo.Providers.Tests/SmokeTests.cs": "612081b6ffe0ec94ddad95aff43e5c33ab6e353039650a2360b9f0e54866f0b4",
@@ -181,14 +183,14 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-41.json",
-  "previousManifestSha256": "7e12dd6bf6e7c0a3ef72e10b0b92fcceb4fab933b2ba1bac1fda60536a3b1da9",
-  "revisionReason": "Issue #111: face-moment timer priority guard, dispatcher-integration observations and measured frame-load sample (FaceMomentTimerTests); clock-controlled Happy deadline guards (FaceMomentDeadlineTests). New files only.",
+  "previousManifest": "docs/verification/test-oracle-history/revision-43.json",
+  "previousManifestSha256": "5ef27d2a6a9c81e865ef4c855ff3f43dfd362f2d11e3d06d2cae13679af14fd9",
+  "revisionReason": "Issue #111 (PR #184, re-frozen after syncing with lane/face, where #181 and #182 took revisions 42 and 43): face-moment timer priority guard, dispatcher-integration observations and measured frame-load sample (FaceMomentTimerTests); clock-controlled Happy deadline guards (FaceMomentDeadlineTests). New files only, same content as #184's earlier revision 42.",
   "addedFiles": [
     "tests/Boo.App.Tests/FaceMomentTimerTests.cs",
     "tests/Boo.Core.Tests/FaceMomentDeadlineTests.cs"
   ],
-  "revisionCommit": "64894ac7c1fc0d35a9b0c6798caf1eefa9bbfe78",
+  "revisionCommit": "758afc9994cc04cd877a9eae940493acc5008ad3",
   "changedFiles": [],
   "removedFiles": []
 }
