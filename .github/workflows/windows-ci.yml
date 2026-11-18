@@ -206,9 +206,13 @@ jobs:
               python -I "$RUNNER_TEMP/base_trusted_facts.py" produce --base-sha "$BASE_SHA" --repo . --work "$TRUSTED" --solution Boo.sln --publish-dir artifacts/ci build=artifacts/binlog/build.binlog publish=artifacts/binlog/publish.binlog || status=1
               python -I "$RUNNER_TEMP/base_arch_refs.py" judge "$TRUSTED/build-facts.json" --root . --layers "$RUNNER_TEMP/base_layers.json" --rise-only --pr-layers docs/architecture/layers.json --trusted-base "$BASE_SHA" || status=1
             else
-              echo "The base branch ($BASE_REF) has no trusted_facts.py, arch_refs.py and layers.json yet: this PR introduces them, so there is no older judge. The PR's own copies run the trusted path once (not a verdict):"
-              python -I scripts/quality/trusted_facts.py produce --base-sha "$BASE_SHA" --repo . --work "$TRUSTED" --solution Boo.sln --publish-dir artifacts/ci build=artifacts/binlog/build.binlog publish=artifacts/binlog/publish.binlog || status=1
-              python -I scripts/quality/arch_refs.py judge "$TRUSTED/build-facts.json" --root . --rise-only --pr-layers docs/architecture/layers.json --trusted-base "$BASE_SHA" || status=1
+              # The base has no judge, and may have no extractor or checker either (lane/face -> main, where main holds
+              # nothing yet): the trusted path reads its tooling from git at --base-sha, so it runs against this
+              # checkout's own commit. That shows the path works on this head; it is not an independent verdict.
+              SELF_SHA="$(git rev-parse HEAD)" || exit 1
+              echo "The base branch ($BASE_REF) has no trusted_facts.py, arch_refs.py and layers.json yet: this PR introduces them, so there is no older judge. The PR's own copies run the trusted path once against this checkout's commit $SELF_SHA (not a verdict):"
+              python -I scripts/quality/trusted_facts.py produce --base-sha "$SELF_SHA" --repo . --work "$TRUSTED" --solution Boo.sln --publish-dir artifacts/ci build=artifacts/binlog/build.binlog publish=artifacts/binlog/publish.binlog || status=1
+              python -I scripts/quality/arch_refs.py judge "$TRUSTED/build-facts.json" --root . --rise-only --pr-layers docs/architecture/layers.json --trusted-base "$SELF_SHA" || status=1
             fi
           fi
           exit $status
