@@ -1,0 +1,3 @@
+| Date | Decision | Why | Source | Status |
+| --- | --- | --- | --- | --- |
+| 17 Nov 2026 | **Every Stop acknowledges in one place.** `App.StopAll` always shows the notch's "Stopped" after stopping the panel's work, so the hotkey, notch right-click, tray Stop and panel Stop button behave the same. Callers that stop for internal reasons (the color chooser, update-apply, crash recovery) also flash it; that is true and harmless. | #103: the right-click Stop gave no acknowledgment; reading the code showed tray Stop and the panel Stop button were silent too. | Orchestrator assignment, 17 Nov 2026; PR #185 | proposed (PR #185); in force on merge |

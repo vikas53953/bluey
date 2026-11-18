@@ -191,17 +191,14 @@ public partial class App : System.Windows.Application
         _notch?.RestoreExternalFocus();
     }
 
+    /// <summary>
+    /// The one Stop every user path reaches (hotkey, notch right-click, tray, panel Stop button): stops the panel's work and
+    /// always acknowledges with the notch's brief "Stopped" bubble (a standing shortcut-busy hint is restored afterwards).
+    /// </summary>
     private void StopAll()
     {
-        if (_panel is not null)
-        {
-            _panel.StopAll();
-        }
-        else
-        {
-            // Brief "Stopped" bubble; a standing shortcut-busy hint is restored afterwards.
-            _notch?.ShowStoppedBriefly();
-        }
+        _panel?.StopAll();
+        _notch?.ShowStoppedBriefly();
     }
 
     private void CreateTrayIcon()
