@@ -77,6 +77,11 @@ public sealed class HostedVoiceAudio : IDisposable
         }
     }
     public void StopCapture() { lock (_gate) { _capture?.Dispose(); _capture = null; } }
+    /// <summary>
+    /// Appends one receipt line: bytes captured, bytes consumed and how many were non-zero, PCM still queued in Boo's
+    /// playback buffer (bufferedBytes) and a monotonic clock (atMs), which is what a Stop proof needs (PR #186 review).
+    /// Dispose writes a final line, so what was still queued when Boo closed this device is on record.
+    /// </summary>
     private void Save()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_evidence))!);
@@ -84,7 +89,6 @@ public sealed class HostedVoiceAudio : IDisposable
         {
             inputBytes = _inputBytes, renderedBytes = _renderedBytes, nonzeroBytes = _nonzeroBytes,
             captureStarts = _starts, expectedInputBytes = _pcm.Length,
-            // PCM still queued in Boo's playback buffer, and a monotonic clock: what a Stop proof needs (PR #186 review).
             bufferedBytes = _buffer?.BufferedBytes ?? 0, atMs = Environment.TickCount64,
             output = "virtual BufferedWaveProvider consumer; physical speakers UNVERIFIED"
         }) + "\n");
@@ -97,7 +101,7 @@ public sealed class HostedVoiceAudio : IDisposable
             StopCapture();
             _playback?.Dispose();
             _playback = null;
-            Save(); // a final receipt: what was still queued when Boo closed this device
+            Save();
             _disposed = true;
         }
     }
