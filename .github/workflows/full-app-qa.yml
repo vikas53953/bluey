@@ -1,0 +1,796 @@
+name: full-app-qa
+
+# THE FULL-APP QA SUITE (the "Boo - Phase N gate" suite, docs/verification/full-app-qa.md). Builds the WHOLE app from
+# a chosen ref (default: the lane/face tip) and drives the published Boo.exe like a user on GitHub's own Windows VM:
+# anti-mock checks, launch, hotkey and hover, a real OpenAI chat, Stop, focus, settings, the live round trip (and voice
+# once PR #47 lands; BLOCKED until then), the verify-boo journeys j0-j6, and error paths (no key, bad key, network
+# down, provider timeout). A separate job plants a mock and must see the suite go RED (the deliberate-failure probe).
+# The final `full-app-qa` job is green only if the suite passed AND the probe proved red.
+#
+# MANUAL (workflow_dispatch), plus PRs that change the suite's own files: each run spends real money (estimate in docs/verification/full-app-qa.md: about
+# $0.02-0.05 on the cheapest models; cap $10/month). Never on push, never on other PRs.
+# RUNS ONLY ON GITHUB'S OWN WINDOWS VM, never on the owner's PC: a step refuses any runner that is not GitHub-hosted,
+# and the error-path checks (firewall, hosts file) refuse to change anything elsewhere. Screenshots are of Boo's own
+# windows only (BOO_CAPTURE_SCOPE=boo-windows). Keys come only from repository secrets and are never printed.
+#
+# Two checkouts: the TEST HARNESS is this workflow's own commit (workspace root, so scripts/ and tools/ are the ones
+# that were reviewed); the APP UNDER TEST is `app_ref` (folder app-under-test), built and published from there.
+
+on:
+  # Paid runs are explicit dispatches; PR path filters include the whole cumulative diff.
+  workflow_dispatch:
+    inputs:
+      app_ref:
+        description: Branch, tag or SHA of the app to test (default lane/face, the integration tip)
+        type: string
+        required: false
+        default: lane/face
+      chat_model:
+        description: OpenAI chat model for the suite and the round trip (cheapest by default; blank = Boo default)
+        type: string
+        required: false
+        default: gpt-6-luna
+      journeys_model:
+        description: OpenAI chat model for the j0-j6 journeys (explain and research may need a bigger one; say why)
+        type: string
+        required: false
+        default: gpt-6-luna
+      focus_model:
+        description: OpenAI focus-check model (honoured once PR 48 lands; blank = Boo default)
+        type: string
+        required: false
+        default: gpt-6-luna
+      realtime_model:
+        description: OpenAI voice model (honoured once PRs 47/48 land; blank = Boo default)
+        type: string
+        required: false
+        default: gpt-realtime-2.1-mini
+      journeys:
+        description: Also run the verify-boo journeys j0-j6 (about 15 minutes, most of the paid requests)
+        type: boolean
+        default: true
+      plant_failure:
+        description: PROBE RUN. Plant a mock (api.openai.com to 127.0.0.1) before the suite; the whole run must go red
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-app-qa
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      app_sha: ${{ steps.resolve.outputs.sha }}
+      started: ${{ steps.resolve.outputs.started }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.app_ref || github.sha }}
+          persist-credentials: false
+      - name: Resolve app once and require exact-head QA
+        id: resolve
+        shell: bash
+        env:
+          HARNESS_SHA: ${{ github.sha }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          if [ "$sha" != "$HARNESS_SHA" ]; then
+            echo "::error::Exact-head QA requires app_ref to resolve to the harness SHA."
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "started=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Require the OpenAI key and valid model ids (fail closed)
+        shell: bash
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          M1: ${{ inputs.chat_model || 'gpt-6-luna' }}
+          M2: ${{ inputs.journeys_model || 'gpt-6-luna' }}
+          M3: ${{ inputs.focus_model || 'gpt-6-luna' }}
+          M4: ${{ inputs.realtime_model || 'gpt-realtime-2.1-mini' }}
+          APP_REF: ${{ inputs.app_ref || github.sha }}
+        run: |
+          TRIMMED="$(printf '%s' "$OPENAI_KEY" | tr -d '[:space:]')"
+          if [ -z "$TRIMMED" ] || [ "$TRIMMED" != "$OPENAI_KEY" ] || [ "${#OPENAI_KEY}" -lt 20 ]; then
+            echo "::error title=Full-app QA FAILED CLOSED::Repository secret BOO_LIVE_OPENAI_KEY is missing, has spaces, or is too short. This run is NOT a pass."
+            exit 1
+          fi
+          for m in "$M1" "$M2" "$M3" "$M4"; do
+            if [ -n "$m" ] && ! printf '%s' "$m" | grep -Eq '^[A-Za-z0-9._:-]{1,128}$'; then
+              echo "::error title=Full-app QA FAILED CLOSED::Model id '$m' is not a valid model id."; exit 1
+            fi
+          done
+          if ! printf '%s' "$APP_REF" | grep -Eq '^[A-Za-z0-9._/-]{1,200}$'; then
+            echo "::error title=Full-app QA FAILED CLOSED::app_ref '$APP_REF' is not a plain branch, tag or SHA."; exit 1
+          fi
+          echo "OpenAI key present (${#OPENAI_KEY} characters). App ref: $APP_REF. Models: chat=$M1 journeys=$M2 focus=$M3 voice=$M4"
+
+  suite:
+    needs: [preflight, native-voice, mock-contracts]
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      BOO_CAPTURE_SCOPE: boo-windows
+      BOO_UI_EXE: ${{ github.workspace }}\artifacts\qa-app\Boo.exe
+      BOO_LIVE_TEXT_PROVIDER: openai
+      BOO_LIVE_FOCUS_MODEL: ${{ inputs.focus_model || 'gpt-6-luna' }}
+      BOO_LIVE_REALTIME_MODEL: ${{ inputs.realtime_model || 'gpt-realtime-2.1-mini' }}
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=Full-app QA refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)')."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+
+      - name: Check out the test harness (this workflow's commit)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: true
+          fetch-depth: 0
+
+      - name: Anchor acceptance gate to integration merge-base
+        shell: pwsh
+        run: |
+          git fetch origin lane/face
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $base = git merge-base origin/lane/face HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "QA_BASE_REF=$base" >> $env:GITHUB_ENV
+          "QA_JOB_STARTED=${{ needs.preflight.outputs.started }}" >> $env:GITHUB_ENV
+          python -m pip install jsonschema==4.23.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I tools/Boo.QaSuite/qa_gate.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Check out the app under test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.app_sha }}
+          path: app-under-test
+          persist-credentials: false
+          clean: true
+
+      - name: Mask the key and start with an empty evidence folder
+        id: shas
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace($env:OPENAI_KEY)) { Write-Output "::add-mask::$($env:OPENAI_KEY.Trim())" }
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts\qa-evidence'
+          if (Test-Path $evidence) { Remove-Item $evidence -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+          $app = (git -C app-under-test rev-parse HEAD).Trim()
+          $harness = (git rev-parse HEAD).Trim()
+          "app=$app" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "harness=$harness" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "App under test: $app. Test harness: $harness."
+
+      - name: Download same-run native receipts
+        uses: actions/download-artifact@v4
+        with:
+          name: native-voice-evidence
+          path: artifacts/qa-evidence/native
+      - name: Validate native exact-head receipts
+        shell: pwsh
+        run: |
+          python -I tools/Boo.QaSuite/native_receipts.py artifacts/qa-evidence/native ${{ needs.preflight.outputs.app_sha }} ${{ github.sha }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Refuse if any AI host is redirected (no mock may answer)
+        shell: pwsh
+        run: |
+          $hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
+          $bad = @()
+          foreach ($h in 'api.openai.com', 'api.anthropic.com', 'generativelanguage.googleapis.com') {
+            $line = Get-Content $hostsFile -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch '^\s*#' -and $_ -match "(^|\s)$([regex]::Escape($h))(\s|$)" }
+            if ($line) { $bad += "$h is pinned in the hosts file: $line" }
+            $ips = @(Resolve-DnsName $h -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress } | Select-Object -ExpandProperty IPAddress)
+            if ($ips.Count -eq 0) { $bad += "$h does not resolve (no internet?)" }
+            foreach ($ip in $ips) { if ($ip -match '^(127\.|0\.|::1$|::$)') { $bad += "$h resolves to loopback $ip" } }
+            "$h -> $($ips -join ', ')"
+          }
+          if ($bad) { $bad | ForEach-Object { "::error title=Full-app QA FAILED CLOSED::$_" }; exit 1 }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: app-under-test/global.json
+
+      - name: Build the whole app under test and publish Boo.exe
+        shell: pwsh
+        run: |
+          dotnet restore app-under-test/Boo.sln
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build app-under-test/Boo.sln -c Release --no-restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet publish app-under-test/src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/qa-app
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Item artifacts/qa-app/Boo.exe | Select-Object FullName, Length, LastWriteTime | Format-List
+
+      - name: Build the test harness
+        shell: pwsh
+        run: |
+          dotnet publish tools/Boo.TypeTarget.App -c Release -r win-x64 --self-contained true -o artifacts/field-target
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($p in 'tools/Boo.QaSuite', 'tools/Boo.LiveSmoke', 'tools/Boo.VerifyLive') {
+            dotnet build $p -c Release
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          python -I tools/Boo.QaSuite/qa_report.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I tools/Boo.QaSuite/mock_receipt.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Audio environment capability probe (no provider calls)
+        shell: pwsh
+        run: ./tools/Boo.QaSuite/Probe-AudioCapabilities.ps1
+
+      - name: Mock selected-folder request contract (not live AI proof)
+        shell: pwsh
+        run: |
+          & dotnet test tools/Boo.QaSuite -c Release --no-build --filter "FullyQualifiedName~Boo.QaSuite.Contracts" --logger trx --results-directory artifacts/qa-evidence/contracts/trx
+          $rc = $LASTEXITCODE
+          ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/qa-evidence/contracts/trx -SourceDirectory tools/Boo.QaSuite/Contracts
+          if ($rc -ne 0 -or $LASTEXITCODE -ne 0) { exit 1 }
+
+      # C15E (mock j15e) ran on its own VM in this same run (job mock-contracts), so the live suite's VM never holds a
+      # mock redirect. Its one .trx joins the contracts results, so the report and the gate count C15E from this run.
+      - name: Download same-run mock contract receipt (C15E)
+        uses: actions/download-artifact@v4
+        with:
+          name: mock-contracts-evidence
+          path: artifacts/qa-evidence/contracts-mock
+      - name: Add the C15E receipt to the contracts results (exact identity, same run)
+        shell: pwsh
+        run: |
+          python -I tools/Boo.QaSuite/mock_receipt.py artifacts/qa-evidence/contracts-mock ${{ needs.preflight.outputs.app_sha }} ${{ github.sha }} ${{ github.run_id }} artifacts/qa-evidence/contracts/trx/mock-c15e.trx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # PROBE RUN only: plant the classic mock trick (the demo-ci hosts redirect). Every real-AI check must now refuse.
+      - name: Plant a mock (probe run only)
+        if: ${{ inputs.plant_failure }}
+        shell: pwsh
+        run: |
+          Add-Content -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Value "`n127.0.0.1 api.openai.com # boo-qa-timeout"
+          ipconfig /flushdns | Out-Null
+          '::warning title=Full-app QA probe run::A mock redirect was planted on purpose. This run MUST end red.'
+
+      - name: Anti-mock checks
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\qa-evidence\antimock
+        run: |
+          & dotnet test tools/Boo.QaSuite -c Release --no-build --filter "FullyQualifiedName~Boo.QaSuite.AntiMock" --logger trx --logger "console;verbosity=normal" --results-directory artifacts/qa-evidence/antimock/trx
+          $rc = $LASTEXITCODE
+          ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/qa-evidence/antimock/trx -SourceDirectory tools/Boo.QaSuite/AntiMock
+          if ($rc -ne 0 -or $LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Suite journeys (real OpenAI)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        shell: pwsh
+        env:
+          BOO_TYPE_TARGET_EXE: ${{ github.workspace }}\artifacts\field-target\Boo.TypeTarget.App.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\qa-evidence\journeys
+          BOO_LIVE_MODEL: ${{ inputs.chat_model || 'gpt-6-luna' }}
+          BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          & dotnet test tools/Boo.QaSuite -c Release --no-build --filter "FullyQualifiedName~Boo.QaSuite.Journeys" --logger trx --logger "console;verbosity=normal" --results-directory artifacts/qa-evidence/journeys/trx
+          $rc = $LASTEXITCODE
+          Get-ChildItem artifacts/qa-evidence/journeys -Filter *.txt -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/qa-evidence/journeys/trx -SourceDirectory tools/Boo.QaSuite/Journeys
+          if ($rc -ne 0 -or $LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Live round trip, and voice once PR 47 lands (real OpenAI)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        shell: pwsh
+        env:
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\qa-evidence\smoke
+          BOO_LIVE_MODEL: ${{ inputs.chat_model || 'gpt-6-luna' }}
+          BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          & dotnet test tools/Boo.LiveSmoke -c Release --no-build --logger trx --logger "console;verbosity=normal" --results-directory artifacts/qa-evidence/smoke/trx
+          $rc = $LASTEXITCODE
+          Get-ChildItem artifacts/qa-evidence/smoke -Filter *.txt -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/qa-evidence/smoke/trx -SourceDirectory tools/Boo.LiveSmoke
+          if ($rc -ne 0 -or $LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Generate short eye-hold fixture offline (no provider)
+        if: ${{ !cancelled() && (inputs.journeys || github.event_name == 'pull_request') }}
+        shell: powershell
+        run: |
+          & tools/Boo.LiveSmoke/Voice/New-VoiceFixture.ps1 -Text 'What is two plus three?' -OutFile artifacts/qa-evidence/j10b-question.wav
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I -c "import wave; w=wave.open('artifacts/qa-evidence/j10b-question.wav'); assert (w.getnchannels(),w.getsampwidth(),w.getframerate())==(1,2,24000); assert 0.1 <= w.getnframes()/24000 <= 2.5"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: verify-boo journeys j0-j6 (real OpenAI)
+        if: ${{ !cancelled() && (inputs.journeys || github.event_name == 'pull_request') }}
+        timeout-minutes: 30
+        shell: pwsh
+        env:
+          BOO_QA_EYE_HOLD_INPUT: ${{ github.workspace }}\artifacts\qa-evidence\j10b-question.wav
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\qa-evidence\verifylive
+          BOO_LIVE_MODEL: ${{ inputs.journeys_model || 'gpt-6-luna' }}
+          BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/qa-evidence/verifylive | Out-Null
+          & dotnet test tools/Boo.VerifyLive -c Release --no-build --logger trx --logger "console;verbosity=normal" --results-directory artifacts/qa-evidence/verifylive/trx
+          $rc = $LASTEXITCODE
+          Get-ChildItem artifacts/qa-evidence/verifylive -Filter *.txt -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/qa-evidence/verifylive/trx -SourceDirectory tools/Boo.VerifyLive
+          if ($rc -ne 0 -or $LASTEXITCODE -ne 0) { exit 1 }
+
+      # Last, because they change the firewall and the hosts file (undone by each check and again by the next step).
+      # No real key is given to these Boo copies; the bad-key check gets a real 401 from OpenAI at no cost.
+      - name: Error paths (no key, bad key, network down, timeout)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        shell: pwsh
+        env:
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\qa-evidence\errors
+        run: |
+          & dotnet test tools/Boo.QaSuite -c Release --no-build --filter "FullyQualifiedName~Boo.QaSuite.ErrorPaths" --logger trx --logger "console;verbosity=normal" --results-directory artifacts/qa-evidence/errors/trx
+          $rc = $LASTEXITCODE
+          Get-ChildItem artifacts/qa-evidence/errors -Filter *.txt -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/qa-evidence/errors/trx -SourceDirectory tools/Boo.QaSuite/ErrorPaths
+          if ($rc -ne 0 -or $LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Undo every planted fault (always)
+        if: always()
+        shell: pwsh
+        run: |
+          $hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
+          (Get-Content $hostsFile) | Where-Object { $_ -notmatch 'boo-qa-timeout' } | Set-Content $hostsFile
+          Remove-NetFirewallRule -DisplayName 'boo-qa-network-down' -ErrorAction SilentlyContinue
+          ipconfig /flushdns | Out-Null
+          'hosts pins and firewall rule removed'
+
+      - name: Report (evidence table, labelled)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          APP_SHA: ${{ steps.shas.outputs.app }}
+          HARNESS_SHA: ${{ steps.shas.outputs.harness }}
+          MODELS: chat=${{ inputs.chat_model || 'gpt-6-luna' }} journeys=${{ inputs.journeys_model || 'gpt-6-luna' }} focus=${{ inputs.focus_model || 'gpt-6-luna' }} voice=${{ inputs.realtime_model || 'gpt-realtime-2.1-mini' }}
+        run: |
+          python -I tools/Boo.QaSuite/qa_report.py artifacts/qa-evidence --run-url $env:RUN_URL --app-sha $env:APP_SHA --harness-sha $env:HARNESS_SHA --models $env:MODELS
+          exit $LASTEXITCODE
+
+      - name: Screenshots are Boo windows only (never the desktop)
+        if: always()
+        shell: pwsh
+        run: |
+          $images = '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tif', '.tiff', '.webp'
+          $shots = @(Get-ChildItem artifacts/qa-evidence -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $images -contains $_.Extension.ToLowerInvariant() })
+          $bad = @($shots | Where-Object { $_.Name -notmatch '^.+\.boo-\d+\.png$' })
+          "screenshots: $($shots.Count), not from the Boo-window renderer: $($bad.Count)"
+          $bad | ForEach-Object { "  NOT A BOO WINDOW: $($_.FullName)" }
+          if ($bad.Count -gt 0) { '::error title=Full-app QA::a screenshot did not come from the Boo-window renderer'; exit 1 }
+
+      - name: Key scan before upload (qa evidence)
+        id: keyscan_artifacts_qa_evidence
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --secret-env OPENAI_KEY --delete artifacts/qa-evidence; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/qa-evidence' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/qa-evidence')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload QA evidence (screenshots, observations, test results, summary)
+        if: ${{ !cancelled() && steps.keyscan_artifacts_qa_evidence.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-app-qa-evidence
+          path: artifacts/qa-evidence
+          if-no-files-found: error
+          retention-days: 7
+
+  # THE DELIBERATE-FAILURE PROBE. Its own throwaway VM, no key at all, no AI request. It plants the classic mock (the
+  # demo-ci hosts redirect) and runs the suite's anti-mock checks and its real-chat journey: they MUST fail, and fail
+  # for that reason. This job is green only when the suite went red as it should.
+  red-probe:
+    needs: preflight
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      BOO_CAPTURE_SCOPE: boo-windows
+      BOO_UI_EXE: ${{ github.workspace }}\artifacts\qa-app\Boo.exe
+      BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\qa-probe
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=Full-app QA refused::This job runs only on a GitHub-hosted runner (runner environment: '$($env:RUNNER_ENVIRONMENT)')."
+            exit 1
+          }
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: true
+
+      - name: Check out the app under test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.app_sha }}
+          path: app-under-test
+          persist-credentials: false
+          clean: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: PyYAML for the key scan (hash-pinned)
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: app-under-test/global.json
+
+      - name: Publish Boo.exe and build the suite
+        shell: pwsh
+        run: |
+          dotnet publish app-under-test/src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/qa-app
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tools/Boo.QaSuite -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force -Path artifacts/qa-probe | Out-Null
+
+      - name: Plant the mock, run the suite, and require it to go red for that reason
+        shell: pwsh
+        run: |
+          Add-Content -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Value "`n127.0.0.1 api.openai.com # boo-qa-timeout"
+          ipconfig /flushdns | Out-Null
+          & dotnet test tools/Boo.QaSuite -c Release --no-build --filter "FullyQualifiedName~Boo.QaSuite.AntiMock.AntiMockTests.AM1|FullyQualifiedName~Boo.QaSuite.Journeys.QaJourneyTests.S2" --logger trx --results-directory artifacts/qa-probe/trx
+          $rc = $LASTEXITCODE
+          (Get-Content "$env:SystemRoot\System32\drivers\etc\hosts") | Where-Object { $_ -notmatch 'boo-qa-timeout' } | Set-Content "$env:SystemRoot\System32\drivers\etc\hosts"
+          $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+          $results = @(Get-ChildItem artifacts/qa-probe/trx -Filter *.trx | ForEach-Object { Select-Xml -Path $_.FullName -XPath '//t:UnitTestResult' -Namespace $ns } | ForEach-Object { $_.Node })
+          $ok = $true
+          foreach ($want in 'AM1_NoAiHostRedirected', 'S2_RealChat') {
+            $r = $results | Where-Object { $_.testName -match $want }
+            $msg = if ($r) { ($r.Output.ErrorInfo.Message | Out-String).Trim() } else { '' }
+            "$want -> outcome=$($r.outcome) message=$($msg.Substring(0, [Math]::Min(300, $msg.Length)))"
+            if (-not $r -or $r.outcome -ne 'Failed' -or ($msg -notmatch 'LIVE SMOKE FAILED CLOSED|api\.openai\.com')) { $ok = $false; "::error title=Probe::$want did not fail for the planted mock" }
+          }
+          "dotnet test exit code: $rc (must be non-zero)"
+          if ($rc -eq 0) { $ok = $false; '::error title=Probe::the suite stayed green with a mock planted' }
+          Set-Content artifacts/qa-probe/probe-verdict.txt ("probe proved red: $ok; dotnet test exit $rc")
+          if (-not $ok) { exit 1 }
+          'PROBE OK: with a mock planted the suite went red, for the right reason.'
+          # The planted failure left dotnet test's non-zero code behind; the probe's verdict above is what counts.
+          exit 0
+
+      - name: Key scan before upload (probe evidence)
+        id: keyscan_artifacts_qa_probe
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/qa-probe; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/qa-probe' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/qa-probe')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload probe evidence
+        if: ${{ !cancelled() && steps.keyscan_artifacts_qa_probe.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-app-qa-probe
+          path: artifacts/qa-probe
+          if-no-files-found: error
+          retention-days: 7
+
+  native-voice:
+    needs: preflight
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      BOO_CAPTURE_SCOPE: boo-windows
+      BOO_QA_VOICE_MODEL: ${{ inputs.realtime_model || 'gpt-realtime-2.1-mini' }}
+      BOO_QA_VOICE_TRANSCRIBE_MODEL: gpt-4o-mini-transcribe
+      BOO_QA_VOICE_RED_PROOF: false
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=Live AI smoke refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)'). Set this job's runner back to windows-latest."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Record the tested commit (the evidence must name this exact SHA)
+        shell: pwsh
+        env:
+          REQUESTED_REF: ${{ needs.preflight.outputs.app_sha }}
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          if ($env:REQUESTED_REF) { "Requested ref: $env:REQUESTED_REF" }
+          "Native voice E2E tests commit $sha"
+          "## Tested commit`n`n$sha" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+      - name: Check out the same app under test as the full suite
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.app_sha }}
+          path: app-under-test
+          persist-credentials: false
+      - name: Pin native app and harness identity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/native-voice | Out-Null
+          "app=$(git -C app-under-test rev-parse HEAD)`nharness=$(git rev-parse HEAD)" | Set-Content artifacts/native-voice/identity.txt
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned artifact scanner
+        run: 'python -m pip install --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt'
+      - name: Native receipt gate regressions (no provider)
+        run: python -I tools/Boo.QaSuite/native_receipts.py --self-test
+      - name: Validate credential and models before paid calls
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:OPENAI_KEY)) { throw 'BOO_LIVE_OPENAI_KEY missing; BLOCKED' }
+          foreach ($m in @($env:BOO_QA_VOICE_MODEL, $env:BOO_QA_VOICE_TRANSCRIBE_MODEL)) {
+            if ($m -notmatch '^[A-Za-z0-9._:-]{1,128}$') { throw 'Invalid model id' }
+            try { $null = Invoke-RestMethod -Uri "https://api.openai.com/v1/models/$m" -Headers @{Authorization="Bearer $env:OPENAI_KEY"} -TimeoutSec 20 }
+            catch { throw "Model preflight failed for $m (response body withheld)" }
+          }
+      - name: Publish exact head and compile standalone journeys
+        run: |
+          dotnet publish app-under-test/src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/native-app
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tools/Boo.NativeVoice -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test tools/Boo.NativeVoice.Unit -c Release --logger trx --results-directory artifacts/native-voice/unit
+          exit $LASTEXITCODE
+      - name: Both native journeys (three bounded responses total, no retries)
+        timeout-minutes: 6
+        shell: pwsh
+        env:
+          BOO_LIVE_OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\native-app\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\native-voice
+        run: |
+          New-Item -ItemType Directory -Force artifacts/native-voice | Out-Null
+          git -C app-under-test rev-parse HEAD | Set-Content artifacts/native-voice/app-sha.txt
+          dotnet test tools/Boo.NativeVoice -c Release --no-build --logger trx --results-directory artifacts/native-voice/trx
+          exit $LASTEXITCODE
+      - name: Exact native identities and receipts
+        if: always()
+        shell: pwsh
+        run: |
+          python -I tools/Boo.QaSuite/native_receipts.py artifacts/native-voice ${{ needs.preflight.outputs.app_sha }} ${{ github.sha }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test gate (no empty or skipped native journey)
+        if: always()
+        shell: pwsh
+        run: ./scripts/ci/assert-tests-ran.ps1 -ResultsDirectory artifacts/native-voice/trx -SourceDirectory tools/Boo.NativeVoice
+      - name: Screenshots are Boo windows only (never the desktop)
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing, System.Windows.Forms
+          foreach ($m in [System.Windows.Forms.Screen]::AllScreens) { "Runner monitor: $($m.Bounds.Width) x $($m.Bounds.Height)" }
+          $images = '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tif', '.tiff', '.webp'
+          $shots = @(Get-ChildItem artifacts/native-voice -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $images -contains $_.Extension.ToLowerInvariant() })
+          if ($shots.Count -eq 0) { "::error title=Live AI smoke::no screenshots were written, so there is no visual evidence"; exit 1 }
+          # Every image must come from the Boo-window renderer and be readable. A single window may legitimately render as
+          # one colour (the retracted notch is fully transparent), but each capture moment (<step>.boo-*.png) must have
+          # at least one window with real content, or the renderer is broken and there is no visual evidence.
+          $bad = 0; $moments = @{}
+          foreach ($s in $shots) {
+            $ok = $s.Name -match '^(?<step>.+)\.boo-\d+\.png$'
+            $note = if ($ok) { '' } else { '  <-- NOT FROM THE BOO-WINDOW RENDERER' }
+            try {
+              $img = [System.Drawing.Bitmap]::FromFile($s.FullName)
+              $first = $img.GetPixel(0, 0).ToArgb(); $varied = $false
+              for ($y = 0; $y -lt $img.Height -and -not $varied; $y += 4) {
+                for ($x = 0; $x -lt $img.Width; $x += 4) { if ($img.GetPixel($x, $y).ToArgb() -ne $first) { $varied = $true; break } }
+              }
+              if (-not $varied) { $note += '  (one colour)' }
+              "{0}: {1} x {2}{3}" -f $s.Name, $img.Width, $img.Height, $note
+              $img.Dispose()
+              if ($ok) { $step = $Matches['step']; if (-not $moments.ContainsKey($step)) { $moments[$step] = $false }; if ($varied) { $moments[$step] = $true } }
+            } catch { $ok = $false; "{0}: unreadable ({1})" -f $s.Name, $_.Exception.Message }
+            if (-not $ok) { $bad++ }
+          }
+          foreach ($step in $moments.Keys) { if (-not $moments[$step]) { "$step <-- EVERY WINDOW BLANK (renderer produced no content)"; $bad++ } }
+          Get-ChildItem artifacts/native-voice -Recurse -Filter *.capture.txt -ErrorAction SilentlyContinue | ForEach-Object { "## $($_.Name)"; Get-Content $_.FullName }
+          if ($bad -gt 0) { "::error title=Live AI smoke::$bad screenshot problem(s): copied from the screen, unreadable, or a capture with no real Boo window content"; exit 1 }
+      - name: Key scan before upload
+        id: keyscan_artifacts_native_voice
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
+        run: |-
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --secret-env OPENAI_KEY --delete artifacts/native-voice; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/native-voice' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/native-voice')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+      - name: Upload native voice evidence
+        if: ${{ !cancelled() && steps.keyscan_artifacts_native_voice.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-voice-evidence
+          path: artifacts/native-voice
+          if-no-files-found: error
+          retention-days: 7
+
+  # C15E: the mock j15e contract (an incidental action on a plain question is refused with the required acknowledgment).
+  # It needs the QaMockAi server and an api.openai.com hosts redirect, so it runs on its OWN VM: the live suite's VM
+  # never holds a redirect, and its anti-mock checks stay meaningful. Same run id, same app SHA, so the report counts it
+  # as current-run evidence. Label: mock, zero real provider calls.
+  mock-contracts:
+    needs: preflight
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      BOO_CAPTURE_SCOPE: boo-windows
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'Hosted VM required' }
+      - name: Check out the test harness (this workflow's commit)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out the app under test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.app_sha }}
+          path: app-under-test
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build the app under test and the mock harness
+        shell: pwsh
+        run: |
+          dotnet publish app-under-test/src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/mock-app
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tools/Boo.QaMockAi -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tools/Boo.QaSuite -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: One mock j15e journey (C15E), no real AI and no retries
+        shell: pwsh
+        env:
+          BOO_UI_EXE: ${{ github.workspace }}\artifacts\mock-app\Boo.exe
+          BOO_UI_ARTIFACTS: ${{ github.workspace }}\artifacts\mock-contracts
+          BOO_DEMO_WORKSPACE: ${{ github.workspace }}\tests\fixtures\native\Boo.QaWorkspace
+          BOO_QA_MOCK_LOG: ${{ github.workspace }}\artifacts\mock-contracts\mock-requests.log
+        run: |
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts/mock-contracts'
+          New-Item -ItemType Directory -Force $evidence | Out-Null
+          "app=$(git -C app-under-test rev-parse HEAD)`nharness=$(git rev-parse HEAD)`nrun=${{ github.run_id }}`nlabel=mock; real provider calls=0" | Set-Content "$evidence/identity.txt"
+          Get-FileHash $env:BOO_UI_EXE | Format-List | Out-File "$evidence/exe-hash.txt"
+          $hostsPath = Join-Path $env:SystemRoot 'System32/drivers/etc/hosts'
+          $hostsBefore = [IO.File]::ReadAllBytes($hostsPath)
+          $mock = $null
+          $imported = @()
+          try {
+            Add-Content -LiteralPath $hostsPath -Value "`n127.0.0.1 api.openai.com"
+            ipconfig /flushdns | Out-Null
+            $cert = Join-Path $evidence 'mock-api-openai.cer'
+            $dll = @(Get-ChildItem tools/Boo.QaMockAi/bin/Release -Recurse -Filter Boo.QaMockAi.dll)
+            if ($dll.Count -ne 1) { throw 'Expected one mock binary' }
+            $mock = Start-Process dotnet -ArgumentList "`"$($dll[0].FullName)`" --port 443 --cert-out `"$cert`" --log `"$env:BOO_QA_MOCK_LOG`" --workspace `"$env:BOO_DEMO_WORKSPACE`"" -PassThru -WindowStyle Hidden -RedirectStandardOutput "$evidence/mock-stdout.txt" -RedirectStandardError "$evidence/mock-stderr.txt"
+            $deadline = (Get-Date).AddSeconds(60)
+            while (-not (Test-Path -LiteralPath $cert) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+            if (-not (Test-Path -LiteralPath $cert)) { throw 'Mock did not create certificate' }
+            $imported = @(Import-Certificate -FilePath $cert -CertStoreLocation Cert:\LocalMachine\Root)
+            $probe = Invoke-WebRequest https://api.openai.com/v1/models -TimeoutSec 15
+            if ($probe.StatusCode -ne 200) { throw 'Mock health probe failed' }
+            $test = 'Boo.QaSuite.MockContracts.IncidentalActionsTests.Q15E_PlainQuestion_RejectsActualIncidentalAction_WithoutApprovalOrFileChange'
+            dotnet test tools/Boo.QaSuite -c Release --no-build --filter "FullyQualifiedName=$test" --logger trx --results-directory "$evidence/trx"
+            exit $LASTEXITCODE
+          } finally {
+            if ($mock) { Stop-Process -Id $mock.Id -Force -ErrorAction SilentlyContinue }
+            [IO.File]::WriteAllBytes($hostsPath, $hostsBefore)
+            ipconfig /flushdns | Out-Null
+            foreach ($certificate in $imported) { Remove-Item -LiteralPath "Cert:\LocalMachine\Root\$($certificate.Thumbprint)" }
+          }
+      - name: Prepare scanner
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Key scan before upload
+        id: keyscan_artifacts_mock_contracts
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/mock-contracts; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/mock-contracts' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/mock-contracts')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+      - name: Upload mock contract evidence
+        if: ${{ !cancelled() && steps.keyscan_artifacts_mock_contracts.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mock-contracts-evidence
+          path: artifacts/mock-contracts
+          if-no-files-found: error
+          retention-days: 7
+
+  # THE VERDICT. Always runs; green only if the suite passed AND the probe proved the suite goes red. A skip, a cancel
+  # or a missing key is never a pass.
+  full-app-qa:
+    needs: [preflight, suite, red-probe, native-voice, mock-contracts]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Suite passed and the probe proved red
+        env:
+          PREFLIGHT: ${{ needs.preflight.result }}
+          SUITE: ${{ needs.suite.result }}
+          PROBE: ${{ needs.red-probe.result }}
+          NATIVE: ${{ needs.native-voice.result }}
+          MOCK: ${{ needs.mock-contracts.result }}
+        run: |
+          echo "preflight: $PREFLIGHT, suite: $SUITE, red-probe: $PROBE, native-voice: $NATIVE, mock-contracts: $MOCK"
+          if [ "$PREFLIGHT" != "success" ] || [ "$SUITE" != "success" ] || [ "$PROBE" != "success" ] || [ "$NATIVE" != "success" ] || [ "$MOCK" != "success" ]; then
+            echo "::error title=full-app-qa::Not a pass (preflight: $PREFLIGHT, suite: $SUITE, red-probe: $PROBE)."
+            exit 1
+          fi
+          echo "FULL-APP QA GREEN. BLOCKED / UNVERIFIED rows (voice until PR 47, undriven notch states) are listed in the suite's job summary and are NOT passes."

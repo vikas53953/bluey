@@ -19,20 +19,34 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-$sources = Get-ChildItem $SourceDirectory -Recurse -Filter *.cs |
-  Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' }
+# Full-app CI pins the independent source floor to the integration merge-base.
+$sourceTexts = @()
+if ($env:QA_BASE_REF) {
+  $paths = @(git ls-tree -r --name-only $env:QA_BASE_REF -- $SourceDirectory)
+  if ($LASTEXITCODE -ne 0) { throw 'cannot read merge-base sources' }
+  foreach ($path in $paths) {
+    if ($path -like '*.cs') {
+      $text = git show "$($env:QA_BASE_REF):$path"
+      if ($LASTEXITCODE -ne 0) { throw 'cannot read anchored source' }
+      $sourceTexts += ($text -join "`n")
+    }
+  }
+}
+# A project introduced by this PR has no base source; the exact-ID contract independently checks it.
+if (-not $env:QA_BASE_REF) {
+  $sourceTexts = @(Get-ChildItem $SourceDirectory -Recurse -Filter *.cs |
+    Where-Object { $_.FullName -notmatch '[\/](bin|obj)[\/]' } |
+    ForEach-Object { Get-Content $_.FullName -Raw })
+}
 $declared = 0
-foreach ($s in $sources) {
-  $code = Get-Content $s.FullName -Raw
+foreach ($code in $sourceTexts) {
   $code = [regex]::Replace($code, '/\*.*?\*/', '', 'Singleline')
   $code = [regex]::Replace($code, '(?m)//.*$', '')
-  # Anywhere on a line, so [Trait(..)][Fact] and [Fact, Step(0)] both count. A stray match inside a string can only
-  # raise the count, which makes the gate stricter, never looser.
   $declared += [regex]::Matches($code, '\[\s*(Xunit\.)?(Fact|Theory)\b').Count
 }
 
 $failures = @()
-if ($declared -eq 0) { $failures += "no [Fact] or [Theory] found under $SourceDirectory" }
+if ($declared -eq 0 -and -not $env:QA_BASE_REF) { $failures += "no [Fact] or [Theory] found under $SourceDirectory" }
 
 $trx = @(Get-ChildItem $ResultsDirectory -Recurse -Filter *.trx -ErrorAction SilentlyContinue)
 if ($trx.Count -eq 0) {
