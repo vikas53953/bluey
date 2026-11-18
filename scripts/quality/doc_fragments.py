@@ -27,6 +27,9 @@ The check (PR mode) fails closed when:
   4. another PR's decisions/handoff fragment is changed in anything but its status cell (Status / State), gains or
      loses a row, or is deleted. A PR may change its own fragments freely. Feature-map fragments belong to the
      feature, not a PR: any PR may add, edit or delete one (Test-FeatureMap.ps1 keeps the map true).
+  Rules 3 and 4 treat a PR that this PR carries as its own: a fragment of PR #N passes when a merge commit
+  "Merge pull request #N ..." lies between the merge base and the head (an integration PR such as lane/face -> main
+  brings every merged lane's fragments; a lane PR that merged lane/face brings nothing new, its merge base moves).
 Git, event or parse trouble fails closed. Stdlib only, safe under `python -I`.
 """
 import json
@@ -260,8 +263,11 @@ def changes(base, head):
     return out
 
 
-def judge(base, head, changed, pr):
-    """Problems of PR #pr whose merge-base tree is `base` and head tree is `head` (path -> text)."""
+def judge(base, head, changed, pr, merged=frozenset()):
+    """Problems of PR #pr whose merge-base tree is `base` and head tree is `head` (path -> text).
+
+    `merged`: numbers of the PRs whose merge commits this PR carries (merge base..head); their fragments count as
+    this PR's own, so an integration PR (lane/face -> main) is not blamed for the lanes it integrates."""
     problems = []
     for path in FROZEN_FILES:
         if path not in head:
@@ -296,7 +302,7 @@ def judge(base, head, changed, pr):
         if not m:
             continue                                   # a bad name in the head is reported above
         owner = int(m.group(1))
-        if owner == pr:
+        if owner == pr or owner in merged:
             continue
         if status == 'A':
             problems.append(f'{path} is a new {kind} fragment named for PR #{owner}, but this is PR #{pr}; a PR adds '
@@ -416,9 +422,19 @@ def git_tree(rev, cwd=None):
     return tree
 
 
+MERGE_SUBJECT = re.compile(r'^Merge pull request #(\d+)\b')
+
+
+def merged_prs(merge_base, head, cwd=None):
+    """Numbers of the PRs merged between `merge_base` and `head` (GitHub's "Merge pull request #N" subjects)."""
+    subjects = _git(['log', '--merges', '--format=%s', f'{merge_base}..{head}'], cwd).decode('utf-8', 'replace')
+    return frozenset(int(m.group(1)) for m in (MERGE_SUBJECT.match(line) for line in subjects.splitlines()) if m)
+
+
 def run_git(base, head, pr, cwd=None, out=print):
     try:
         merge_base = _git(['merge-base', base, head], cwd).decode().strip()
+        merged = merged_prs(merge_base, head, cwd)
         raw = _git(['diff', '--name-status', '--no-renames', '-z', merge_base, head], cwd).decode('utf-8', 'replace')
         parts = [p for p in raw.split('\0') if p]
         if len(parts) % 2:
@@ -427,7 +443,7 @@ def run_git(base, head, pr, cwd=None, out=print):
         before, after = git_tree(merge_base, cwd), git_tree(head, cwd)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         return report([f'git could not read the PR\'s commits ({type(error).__name__}); failing closed'], out)
-    return report(judge(before, after, changed, pr), out)
+    return report(judge(before, after, changed, pr, merged), out)
 
 
 def run_event(event_path, out=print, cwd=None):
@@ -676,6 +692,18 @@ def self_test():
     fails('a new decisions fragment for another PR fails', pr({'docs/decisions/161-x.md': DEC_FRAG}),
           'named for PR #161')
 
+    passes('a new fragment for a PR this PR carries (its merge commit is in merge base..head) passes', judge(
+        base, {**base, 'docs/handoff/161.md': HO_FRAG.replace('160', '161')},
+        changes(base, {**base, 'docs/handoff/161.md': HO_FRAG.replace('160', '161')}), 160, merged={161}))
+    carried = {k: v for k, v in base.items() if k != 'docs/handoff/150.md'}
+    carried['docs/decisions/150-older.md'] = base['docs/decisions/150-older.md'].replace('Fragments', 'Reworded')
+    passes('a carried PR\'s fragments may be reworded or deleted',
+           judge(base, carried, changes(base, carried), 160, merged={150}))
+    fails('a merged set that does not name the owner still fails', judge(
+        base, {**base, 'docs/handoff/161.md': HO_FRAG.replace('160', '161')},
+        changes(base, {**base, 'docs/handoff/161.md': HO_FRAG.replace('160', '161')}), 160, merged={162}),
+        'named for PR #161')
+
     # 4. another PR's fragments
     passes('another PR\'s handoff fragment: State edit only passes', pr({'docs/handoff/150.md': base[
         'docs/handoff/150.md'].replace('**open**', '**merged 16 Nov** (`abc1234`)')}))
@@ -758,6 +786,16 @@ def self_test():
         sink = []
         expect('git: an unknown base commit fails closed', run_git('no-such-ref', 'clean', 160, repo, sink.append) == 1
                and any('failing closed' in s for s in sink))
+        sink = []
+        expect('git: an integration PR carrying "Merge pull request #170" passes on PR #170\'s fragment',
+               run_git('main', 'integration', 3, repo, sink.append) == 0)
+        sink = []
+        expect('git: the same fragment brought by a plain commit (no merge of PR #170) fails',
+               run_git('main', 'plain', 3, repo, sink.append) == 1 and any('named for PR #170' in s for s in sink))
+        sink = []
+        expect('git: a merge subject naming another number does not cover PR #170\'s fragment',
+               run_git('main', 'wrong-merge', 3, repo, sink.append) == 1 and
+               any('named for PR #170' in s for s in sink))
     except (OSError, subprocess.CalledProcessError) as error:
         expect(f'git fixture could be built ({type(error).__name__})', False)
 
@@ -803,6 +841,24 @@ def _git_fixture(repo, base, own):
     write({DECISIONS: base[DECISIONS].replace('PR #2 | in force |\n',
                                               'PR #2 | in force |\n| 16 Nov 2026 | n | w | s | proposed |\n')})
     git('commit', '-q', '-am', 'append a frozen row')
+    # PR #170's own branch, merged into an integration branch with GitHub's merge subject; the same file arriving by
+    # a plain commit, or under a merge subject naming another PR, is not covered.
+    git('checkout', '-q', 'main')
+    git('checkout', '-q', '-b', 'pr-170')
+    write({'docs/handoff/170.md': HO_FRAG.replace('160', '170')})
+    git('add', '-A')
+    git('commit', '-q', '-m', 'PR 170 fragment')
+    git('checkout', '-q', 'main')
+    git('checkout', '-q', '-b', 'integration')
+    git('merge', '-q', '--no-ff', '-m', 'Merge pull request #170 from o/pr-170', 'pr-170')
+    git('checkout', '-q', 'main')
+    git('checkout', '-q', '-b', 'plain')
+    write({'docs/handoff/170.md': HO_FRAG.replace('160', '170')})
+    git('add', '-A')
+    git('commit', '-q', '-m', 'bring PR 170 fragment by hand')
+    git('checkout', '-q', 'main')
+    git('checkout', '-q', '-b', 'wrong-merge')
+    git('merge', '-q', '--no-ff', '-m', 'Merge pull request #171 from o/pr-170', 'pr-170')
 
 
 # ---------------------------------------------------------------------------------------------------- main
