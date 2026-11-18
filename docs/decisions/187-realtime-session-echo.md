@@ -1,0 +1,3 @@
+| Date | Decision | Why | Source | Status |
+| --- | --- | --- | --- | --- |
+| 17 Nov 2026 | **#179 is the voice model's own error, not a Boo setting; Boo records the session the server applied.** Boo sends no temperature (none is configured), its instructions do not discourage careful answers, every answer comes from a fresh session, and the 128-token cap is far above a one-sentence answer. The live voice test now saves the server's `session.updated` echo so the applied settings are on record for any future wrong answer. Moving to a costlier voice model is Vikas's call. | #179: one wrong answer ('7') among the recorded live voice turns, with no Boo-side cause found. | Orchestrator for Vikas (Batch 1), 17 Nov 2026; PR #187 | proposed (PR #187); in force on merge |
