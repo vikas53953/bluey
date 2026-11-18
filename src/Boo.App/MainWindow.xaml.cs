@@ -203,7 +203,8 @@ public partial class MainWindow : Window
 
     private DispatcherTimer CreateFaceMomentTimer()
     {
-        var timer = new DispatcherTimer(DispatcherPriority.Background);
+        // INVARIANT: the expiry tick runs at Normal priority, see FaceMomentTimerTests.TheFaceMomentTimer_RunsAtExactlyNormalPriority
+        var timer = new DispatcherTimer(DispatcherPriority.Normal);
         timer.Tick += (_, _) =>
         {
             timer.Stop();
@@ -294,6 +295,7 @@ public partial class MainWindow : Window
         _shellDisposed = true;
         _closingForExit = true;
         StopAll();
+        _faceMomentTimer?.Stop();
         FlushFocusHistory();
         DisposeHoldToTalk();
         _focusTimer.Stop();
