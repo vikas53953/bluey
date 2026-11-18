@@ -13,7 +13,7 @@ worked on**; everything else is frozen until that sprint is done. Feature ids ar
 | S3 Actions and Undo | Permissioned actions, each with its own Undo | A1–A9 (#66 belongs here) | frozen |
 | S4 Focus | Focus sessions | F1–F14 | frozen |
 | S5 Polish | Notch, settings and display polish, DPI, performance | N\*, S\*, X\* rows not in S1; DPI; perf | frozen |
-| S6 Release | Signed installer, tag and release | Vikas-only steps (tag, release, signing, PR #3) | frozen |
+| S6 Release | Installer, auto-update, code signing, PR #3 to `main`, and the v1.0 release | Vikas-only steps (tag, release, signing, PR #3) | frozen |
 
 Parked, outside every sprint until Vikas says otherwise: #184 / #111 (Happy timing ±100 ms), #78 (0.3 s first-open
 stall), #28.
