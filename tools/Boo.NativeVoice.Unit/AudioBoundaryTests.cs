@@ -193,4 +193,23 @@ public sealed class AudioBoundaryTests
         Assert.Equal("{\"type\":\"response.create\"}", RealtimeProtocol.ResponseCreate(false, 1));
         Assert.Equal("{\"type\":\"response.create\"}", RealtimeProtocol.ResponseCreate(false, 2));
     }
+    [Fact]
+    public void SilentReplyFault_ReadsExactlyOne_AndDefaultsOff()
+    {
+        string? Read(string key, string? silent) => key switch
+        {
+            "BOO_QA_VOICE_INPUT" => "input.wav",
+            "GITHUB_ACTIONS" => "true",
+            "RUNNER_ENVIRONMENT" => "github-hosted",
+            "BOO_QA_VOICE_EVIDENCE" => "receipt",
+            HostedVoiceOptions.SilentReplyVariable => silent,
+            _ => null
+        };
+        Assert.Equal("BOO_QA_VOICE_SILENT_REPLY", HostedVoiceOptions.SilentReplyVariable);
+        Assert.False(HostedVoiceOptions.Read(k => Read(k, null), true)!.SilentReply);
+        Assert.False(HostedVoiceOptions.Read(k => Read(k, "true"), true)!.SilentReply);
+        Assert.True(HostedVoiceOptions.Read(k => Read(k, "1"), true)!.SilentReply);
+        // Without the hosted QA devices the switch is never read: a desktop Boo cannot be silenced by it.
+        Assert.Null(HostedVoiceOptions.Read(k => k == HostedVoiceOptions.SilentReplyVariable ? "1" : null, true));
+    }
 }

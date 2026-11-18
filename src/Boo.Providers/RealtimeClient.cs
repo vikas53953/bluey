@@ -318,6 +318,7 @@ public sealed class RealtimeClient : IAsyncDisposable
     private readonly string? _transcriptionModel;
     private readonly int? _maxOutputTokens;
     private readonly bool _toolTurn;
+    private readonly bool _silentReplyFault;
     private int _responseRequests;
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
@@ -335,8 +336,10 @@ public sealed class RealtimeClient : IAsyncDisposable
 
     /// <param name="transcriptionModel">Speech-to-text model for the user's words; null = Boo's default.</param>
     /// <param name="toolTurn">With a token bound: one forced screen_help call and one spoken follow-up (exactly two response requests).</param>
-    public RealtimeClient(Func<string?> credential, ProviderSettings settings, bool pushToTalk = false, string? transcriptionModel = null, int? maxOutputTokens = null, bool toolTurn = false)
+    /// <param name="silentReplyFault">QA only (<see cref="HostedVoiceOptions.SilentReply"/>): reply audio is replaced by silence of the same length.</param>
+    public RealtimeClient(Func<string?> credential, ProviderSettings settings, bool pushToTalk = false, string? transcriptionModel = null, int? maxOutputTokens = null, bool toolTurn = false, bool silentReplyFault = false)
     {
+        _silentReplyFault = silentReplyFault;
         _pushToTalk = pushToTalk;
         _transcriptionModel = transcriptionModel;
         _maxOutputTokens = maxOutputTokens;
@@ -348,7 +351,8 @@ public sealed class RealtimeClient : IAsyncDisposable
     /// <summary>Compose a native voice client; hosted device options bound the real session, without replacing its provider.</summary>
     public static RealtimeClient ForNativeVoice(Func<string?> credential, ProviderSettings settings, bool pushToTalk,
         HostedVoiceOptions? qaVoice) => new(credential, settings, pushToTalk, qaVoice?.TranscriptionModel,
-            maxOutputTokens: qaVoice is null ? null : 128, toolTurn: qaVoice?.ToolTurn ?? false);
+            maxOutputTokens: qaVoice is null ? null : 128, toolTurn: qaVoice?.ToolTurn ?? false,
+            silentReplyFault: qaVoice?.SilentReply ?? false);
 
     /// <summary>The exact session.update payload sent by ConnectAsync.</summary>
     public string CreateSessionUpdate() => RealtimeProtocol.SessionUpdate(_settings, _pushToTalk, _transcriptionModel, _maxOutputTokens, _toolTurn);
@@ -702,6 +706,8 @@ public sealed class RealtimeClient : IAsyncDisposable
 
     private void Publish(RealtimeEvent value)
     {
+        if (_silentReplyFault && value.Kind == "response.output_audio.delta" && value.Audio is { } audio)
+            value = value with { Audio = new byte[audio.Length] };
         try { _received?.Invoke(value); }
         catch { /* subscriber failures must not tear down the provider socket */ }
     }
