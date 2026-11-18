@@ -1,0 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
+
+[assembly: SuppressMessage("ApiDesign", "RS0030", Scope = "member", Target = "~M:Boo.Windows.DesktopTools.OpenApp(Boo.Core.ToolRequest,Boo.Core.TaskAuthority,Boo.Core.ApprovalTicket,System.Threading.CancellationToken)", Justification = "Baselined by PR 1.3; cleanup C8; BOO-SAFE-003 x1; ~M:Boo.Windows.DesktopTools.OpenApp(Boo.Core.ToolRequest,Boo.Core.TaskAuthority,Boo.Core.ApprovalTicket,System.Threading.CancellationToken)")]
+[assembly: SuppressMessage("ApiDesign", "RS0030", Scope = "member", Target = "~M:Boo.Windows.DesktopTools.OpenUrl(Boo.Core.ToolRequest,Boo.Core.TaskAuthority,Boo.Core.ApprovalTicket,System.Threading.CancellationToken)", Justification = "Baselined by PR 1.3; cleanup C8; BOO-SAFE-003 x1; ~M:Boo.Windows.DesktopTools.OpenUrl(Boo.Core.ToolRequest,Boo.Core.TaskAuthority,Boo.Core.ApprovalTicket,System.Threading.CancellationToken)")]

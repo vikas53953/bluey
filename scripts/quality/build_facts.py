@@ -48,7 +48,7 @@ SCHEMA = 'boo-build-facts/1'
 RULES = 'docs/quality/RULES.md#build-facts-the-shipped-build'
 
 BINLOG_KEYS = {'label': str, 'succeeded': bool, 'msbuildVersion': str, 'commandLine': (str, type(None)), 'units': list,
-               'tasks': list, 'copies': list, 'readyToRun': list, 'runtimePacks': list}
+               'tasks': list, 'copies': list, 'writes': list, 'readyToRun': list, 'runtimePacks': list}
 UNIT_KEYS = {'project': str, 'targetFramework': str, 'runtimeIdentifier': str, 'configuration': str,
              'globalProperties': list, 'properties': dict, 'imports': list, 'importsSkipped': list,
              'packageReferences': list, 'packageDownloads': list, 'projectReferenceItems': list,
@@ -58,7 +58,8 @@ CSC_KEYS = {'target': (str, type(None)), 'targetFile': str, 'taskAssembly': str,
             'switches': list, 'responseFiles': list, 'noConfig': bool, 'analyzerConfigs': list, 'analyzers': list,
             'additionalFiles': list, 'sources': list, 'nowarn': list, 'warnaserror': list,
             'ruleset': (str, type(None)), 'errorLog': (dict, type(None)), 'roslyn': dict, 'references': list,
-            'output': dict, 'refOutput': (dict, type(None))}
+            'output': dict, 'refOutput': (dict, type(None)), 'replay': (dict, type(None))}
+WRITE_KEYS = {'file': str, 'task': str, 'target': (str, type(None)), 'targetFile': str, 'project': str}
 COPY_KEYS = {'source': str, 'destination': str, 'target': (str, type(None)), 'targetFile': str,
              'package': (str, type(None)), 'sourceSha256': (str, type(None))}
 R2R_KEYS = {'input': str, 'inputSha256': (str, type(None)), 'output': str, 'outputSha256': (str, type(None)),
@@ -66,13 +67,16 @@ R2R_KEYS = {'input': str, 'inputSha256': (str, type(None)), 'output': str, 'outp
 SDK_CSC = re.compile(r'^<dotnet>/sdk/[0-9][^/]*/Roslyn/bincore/csc\.(?:dll|exe)$')
 HOST_ARGS = {'<dotnet>/dotnet.exe', '<dotnet>/dotnet', 'exec'}
 # On each string value (not the JSON text): a drive-letter path, a UNC path, or a Unix home folder.
-# Any absolute-path shape, at any position after any delimiter (the same shapes as the reader's PathTokens guard):
-# a drive letter (also inside \\?\C:\), a UNC path (\\srv\, \\?\UNC\), //host/ (not a URL's scheme://), a POSIX home
-# (/home, /users, /root, any case), an msys drive (/c/). A path character right before it means a relative path.
+# Any absolute-path shape (the same shapes as the reader's PathTokens guard): a drive letter followed by a backslash or
+# a single slash, even glued after a letter or digit (also inside \\?\C:\; a URL's scheme:// is not one); a URL-encoded
+# drive (C%3A%5C, C%3A%2F, C%3A/); and after any delimiter a UNC path (\\srv\, \\?\UNC\), //host/ (not a URL's
+# scheme://), a POSIX root (/home, /users, /root, /opt, /tmp, any case), an msys drive (/c/); for these a path character
+# right before means a relative path. A drive-relative C:Users is not refused.
 NOT_IN_PATH = r'(?<![A-Za-z0-9_.~$>)\]\\/-])'
-LEAKS = [re.compile(r'(?<![A-Za-z0-9])[A-Za-z]:[\\/]'),
+LEAKS = [re.compile(r'[A-Za-z]:(?:\\|/(?!/))'),
+         re.compile(r'[A-Za-z]%3[Aa](?:%5[Cc]|%2[Ff]|[\\/])'),
          re.compile(NOT_IN_PATH + r'\\\\[^\\/\s"\'<>|]+[\\/]'),
-         re.compile(NOT_IN_PATH + r'/(?:home|users|root)/[^/\s"\']', re.IGNORECASE),
+         re.compile(NOT_IN_PATH + r'/(?:home|users|root|opt|tmp)/[^/\s"\']', re.IGNORECASE),
          re.compile(NOT_IN_PATH + r'/[A-Za-z]/[^/\s"\']')]
 SLASH_SLASH = re.compile(NOT_IN_PATH + r'//[A-Za-z0-9._$?-]+/')
 URL_SCHEME = re.compile(r'(?:^|[\s"\'(\[<=,;])[A-Za-z][A-Za-z0-9+.-]*:$')
@@ -161,6 +165,8 @@ def structure(facts, problems):
                     ok = False
         for c in b['copies']:
             ok = typed(problems, f'{label}: copy', c, COPY_KEYS) and ok
+        for w in b['writes']:
+            ok = typed(problems, f'{label}: write', w, WRITE_KEYS) and ok
         for r in b['readyToRun']:
             ok = typed(problems, f'{label}: ReadyToRun compile', r, R2R_KEYS) and ok
         for t in b['tasks']:
@@ -255,6 +261,54 @@ def compiler_calls(facts, problems, known, projects, build_label):
                         problems.add(f'{where}: unknown compiler switch {s} (not in scripts/quality/buildfacts/known.json)')
                 for e in c['roslyn'].get('errors', []):
                     problems.add(f'{where}: the compiler command line does not parse: {e}')
+
+
+def written_outputs(facts, problems, projects):
+    """A file a judge trusts may only be written by the task that produced it: no recorded write (Copy, Move, Delete,
+    Touch, WriteLinesToFile, GenerateDepsFile, ...) may target any compile's output, reference output or error log, in
+    either log. The one SDK exception is WPF deleting its own temporary markup assembly (target
+    CleanupTemporaryTargetAssembly in the SDK's Microsoft.WinFX.targets, on a <Name>_wpftmp compile's output)."""
+    judged, wpf_outputs = {}, set()
+    for b in facts['binlogs']:
+        for u in b['units']:
+            twin = wpf_temp_of(u['project'], projects) is not None
+            for c in u['csc']:
+                paths = [c['output'].get('path'), (c.get('refOutput') or {}).get('path'),
+                         (c.get('errorLog') or {}).get('path')]
+                for path in paths:
+                    if isinstance(path, str):
+                        judged.setdefault(path.lower(), f'{b["label"]}: {u["project"]}')
+                if twin and isinstance(c['output'].get('path'), str):
+                    wpf_outputs.add(c['output']['path'].lower())
+    for b in facts['binlogs']:
+        for w in b['writes']:
+            key = w['file'].lower()
+            if key not in judged:
+                continue
+            if (w['task'] == 'Delete' and w['target'] == 'CleanupTemporaryTargetAssembly'
+                    and w['targetFile'].startswith('<dotnet>/sdk/') and w['targetFile'].endswith('/Microsoft.WinFX.targets')
+                    and key in wpf_outputs):
+                continue
+            problems.add(f'binlog {b["label"]}: {w["task"]} (target {w["target"]}, {w["targetFile"]}) writes {w["file"]}, '
+                         f'which is a compile output or error log ({judged[key]}); only its own compiler may write it')
+
+
+def replays(facts, problems, projects):
+    """A replayed compile (BuildFacts --replay-under) must give the same assembly as the one on disk: otherwise the
+    compile's inputs or output changed after it ran, or the build is not deterministic. WPF's temporary markup
+    assembly is deleted by design, so it is not compared."""
+    for b in facts['binlogs']:
+        for u in b['units']:
+            if wpf_temp_of(u['project'], projects) is not None:
+                continue
+            for c in u['csc']:
+                r = c.get('replay')
+                if r is None or r.get('status') != 'replayed':
+                    continue
+                if r.get('exitCode') != 0 or r.get('outputSha256') != c['output'].get('sha256'):
+                    problems.add(f'{b["label"]}: {u["project"]} ({u["runtimeIdentifier"]}) the replayed compile (exit '
+                                 f'{r.get("exitCode")}) does not give the assembly on disk: an input or the output changed '
+                                 f'after the compile, or the build is not deterministic')
 
 
 def tasks(facts, problems, known):
@@ -430,6 +484,8 @@ def check(facts_text, known, projects, build_label='build', publish_dir=None, pu
         return problems.items
     leaks(facts, problems)
     compiler_calls(facts, problems, known, projects, build_label)
+    written_outputs(facts, problems, projects)
+    replays(facts, problems, projects)
     tasks(facts, problems, known)
     reconcile(facts, problems, publish_dir, publish_rel, set(projects))
     return problems.items
@@ -553,7 +609,8 @@ def planted(tmp):
         'nowarn': [], 'warnaserror': [], 'ruleset': None, 'errorLog': None,
         'roslyn': {'errors': [], 'generalDiagnosticOption': 'Default', 'skipAnalyzers': False,
                    'specificDiagnosticOptions': {}, 'warningLevel': 10},
-        'references': [], 'output': {'path': out, 'sha256': sha}, 'refOutput': None}
+        'references': [], 'output': {'path': out, 'sha256': sha}, 'refOutput': None,
+        'replay': {'status': 'replayed', 'exitCode': 0, 'outputSha256': sha, 'sarif': None}}
     unit = lambda project, calls, libs=(): {
         'project': project, 'targetFramework': 'net10.0', 'runtimeIdentifier': '', 'configuration': 'Release',
         'globalProperties': [], 'properties': {}, 'imports': [], 'importsSkipped': [], 'packageReferences': [],
@@ -569,10 +626,13 @@ def planted(tmp):
          'units': [unit('src/App/App.csproj', [csc('src/App/obj/App.dll', h(app))]),
                    unit('src/Core/Core.csproj', [csc('src/Core/obj/Core.dll', h(r2r_in))], ['Pkg/1.0.0 (package)'])],
          'tasks': [{'task': task, 'count': 2}], 'copies': [copy('src/Core/obj/Core.dll', 'src/Core/bin/Core.dll', h(r2r_in))],
+         'writes': [{'file': 'src/Core/bin/Core.dll', 'task': 'Copy', 'target': 'CopyFilesToOutputDirectory',
+                     'targetFile': '<dotnet>/sdk/10.0.403/Microsoft.Common.CurrentVersion.targets',
+                     'project': 'src/Core/Core.csproj'}],
          'readyToRun': []},
         {'label': 'publish', 'succeeded': True, 'msbuildVersion': '18', 'commandLine': 'x',
          'runtimePacks': ['Microsoft.NETCore.App.Runtime.win-x64/10.0.14'], 'units': [],
-         'tasks': [{'task': task, 'count': 1}],
+         'tasks': [{'task': task, 'count': 1}], 'writes': [],
          'copies': [copy('src/App/obj/App.dll', 'artifacts/ci/App.dll', h(app)),
                     copy('<nuget>/pkg/1.0.0/lib/net10.0/Pkg.dll', 'artifacts/ci/Pkg.dll', h(lib)),
                     copy('src/App/obj/R2R/Core.dll', 'artifacts/ci/Core.dll', h(r2r_out))],
@@ -694,8 +754,41 @@ def self_test():
              lambda f: evil_unit(f, 'extra/Extra_wpftmp.csproj', 'extra/obj/Extra.dll', h(evil)))
         case('WPF temp project building another assembly name', 'src/App/App_wpftmp.csproj was compiled but is not',
              lambda f: evil_unit(f, 'src/App/App_wpftmp.csproj', 'src/App/obj/Other.dll', h(evil)))
+        def write(f, file, task='WriteLinesToFile', target='Evil', target_file='src/Core/Core.csproj', log=0):
+            f['binlogs'][log]['writes'].append({'file': file, 'task': task, 'target': target, 'targetFile': target_file,
+                                                'project': 'src/Core/Core.csproj'})
+
+        def with_errorlog(f):
+            unit(f, 'src/Core/Core.csproj')['csc'][0]['errorLog'] = {'path': 'src/Core/obj/Core.rs0030.sarif', 'sarif': {}}
+
+        case('GenerateDepsFile writes over an error log (review of PR #28: ProjectDepsFilePath)',
+             'writes src/Core/obj/Core.rs0030.sarif, which is a compile output or error log',
+             lambda f: (with_errorlog(f), write(f, 'src/Core/obj/Core.rs0030.sarif', 'GenerateDepsFile',
+                                                'GenerateBuildDependencyFile', '<dotnet>/sdk/10.0.403/Sdks/x.targets')))
+        case('publish GenerateDepsFile (PublishDepsFilePath) over an error log',
+             'binlog publish: GenerateDepsFile', lambda f: (with_errorlog(f), write(
+                 f, 'src/Core/obj/Core.rs0030.sarif', 'GenerateDepsFile', 'GeneratePublishDependencyFile',
+                 '<dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Publish.targets', log=1)))
+        case('Copy into an error log', 'Copy (target Evil', lambda f: (with_errorlog(f), write(
+            f, 'SRC/Core/obj/Core.rs0030.SARIF', 'Copy')))
+        case('WriteLinesToFile over a compile output', 'writes src/App/obj/App.dll',
+             lambda f: write(f, 'src/App/obj/App.dll'))
+        case('Touch on a reference output', 'writes src/Core/obj/ref/Core.dll', lambda f: (
+            unit(f, 'src/Core/Core.csproj')['csc'][0].update(refOutput={'path': 'src/Core/obj/ref/Core.dll', 'sha256': 'x'}),
+            write(f, 'src/Core/obj/ref/Core.dll', 'Touch')))
+        case('the WPF cleanup exception needs the SDK target file', 'writes src/App/obj/App.dll', lambda f: (
+            evil_unit(f, 'src/App/App_wpftmp.csproj', 'src/App/obj/App.dll', unit(f, 'src/App/App.csproj')['csc'][0]['output']['sha256']),
+            write(f, 'src/App/obj/App.dll', 'Delete', 'CleanupTemporaryTargetAssembly', 'src/App/App.csproj')))
+        case('a replayed compile gives another assembly', 'does not give the assembly on disk',
+             lambda f: unit(f, 'src/Core/Core.csproj')['csc'][0]['replay'].update(outputSha256='0' * 64))
+        case('a replayed compile fails', 'the replayed compile (exit 1)',
+             lambda f: unit(f, 'src/Core/Core.csproj')['csc'][0]['replay'].update(exitCode=1))
         wpf = json.loads(json.dumps(facts))
         evil_unit(wpf, 'src/App/App_wpftmp.csproj', 'src/App/obj/App.dll', unit(wpf, 'src/App/App.csproj')['csc'][0]['output']['sha256'])
+        write(wpf, 'src/App/obj/App.dll', 'Delete', 'CleanupTemporaryTargetAssembly',
+              '<dotnet>/sdk/10.0.403/Sdks/Microsoft.NET.Sdk.WindowsDesktop/targets/Microsoft.WinFX.targets')
+        wpf['binlogs'][0]['units'][-1]['csc'][0]['replay'] = {'status': 'replayed', 'exitCode': 0, 'outputSha256': 'other',
+                                                              'sarif': None}
         wpf_problems = check(json.dumps(wpf), known, projects, 'build', pub, 'artifacts/ci')
         if wpf_problems:
             failures.append(f'WPF\'s own temp project must pass, got {wpf_problems}')
@@ -703,12 +796,15 @@ def self_test():
             print('  ok  WPF\'s own <Name>_wpftmp.csproj passes')
         for shape in [r'/reference:\\srv\share\a.dll', r'@\\srv\x', r';\\srv\x', r',\\srv\x', r'[\\srv\x',
                       '//srv/share/x', r'\\?\UNC\srv\share\x', r'\\?\C:\x', '/c/Users/someone/x', ';/home/bob/x',
-                      '/users/bob/x', '/root/x', 'x=/Users/bob/y', '/reference://srv/share/a.dll', 'D:/a/b']:
+                      '/users/bob/x', '/root/x', 'x=/Users/bob/y', '/reference://srv/share/a.dll', 'D:/a/b',
+                      r'/reference:libC:\x\a.dll', r'abc1D:\x', 'file:///C:/x/a.cs', 'C%3A%5Cx', 'file:///c%3A/x',
+                      'C%3a%2fx', '/opt/x/y', 'x=/tmp/y', r'"C:\\Users\\x"']:
             case(f'machine path shape {shape}', 'machine path left in the facts at $.binlogs[0].commandLine',
                  lambda f, shape=shape: f['binlogs'][0].update(commandLine='msbuild ' + shape))
         for fine in ['src/Boo.App/users/x.cs', r'<dotnet>/sdk\10.0.403\\Microsoft\x', 'https://github.com/x/y',
                      '<home>/AppData/x', '/noconfig', '/out:obj/Release/Boo.dll', '<repo-parent-1>/c/x', 'tests/root/x',
-                     'a//b/c']:
+                     'a//b/c', 'file:///src/Boo.Core/x.cs', 'http://example.com/a', 'src/opt/x', 'a/tmp/b',
+                     'x:Class="A"', 'C:Users', 'time 12:30/45']:
             if absolute_path(fine):
                 failures.append(f'leak guard refused a relative path or URL: {fine}')
         case('no managed file at all', 'no managed assembly found',

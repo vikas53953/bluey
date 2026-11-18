@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The banned-API canary (docs/quality/RULES.md#canary). It compiles one deliberate call per line of
+       src/BannedSymbols.txt with the same analyzer and the same file (Directory.Build.props, BooBannedApiCanary), so its
+       build is EXPECTED to fail with exactly one RS0030 per line. scripts/quality/banned_apis.py canary checks that.
+       EnableWindowsTargeting lets the WPF and Windows Forms lines compile on the Linux CI runner. Not shipped. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <BooBannedApiCanary>true</BooBannedApiCanary>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Canary.Core.cs;Canary.Wpf.cs;Canary.WinForms.cs" />
+  </ItemGroup>
+</Project>

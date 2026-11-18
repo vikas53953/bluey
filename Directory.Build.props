@@ -4,4 +4,17 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors><AnalysisLevel>latest</AnalysisLevel>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
+
+  <!-- Banned APIs (docs/quality/RULES.md#banned-apis-rs0030): product code under src/ may not call the members listed
+       in src/BannedSymbols.txt; RS0030 is an error through TreatWarningsAsErrors. The condition reads only reserved
+       MSBuild properties, so a project cannot switch it off by setting a property. tests/ and tools/ are not judged
+       (tests/ is the frozen oracle). BooBannedApiCanary is set only by scripts/quality/canary/Canary.csproj, which
+       proves every line fires. What the compiler really got (analyzers, this list, analyzer configs, options) and the
+       RS0030 results of a replay of each compile (made by the build-facts reader after the build, never a file the
+       build wrote) are judged from windows-ci's build facts by scripts/quality/banned_apis.py judge; this file and the
+       workflow themselves are HANDOFF known issue 0. -->
+  <ItemGroup Condition="$([MSBuild]::MakeRelative('$(MSBuildThisFileDirectory)', '$(MSBuildProjectDirectory)').Replace('\', '/').ToLowerInvariant().StartsWith('src/')) Or '$(BooBannedApiCanary)' == 'true'">
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0" PrivateAssets="all" />
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)src/BannedSymbols.txt" />
+  </ItemGroup>
 </Project>
