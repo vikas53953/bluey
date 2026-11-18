@@ -11,7 +11,9 @@ namespace Boo.Providers;
 /// Reads a short text aloud with OpenAI's text-to-speech (POST /v1/audio/speech), returning raw 24 kHz 16-bit mono PCM:
 /// the same format the realtime voice sends, so Boo's player plays it unchanged. Used only to recover a spoken reply
 /// whose audio came back silent while its transcript had words (issue #177; <see cref="SilentReplyRecovery"/>).
-/// One request per call, never retried. The body is read as a stream and refused past <see cref="MaxAudioBytes"/>, so
+/// One request per call, never retried. One deadline (the HttpClient's Timeout, or <see cref="DefaultDeadline"/> when it
+/// is infinite) covers the whole request, headers and body: HttpClient's own Timeout ends when the headers arrive, so a
+/// body that stalls or drips after them would otherwise hang the recovery (PR #186 review). The body is read as a stream and refused past <see cref="MaxAudioBytes"/>, so
 /// the limit bounds memory too. Only a cancellation the caller asked for is reported as cancellation; a timeout, a
 /// transport or body-read error, an error status or unusable audio is an <see cref="InvalidOperationException"/>
 /// (a <see cref="ProviderException"/> where classified). The key is sent only in the Authorization header and never
@@ -24,6 +26,9 @@ public sealed class SpeechClient
 
     /// <summary>The most audio accepted back (about two minutes of 24 kHz 16-bit mono).</summary>
     public const int MaxAudioBytes = 120 * 48000;
+
+    /// <summary>The whole-request deadline used when the HttpClient has no finite Timeout.</summary>
+    public static readonly TimeSpan DefaultDeadline = TimeSpan.FromSeconds(45);
 
     private readonly HttpClient _http;
     private readonly Func<string?> _credential;
@@ -66,15 +71,17 @@ public sealed class SpeechClient
         };
         message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Trim());
 
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        request.CancelAfter(_http.Timeout > TimeSpan.Zero && _http.Timeout != Timeout.InfiniteTimeSpan ? _http.Timeout : DefaultDeadline);
         try
         {
-            using var response = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            using var response = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, request.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                throw await ProviderHttpFailures.StatusAsync("speech", response, cancellationToken).ConfigureAwait(false);
+                throw await ProviderHttpFailures.StatusAsync("speech", response, request.Token).ConfigureAwait(false);
             }
-            await using var body = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            return await ReadBoundedPcmAsync(body, cancellationToken).ConfigureAwait(false);
+            await using var body = await response.Content.ReadAsStreamAsync(request.Token).ConfigureAwait(false);
+            return await ReadBoundedPcmAsync(body, request.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
