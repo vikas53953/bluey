@@ -52,6 +52,7 @@ import shlex
 import statistics
 import subprocess
 import sys
+import time
 import urllib.parse
 
 QUERIES = []          # every command run, in order (exact text)
@@ -111,16 +112,33 @@ def shape_of(text):
     return text
 
 
-def run(args, allow_fail=False):
+TRANSIENT = re.compile(r'stream error|connection reset|unexpected EOF|broken pipe|timed out|timeout|'
+                       r'temporary failure|HTTP (?:50[234]|429)\b|secondary rate limit|TLS handshake|'
+                       r'no such host|network is unreachable', re.IGNORECASE)
+RETRIES = 3            # attempts per command, so two retries
+RETRY_SLEEP = (2, 6)   # seconds before the second and third attempt
+
+
+def run(args, allow_fail=False, sleep=None):
+    """Run one read-only command. A failure whose stderr looks like a transport fault (an HTTP/2 stream cancelled
+    by the peer, a reset, a 5xx, a rate limit) is retried twice with a pause; any other failure is final at once.
+    A table of hundreds of GET calls must not go red because one of them was cut off mid-stream."""
     printable = ' '.join(shlex.quote(a) for a in args)
     QUERIES.append(printable)
     print('+ ' + printable, file=sys.stderr)
-    proc = subprocess.run(args, capture_output=True, text=True, encoding='utf-8')
-    if proc.returncode != 0:
+    sleep = sleep or time.sleep
+    for attempt in range(1, RETRIES + 1):
+        proc = subprocess.run(args, capture_output=True, text=True, encoding='utf-8')
+        if proc.returncode == 0:
+            return proc.stdout
+        transient = bool(TRANSIENT.search(proc.stderr or ''))
+        if transient and attempt < RETRIES:
+            print(f'  transient failure (attempt {attempt} of {RETRIES}): {proc.stderr.strip()}', file=sys.stderr)
+            sleep(RETRY_SLEEP[attempt - 1])
+            continue
         if allow_fail:
             return None
         raise SystemExit(f'command failed ({proc.returncode}): {printable}\n{proc.stderr.strip()}')
-    return proc.stdout
 
 
 def gh_lines(path, jq):
@@ -666,7 +684,47 @@ def a40_of(snap):
     return next(p['head_sha'] for p in snap['pulls'] if p['number'] == 1)
 
 
+class _Fake:
+    def __init__(self, returncode, stderr='', stdout=''):
+        self.returncode, self.stderr, self.stdout = returncode, stderr, stdout
+
+
+def retry_self_test():
+    """run() retries a transport fault twice and gives up on anything else at once."""
+    real, calls, slept = subprocess.run, [], []
+    try:
+        def fake(outcomes):
+            def _run(args, **kw):
+                calls.append(args)
+                return outcomes.pop(0)
+            subprocess.run = _run
+        # 1. cancelled stream, then success: two calls, one pause, the stdout of the second
+        fake([_Fake(1, 'stream error: stream ID 1; CANCEL; received from peer'), _Fake(0, stdout='{"ok":1}')])
+        assert run(['gh', 'api', 'x'], sleep=slept.append) == '{"ok":1}', 'retry must return the later stdout'
+        assert len(calls) == 2 and slept == [RETRY_SLEEP[0]], (calls, slept)
+        # 2. three transport faults in a row: three calls, then the failure is final
+        calls.clear(); slept.clear()
+        fake([_Fake(1, 'HTTP 502: Bad Gateway')] * 3)
+        try:
+            run(['gh', 'api', 'y'], sleep=slept.append)
+            raise AssertionError('three faults must fail')
+        except SystemExit as e:
+            assert 'command failed (1)' in str(e) and len(calls) == 3 and slept == list(RETRY_SLEEP), (str(e), calls)
+        # 3. a non-transient failure (404) is final on the first call, with allow_fail honoured
+        calls.clear(); slept.clear()
+        fake([_Fake(1, 'HTTP 404: Not Found')])
+        assert run(['gh', 'api', 'z'], allow_fail=True, sleep=slept.append) is None and len(calls) == 1 and not slept
+        # 4. a transient failure with allow_fail is still retried before returning None
+        calls.clear(); slept.clear()
+        fake([_Fake(1, 'read: connection reset by peer')] * 3)
+        assert run(['gh', 'api', 'w'], allow_fail=True, sleep=slept.append) is None and len(calls) == 3
+    finally:
+        subprocess.run = real
+    QUERIES.clear()
+
+
 def self_test():
+    retry_self_test()
     snap = planted()
     m = compute(snap)
     expect = {
@@ -780,7 +838,7 @@ def self_test():
     if bad:
         print('SELF-TEST FAIL\n  ' + '\n  '.join(bad))
         return 1
-    print(f'SELF-TEST PASS: {len(expect)} planted metrics and {len(cases)} verdict-line cases match.')
+    print(f'SELF-TEST PASS: {len(expect)} planted metrics, {len(cases)} verdict-line cases and 4 retry cases match.')
     return 0
 
 
