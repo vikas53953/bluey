@@ -1,0 +1,77 @@
+name: risk-grade
+
+# BOO-RISK-001 (docs/quality/RULES.md): every pull request body declares one risk grade line,
+#   Risk: <low | medium | high> - <one-line reason>     (an em dash or a hyphen)
+# set by the builder by blast radius, and the grade may not be lower than a floor computed from the paths the PR changes
+# (the table lives in scripts/quality/risk_grade.py). INFORMATIONAL, for routing only: it NEVER relaxes any gate. A high
+# PR gets a second, independent Codex review before the codex-verified stamp (HANDOFF section 5, rule 4).
+# The body is read from the event file, never pasted into a shell, and GitHub itself renders it (POST /markdown), so only
+# what a reader of the PR page sees counts. Its own small workflow so no existing gate's file is touched and a failure
+# names this rule. Linux, no build, no secrets beyond the read-only token, no artifacts.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: risk-grade-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  grade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse unless this is GitHub's own VM (never the owner's PC)
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            "::error title=risk-grade refused::This job runs only on a GitHub-hosted runner, never on a personal PC (runner environment: '$($env:RUNNER_ENVIRONMENT)'). Set this job's runner back to ubuntu-latest."
+            exit 1
+          }
+          "Runner: GitHub-hosted ($env:RUNNER_OS, $env:ImageOS)."
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # A PR could loosen its own risk_grade.py (its rules or its floor table). So the BASE branch's copy (read from git,
+      # not from the PR) judges the body first, before any code from the PR runs (as in pr-evidence). Until the base has
+      # the file (the PR that adds it), only the PR's own copy runs. (A PR that edits this workflow file itself is a gap
+      # left to review.)
+      - name: Risk grade judged by the base branch's own checker (a PR cannot loosen its checker or floor table)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "::error::BOO-RISK-001 the base commit is not in the checkout, so the base branch's checker cannot run"
+            exit 1
+          fi
+          if git cat-file -e "$BASE_SHA:scripts/quality/risk_grade.py" 2>/dev/null; then
+            git show "$BASE_SHA:scripts/quality/risk_grade.py" > "$RUNNER_TEMP/risk_grade_base.py"
+            python -I "$RUNNER_TEMP/risk_grade_base.py" --event "$GITHUB_EVENT_PATH"
+          else
+            echo "The base branch has no risk_grade.py yet (this PR adds it); the PR's own copy judges the body in the next steps."
+          fi
+
+      - name: Risk grade check self-test (every rule fires on a planted sample)
+        run: python -I scripts/quality/risk_grade.py --self-test
+
+      - name: Risk grade check render test (known tricks, rendered by GitHub)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -I scripts/quality/risk_grade.py --render-test
+
+      - name: Risk grade in the PR body (informational; relaxes no gate)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -I scripts/quality/risk_grade.py --event "$GITHUB_EVENT_PATH"
