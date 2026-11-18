@@ -1,7 +1,7 @@
 # Capture COM/WinRT ownership review
 
 Date: 2026-11-07  
-Workspace: `C:\Users\vikasmit\Downloads\blue--fo`  
+Workspace: `%USERPROFILE%\Downloads\blue--fo`  
 Scope: read-only source and local projection inspection. No capture, GUI, live-AI,
 credential, or native soak probe was run.
 

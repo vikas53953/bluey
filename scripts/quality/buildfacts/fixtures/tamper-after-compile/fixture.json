@@ -1,0 +1,48 @@
+{
+  "bypass": "a non-Csc step overwrites the compiled assembly right after CoreCompile",
+  "builds": [
+    {
+      "label": "build",
+      "args": [
+        "build",
+        "App/App.csproj",
+        "-c",
+        "Release"
+      ]
+    },
+    {
+      "label": "publish",
+      "args": [
+        "publish",
+        "App/App.csproj",
+        "-c",
+        "Release",
+        "-o",
+        "out"
+      ]
+    }
+  ],
+  "projects": [
+    "App/App.csproj",
+    "Lib/Lib.csproj"
+  ],
+  "publishDir": "out",
+  "visible": [
+    {
+      "label": "build",
+      "field": "tasks.task",
+      "contains": "Copy | SwapAfterCompile | App/App.csproj"
+    },
+    {
+      "label": "build",
+      "field": "copies.destination",
+      "contains": "App/obj/Release/net10.0/App.dll"
+    }
+  ],
+  "check": {
+    "result": "fail",
+    "mustInclude": [
+      "unknown task ran: Copy | SwapAfterCompile | App/App.csproj"
+    ]
+  }
+}

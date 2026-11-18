@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Lib/Lib.csproj" />
+  </ItemGroup>
+  <!-- The bypass: after the judged compile, a non-Csc step overwrites the compiled assembly with other code. -->
+  <Target Name="SwapAfterCompile" AfterTargets="CoreCompile">
+    <Copy SourceFiles="../Lib/bin/$(Configuration)/net10.0/Lib.dll" DestinationFiles="@(IntermediateAssembly)" />
+  </Target>
+</Project>

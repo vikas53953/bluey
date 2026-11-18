@@ -5,7 +5,11 @@ namespace Boo.Core;
 
 public sealed record ActionPreviewField(string Key, string Label, string Value)
 {
-    public string DisplayValue => Value.Length == 0 ? "(empty value)" : Value;
+    /// <summary>
+    /// What the card shows. Hidden characters (<see cref="InvisibleCharacters"/>) appear as visible [U+XXXX]
+    /// markers, so the card never displays different text from the request it approves.
+    /// </summary>
+    public string DisplayValue => Value.Length == 0 ? "(empty value)" : InvisibleCharacters.Reveal(Value);
 }
 
 public sealed record ActionPreviewModel(string Title, string RequestedTarget, string Destination,
@@ -13,7 +17,18 @@ public sealed record ActionPreviewModel(string Title, string RequestedTarget, st
 
 public static class ActionPreviewBuilder
 {
-    public static ActionPreviewModel Create(ToolRequest request, TaskAuthority authority)
+    public static ActionPreviewModel Create(ToolRequest request, TaskAuthority authority) =>
+        CreateCore(request, authority, checkWindow: false, window: null, booProcessId: 0);
+
+    /// <summary>
+    /// Builds the approval card for the window that will really receive the action.
+    /// For click/type_text/inspect the Destination is the observed window (never the
+    /// model's free-text target), and <see cref="WindowActionGuard"/> can block it.
+    /// </summary>
+    public static ActionPreviewModel Create(ToolRequest request, TaskAuthority authority, WindowIdentity? window, int booProcessId) =>
+        CreateCore(request, authority, checkWindow: true, window, booProcessId);
+
+    private static ActionPreviewModel CreateCore(ToolRequest request, TaskAuthority authority, bool checkWindow, WindowIdentity? window, int booProcessId)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(authority);
@@ -47,9 +62,16 @@ public static class ActionPreviewBuilder
             }
         }
 
+        string? windowReason = null;
+        if (checkWindow && WindowActionGuard.IsWindowTool(copiedRequest.Name))
+        {
+            windowReason = WindowActionGuard.BlockedReason(copiedRequest, window, booProcessId);
+            destination = window is null ? "(no target window)" : WindowActionGuard.Describe(window);
+        }
+
         var blockedReason = decision.Verdict == PermissionVerdict.Denied
             ? decision.Reason
-            : fileResolutionReason;
+            : fileResolutionReason ?? windowReason;
         var canApprove = blockedReason is null;
 
         return new ActionPreviewModel(

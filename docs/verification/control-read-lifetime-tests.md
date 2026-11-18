@@ -62,7 +62,7 @@ unchanged scaffold produced genuine behavioral RED:
 Failed: 7, Passed: 1, Skipped: 0, Total: 8
 ```
 
-TRX: `TestResults/vikasmit_VIKASMIT_2026-11-07_14_47_24_net10.0.trx`
+TRX: `TestResults/<user>_<machine>_2026-11-07_14_47_24_net10.0.trx`
 
 The seven expected behavioral failures were:
 

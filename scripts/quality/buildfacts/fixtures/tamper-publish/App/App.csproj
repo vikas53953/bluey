@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Lib/Lib.csproj" />
+  </ItemGroup>
+  <!-- The bypass: after publish, a shell command (not a logged Copy) puts other code under the shipped name. -->
+  <Target Name="SwapAfterPublish" AfterTargets="Publish">
+    <Exec WorkingDirectory="$(MSBuildStartupDirectory)" Command="copy /y &quot;$(PublishDir)Lib.dll&quot; &quot;$(PublishDir)App.dll&quot;" />
+  </Target>
+</Project>

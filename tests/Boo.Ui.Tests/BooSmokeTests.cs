@@ -12,10 +12,11 @@ namespace Boo.Ui.Tests;
 /// 2. Notch colours: save a valid pair, reject a low-contrast pair, reset to defaults.
 /// 3. "Start Boo with Windows" writes and removes HKCU\...\Run\Boo.
 /// 4. Notch screenshot (hover reveal) saved as CI evidence.
+/// Steps 5+ (no-key Ask/Talk, focus session, emergency stop, resize) live in BooSmokeTests.Hardening.cs.
 /// Checks read live UI Automation state and the files/registry Boo writes, never Boo's own claims alone.
 /// </summary>
 [TestCaseOrderer(StepOrderer.TypeName, StepOrderer.AssemblyName)]
-public sealed class BooSmokeTests : IClassFixture<BooAppFixture>
+public sealed partial class BooSmokeTests : IClassFixture<BooAppFixture>
 {
     private static readonly TimeSpan UiTimeout = TimeSpan.FromSeconds(15);
 

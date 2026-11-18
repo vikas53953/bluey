@@ -1,0 +1,740 @@
+// Boo.QaMockAi: a CI-only impostor for https://api.openai.com.
+//
+// Boo hard-pins https://api.openai.com:443 (src/Boo.Providers/ProviderEndpoint.cs), so the CI job
+// points the hostname at 127.0.0.1 through the hosts file, trusts the self-signed certificate this
+// process writes, and runs this server on :443. Every response is scripted from the request text.
+//
+// Nothing here touches production code. See README.md next to this file.
+
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+
+namespace Boo.QaMockAi;
+
+/// <summary>Constants the UI test asserts against. Keep in sync with README.md.</summary>
+public static class QaConstants
+{
+    /// <summary>Ring centre as a fraction of the captured frame (image pixels). The app maps frame -> display.</summary>
+    public const double RingCenterXFraction = 0.25;
+    public const double RingCenterYFraction = 0.40;
+    /// <summary>Ring diameter as a fraction of the frame width.</summary>
+    public const double RingSizeFraction = 0.08;
+    public const string RingLabel = "QA ring";
+    /// <summary>Fallback frame size when the request carries no framePixels= context.</summary>
+    public const int FallbackFrameWidth = 1920;
+    public const int FallbackFrameHeight = 1080;
+
+    public const string ExplainText = "QA-EXPLAIN: This is the Boo QA Workspace. The ring marks the design preview button.";
+
+    /// <summary>File edit: the relative path (under the user-selected file root) and marker written into it.</summary>
+    public const string EditRelativePath = "MainWindow.xaml";
+    public const string EditOriginalString = "Create account";
+    public const string EditMarker = "QA-EDIT-APPLIED";
+    public const string EditText = "QA-EDIT: I propose replacing the button text in MainWindow.xaml with " + EditMarker + ".";
+
+    public const string ResearchText = "QA-RESEARCH: Three sources support this answer.";
+
+    /// <summary>
+    /// Blind-task routes: the user asks for a task while the app has NO frame and NO control observation
+    /// (BOO_QA_CAPTURE_FAULT=1). "qa-blind-mixed" answers with a click, a type_text and a write_file;
+    /// "qa-blind-click" answers with a click only. Boo must offer the write_file alone (no "Step 1 of 3")
+    /// and nothing at all for the click-only reply.
+    /// </summary>
+    public const string BlindMixedKeyword = "qa-blind-mixed";
+    public const string BlindClickKeyword = "qa-blind-click";
+    public const string BlindMixedText = "QA-BLIND-MIXED: I propose a click, typing, and a file write.";
+    public const string BlindClickText = "QA-BLIND-CLICK: I propose a click.";
+    public const string BlindTypeAutomationId = "QaBlindBox";
+    public const string BlindTypeText = "qa blind text";
+    public const string BlindFileContents = "QA-BLIND-WRITE";
+
+    /// <summary>
+    /// Realtime (voice) impostor. The WebSocket at wss://api.openai.com/v1/realtime is accepted ONLY when the
+    /// handshake carries this key, so every other demo keeps today's behaviour (a plain 200, Boo falls back to
+    /// /v1/responses). Each user text turn answers with one screen_help function call whose question is the
+    /// user's text and whose mode is "task" when the text starts with "task " ("research" when it contains
+    /// "research", otherwise "teach"), then response.done. A function_call_output is logged as
+    /// <c>[realtime] function_call_output call_id=... output=...</c> and the next response.create is answered
+    /// with a bare response.done, so the tests can assert exactly what Boo returned to the voice model.
+    /// </summary>
+    public const string RealtimeKey = "sk-qa-mock-realtime-key-000000000000000";
+    public const string RealtimePath = "/v1/realtime";
+    public const string RealtimeFunctionName = "screen_help";
+    public const string RealtimeCallIdPrefix = "call_qa_";
+    public const string RealtimeOutputLogMarker = "[realtime] function_call_output";
+    public static readonly (string Title, string Url)[] Sources =
+    [
+        ("QA source A", "https://example.com/a"),
+        ("QA source B", "https://example.com/b"),
+        ("QA source C", "https://example.com/c"),
+    ];
+
+    /// <summary>Decision labels (DecisionsClient.Decode accepts exactly these).</summary>
+    public const string OffTask = "off_task";
+    public const string OnTask = "on_task";
+    public const string Uncertain = "uncertain";
+    /// <summary>
+    /// Classification requests numbered 1..N return off_task; after this many, on_task. NudgePolicy in
+    /// Developer Mode needs two off-task checks at least 40 focus-seconds apart when the mean P(off) is
+    /// 0.95 or more, or about 44 s at 0.90; checks land every 10 real seconds (40 focus-seconds at 4x), so
+    /// three strong off-task answers make the nudge certain on the second or third check.
+    /// </summary>
+    public const int OffTaskRequestCount = 3;
+    public const double OffTaskProbability = 0.96;
+
+    public const string NudgeText = "QA-NUDGE: Back to your task?";
+    public const string NudgePointerTarget = "Scrollable geometry area";
+
+    public const string DefaultText = "QA-DEFAULT: mock reply.";
+}
+
+public static class Program
+{
+    private static readonly object LogLock = new();
+    private static string? _logPath;
+    private static int _decisionCount;
+    private static int _realtimeSessionCount;
+    private static string? _workspaceXaml;
+
+    public static async Task<int> Main(string[] args)
+    {
+        var port = 443;
+        string? certOut = null;
+        string? pfxOut = null;
+        var pfxPassword = "boo-qa";
+        string? workspace = null;
+        for (var i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--port": port = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
+                case "--cert-out": certOut = args[++i]; break;
+                case "--pfx-out": pfxOut = args[++i]; break;
+                case "--pfx-password": pfxPassword = args[++i]; break;
+                case "--log": _logPath = args[++i]; break;
+                case "--workspace": workspace = args[++i]; break;
+                case "-h" or "--help":
+                    Console.WriteLine("Boo.QaMockAi [--port 443] [--cert-out path.cer] [--pfx-out path.pfx] [--pfx-password pw] [--log path] [--workspace dir]");
+                    return 0;
+                default:
+                    Console.Error.WriteLine($"Unknown argument: {args[i]}");
+                    return 2;
+            }
+        }
+
+        _workspaceXaml = LoadWorkspaceXaml(workspace);
+
+        var cert = CreateCertificate();
+        if (certOut is not null)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(certOut))!);
+            File.WriteAllBytes(certOut, cert.Export(X509ContentType.Cert));
+            Log($"[startup] wrote public cert (DER) to {certOut}");
+        }
+        var pfxBytes = cert.Export(X509ContentType.Pfx, pfxPassword);
+        if (pfxOut is not null)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(pfxOut))!);
+            File.WriteAllBytes(pfxOut, pfxBytes);
+            Log($"[startup] wrote PFX to {pfxOut}");
+        }
+        // Re-import from PFX so the private key is usable by SChannel on Windows.
+        // SChannel cannot use ephemeral keys, so on Windows the key goes to the (temporary) user key set.
+        var serverCert = X509CertificateLoader.LoadPkcs12(pfxBytes, pfxPassword,
+            OperatingSystem.IsWindows() ? X509KeyStorageFlags.Exportable : X509KeyStorageFlags.EphemeralKeySet);
+
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [] });
+        builder.Logging.ClearProviders();
+        builder.WebHost.ConfigureKestrel(k =>
+        {
+            k.Limits.MaxRequestBodySize = 64 * 1024 * 1024;
+            k.ListenAnyIP(port, o =>
+            {
+                o.Protocols = HttpProtocols.Http1AndHttp2;
+                o.UseHttps(serverCert);
+            });
+        });
+        var app = builder.Build();
+
+        app.UseWebSockets();
+        app.Map("/{**path}", (RequestDelegate)HandleAsync);
+
+        Log($"[startup] listening on https://0.0.0.0:{port} as api.openai.com (thumbprint {serverCert.Thumbprint})");
+        Console.WriteLine($"Boo.QaMockAi listening on https://0.0.0.0:{port}");
+        await app.RunAsync();
+        return 0;
+    }
+
+    private static X509Certificate2 CreateCertificate()
+    {
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest("CN=api.openai.com", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var san = new SubjectAlternativeNameBuilder();
+        san.AddDnsName("api.openai.com");
+        san.AddDnsName("localhost");
+        san.AddIpAddress(System.Net.IPAddress.Loopback);
+        request.CertificateExtensions.Add(san.Build());
+        request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
+        request.CertificateExtensions.Add(new X509KeyUsageExtension(
+            X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, false));
+        request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
+            new OidCollection { new Oid("1.3.6.1.5.5.7.3.1") }, false)); // serverAuth
+        var now = DateTimeOffset.UtcNow;
+        return request.CreateSelfSigned(now.AddDays(-1), now.AddDays(30));
+    }
+
+    private static string? LoadWorkspaceXaml(string? workspace)
+    {
+        var candidates = new List<string>();
+        if (workspace is not null) candidates.Add(Path.Combine(workspace, QaConstants.EditRelativePath));
+        var dir = AppContext.BaseDirectory;
+        for (var i = 0; i < 8 && dir is not null; i++)
+        {
+            candidates.Add(Path.Combine(dir, "tests", "fixtures", "native", "Boo.QaWorkspace", QaConstants.EditRelativePath));
+            dir = Path.GetDirectoryName(dir.TrimEnd(Path.DirectorySeparatorChar));
+        }
+        candidates.Add(Path.Combine(Directory.GetCurrentDirectory(), "tests", "fixtures", "native", "Boo.QaWorkspace", QaConstants.EditRelativePath));
+        foreach (var c in candidates)
+        {
+            if (File.Exists(c))
+            {
+                Log($"[startup] edit template: {c}");
+                return File.ReadAllText(c);
+            }
+        }
+        Log("[startup] edit template not found; write_file will use a minimal XAML body");
+        return null;
+    }
+
+    private static async Task HandleAsync(HttpContext ctx)
+    {
+        if (ctx.WebSockets.IsWebSocketRequest && await TryServeRealtimeAsync(ctx))
+            return;
+
+        string body;
+        using (var reader = new StreamReader(ctx.Request.Body, Encoding.UTF8))
+            body = await reader.ReadToEndAsync();
+        var path = ctx.Request.Path.Value ?? "/";
+        Log($"[request] {ctx.Request.Method} {path}{ctx.Request.QueryString}\n{Truncate(body)}");
+
+        JsonNode? json = null;
+        try { if (body.Length > 0) json = JsonNode.Parse(body); } catch (JsonException) { }
+
+        var inputText = CollectInputText(json);
+        var response = path switch
+        {
+            "/v1/decisions" => Decisions(inputText),
+            "/v1/responses" => Responses(json, inputText),
+            "/v1/models" => """{"object":"list","data":[{"id":"qa-mock","object":"model"}]}""",
+            _ => """{"id":"qa-mock","object":"qa.mock","status":"completed","output":[]}"""
+        };
+
+        Log($"[response] {path}\n{Truncate(response)}");
+        ctx.Response.StatusCode = 200;
+        ctx.Response.ContentType = "application/json";
+        await ctx.Response.WriteAsync(response, Encoding.UTF8);
+    }
+
+    // ---- wss://api.openai.com/v1/realtime (RealtimeClient) ----------------------------------------
+
+    /// <summary>
+    /// Accepts the realtime WebSocket only for <see cref="QaConstants.RealtimeKey"/> on
+    /// <see cref="QaConstants.RealtimePath"/>; returns false (nothing written) for any other handshake so the
+    /// caller answers it like every other request today.
+    /// </summary>
+    private static async Task<bool> TryServeRealtimeAsync(HttpContext ctx)
+    {
+        var path = ctx.Request.Path.Value ?? "/";
+        var authorized = string.Equals(ctx.Request.Headers.Authorization.ToString(),
+            "Bearer " + QaConstants.RealtimeKey, StringComparison.Ordinal);
+        if (path != QaConstants.RealtimePath || !authorized)
+        {
+            Log($"[realtime] handshake {path}{ctx.Request.QueryString} refused (not the realtime key); answered as a plain request");
+            return false;
+        }
+
+        var session = Interlocked.Increment(ref _realtimeSessionCount);
+        Log($"[realtime] handshake {path}{ctx.Request.QueryString} accepted (session {session})");
+        using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
+        await RealtimeSessionAsync(socket, session, ctx.RequestAborted);
+        return true;
+    }
+
+    private static async Task RealtimeSessionAsync(System.Net.WebSockets.WebSocket socket, int session, CancellationToken cancellation)
+    {
+        var buffer = new byte[16 * 1024];
+        string? pendingUserText = null;
+        var outputReceived = false;
+        var callCount = 0;
+        try
+        {
+            while (socket.State == System.Net.WebSockets.WebSocketState.Open && !cancellation.IsCancellationRequested)
+            {
+                using var message = new MemoryStream();
+                System.Net.WebSockets.WebSocketReceiveResult result;
+                do
+                {
+                    result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellation);
+                    if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close)
+                    {
+                        Log($"[realtime] session {session} closed by Boo");
+                        await socket.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+                        return;
+                    }
+                    message.Write(buffer, 0, result.Count);
+                }
+                while (!result.EndOfMessage);
+
+                var text = Encoding.UTF8.GetString(message.GetBuffer(), 0, checked((int)message.Length));
+                Log($"[realtime <-] session {session}\n{Truncate(text)}");
+                JsonNode? json = null;
+                try { json = JsonNode.Parse(text); } catch (JsonException) { }
+                var type = json?["type"]?.GetValue<string>();
+
+                switch (type)
+                {
+                    case "session.update":
+                        await SendRealtimeAsync(socket, session, new JsonObject
+                        {
+                            ["type"] = "session.created",
+                            ["event_id"] = $"event_qa_{session}_created",
+                            ["session"] = new JsonObject { ["id"] = $"sess_qa_{session}", ["object"] = "realtime.session" }
+                        }, cancellation);
+                        await SendRealtimeAsync(socket, session, new JsonObject
+                        {
+                            ["type"] = "session.updated",
+                            ["event_id"] = $"event_qa_{session}_updated",
+                            ["session"] = new JsonObject { ["id"] = $"sess_qa_{session}", ["object"] = "realtime.session" }
+                        }, cancellation);
+                        break;
+
+                    case "conversation.item.create":
+                        var item = json?["item"];
+                        var itemType = item?["type"]?.GetValue<string>();
+                        if (itemType == "message")
+                        {
+                            pendingUserText = CollectRealtimeText(item?["content"]);
+                        }
+                        else if (itemType == "function_call_output")
+                        {
+                            var callId = item?["call_id"]?.GetValue<string>() ?? string.Empty;
+                            var output = item?["output"]?.GetValue<string>() ?? string.Empty;
+                            Log($"{QaConstants.RealtimeOutputLogMarker} call_id={callId} output={output}");
+                            outputReceived = true;
+                        }
+                        break;
+
+                    case "response.create":
+                        var responseId = $"resp_qa_{session}_{++callCount}";
+                        if (!outputReceived && pendingUserText is { Length: > 0 } question)
+                        {
+                            var lower = question.ToLowerInvariant();
+                            var mode = lower.StartsWith("task ", StringComparison.Ordinal) ? "task"
+                                : lower.Contains("research", StringComparison.Ordinal) ? "research"
+                                : "teach";
+                            var arguments = new JsonObject { ["question"] = question, ["mode"] = mode }.ToJsonString();
+                            await SendRealtimeAsync(socket, session, new JsonObject
+                            {
+                                ["type"] = "response.function_call_arguments.done",
+                                ["event_id"] = $"event_qa_{responseId}_call",
+                                ["response_id"] = responseId,
+                                ["item_id"] = $"item_qa_{session}_{callCount}",
+                                ["output_index"] = 0,
+                                ["call_id"] = $"{QaConstants.RealtimeCallIdPrefix}{session}_{callCount}",
+                                ["name"] = QaConstants.RealtimeFunctionName,
+                                ["arguments"] = arguments
+                            }, cancellation);
+                        }
+                        pendingUserText = null;
+                        outputReceived = false;
+                        await SendRealtimeAsync(socket, session, new JsonObject
+                        {
+                            ["type"] = "response.done",
+                            ["event_id"] = $"event_qa_{responseId}_done",
+                            ["response"] = new JsonObject
+                            {
+                                ["id"] = responseId,
+                                ["object"] = "realtime.response",
+                                ["status"] = "completed",
+                                ["output"] = new JsonArray()
+                            }
+                        }, cancellation);
+                        break;
+
+                    default:
+                        Log($"[realtime] session {session} ignored event type '{type ?? "?"}'");
+                        break;
+                }
+            }
+        }
+        catch (OperationCanceledException) { Log($"[realtime] session {session} aborted"); }
+        catch (System.Net.WebSockets.WebSocketException ex) { Log($"[realtime] session {session} socket error: {ex.Message}"); }
+    }
+
+    private static async Task SendRealtimeAsync(System.Net.WebSockets.WebSocket socket, int session, JsonObject payload, CancellationToken cancellation)
+    {
+        var text = payload.ToJsonString();
+        Log($"[realtime ->] session {session}\n{Truncate(text)}");
+        await socket.SendAsync(Encoding.UTF8.GetBytes(text), System.Net.WebSockets.WebSocketMessageType.Text, true, cancellation);
+    }
+
+    /// <summary>The input_text parts of a realtime user message, joined by newlines.</summary>
+    private static string CollectRealtimeText(JsonNode? content)
+    {
+        if (content is not JsonArray parts) return string.Empty;
+        var sb = new StringBuilder();
+        foreach (var part in parts)
+        {
+            if (part?["type"]?.GetValue<string>() == "input_text" && part["text"]?.GetValue<string>() is { Length: > 0 } t)
+            {
+                if (sb.Length > 0) sb.Append('\n');
+                sb.Append(t);
+            }
+        }
+        return sb.ToString();
+    }
+
+    // ---- /v1/decisions (DecisionsClient) -------------------------------------------------------
+
+    private static string Decisions(string inputText)
+    {
+        var count = Interlocked.Increment(ref _decisionCount);
+        var text = inputText.ToLowerInvariant();
+        string choice;
+        if (text.Contains("resume") || text.Contains("qa-on-task") || count > QaConstants.OffTaskRequestCount)
+            choice = QaConstants.OnTask;
+        else if (text.Contains("qa-uncertain"))
+            choice = QaConstants.Uncertain;
+        else
+            choice = QaConstants.OffTask;
+
+        double on = 0.05, off = 0.05, unc = 0.05;
+        switch (choice)
+        {
+            case QaConstants.OnTask: on = 0.90; break;
+            case QaConstants.OffTask: off = QaConstants.OffTaskProbability; on = unc = (1 - off) / 2; break;
+            default: unc = 0.90; break;
+        }
+        var answer = new JsonObject
+        {
+            ["name"] = "activity",
+            ["type"] = "choice",
+            ["choice"] = choice,
+            ["confidence"] = choice == QaConstants.OffTask ? QaConstants.OffTaskProbability : 0.9,
+            ["probabilities"] = new JsonArray(
+                new JsonObject { ["value"] = QaConstants.OnTask, ["probability"] = on },
+                new JsonObject { ["value"] = QaConstants.OffTask, ["probability"] = off },
+                new JsonObject { ["value"] = QaConstants.Uncertain, ["probability"] = unc })
+        };
+        return new JsonObject
+        {
+            ["id"] = $"qa-decision-{count}",
+            ["object"] = "decision",
+            ["answers"] = new JsonArray(answer)
+        }.ToJsonString();
+    }
+
+    // ---- /v1/responses (ResponsesClient.RespondAsync / NudgeAsync) -----------------------------
+
+    private static string Responses(JsonNode? json, string inputText)
+    {
+        var schemaName = json?["text"]?["format"]?["name"]?.GetValue<string>();
+        var structured = schemaName is not null;
+        // Route on the USER's words only (Boo's instructions mention edits, sources and screens themselves), and on
+        // whichever keyword appears first, so "Explain ... MainWindow" is an explain and "Edit the title" is an edit.
+        var lower = CollectInputText(json, includeInstructions: false).ToLowerInvariant();
+        var route = Route(lower);
+
+        if (schemaName == "boo_focus_nudge")
+        {
+            return Envelope(new JsonObject
+            {
+                ["text"] = QaConstants.NudgeText,
+                ["pointer_target"] = QaConstants.NudgePointerTarget
+            }.ToJsonString(), null);
+        }
+
+        var (frameW, frameH) = ParseFrame(inputText);
+
+        if (QaHiddenText.Reply(lower) is { } typing)
+            return Envelope(structured ? typing.Json : typing.Text, null);
+
+        if (route == "research")
+        {
+            var annotations = new JsonArray();
+            foreach (var (title, url) in QaConstants.Sources)
+            {
+                annotations.Add(new JsonObject
+                {
+                    ["type"] = "url_citation",
+                    ["title"] = title,
+                    ["url"] = url,
+                    ["start_index"] = 0,
+                    ["end_index"] = QaConstants.ResearchText.Length
+                });
+            }
+            var text = structured
+                ? new JsonObject { ["text"] = QaConstants.ResearchText, ["marks"] = new JsonArray(), ["actions"] = new JsonArray() }.ToJsonString()
+                : QaConstants.ResearchText;
+            return Envelope(text, annotations, includeWebSearchCall: true);
+        }
+
+        if (route == "edit")
+        {
+            var contents = (_workspaceXaml ?? $"<Window><Button Content=\"{QaConstants.EditOriginalString}\" /></Window>")
+                .Replace(QaConstants.EditOriginalString, QaConstants.EditMarker, StringComparison.Ordinal);
+            var action = new JsonObject
+            {
+                ["name"] = "write_file",
+                ["target"] = QaConstants.EditRelativePath,
+                ["arguments"] = new JsonObject
+                {
+                    ["x"] = null, ["y"] = null, ["automationId"] = null, ["name"] = null, ["text"] = null,
+                    ["path"] = QaConstants.EditRelativePath,
+                    ["overwrite"] = "true",
+                    ["content"] = null,
+                    ["contents"] = contents
+                }
+            };
+            var result = new JsonObject
+            {
+                ["text"] = QaConstants.EditText,
+                ["marks"] = new JsonArray(),
+                ["actions"] = new JsonArray(action)
+            };
+            return Envelope(structured ? result.ToJsonString() : QaConstants.EditText, null);
+        }
+
+        if (route is "blind-mixed" or "blind-click")
+        {
+            var actions = new JsonArray(BlindAction("click", "QA blind click", x: 120, y: 80));
+            if (route == "blind-mixed")
+            {
+                actions.Add(BlindAction("type_text", "QA blind type", automationId: QaConstants.BlindTypeAutomationId, text: QaConstants.BlindTypeText));
+                actions.Add(BlindAction("write_file", QaConstants.EditRelativePath, path: QaConstants.EditRelativePath, overwrite: "true", contents: QaConstants.BlindFileContents));
+            }
+            var blindText = route == "blind-mixed" ? QaConstants.BlindMixedText : QaConstants.BlindClickText;
+            var result = new JsonObject { ["text"] = blindText, ["marks"] = new JsonArray(), ["actions"] = actions };
+            return Envelope(structured ? result.ToJsonString() : blindText, null);
+        }
+
+        if (route == "explain")
+        {
+            var size = Math.Max(8, Math.Round(frameW * QaConstants.RingSizeFraction));
+            var x = Math.Round(frameW * QaConstants.RingCenterXFraction - size / 2);
+            var y = Math.Round(frameH * QaConstants.RingCenterYFraction - size / 2);
+            var mark = new JsonObject
+            {
+                ["kind"] = "ring",
+                ["x"] = x, ["y"] = y, ["width"] = size, ["height"] = size,
+                ["label"] = QaConstants.RingLabel,
+                ["endX"] = 0, ["endY"] = 0
+            };
+            var result = new JsonObject
+            {
+                ["text"] = QaConstants.ExplainText,
+                ["marks"] = new JsonArray(mark),
+                ["actions"] = new JsonArray()
+            };
+            return Envelope(structured ? result.ToJsonString() : QaConstants.ExplainText, null);
+        }
+
+        var fallback = new JsonObject { ["text"] = QaConstants.DefaultText, ["marks"] = new JsonArray(), ["actions"] = new JsonArray() };
+        return Envelope(structured ? fallback.ToJsonString() : QaConstants.DefaultText, null);
+    }
+
+    /// <summary>One structured action with every schema argument present (null when unused), like the edit route.</summary>
+    private static JsonObject BlindAction(
+        string name, string target, int? x = null, int? y = null, string? automationId = null,
+        string? text = null, string? path = null, string? overwrite = null, string? contents = null)
+    {
+        return new JsonObject
+        {
+            ["name"] = name,
+            ["target"] = target,
+            ["arguments"] = new JsonObject
+            {
+                ["x"] = x, ["y"] = y, ["automationId"] = automationId, ["name"] = null, ["text"] = text,
+                ["path"] = path, ["overwrite"] = overwrite, ["content"] = null, ["contents"] = contents
+            }
+        };
+    }
+
+    /// <summary>Wraps text in a Responses API envelope: output[] -> message -> content[] -> output_text.</summary>
+    private static string Envelope(string outputText, JsonArray? annotations, bool includeWebSearchCall = false)
+    {
+        var part = new JsonObject
+        {
+            ["type"] = "output_text",
+            ["text"] = outputText,
+            ["annotations"] = annotations ?? new JsonArray()
+        };
+        var output = new JsonArray();
+        if (includeWebSearchCall)
+        {
+            var sources = new JsonArray();
+            foreach (var (title, url) in QaConstants.Sources)
+                sources.Add(new JsonObject { ["type"] = "url", ["title"] = title, ["url"] = url });
+            output.Add(new JsonObject
+            {
+                ["type"] = "web_search_call",
+                ["id"] = "ws_qa",
+                ["status"] = "completed",
+                ["action"] = new JsonObject { ["type"] = "search", ["query"] = "qa", ["sources"] = sources }
+            });
+        }
+        output.Add(new JsonObject
+        {
+            ["type"] = "message",
+            ["id"] = "msg_qa",
+            ["status"] = "completed",
+            ["role"] = "assistant",
+            ["content"] = new JsonArray(part)
+        });
+        return new JsonObject
+        {
+            ["id"] = "resp_qa",
+            ["object"] = "response",
+            ["status"] = "completed",
+            ["model"] = "qa-mock",
+            ["output"] = output,
+            ["usage"] = new JsonObject { ["input_tokens"] = 0, ["output_tokens"] = 0, ["total_tokens"] = 0 }
+        }.ToJsonString();
+    }
+
+    private static readonly (string Route, string[] Keywords)[] Routes =
+    [
+        ("explain", ["explain", "what is on my screen", "what's on my screen"]),
+        ("research", ["research", "sources"]),
+        ("edit", ["edit", "rename", "apply"]),
+        ("blind-mixed", [QaConstants.BlindMixedKeyword]),
+        ("blind-click", [QaConstants.BlindClickKeyword]),
+    ];
+
+    /// <summary>The route whose keyword occurs earliest in the user's text; null when none matches.</summary>
+    private static string? Route(string lowerUserText)
+    {
+        string? best = null;
+        var bestIndex = int.MaxValue;
+        foreach (var (route, keywords) in Routes)
+        {
+            foreach (var keyword in keywords)
+            {
+                var index = lowerUserText.IndexOf(keyword, StringComparison.Ordinal);
+                if (index >= 0 && index < bestIndex) { bestIndex = index; best = route; }
+            }
+        }
+        return best;
+    }
+
+    private static readonly Regex FramePixels = new(@"framePixels=(\d+)x(\d+)", RegexOptions.Compiled);
+
+    private static (int W, int H) ParseFrame(string text)
+    {
+        var m = FramePixels.Match(text);
+        if (m.Success &&
+            int.TryParse(m.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var w) &&
+            int.TryParse(m.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var h) &&
+            w > 0 && h > 0)
+            return (w, h);
+        return (QaConstants.FallbackFrameWidth, QaConstants.FallbackFrameHeight);
+    }
+
+    /// <summary>All input_text parts (plus instructions) joined; input_image data is skipped.</summary>
+    private static string CollectInputText(JsonNode? json, bool includeInstructions = true)
+    {
+        if (json is null) return string.Empty;
+        var sb = new StringBuilder();
+        if (includeInstructions && json["instructions"] is JsonValue instr) sb.Append(instr.ToString()).Append('\n');
+        if (json["input"] is JsonArray input)
+        {
+            foreach (var item in input)
+            {
+                if (item?["content"] is JsonArray content)
+                {
+                    foreach (var part in content)
+                    {
+                        if (part?["type"]?.ToString() == "input_text" && part["text"] is JsonValue t)
+                            sb.Append(t.ToString()).Append('\n');
+                    }
+                }
+                else if (item?["content"] is JsonValue plain)
+                {
+                    sb.Append(plain.ToString()).Append('\n');
+                }
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static string Truncate(string text)
+    {
+        // Strip base64 image payloads so the log stays readable.
+        var cleaned = Regex.Replace(text, @"data:image/[a-z]+;base64,[A-Za-z0-9+/=]+", "data:image/...;base64,<omitted>");
+        return cleaned.Length > 20000 ? cleaned[..20000] + "...<truncated>" : cleaned;
+    }
+
+    private static void Log(string line)
+    {
+        var stamped = $"{DateTimeOffset.UtcNow:O} {line}";
+        Console.WriteLine(stamped);
+        if (_logPath is null) return;
+        lock (LogLock)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_logPath))!);
+                File.AppendAllText(_logPath, stamped + Environment.NewLine);
+            }
+            catch (IOException) { }
+        }
+    }
+}
+
+/// <summary>
+/// Issue #127 approval-card journey (tests/Boo.Demo.Tests/HiddenTextApprovalCardDemoTests.cs), kept as one separate
+/// block so it merges cleanly with other mock routes. "qa-visible-type" proposes typing visible text and
+/// "qa-hidden-type" proposes text with invisible characters (U+200E, U+061C, U+200F and the tag character U+E0041),
+/// both into the test's own field <see cref="FieldId"/>. Boo's card must show the hidden ones as [U+XXXX] markers and
+/// refuse Approve.
+/// </summary>
+public static class QaHiddenText
+{
+    public const string VisibleKeyword = "qa-visible-type";
+    public const string HiddenKeyword = "qa-hidden-type";
+    public const string FieldId = "QaHiddenTextField";
+    public const string VisibleText = "paypal visible 123";
+    public const string ReplyText = "QA-TYPE: I propose typing into the field.";
+
+    public static readonly string HiddenText =
+        "pay" + char.ConvertFromUtf32(0x200E) + "pal " + char.ConvertFromUtf32(0x061C) + "x" +
+        char.ConvertFromUtf32(0x200F) + " tag" + char.ConvertFromUtf32(0xE0041);
+
+    /// <summary>The structured reply for a typing keyword in the user's words, or null for every other request.</summary>
+    public static (string Json, string Text)? Reply(string lowerUserText)
+    {
+        string? text = lowerUserText.Contains(HiddenKeyword, StringComparison.Ordinal) ? HiddenText
+            : lowerUserText.Contains(VisibleKeyword, StringComparison.Ordinal) ? VisibleText
+            : null;
+        if (text is null) return null;
+
+        var action = new JsonObject
+        {
+            ["name"] = "type_text",
+            ["target"] = "QA hidden-text target",
+            ["arguments"] = new JsonObject
+            {
+                ["x"] = null, ["y"] = null, ["automationId"] = FieldId, ["name"] = null, ["text"] = text,
+                ["path"] = null, ["overwrite"] = null, ["content"] = null, ["contents"] = null
+            }
+        };
+        var result = new JsonObject { ["text"] = ReplyText, ["marks"] = new JsonArray(), ["actions"] = new JsonArray(action) };
+        return (result.ToJsonString(), ReplyText);
+    }
+}

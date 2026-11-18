@@ -1,0 +1,232 @@
+name: release
+
+# Builds the portable, self-contained Windows x64 ZIP of Boo and the per-user installer (Velopack).
+# - Every push to main, every pull request and manual runs: the ZIP and the installer are uploaded as workflow artifacts.
+# - Pushing a tag like v0.1.0: both are attached to a GitHub Release. The installer files on the Release
+#   (Boo-win-Setup.exe, the full .nupkg, releases.win.json) are what installed copies read when the user
+#   turns on "Check GitHub Releases for updates" in Settings.
+# The package never contains an API key; credentials are entered inside the app and kept on the user's PC.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: windows-latest
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    outputs:
+      zip_name: ${{ steps.meta.outputs.zip_name }}
+      label: ${{ steps.meta.outputs.label }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Do not leave the job token in .git/config for later build/test steps.
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Package metadata
+        id: meta
+        shell: pwsh
+        run: |
+          [xml]$proj = Get-Content src/Boo.App/Boo.App.csproj
+          $version = ($proj.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1)
+          if (-not $version) { throw 'Version is missing from src/Boo.App/Boo.App.csproj' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $label = $env:GITHUB_REF_NAME.TrimStart('v')
+            # A tag name flows into file names and later scripts; allow only plain version characters.
+            if ($label -notmatch '^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$') { throw "Tag '$env:GITHUB_REF_NAME' is not a plain version tag." }
+            # The tag names the Velopack package version; the assembly version comes from the csproj. Keep them equal
+            # (ignoring a -beta1 style suffix) so a Release never ships a Boo whose own version disagrees with its feed.
+            if (($label -split '-')[0] -ne $version) { throw "Tag '$env:GITHUB_REF_NAME' does not match <Version>$version</Version> in src/Boo.App/Boo.App.csproj; bump the csproj first." }
+          } else {
+            $label = "$version-$($env:GITHUB_SHA.Substring(0,7))"
+          }
+          $zip = "Boo-$label-win-x64.zip"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "label=$label" >> $env:GITHUB_OUTPUT
+          "zip_name=$zip" >> $env:GITHUB_OUTPUT
+          Write-Host "Packaging $zip"
+
+      - name: Restore
+        run: dotnet restore Boo.sln
+
+      - name: Build
+        run: dotnet build Boo.sln -c Release --no-restore
+
+      # Same suites as windows-ci; a package is only produced from a green build.
+      - name: Core tests
+        run: dotnet test tests/Boo.Core.Tests -c Release --no-build
+
+      - name: Integration tests
+        run: dotnet test tests/Boo.Integration.Tests -c Release --no-build
+
+      - name: Provider tests
+        run: dotnet test tests/Boo.Providers.Tests -c Release --no-build
+
+      - name: Publish self-contained win-x64
+        run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/package/Boo
+
+      - name: Check package contents
+        shell: pwsh
+        run: |
+          $root = 'artifacts/package/Boo'
+          if (-not (Test-Path "$root/Boo.exe")) { throw 'Boo.exe is missing from the publish output.' }
+          # Never ship credentials, local profiles or env files.
+          $forbidden = Get-ChildItem $root -Recurse -File | Where-Object {
+            $_.Name -like '.env*' -or $_.Extension -in '.pfx','.pem','.key'
+          }
+          if ($forbidden) { $forbidden | ForEach-Object { Write-Host "Forbidden: $($_.FullName)" }; throw 'Package contains files that must not ship.' }
+          $hits = Get-ChildItem $root -Recurse -File -Include *.json,*.txt,*.config,*.xml | Select-String -Pattern 'sk-(proj-|ant-)?[A-Za-z0-9_\-]{20,}|AIza[A-Za-z0-9_\-]{20,}|(ghp_|gho_|github_pat_)[A-Za-z0-9_]{8,}' -List
+          if ($hits) { $hits | ForEach-Object { Write-Host "Possible key in: $($_.Path)" }; throw 'Package appears to contain an API key.' }
+          $count = (Get-ChildItem $root -Recurse -File).Count
+          Write-Host "Package files: $count"
+
+      - name: Add quick-start note
+        shell: pwsh
+        env:
+          PACKAGE_LABEL: ${{ steps.meta.outputs.label }}
+        run: |
+          $note = @"
+          Boo for Windows - portable build $env:PACKAGE_LABEL
+          Source commit: $env:GITHUB_SHA
+
+          1. Extract this whole ZIP to a folder (for example Downloads\Boo). Do not run Boo.exe from inside the ZIP.
+          2. Open Boo.exe. No .NET install is needed. If SmartScreen warns about an unknown publisher,
+             choose More info > Run anyway (this build is not code-signed).
+          3. Press Ctrl+Alt+B to open the full window. Paste your OpenAI key in Settings > Protected credential
+             and press Save settings. The key is stored on this PC only, protected by Windows.
+          4. Hold Ctrl+Alt+Space (or press and hold Boo's eyes) to talk. Ctrl+Alt+F12 stops everything.
+
+          Full walkthrough, including the three demos and a 25-minute focus session:
+          https://github.com/$env:GITHUB_REPOSITORY#how-to-try
+          "@
+          Set-Content -Path artifacts/package/Boo/READ-ME-FIRST.txt -Value $note -Encoding utf8
+
+      # Per-user installer: Boo-win-Setup.exe installs to %LocalAppData%\Boo with a Start menu shortcut and an
+      # Add/Remove Programs entry; the same files feed in-app updates. Not code-signed (see README).
+      - name: Install Velopack CLI
+        run: dotnet tool install -g vpk --version 1.2.161
+
+      # Tag builds fetch the previous Velopack release so a delta package is produced alongside the full one.
+      - name: Download previous release (delta base)
+        if: github.ref_type == 'tag'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: vpk download github --repoUrl "https://github.com/${{ github.repository }}" --token "$env:GH_TOKEN" --channel win --pre --outputDir artifacts/installer
+
+      - name: Build installer (vpk pack)
+        env:
+          PACKAGE_LABEL: ${{ steps.meta.outputs.label }}
+        run: >
+          vpk pack --packId Boo --packVersion "$env:PACKAGE_LABEL" --packDir artifacts/package/Boo --mainExe Boo.exe
+          --packTitle Boo --packAuthors Vikas --shortcuts StartMenuRoot --channel win --outputDir artifacts/installer
+
+      - name: Check installer contents
+        shell: pwsh
+        env:
+          PACKAGE_LABEL: ${{ steps.meta.outputs.label }}
+        run: |
+          $dir = 'artifacts/installer'
+          foreach ($required in @('Boo-win-Setup.exe', 'releases.win.json', "Boo-$env:PACKAGE_LABEL-full.nupkg")) {
+            if (-not (Test-Path "$dir/$required")) { throw "$required is missing from the installer output." }
+          }
+          $feed = Get-Content "$dir/releases.win.json" -Raw | ConvertFrom-Json
+          $entry = $feed.Assets | Where-Object { $_.Version -eq $env:PACKAGE_LABEL -and $_.Type -eq 'Full' }
+          if (-not $entry) { throw "releases.win.json has no Full entry for $env:PACKAGE_LABEL." }
+          $actual = (Get-FileHash "$dir/$($entry.FileName)" -Algorithm SHA256).Hash
+          if ($actual -ne $entry.SHA256.ToUpperInvariant()) { throw "SHA-256 in releases.win.json does not match $($entry.FileName)." }
+          # The portable ZIP produced by vpk duplicates the one above; ship a single portable ZIP. The previous
+          # release's packages (downloaded only as the delta base) are already attached to that release.
+          Remove-Item "$dir/Boo-win-Portable.zip" -ErrorAction SilentlyContinue
+          Get-ChildItem $dir -Filter *.nupkg | Where-Object { $_.Name -notlike "Boo-$env:PACKAGE_LABEL-*" } | Remove-Item
+          $setupHash = (Get-FileHash "$dir/Boo-win-Setup.exe" -Algorithm SHA256).Hash
+          "$setupHash  Boo-win-Setup.exe" | Set-Content -Path "$dir/Boo-win-Setup.exe.sha256" -Encoding ascii
+          $size = [math]::Round((Get-Item "$dir/Boo-win-Setup.exe").Length / 1MB, 1)
+          "### Boo installer (Velopack)" >> $env:GITHUB_STEP_SUMMARY
+          "- Setup: ``Boo-win-Setup.exe`` ($size MB), SHA-256 ``$setupHash``" >> $env:GITHUB_STEP_SUMMARY
+          "- Release feed entry verified: ``$($entry.FileName)``" >> $env:GITHUB_STEP_SUMMARY
+          Get-ChildItem $dir | ForEach-Object { "{0} {1} bytes" -f $_.Name, $_.Length }
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: boo-installer-win-x64
+          path: artifacts/installer
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Create ZIP and checksum
+        shell: pwsh
+        env:
+          ZIP_NAME: ${{ steps.meta.outputs.zip_name }}
+        run: |
+          $zip = "artifacts/$env:ZIP_NAME"
+          Compress-Archive -Path artifacts/package/Boo -DestinationPath $zip -CompressionLevel Optimal
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash
+          "$hash  $env:ZIP_NAME" | Set-Content -Path "$zip.sha256" -Encoding ascii
+          $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
+          "### Boo portable package" >> $env:GITHUB_STEP_SUMMARY
+          "- File: ``$env:ZIP_NAME`` ($size MB)" >> $env:GITHUB_STEP_SUMMARY
+          "- SHA-256: ``$hash``" >> $env:GITHUB_STEP_SUMMARY
+          "- Commit: ``$env:GITHUB_SHA``" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: boo-portable-win-x64
+          path: |
+            artifacts/${{ steps.meta.outputs.zip_name }}
+            artifacts/${{ steps.meta.outputs.zip_name }}.sha256
+          if-no-files-found: error
+          # The ZIP is already compressed.
+          compression-level: 0
+
+  github-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: boo-portable-win-x64
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: boo-installer-win-x64
+          path: dist
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Installed copies only see pre-releases when "Include pre-releases" is ticked, so a plain vX.Y.Z tag
+          # is a full release and only a tag with a suffix (v0.2.0-beta1) is marked pre-release.
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Boo $GITHUB_REF_NAME" \
+            --notes "Boo-win-Setup.exe installs Boo for the current user (Start menu entry, uninstall from Settings > Apps) and enables in-app updates. The ZIP is the portable build: extract it whole and open Boo.exe. The .nupkg and releases.win.json files are the update feed read by installed copies; leave them attached. See the README's How to try section." \
+            $prerelease

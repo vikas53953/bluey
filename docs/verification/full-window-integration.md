@@ -21,8 +21,8 @@ evidence, while actual WPF rendering and interaction require packaged native QA.
 Root checks after final integration:
 
 - Full Release suite: **239 passed, 1 unchanged host-dependent reparse skip**.
-- Core TRX: `TestResults/vikasmit_VIKASMIT_2026-11-07_19_44_53_net10.0.trx`.
-- Integration TRX: `TestResults/vikasmit_VIKASMIT_2026-11-07_19_44_55_net10.0.trx`.
+- Core TRX: `TestResults/<user>_<machine>_2026-11-07_19_44_53_net10.0.trx`.
+- Integration TRX: `TestResults/<user>_<machine>_2026-11-07_19_44_55_net10.0.trx`.
 - Release app build: zero warnings/errors.
 - Oracle revision 15: all 41 frozen files verified.
 - `git diff --check`: passed.

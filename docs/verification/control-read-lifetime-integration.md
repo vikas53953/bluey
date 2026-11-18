@@ -8,7 +8,7 @@ Independent test-author review corrected a counter and removed an unintended
 FIFO-order requirement before freezing. Root then independently repeated the
 focused Release suite against the scaffold: seven behavioral failures and one
 synchronous-throw compatibility pass. Canonical RED evidence:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_14_48_37_net10.0.trx` and
+`TestResults/<user>_<machine>_2026-11-07_14_48_37_net10.0.trx` and
 `artifacts/read-lifetime-red.log`.
 
 The test author changed only the new test and its receipt. Existing frozen
@@ -26,11 +26,11 @@ releases admission in finally. It does not detach an unfinished native call.
 Root independently ran the Release solution build with zero warnings/errors,
 then the full suite: 123 Core passes and one unchanged host-dependent reparse
 fixture skip, plus 88 integration passes. Canonical full-suite evidence:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_14_54_36_net10.0.trx` and
-`TestResults/vikasmit_VIKASMIT_2026-11-07_14_54_38_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_14_54_36_net10.0.trx` and
+`TestResults/<user>_<machine>_2026-11-07_14_54_38_net10.0.trx`.
 
 After comment-only cleanup, all eight focused cases passed again:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_14_59_00_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_14_59_00_net10.0.trx`.
 Oracle revision 14 verifies all 37 frozen files unchanged; diff checks pass.
 The full format check still exits 2 only for pre-existing whitespace in
 AnnotationValidator.cs, Contracts.cs and RequestCoordinator.cs, recorded in

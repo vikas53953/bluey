@@ -6,7 +6,7 @@ using Boo.Core;
 
 namespace Boo.Providers;
 
-public sealed class DecisionsClient
+public sealed class DecisionsClient : IFocusClassifier
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private readonly HttpClient _http;
@@ -83,13 +83,13 @@ public sealed class DecisionsClient
         }
         catch (HttpRequestException exception)
         {
-            throw new InvalidOperationException("OpenAI decisions request failed.", exception);
+            throw ProviderHttpFailures.Transport("decisions", exception);
         }
 
         using (response)
         {
             if (!response.IsSuccessStatusCode)
-                throw new InvalidOperationException($"OpenAI decisions returned HTTP {(int)response.StatusCode}.");
+                throw await ProviderHttpFailures.StatusAsync("decisions", response, cancellationToken).ConfigureAwait(false);
             try
             {
                 var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);

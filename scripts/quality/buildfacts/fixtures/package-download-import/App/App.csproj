@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <!-- The bypass: download a package without referencing it, then import build code from it only when it exists
+       (it does not exist on a gate's first evaluation before restore). -->
+  <ItemGroup>
+    <PackageDownload Include="Microsoft.SourceLink.Common" Version="[8.0.0]" />
+  </ItemGroup>
+  <Import Project="$(NuGetPackageRoot)microsoft.sourcelink.common/8.0.0/build/Microsoft.SourceLink.Common.props"
+          Condition="Exists('$(NuGetPackageRoot)microsoft.sourcelink.common/8.0.0/build/Microsoft.SourceLink.Common.props')" />
+</Project>

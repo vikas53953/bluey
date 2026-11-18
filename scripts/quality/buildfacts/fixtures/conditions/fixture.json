@@ -1,0 +1,85 @@
+{
+  "bypass": "ProjectReferences that only exist under Configuration / RuntimeIdentifier / _IsPublishing / SolutionName / IsOSPlatform (PR #32 bypasses)",
+  "builds": [
+    {
+      "label": "build",
+      "args": [
+        "build",
+        "Fix.slnx",
+        "-c",
+        "Release"
+      ]
+    },
+    {
+      "label": "publish",
+      "args": [
+        "publish",
+        "App/App.csproj",
+        "-c",
+        "Release",
+        "-r",
+        "win-x64",
+        "--self-contained",
+        "false",
+        "-o",
+        "out"
+      ]
+    }
+  ],
+  "projects": [
+    "App/App.csproj",
+    "LibConfig/LibConfig.csproj",
+    "LibOs/LibOs.csproj",
+    "LibPublishing/LibPublishing.csproj",
+    "LibRid/LibRid.csproj",
+    "LibSolution/LibSolution.csproj"
+  ],
+  "publishDir": "out",
+  "visible": [
+    {
+      "label": "build",
+      "project": "App/App.csproj",
+      "field": "projectReferencesFollowed",
+      "contains": "LibConfig/LibConfig.csproj"
+    },
+    {
+      "label": "build",
+      "project": "App/App.csproj",
+      "field": "projectReferencesFollowed",
+      "contains": "LibSolution/LibSolution.csproj"
+    },
+    {
+      "label": "build",
+      "project": "App/App.csproj",
+      "field": "projectReferencesFollowed",
+      "contains": "LibOs/LibOs.csproj"
+    },
+    {
+      "label": "publish",
+      "project": "App/App.csproj",
+      "field": "projectReferencesFollowed",
+      "contains": "LibRid/LibRid.csproj"
+    },
+    {
+      "label": "publish",
+      "project": "App/App.csproj",
+      "field": "projectReferencesFollowed",
+      "contains": "LibPublishing/LibPublishing.csproj"
+    },
+    {
+      "label": "publish",
+      "project": "App/App.csproj",
+      "field": "csc.references.project",
+      "contains": "LibPublishing/LibPublishing.csproj"
+    },
+    {
+      "label": "publish",
+      "project": "App/App.csproj",
+      "field": "globalProperties",
+      "contains": "_IsPublishing=true"
+    }
+  ],
+  "check": {
+    "result": "report"
+  }
+}

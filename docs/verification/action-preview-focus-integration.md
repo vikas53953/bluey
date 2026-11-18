@@ -22,8 +22,8 @@ not native focus proof.
 Root's integrated Release build passed with zero warnings/errors. The full
 suite passed 123 Core tests with one unchanged host-dependent reparse fixture
 skip, and 88 integration tests. Exact evidence:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_15_05_00_net10.0.trx` and
-`TestResults/vikasmit_VIKASMIT_2026-11-07_15_05_02_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_15_05_00_net10.0.trx` and
+`TestResults/<user>_<machine>_2026-11-07_15_05_02_net10.0.trx`.
 Oracle revision 14 retains all 37 frozen files unchanged; diff checks pass.
 The project format check still exits 2 on the same untouched Core whitespace
 in AnnotationValidator.cs, Contracts.cs and RequestCoordinator.cs. Current

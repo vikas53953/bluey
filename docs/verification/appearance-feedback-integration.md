@@ -6,7 +6,7 @@ The repair updates the general status when validation rejects appearance values 
 
 Root verification on the integrated source:
 
-- Release tests: 242 passed, one unchanged host-dependent skip. Core TRX `TestResults/vikasmit_VIKASMIT_2026-11-07_20_44_42_net10.0.trx`; integration TRX `TestResults/vikasmit_VIKASMIT_2026-11-07_20_44_45_net10.0.trx`.
+- Release tests: 242 passed, one unchanged host-dependent skip. Core TRX `TestResults/<user>_<machine>_2026-11-07_20_44_42_net10.0.trx`; integration TRX `TestResults/<user>_<machine>_2026-11-07_20_44_45_net10.0.trx`.
 - App Release build: zero warnings/errors.
 - Oracle revision 17: 44 files verified, preserving every earlier frozen hash.
 - Scoped formatting of MainWindow and `git diff --check`: passed. The previously recorded repository-wide formatting failures remain.

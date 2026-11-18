@@ -52,19 +52,23 @@ public partial class MainWindow : Window
     private ScreenCapture? _capture;
     private AudioSession? _audio;
     private AudioUploadQueue? _audioUploads;
-    private ResponsesClient? _responses;
-    private DecisionsClient? _decisions;
+    private IScreenAssistant? _responses;
+    private IFocusClassifier? _decisions;
     private RealtimeClient? _realtime;
     private DesktopTools? _desktop;
     private SettingsStore? _settingsStore;
     private SessionStore? _sessionStore;
+    // OpenAI key store: voice (RealtimeClient) always uses it; text uses it only when OpenAI is the text provider.
     private CredentialStore? _credentialStore;
+    // One DPAPI-protected file per provider (AiProviders.CredentialFileName), created on first use.
+    private readonly Dictionary<AiProvider, CredentialStore> _credentialStores = new();
     private HttpClient? _http;
-    private FocusSession? _focus;
-    private NudgePolicy? _nudge;
+    private FocusSessionController? _focus;
     private CancellationTokenSource _focusCancellation = new();
     private bool _focusCaptureInFlight;
-    private double _lastFocusCaptureElapsed;
+    private long _focusCaptureId;
+    private readonly FocusClock _focusClock;
+    private double _lastFocusSaveRealElapsed;
     private ToolRequest? _pendingAction;
     private ActionPreviewModel? _pendingPreview;
     private bool _approvalInFlight;
@@ -78,9 +82,12 @@ public partial class MainWindow : Window
     private long _realtimeGeneration;
     private bool _realtimeConnected;
     private bool _listening;
-    private readonly ChirpPlayer _chirps = new();
+    private int _realtimeToolsInFlight;
+    private readonly TimeProvider _timeProvider;
+    private readonly ChirpPlayer _chirps;
     private bool _voiceTaskAuthorized;
     private bool _closingForExit;
+    private bool _shellDisposed;
     private bool _displayAffinitySupported = true;
     private NotchAppearance _appearance;
     private AppearanceStore? _appearanceStore;
@@ -99,8 +106,13 @@ public partial class MainWindow : Window
         Func<bool> captureExclusion,
         Action<bool, string?> onCaptureActivity,
         Action<bool> onMicrophoneActivity,
-        Action<NotchAppearance> onAppearanceChanged)
+        Action<NotchAppearance> onAppearanceChanged,
+        TimeProvider? timeProvider = null)
     {
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _chirps = new ChirpPlayer(_timeProvider);
+        // 30 s, not 10: a briefly busy UI thread must not look like sleep (real suspend already pauses via StopAll).
+        _focusClock = new FocusClock(_timeProvider, maximumTickSeconds: 30);
         _dataDirectory = dataDirectory;
         _onClose = onClose;
         _onStop = onStop;
@@ -113,32 +125,106 @@ public partial class MainWindow : Window
         _onAppearanceChanged = onAppearanceChanged;
         _appearance = new NotchAppearance();
         InitializeComponent();
+        ContentRendered += MainWindow_OnContentRendered;
 
-        _focusTimer = new DispatcherTimer(DispatcherPriority.Background)
+        _focusTimer = new DispatcherTimer(DispatcherPriority.Normal)
         {
             Interval = TimeSpan.FromSeconds(1)
         };
         _focusTimer.Tick += FocusTimer_OnTick;
         _focusCaptureTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
-            Interval = TimeSpan.FromSeconds(30)
+            Interval = TimeSpan.FromSeconds(1)
         };
         _focusCaptureTimer.Tick += FocusCaptureTimer_OnTick;
         TranscriptList.ItemsSource = _transcript;
         SourceInitialized += Window_OnSourceInitialized;
         SystemParameters.StaticPropertyChanged += SystemParameters_OnStaticPropertyChanged;
         Closed += (_, _) => SystemParameters.StaticPropertyChanged -= SystemParameters_OnStaticPropertyChanged;
+        Closed += (_, _) => DisposeShell();
     }
+
+
+    /// <summary>
+    /// Tells UI Automation that WPF has rendered this window's content once (ItemStatus "rendered"). A test that waits
+    /// for the companion window requires this acknowledgment from the app itself as well as its own pixel probe, so a
+    /// capture is never taken before the first render pass.
+    /// </summary>
+    private void MainWindow_OnContentRendered(object? sender, EventArgs e) =>
+        System.Windows.Automation.AutomationProperties.SetItemStatus(this, "rendered");
 
     public DisplayInfo? SelectedDisplay => _selectedDisplay;
     public double VerticalOffset => OffsetSlider.Value;
     public NotchAppearance CurrentAppearance => _appearance;
+
+    // Face lane (U1/U2): app-level signals for the notch face; App forwards them to NotchWindow.UpdateFace.
+    // Capture and microphone keep flowing through onCaptureActivity/onMicrophoneActivity.
+    public event Action<FaceInputs>? FaceInputsChanged;
+    public bool ReducedMotionEnabled => _settings.ReducedMotion;
+    private FaceInputs _faceInputs = new();
+    private DispatcherTimer? _faceMomentTimer;
+
+    private readonly FaceMomentSchedule _faceMoments = new();
+
+    private void SetFace(FaceInputs next, TimeSpan? momentFor = null, FaceMomentKind moment = FaceMomentKind.None)
+    {
+        // Responding / nudge / happy are moments: each is cleared when its own hold runs out, so a reply finishing
+        // does not take a happy face (session complete) or a nudge with it, and vice versa.
+        var now = Environment.TickCount64;
+        if (momentFor is { } duration && moment != FaceMomentKind.None)
+        {
+            _faceMoments.Hold(moment, now, duration);
+        }
+        var switchedOff = FaceMomentKind.None;
+        if (!next.Responding) switchedOff |= FaceMomentKind.Responding;
+        if (!next.NudgeShowing) switchedOff |= FaceMomentKind.Nudge;
+        if (!next.Happy) switchedOff |= FaceMomentKind.Happy;
+        _faceMoments.Clear(switchedOff);
+        ArmFaceMomentTimer(now);
+        if (next == _faceInputs)
+        {
+            return;
+        }
+        _faceInputs = next;
+        FaceInputsChanged?.Invoke(next);
+    }
+
+    private void ArmFaceMomentTimer(long nowMs)
+    {
+        var due = _faceMoments.NextDue(nowMs);
+        _faceMomentTimer ??= CreateFaceMomentTimer();
+        _faceMomentTimer.Stop();
+        if (due is { } interval)
+        {
+            _faceMomentTimer.Interval = interval;
+            _faceMomentTimer.Start();
+        }
+    }
+
+    private DispatcherTimer CreateFaceMomentTimer()
+    {
+        var timer = new DispatcherTimer(DispatcherPriority.Background);
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            var expired = _faceMoments.Expire(Environment.TickCount64);
+            SetFace(_faceInputs with
+            {
+                Responding = _faceInputs.Responding && !expired.HasFlag(FaceMomentKind.Responding),
+                NudgeShowing = _faceInputs.NudgeShowing && !expired.HasFlag(FaceMomentKind.Nudge),
+                Happy = _faceInputs.Happy && !expired.HasFlag(FaceMomentKind.Happy),
+            });
+        };
+        return timer;
+    }
 
     public void PrepareInitialPlacement()
     {
         InitializeBeforeNotch();
         if (!_initialPlacementApplied)
         {
+            // Text scaling first, so PositionNearDisplay clamps the scaled minimum to the selected display.
+            ApplyTextScale();
             PositionNearDisplay();
             _initialPlacementApplied = true;
         }
@@ -180,7 +266,7 @@ public partial class MainWindow : Window
             screen.DeviceName,
             screen.Primary ? "Primary display" : screen.DeviceName,
             new RectD(screen.Bounds.Left, screen.Bounds.Top, screen.Bounds.Width, screen.Bounds.Height),
-            1d);
+            LiveMonitors.ScaleFor(screen));
         _targets.Snapshot(display);
     }
 
@@ -193,59 +279,22 @@ public partial class MainWindow : Window
         }
     }
 
-    public void StopAll()
-    {
-        StopHoldToTalk();
-        _generation++;
-        _coordinator.Stop();
-
-        _requestCancellation.Cancel();
-        _requestCancellation.Dispose();
-        _requestCancellation = new CancellationTokenSource();
-        _requestLease = null;
-
-        StopAudioUploads();
-
-        try
-        {
-            _audio?.Stop();
-        }
-        catch (Exception ex) when (ex is InvalidOperationException)
-        {
-            StatusText.Text = SanitizedError(ex, "Audio stopped");
-        }
-
-        var realtimeToStop = _realtime;
-        _realtime = null;
-        if (realtimeToStop is not null)
-        {
-            _ = InterruptRealtimeAsync(realtimeToStop);
-        }
-
-        _listening = false;
-        _realtimeConnected = false;
-        _voiceTaskAuthorized = false;
-        _onMicrophoneActivity(false);
-        TalkButton.Content = "Talk";
-        ListeningStatus.Text = "Microphone stopped. Screen activity is shown in the sharing indicator.";
-        ClearAnnotations();
-        ClearActionPreview();
-        _ = CompletePendingRealtimeToolAsync("Action stopped before approval or commit.");
-        if (_focus is { Snapshot.Status: Boo.Core.FocusStatus.Running })
-        {
-            _focus.Pause("Stopped");
-            StopFocusMonitoring();
-            SaveFocusSnapshot();
-            _focusTimer.Stop();
-            FocusStatus.Text = "Paused by Stop; Resume is explicit.";
-        }
-        UpdateCaptureIndicator();
-    }
-
+    /// <summary>
+    /// Stops everything, waits (bounded) for queued focus saves and releases the panel's resources. Runs once: when the
+    /// panel window really closes (only at app shutdown, which closes every window before App.OnExit runs) or from
+    /// App.OnExit, whichever comes first.
+    /// </summary>
     public void DisposeShell()
     {
+        if (_shellDisposed)
+        {
+            return;
+        }
+
+        _shellDisposed = true;
         _closingForExit = true;
         StopAll();
+        FlushFocusHistory();
         DisposeHoldToTalk();
         _focusTimer.Stop();
         _focusCaptureTimer.Stop();
@@ -258,6 +307,8 @@ public partial class MainWindow : Window
         _audio?.Dispose();
         _targets?.Dispose();
         _http?.Dispose();
+        _capture?.Dispose(); // releases the cached Direct3D capture device
+        _capture = null;
         var realtimeToDispose = _realtime;
         _realtime = null;
         if (realtimeToDispose is not null)
@@ -269,6 +320,7 @@ public partial class MainWindow : Window
 
     private void Window_OnLoaded(object sender, RoutedEventArgs e)
     {
+        ApplyTextScale();
         PrepareInitialPlacement();
         InputBox.Focus();
     }
@@ -329,6 +381,13 @@ public partial class MainWindow : Window
             _settingsStore = new SettingsStore(settingsPath);
             _settings = _settingsStore.Load();
         }
+        catch (InvalidDataException)
+        {
+            // SettingsStore reports an unreadable/corrupt file this way. InvalidDataException is not an
+            // IOException, so without this catch a corrupt settings.json crashed Boo at startup.
+            _settings = new AppSettings();
+            StatusText.Text = "Saved settings could not be read; using safe defaults. Save settings to replace them.";
+        }
         catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
             _settings = new AppSettings();
@@ -341,7 +400,31 @@ public partial class MainWindow : Window
         ChirpMute.IsChecked = !_settings.ChirpsEnabled;
         StartWithWindowsBox.IsChecked = _settings.StartWithWindows;
         FileRootBox.Text = _settings.FileRoot ?? string.Empty;
+        LoadProviderSettings();
         LoadMicrophones();
+        LoadUpdateSettings();
+    }
+
+    private void LoadProviderSettings()
+    {
+        var provider = _settings.Provider ?? new ProviderSettings();
+        // Combo items are in AiProvider enum order (OpenAI, Anthropic, Gemini).
+        TextProviderBox.SelectedIndex = Math.Clamp((int)provider.TextProvider, 0, Math.Max(0, TextProviderBox.Items.Count - 1));
+        AnthropicModelBox.Text = provider.AnthropicModel;
+        AnthropicFocusModelBox.Text = provider.AnthropicFocusModel;
+        GeminiModelBox.Text = provider.GeminiModel;
+        GeminiFocusModelBox.Text = provider.GeminiFocusModel;
+    }
+
+    /// <summary>The protected key file for one provider; OpenAI keeps its historical credential.bin.</summary>
+    private CredentialStore StoreFor(AiProvider provider)
+    {
+        if (!_credentialStores.TryGetValue(provider, out var store))
+        {
+            store = new CredentialStore(Path.Combine(_dataDirectory, AiProviders.CredentialFileName(provider)));
+            _credentialStores[provider] = store;
+        }
+        return store;
     }
 
     private void LoadAppearance()
@@ -396,12 +479,14 @@ public partial class MainWindow : Window
                 screen.DeviceName,
                 screen.Primary ? "Primary display" : screen.DeviceName,
                 new RectD(bounds.Left, bounds.Top, bounds.Width, bounds.Height),
-                1d);
+                LiveMonitors.ScaleFor(screen));
             _displays[info.Id] = info;
             DisplayBox.Items.Add($"{info.Name} · {bounds.Width}×{bounds.Height}");
         }
 
-        _selectedDisplay = _settings.DisplayId is not null && _displays.TryGetValue(_settings.DisplayId, out var saved)
+        // Saved display unplugged -> the primary (not merely the first enumerated monitor).
+        var resolved = MonitorLayout.Resolve(LiveMonitors.Snapshot(), _settings.DisplayId);
+        _selectedDisplay = resolved is not null && _displays.TryGetValue(resolved.Display.Id, out var saved)
             ? saved
             : _displays.Values.FirstOrDefault();
         if (_selectedDisplay is not null)
@@ -442,7 +527,8 @@ public partial class MainWindow : Window
         }
 
         var work = screen.WorkingArea;
-        var scale = _selectedDisplay.Scale > 0 ? _selectedDisplay.Scale : 1d;
+        // The target monitor's own DPI (the panel may be leaving a monitor with another scale).
+        var scale = MonitorLayout.SanitizeScale(LiveMonitors.ScaleFor(screen));
         var maxWidthDip = work.Width / scale;
         var maxHeightDip = work.Height / scale;
         if (double.IsFinite(maxWidthDip) && maxWidthDip > 0)
@@ -462,30 +548,31 @@ public partial class MainWindow : Window
             Height = Math.Min(Height, maxHeightDip);
         }
 
-        var widthPixels = Width * scale;
-        var heightPixels = Height * scale;
-        var leftPixels = work.Left + Math.Max(0d, (work.Width - widthPixels) / 2d);
-        var topPixels = work.Top + Math.Max(0d, (work.Height - heightPixels) / 2d);
+        var placement = MonitorLayout.CenterInWorkArea(
+            new RectD(work.Left, work.Top, work.Width, work.Height), Width, Height, scale).PhysicalBounds;
         var handle = new WindowInteropHelper(this).Handle;
         if (handle == IntPtr.Zero || WindowState == WindowState.Maximized)
         {
-            Left = leftPixels / scale;
-            Top = topPixels / scale;
+            Left = placement.X / scale;
+            Top = placement.Y / scale;
             return;
         }
 
-        SetWindowPos(handle, IntPtr.Zero,
-            (int)Math.Round(leftPixels),
-            (int)Math.Round(topPixels),
-            (int)Math.Round(widthPixels),
-            (int)Math.Round(heightPixels),
-            SwpNoActivate | SwpNoZOrder);
-        var actualScale = GetDpiForWindow(handle) / 96d;
-        if (double.IsFinite(actualScale) && actualScale > 0 && Math.Abs(actualScale - scale) > 0.01)
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            _selectedDisplay = _selectedDisplay with { Scale = actualScale };
-            _displays[_selectedDisplay.Id] = _selectedDisplay;
-            PositionNearDisplay();
+            var dpiBefore = GetDpiForWindow(handle);
+            SetWindowPos(handle, IntPtr.Zero,
+                (int)placement.X,
+                (int)placement.Y,
+                (int)placement.Width,
+                (int)placement.Height,
+                SwpNoActivate | SwpNoZOrder);
+            // Crossing into a monitor with another DPI lets WPF apply the WM_DPICHANGED
+            // suggested rect, which can shift the panel; place it once more on arrival.
+            if (GetDpiForWindow(handle) == dpiBefore)
+            {
+                break;
+            }
         }
     }
 
@@ -523,21 +610,12 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var scale = _selectedDisplay.Scale;
-            var handle = new WindowInteropHelper(this).Handle;
-            if (handle != IntPtr.Zero)
-            {
-                var currentScreen = Forms.Screen.FromHandle(handle);
-                if (string.Equals(currentScreen.DeviceName, screen.DeviceName, StringComparison.OrdinalIgnoreCase))
-                {
-                    scale = GetDpiForWindow(handle) / 96d;
-                }
-            }
-
+            // The monitor's own DPI: the panel window may be on another monitor (or hidden),
+            // so its window DPI says nothing about the selected display's scale.
             var refreshed = _selectedDisplay with
             {
                 PixelBounds = new RectD(screen.Bounds.Left, screen.Bounds.Top, screen.Bounds.Width, screen.Bounds.Height),
-                Scale = double.IsFinite(scale) && scale > 0 ? scale : 1d
+                Scale = MonitorLayout.SanitizeScale(LiveMonitors.ScaleFor(screen))
             };
             if (refreshed == _selectedDisplay)
             {
@@ -566,7 +644,7 @@ public partial class MainWindow : Window
                 screen.DeviceName,
                 screen.Primary ? "Primary display" : screen.DeviceName,
                 new RectD(bounds.Left, bounds.Top, bounds.Width, bounds.Height),
-                1d);
+                LiveMonitors.ScaleFor(screen));
             _displays[info.Id] = info;
             DisplayBox.Items.Add($"{info.Name} · {bounds.Width}×{bounds.Height}");
         }
@@ -641,10 +719,12 @@ public partial class MainWindow : Window
             StopListening();
         }
         var lease = BeginRequest();
+        SetFace(_faceInputs with { Thinking = true, Responding = false, Caption = null });
         AppendTranscript("You", text);
         InputBox.Clear();
-        StatusText.Text = "Thinking about the selected context…";
+        ShowBusyStatus("Thinking about the selected context…", lease.Generation);
         var activity = _captureActivities.CreateOperation();
+        var handedToRealtime = false;
         try
         {
             var frame = await CaptureForRequestAsync(lease, activity);
@@ -654,6 +734,12 @@ public partial class MainWindow : Window
             }
             if (!IsCurrent(lease.Generation))
             {
+                return;
+            }
+            var intent = RequestIntent.Classify(text);
+            if (intent == RequestKind.Undo)
+            {
+                await HandleUndoRequestAsync(frame, lease);
                 return;
             }
             var speechEnabled = SpeechMute.IsChecked != true && _settings.SpeechEnabled;
@@ -686,13 +772,15 @@ public partial class MainWindow : Window
             }
             if (speechEnabled && _realtimeConnected && _realtime is not null)
             {
-                _voiceTaskAuthorized = LooksLikeExplicitTask(text);
+                _voiceTaskAuthorized = intent == RequestKind.Task;
                 await _realtime.SendTextAsync(text, lease.Token);
-                StatusText.Text = "Sent to the voice conversation; waiting for the response…";
+                ShowBusyStatus("Sent to the voice conversation; waiting for the response…", lease.Generation);
+                // The realtime reply (audio delta / response.done / error) clears Thinking.
+                handedToRealtime = IsCurrent(lease.Generation);
                 return;
             }
 
-            var explicitTask = LooksLikeExplicitTask(text);
+            var explicitTask = intent == RequestKind.Task;
             ControlObservation? controls = null;
             if (explicitTask && frame is not null)
             {
@@ -708,14 +796,14 @@ public partial class MainWindow : Window
                 text,
                 lease.Generation,
                 frame,
-                Research: LooksLikeResearch(text),
+                Research: intent == RequestKind.Research,
                 AllowActions: explicitTask);
             var reply = await client.RespondAsync(request, lease.Token, controls);
             if (!IsCurrent(lease.Generation))
             {
                 return;
             }
-            RenderReply(reply, lease.Generation, frame, request.AllowActions, controls);
+            RenderReply(reply, lease.Generation, frame, request.AllowActions, controls, request.Research);
         }
         catch (OperationCanceledException)
         {
@@ -734,6 +822,10 @@ public partial class MainWindow : Window
         finally
         {
             EndCaptureActivity(activity);
+            if (!handedToRealtime && IsCurrent(lease.Generation))
+            {
+                SetFace(_faceInputs with { Thinking = false });
+            }
         }
     }
 
@@ -761,8 +853,14 @@ public partial class MainWindow : Window
             uploads.Failed += message => PostAudioFailure(message, lease.Generation, uploads);
             _audio?.Dispose();
             _audio = CreateAudio(uploads, lease.Generation);
+            if (!_audio.TryStart(_settings.MicrophoneDevice, out var micFailure))
+            {
+                StopListening();
+                ListeningStatus.Text = "Microphone unavailable. You can still type a request.";
+                StatusText.Text = micFailure;
+                return;
+            }
             _listening = true;
-            _audio.Start(_settings.MicrophoneDevice);
             _onMicrophoneActivity(true);
             TalkButton.Content = "Stop talk";
             ListeningStatus.Text = "Listening… press Stop talk or the global Stop to interrupt.";
@@ -791,6 +889,7 @@ public partial class MainWindow : Window
     private void StopListening()
     {
         var hadVoiceSession = _listening || _realtimeConnected || _audioUploads is not null || _realtime is not null;
+        CancelPendingRecovery();
         DiscardPushToTalkUplink();
         StopAudioUploads();
         try
@@ -823,17 +922,17 @@ public partial class MainWindow : Window
         }
         TalkButton.Content = "Talk";
         ListeningStatus.Text = "Microphone idle. Activate Talk when you want to speak.";
+        // Errors, disconnects and superseded requests (BeginRequest) end here; never strand Thinking/Responding.
+        _realtimeToolsInFlight = 0;
+        SetFace(_faceInputs with { Thinking = false, Responding = false });
     }
 
-    private void RenderReply(AssistantReply reply, long generation, CapturedFrame? frame, bool explicitTask, ControlObservation? controls)
+    private ToolRequest? RenderReply(AssistantReply reply, long generation, CapturedFrame? frame, bool explicitTask, ControlObservation? controls, bool research = false)
     {
         ClearAnnotations();
+        SetFace(_faceInputs with { Thinking = false, Responding = true, Caption = reply.Text }, TimeSpan.FromSeconds(4), FaceMomentKind.Responding);
         AppendTranscript("Boo", reply.Text);
-        SourceLinksList.Children.Clear();
-        foreach (var source in reply.Sources)
-        {
-            AppendSourceLink(source);
-        }
+        RenderSources(reply, research);
 
         if (reply.Annotations is not null && frame is not null)
         {
@@ -844,18 +943,19 @@ public partial class MainWindow : Window
             ReportAnnotationOutcome("Boo explained the screen without a verified mark.");
         }
 
-        if (!IsCurrent(generation))
+        if (!IsCurrent(generation) || UndoOwnsPendingActions)
         {
-            return;
+            return null;
         }
 
-        var action = explicitTask ? reply.Actions.FirstOrDefault() : null;
+        var offered = explicitTask ? ActionPolicy.WithoutUnobservedScreenActions(reply.Actions, controls) : reply.Actions;
+        var action = explicitTask ? offered.FirstOrDefault() : null;
         _pendingControls = action is null ? null : controls;
         if (action is not null)
         {
             action = action with { Generation = generation };
             _pendingActions.Clear();
-            foreach (var remaining in reply.Actions.Skip(1))
+            foreach (var remaining in offered.Skip(1))
             {
                 _pendingActions.Enqueue(remaining with { Generation = generation });
             }
@@ -865,7 +965,7 @@ public partial class MainWindow : Window
                 new HashSet<string>(ActionPolicy.ToolNames, StringComparer.OrdinalIgnoreCase),
                 _settings.FileRoot);
             ShowActionPreview(action, authority, frame?.Context.Target ?? TryGetTarget(),
-                _pendingActions.Count == 0 ? string.Empty : $"Step 1 of {reply.Actions.Count}: ");
+                _pendingActions.Count == 0 ? string.Empty : $"Step 1 of {offered.Count}: ");
         }
         else
         {
@@ -874,26 +974,40 @@ public partial class MainWindow : Window
             {
                 StatusText.Text = "Boo suggested an action, but no explicit task request authorized it.";
             }
+            else if (reply.Actions.Count > 0)
+            {
+                StatusText.Text = "Boo proposed a screen action, but no screen observation backs it. Nothing was offered.";
+            }
             if (reply.Actions.Count == 0)
             {
                 StatusText.Text = "Reply complete. No action was committed.";
             }
         }
+        return action;
     }
 
     private void TryRenderAnnotations(AnnotationProposal proposal, CapturedFrame frame)
     {
         try
         {
-            var validation = AnnotationValidator.Validate(proposal, frame.Context, DateTimeOffset.UtcNow);
+            var validation = AnnotationValidator.Validate(proposal, frame.Context, _timeProvider.GetUtcNow());
             if (!validation.Valid)
             {
                 ReportAnnotationOutcome($"Boo explained the screen without drawing: {validation.Reason}");
                 return;
             }
 
-            var window = new AnnotationWindow(frame.Context, proposal.Marks);
+            var window = new AnnotationWindow(frame.Context, proposal.Marks)
+            {
+                ReducedMotion = AccessibilitySettings.ReducedMotion(ReducedMotionEnabled)
+            };
             new WindowInteropHelper(window).EnsureHandle();
+            if (!window.DisplayAvailable)
+            {
+                window.Close();
+                ReportAnnotationOutcome("Boo explained the screen without drawing: the display changed. Ask again to see marks.");
+                return;
+            }
             if (!window.CaptureExclusionAvailable)
             {
                 window.Close();
@@ -912,6 +1026,74 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// U6: word the nudge and, when the model names a visible phrase, OCR the last focus
+    /// frame (memory only), match it outside Boo's own windows, and fly the pointer + ring
+    /// there. Any miss or failure leaves the text-only nudge.
+    /// </summary>
+    private async Task ShowNudgePointerAsync(CapturedFrame frame, string task, CancellationToken token)
+    {
+        // A talk/explain turn or Stop bumps _generation; a pointer from this older
+        // focus frame must never clear or cover that newer turn's marks.
+        var generation = _generation;
+        try
+        {
+            var nudge = await EnsureResponses().NudgeAsync(frame, task, token);
+            if (token.IsCancellationRequested || _focus is not { ShouldMonitor: true } || _generation != generation)
+            {
+                return;
+            }
+            if (!string.IsNullOrWhiteSpace(nudge.Text))
+            {
+                SetFocusStatus($"Nudge: {nudge.Text}");
+            }
+            if (string.IsNullOrWhiteSpace(nudge.PointerTarget) || !_displayAffinitySupported)
+            {
+                return;
+            }
+
+            var words = await OcrReader.ReadAsync(frame, token);
+            var match = OcrNudgeTargetMatcher.Match(words, nudge.PointerTarget, OwnedWindowRects());
+            if (match is null || token.IsCancellationRequested || _focus is not { ShouldMonitor: true }
+                || _generation != generation || !Equals(frame.Context.Display, _selectedDisplay)
+                || GetForegroundWindow() != new IntPtr(frame.Context.Target.Handle))
+            {
+                // The OCR boxes describe the captured window; if the user has switched
+                // away since, the ring would land on unrelated content.
+                return;
+            }
+
+            ClearAnnotations();
+            var window = AnnotationWindow.ForPhysicalTarget(frame.Context, match.Bounds);
+            window.ReducedMotion = AccessibilitySettings.ReducedMotion(ReducedMotionEnabled);
+            new WindowInteropHelper(window).EnsureHandle();
+            if (!window.DisplayAvailable || !window.CaptureExclusionAvailable)
+            {
+                window.Close();
+                return;
+            }
+            window.Show();
+            _annotationWindows.Add(window);
+        }
+        catch (Exception)
+        {
+            // Pointer guidance is optional: the text nudge already showed.
+        }
+    }
+
+    private List<RectD> OwnedWindowRects()
+    {
+        var rects = new List<RectD>();
+        foreach (var handle in OwnedWindowHandles())
+        {
+            if (GetWindowRect(new IntPtr(handle), out var rect) && rect.Right > rect.Left && rect.Bottom > rect.Top)
+            {
+                rects.Add(new RectD(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top));
+            }
+        }
+        return rects;
+    }
+
     private void ReportAnnotationOutcome(string message)
     {
         AnnotationDetail.Text = message;
@@ -921,7 +1103,7 @@ public partial class MainWindow : Window
 
     private void ShowActionPreview(ToolRequest action, TaskAuthority authority, WindowIdentity? target, string prefix)
     {
-        var preview = ActionPreviewBuilder.Create(action, authority);
+        var preview = ActionPreviewBuilder.Create(action, authority, target, Environment.ProcessId);
         _pendingPreview = preview;
         _pendingAction = preview.Request;
         _pendingAuthority = authority;
@@ -987,6 +1169,7 @@ public partial class MainWindow : Window
 
         _approvalInFlight = true;
         ApproveButton.IsEnabled = false;
+        var committedBeforeFailure = false;
         try
         {
             var decision = ActionPolicy.Evaluate(action, authority);
@@ -1023,7 +1206,15 @@ public partial class MainWindow : Window
                 CancelPendingAction();
                 return;
             }
+            var preActionControls = _pendingControls;
+            var fileSnapshot = SnapshotFileForUndo(action, authority);
             var outcome = await EnsureDesktop().ExecuteAsync(action, authority, approval, target, lease.Token);
+            committedBeforeFailure = outcome.Committed;
+            outcome = await ReadBackActionAsync(action, outcome, preActionControls, target, lease);
+            if (outcome.Success && outcome.Committed)
+            {
+                RecordFileEdit(action, fileSnapshot);
+            }
             if (!IsCurrent(lease.Generation))
             {
                 StatusText.Text = outcome.Committed
@@ -1053,13 +1244,21 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
-            StatusText.Text = "Stopped before the action committed.";
-            await CompletePendingRealtimeToolAsync("Action stopped before commit; no later effect occurred.");
+            StatusText.Text = committedBeforeFailure
+                ? "Stopped after the action committed; its result was not verified."
+                : "Stopped before the action committed.";
+            await CompletePendingRealtimeToolAsync(committedBeforeFailure
+                ? "The action committed, then stopped before its result was verified."
+                : "Action stopped before commit; no later effect occurred.");
         }
         catch (Exception ex)
         {
-            StatusText.Text = SanitizedError(ex, "The action could not be verified.");
-            await CompletePendingRealtimeToolAsync("Action failed before a verified commit.");
+            StatusText.Text = committedBeforeFailure
+                ? "The action committed, but Boo could not verify its result."
+                : SanitizedError(ex, "The action could not be verified.");
+            await CompletePendingRealtimeToolAsync(committedBeforeFailure
+                ? "The action committed, but its result could not be verified."
+                : "Action failed before a verified commit.");
         }
         finally
         {
@@ -1099,104 +1298,6 @@ public partial class MainWindow : Window
         _pendingActions.Clear();
     }
 
-    private void FocusStartButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrWhiteSpace(FocusTaskBox.Text))
-        {
-            FocusStatus.Text = "Name the focus task first.";
-            return;
-        }
-        if (!double.TryParse(FocusDurationBox.Text, out var minutes) || minutes <= 0)
-        {
-            FocusStatus.Text = "Enter a positive duration in minutes.";
-            return;
-        }
-
-        try
-        {
-            _focusCancellation.Cancel();
-            _focusCancellation.Dispose();
-            _focusCancellation = new CancellationTokenSource();
-            _focus = new FocusSession(FocusTaskBox.Text.Trim(), Math.Clamp(minutes * 60d, 60d, 14400d));
-            _nudge = new NudgePolicy();
-            _lastFocusCaptureElapsed = 0;
-            _focusCaptureInFlight = false;
-            _focusTimer.Start();
-            _focusCaptureTimer.Start();
-            UpdateFocusView();
-            FocusStatus.Text = "Running; monitoring pauses on Stop, lock, sleep, or Pause.";
-        }
-        catch (Exception ex)
-        {
-            FocusStatus.Text = SanitizedError(ex, "Focus session is not available yet.");
-        }
-    }
-
-    private void FocusPauseButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_focus is null)
-        {
-            return;
-        }
-        try
-        {
-            _focus.Pause("User pause");
-            _focusTimer.Stop();
-            StopFocusMonitoring();
-            SaveFocusSnapshot();
-            UpdateFocusView();
-            FocusStatus.Text = "Paused. Resume is explicit; unlock/reconnect will not resume it.";
-        }
-        catch (Exception ex)
-        {
-            FocusStatus.Text = SanitizedError(ex, "Could not pause focus.");
-        }
-    }
-
-    private void FocusResumeButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_focus is null)
-        {
-            return;
-        }
-        try
-        {
-            _focus.Resume();
-            _focusCancellation.Dispose();
-            _focusCancellation = new CancellationTokenSource();
-            _focusCaptureTimer.Start();
-            _focusTimer.Start();
-            UpdateFocusView();
-            FocusStatus.Text = "Running after explicit Resume.";
-        }
-        catch (Exception ex)
-        {
-            FocusStatus.Text = SanitizedError(ex, "Could not resume focus.");
-        }
-    }
-
-    private void FocusEndButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_focus is null)
-        {
-            return;
-        }
-        try
-        {
-            _focus.End();
-            _chirps.PlaySessionEnd(_settings.ChirpsEnabled, _listening);
-            _focusTimer.Stop();
-            StopFocusMonitoring();
-            SaveFocusSnapshot();
-            UpdateFocusView();
-            FocusStatus.Text = "Ended. Start a new session explicitly.";
-        }
-        catch (Exception ex)
-        {
-            FocusStatus.Text = SanitizedError(ex, "Could not end focus.");
-        }
-    }
-
     private void FocusTimer_OnTick(object? sender, EventArgs e)
     {
         if (_focus is null)
@@ -1205,25 +1306,60 @@ public partial class MainWindow : Window
         }
         try
         {
-            _focus.Advance(1);
+            // Count real monotonic time, not one second per tick: DispatcherTimer drifts and can be starved.
+            var tick = _focusClock.Tick();
+            if (tick.GapDetected && _focus.ShouldMonitor)
+            {
+                // Sleep or a long hang that no suspend event reported: do not count it, and pause.
+                _focus.Pause(FocusClock.GapPauseReason);
+                _focusTimer.Stop();
+                StopFocusMonitoring();
+                SaveFocusSnapshot();
+                UpdateFocusView();
+                SetFocusStatus("Paused after sleep. Press Resume to continue.");
+                SetFace(WithFocusFace(_faceInputs));
+                return;
+            }
+            _focus.Tick(tick.Seconds); // Focus_OnSessionEnded stops, saves and updates on completion.
             UpdateFocusView();
             if (_focus.Snapshot.Status != Boo.Core.FocusStatus.Running)
             {
-                if (_focus.Snapshot.Status == Boo.Core.FocusStatus.Ended) _chirps.PlaySessionEnd(_settings.ChirpsEnabled, _listening);
+                _focusClock.Stop();
                 _focusTimer.Stop();
+            }
+            else if (FocusRecovery.CheckpointDue(_lastFocusSaveRealElapsed, _focus.Snapshot.RealElapsed))
+            {
+                SaveFocusSnapshot(); // Bounds progress lost if Boo is killed mid-session.
             }
         }
         catch (Exception ex)
         {
+            // Settle the session as Paused rather than leaving it Running: stopping only the tick timer kept the
+            // periodic capture checks firing on a session whose time no longer advanced, with Resume disabled.
+            _focusClock.Stop();
             _focusTimer.Stop();
-            FocusStatus.Text = SanitizedError(ex, "Focus monitoring stopped safely.");
+            StopFocusMonitoring();
+            try
+            {
+                if (_focus is { Status: Boo.Core.FocusStatus.Running })
+                {
+                    _focus.Pause("Focus monitoring stopped");
+                }
+                SaveFocusSnapshot();
+                UpdateFocusView();
+                SetFace(WithFocusFace(_faceInputs));
+            }
+            catch (Exception)
+            {
+                // The original failure is the one worth reporting.
+            }
+            SetFocusStatus(SanitizedError(ex, "Focus monitoring stopped safely."));
         }
     }
 
     private void FocusCaptureTimer_OnTick(object? sender, EventArgs e)
     {
-        if (_focus is null || !_focus.ShouldMonitor || _focusCaptureInFlight
-            || _focus.Snapshot.Elapsed < _lastFocusCaptureElapsed + 30)
+        if (_focus is null || !_focus.IsCheckDue || _focusCaptureInFlight)
         {
             return;
         }
@@ -1238,6 +1374,7 @@ public partial class MainWindow : Window
         }
 
         _focusCaptureInFlight = true;
+        var captureId = ++_focusCaptureId;
         var token = _focusCancellation.Token;
         var activity = _captureActivities.CreateOperation();
         try
@@ -1247,6 +1384,7 @@ public partial class MainWindow : Window
             var frame = await CaptureFocusFrameAsync(leaseGeneration, token, activity);
             if (frame is null || token.IsCancellationRequested || _focus is null || !_focus.ShouldMonitor)
             {
+                _focus?.SkipCheck();
                 return;
             }
 
@@ -1262,17 +1400,23 @@ public partial class MainWindow : Window
                 decision.Probability,
                 decision.Confidence,
                 decision.Probabilities);
-            _focus.AddObservation(check);
-            _lastFocusCaptureElapsed = snapshot.Elapsed;
-            var age = Math.Max(0, (DateTimeOffset.UtcNow - frame.Context.CapturedAt).TotalSeconds);
-            if (_nudge?.Observe(check, age) == true)
+            var age = Math.Max(0, (_timeProvider.GetUtcNow() - frame.Context.CapturedAt).TotalSeconds);
+            if (_focus.RecordCheck(check, age))
             {
-                FocusStatus.Text = "Nudge: return to the task when you are ready. Boo did not change your apps.";
+                SetFocusStatus("Nudge: return to the task when you are ready. Boo did not change your apps.");
+                var minutesLeft = Math.Max(1, (int)Math.Ceiling((snapshot.Duration - snapshot.Elapsed) / 60));
+                var nudgeTask = string.IsNullOrWhiteSpace(snapshot.Task) ? "your task" : snapshot.Task.Trim();
+                SetFace(_faceInputs with
+                {
+                    NudgeShowing = true,
+                    Caption = $"Still on {nudgeTask}? {minutesLeft} minute{(minutesLeft == 1 ? "" : "s")} left in this focus block.",
+                }, TimeSpan.FromSeconds(6), FaceMomentKind.Nudge);
+                _ = ShowNudgePointerAsync(frame, snapshot.Task, token);
                 _chirps.PlayNudge(_settings.ChirpsEnabled, _listening);
             }
             else
             {
-                FocusStatus.Text = $"Observed {check.Activity.ToString().ToLowerInvariant()} · periodic estimate";
+                SetFocusStatus($"Observed {check.Activity.ToString().ToLowerInvariant()} · periodic estimate");
             }
             SaveFocusSnapshot();
         }
@@ -1286,14 +1430,18 @@ public partial class MainWindow : Window
             {
                 var snapshot = _focus.Snapshot;
                 var unknown = new FocusCheck(snapshot.Elapsed, FocusActivity.Uncertain, 0, 0);
-                _focus.AddObservation(unknown);
+                _focus.RecordCheck(unknown, 0);
                 SaveFocusSnapshot();
-                FocusStatus.Text = SanitizedError(ex, "Focus observation unavailable; this interval is unknown.");
+                SetFocusStatus(SanitizedError(ex, "Focus observation unavailable; this interval is unknown."));
             }
         }
         finally
         {
-            _focusCaptureInFlight = false;
+            // A Pause/Resume or new Start may have begun a newer capture; only the current one clears the flag.
+            if (captureId == _focusCaptureId)
+            {
+                _focusCaptureInFlight = false;
+            }
             EndCaptureActivity(activity);
         }
     }
@@ -1318,7 +1466,7 @@ public partial class MainWindow : Window
         {
             return null;
         }
-        var frame = await (_capture ??= new ScreenCapture()).CaptureAsync(
+        var frame = await (_capture ??= new ScreenCapture(_timeProvider)).CaptureAsync(
             display,
             target,
             OwnedWindowHandles(),
@@ -1327,11 +1475,18 @@ public partial class MainWindow : Window
         return !token.IsCancellationRequested && Equals(display, _selectedDisplay) ? frame : null;
     }
 
-    private DecisionsClient EnsureDecisions()
+    private IFocusClassifier EnsureDecisions()
     {
-        _credentialStore ??= new CredentialStore(Path.Combine(_dataDirectory, "credential.bin"));
+        if (_decisions is not null)
+        {
+            return _decisions;
+        }
+
+        var providerSettings = _settings.Provider ?? new ProviderSettings();
+        var provider = providerSettings.TextProvider;
         _http ??= new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
-        return _decisions ??= new DecisionsClient(_http, () => _credentialStore.Load(), _settings.Provider ?? new ProviderSettings());
+        _decisions = AssistantProviders.CreateFocusClassifier(provider, _http, () => StoreFor(provider).Load(), providerSettings);
+        return _decisions;
     }
 
     private void StopFocusMonitoring()
@@ -1339,26 +1494,7 @@ public partial class MainWindow : Window
         _focusCaptureTimer.Stop();
         _focusCancellation.Cancel();
         _focusCaptureInFlight = false;
-        _nudge?.Reset();
         UpdateCaptureIndicator();
-    }
-
-    private void SaveFocusSnapshot()
-    {
-        if (_focus is null || _sessionStore is null)
-        {
-            return;
-        }
-        try
-        {
-            _sessionStore.Save(_focus.Snapshot);
-            LoadHistory();
-        }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
-        {
-            _sessionStore = null;
-            SetHistoryUnavailable();
-        }
     }
 
     private void InitializeHistory()
@@ -1366,6 +1502,10 @@ public partial class MainWindow : Window
         try
         {
             _sessionStore = new SessionStore(Path.Combine(_dataDirectory, "sessions.db"));
+            if (_sessionStore.RecoverInterrupted() > 0)
+            {
+                SetFocusStatus("Your last focus session was interrupted when Boo closed. It is saved as paused in history.");
+            }
             LoadHistory();
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
@@ -1384,15 +1524,7 @@ public partial class MainWindow : Window
         }
         try
         {
-            var rows = _sessionStore.List()
-                .Take(5)
-                .Select(session =>
-                    $"{session.Task} · {session.Status} · {TimeSpan.FromSeconds(session.RealElapsed):hh\\:mm\\:ss} · {session.Checks.Count} periodic observations")
-                .ToList();
-            HistoryList.ItemsSource = rows;
-            HistoryStatus.Text = rows.Count == 0
-                ? "No saved sessions. Unknown gaps and pauses remain distinct when a session is recorded."
-                : "Periodic observations are estimates; unknown gaps and pauses are not counted as exact active time.";
+            ApplyHistoryRows(ReadHistoryRows(_sessionStore));
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException or ArgumentException or OverflowException)
         {
@@ -1403,11 +1535,11 @@ public partial class MainWindow : Window
 
     private void SetHistoryUnavailable()
     {
-        HistoryList.ItemsSource = Array.Empty<string>();
+        HistoryList.ItemsSource = Array.Empty<FocusHistoryRow>();
         HistoryStatus.Text = HistoryUnavailableMessage;
     }
 
-    private void RefreshHistoryButton_OnClick(object sender, RoutedEventArgs e) => LoadHistory();
+    private void RefreshHistoryButton_OnClick(object sender, RoutedEventArgs e) => RefreshHistoryInBackground();
 
     private void UpdateFocusView()
     {
@@ -1430,6 +1562,30 @@ public partial class MainWindow : Window
                 return;
             }
 
+            var previousProvider = _settings.Provider ?? new ProviderSettings();
+            var nextProvider = previousProvider with
+            {
+                TextProvider = TextProviderBox.SelectedIndex >= 0 && TextProviderBox.SelectedIndex < AiProviders.All.Count
+                    ? AiProviders.All[TextProviderBox.SelectedIndex]
+                    : previousProvider.TextProvider,
+                AnthropicModel = ModelIdOrDefault(AnthropicModelBox.Text, AiProviders.DefaultAnthropicModel),
+                AnthropicFocusModel = ModelIdOrDefault(AnthropicFocusModelBox.Text, AiProviders.DefaultAnthropicFocusModel),
+                GeminiModel = ModelIdOrDefault(GeminiModelBox.Text, AiProviders.DefaultGeminiModel),
+                GeminiFocusModel = ModelIdOrDefault(GeminiFocusModelBox.Text, AiProviders.DefaultGeminiFocusModel)
+            };
+            if (!AiProviders.IsValidModelId(nextProvider.AnthropicModel) ||
+                !AiProviders.IsValidModelId(nextProvider.AnthropicFocusModel) ||
+                !AiProviders.IsValidModelId(nextProvider.GeminiModel) ||
+                !AiProviders.IsValidModelId(nextProvider.GeminiFocusModel))
+            {
+                StatusText.Text = "Settings were not saved: a model id may only use letters, digits, '-', '.', '_' and ':'. Leave a model box blank for the default.";
+                return;
+            }
+
+            // Read (and clear) the pasted GitHub token only once nothing below can return early, so a
+            // rejected model id does not silently swallow a valid token.
+            var (updateSettings, pendingUpdateToken, updateNote) = ReadUpdateSettingsFromUi();
+
             _settings = new AppSettings(
                 DisplayId: _selectedDisplay?.Id,
                 SpeechEnabled: SpeechMute.IsChecked != true,
@@ -1438,24 +1594,79 @@ public partial class MainWindow : Window
                 VerticalOffset: OffsetSlider.Value,
                 MicrophoneDevice: Math.Max(-1, MicrophoneBox.SelectedIndex - 1),
                 FileRoot: string.IsNullOrWhiteSpace(FileRootBox.Text) ? null : Path.GetFullPath(FileRootBox.Text.Trim()),
-                Provider: _settings.Provider ?? new ProviderSettings(),
-                StartWithWindows: StartWithWindowsBox.IsChecked == true);
+                Provider: nextProvider,
+                StartWithWindows: StartWithWindowsBox.IsChecked == true,
+                Updates: updateSettings);
+            string? startupNote = null;
+            if (_settings.StartWithWindows && Environment.ProcessPath is { } runningPath)
+            {
+                startupNote = StartupRegistration.UnstableLocationReason(runningPath, Path.GetTempPath());
+                if (startupNote is not null)
+                {
+                    // Never point the Run key at a temp copy; keep the saved setting truthful.
+                    _settings = _settings with { StartWithWindows = false };
+                    StartWithWindowsBox.IsChecked = false;
+                }
+            }
             (_settingsStore ??= new SettingsStore(Path.Combine(_dataDirectory, "settings.json"))).Save(_settings);
             if (Environment.ProcessPath is { } exePath) StartupRegistration.Apply(_settings.StartWithWindows, exePath, new RegistryStartupStore());
-
-            if (CredentialBox.SecurePassword.Length > 0)
+            if (nextProvider != previousProvider)
             {
-                (_credentialStore ??= new CredentialStore(Path.Combine(_dataDirectory, "credential.bin"))).Save(new System.Net.NetworkCredential(string.Empty, CredentialBox.SecurePassword).Password);
-                CredentialBox.Clear();
+                // Record equality: a changed provider or any model id rebuilds the text clients on the next request.
+                _responses = null;
+                _decisions = null;
+            }
+            if (pendingUpdateToken is not null)
+            {
+                SaveUpdateToken(pendingUpdateToken);
             }
 
-            StatusText.Text = "Settings saved. Credential input was protected and cleared from the UI.";
+            var notes = new List<string>(5);
+            if (SaveCredentialIfEntered(CredentialBox, AiProvider.OpenAI) is { } openAiNote) notes.Add(openAiNote);
+            if (SaveCredentialIfEntered(AnthropicCredentialBox, AiProvider.Anthropic) is { } anthropicNote) notes.Add(anthropicNote);
+            if (SaveCredentialIfEntered(GeminiCredentialBox, AiProvider.Gemini) is { } geminiNote) notes.Add(geminiNote);
+
+            RefreshUpdatesAfterSave();
+            if (startupNote is not null) notes.Add($"Start with Windows was not turned on: {startupNote}");
+            if (updateNote is not null) notes.Add(updateNote);
+            StatusText.Text = notes.Count == 0
+                ? "Settings saved. Credential input was protected and cleared from the UI."
+                : $"Settings saved, but {string.Join("; ", notes)}";
             _onDisplayChanged(_selectedDisplay);
         }
         catch (Exception ex)
         {
             StatusText.Text = SanitizedError(ex, "Settings could not be saved; no credential was displayed.");
         }
+    }
+
+    private static string ModelIdOrDefault(string text, string fallback)
+    {
+        var trimmed = text.Trim();
+        return trimmed.Length == 0 ? fallback : trimmed;
+    }
+
+    /// <summary>
+    /// Protects a typed key with DPAPI into that provider's own file and clears the box. The key is never echoed
+    /// anywhere. Text that cannot be an API key (whitespace, control characters, too short) is not stored; the
+    /// returned note says so without repeating it.
+    /// </summary>
+    private string? SaveCredentialIfEntered(PasswordBox box, AiProvider provider)
+    {
+        if (box.SecurePassword.Length == 0)
+        {
+            return null;
+        }
+
+        var pasted = new System.Net.NetworkCredential(string.Empty, box.SecurePassword).Password;
+        box.Clear();
+        if (AiProviders.CredentialRejectReason(provider, pasted) is { } reason)
+        {
+            return $"the {AiProviders.VendorName(provider)} key was not saved: {reason}";
+        }
+
+        StoreFor(provider).Save(pasted.Trim());
+        return null;
     }
 
     private bool TrySaveAppearance(NotchAppearance nextAppearance)
@@ -1607,6 +1818,7 @@ public partial class MainWindow : Window
         _ = CompletePendingRealtimeToolAsync("A newer request superseded this action.");
         _pendingRealtimeCallId = null;
         SourceLinksList.Children.Clear();
+        ClearSourceStatus();
         return _requestLease;
     }
 
@@ -1640,6 +1852,12 @@ public partial class MainWindow : Window
             return null;
         }
 
+        if (App.CaptureFault.Faulted)
+        {
+            ReportCaptureProblem(App.CaptureFault.Message);
+            return null;
+        }
+
         try
         {
             var targets = EnsureTargets();
@@ -1657,7 +1875,7 @@ public partial class MainWindow : Window
             {
                 return null;
             }
-            var frame = await (_capture ??= new ScreenCapture()).CaptureAsync(
+            var frame = await (_capture ??= new ScreenCapture(_timeProvider)).CaptureAsync(
                 display,
                 target,
                 OwnedWindowHandles(),
@@ -1734,35 +1952,18 @@ public partial class MainWindow : Window
         return controls;
     }
 
-    private ResponsesClient EnsureResponses()
+    private IScreenAssistant EnsureResponses()
     {
         if (_responses is not null)
         {
             return _responses;
         }
 
-        _credentialStore ??= new CredentialStore(Path.Combine(_dataDirectory, "credential.bin"));
+        var providerSettings = _settings.Provider ?? new ProviderSettings();
+        var provider = providerSettings.TextProvider;
         _http ??= new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
-        _responses = new ResponsesClient(_http, () => _credentialStore.Load(), _settings.Provider ?? new ProviderSettings());
+        _responses = AssistantProviders.CreateScreenAssistant(provider, _http, () => StoreFor(provider).Load(), providerSettings);
         return _responses;
-    }
-
-    private RealtimeClient EnsureRealtime(bool pushToTalk = false)
-    {
-        if (_realtime is not null)
-        {
-            return _realtime;
-        }
-
-        _credentialStore ??= new CredentialStore(Path.Combine(_dataDirectory, "credential.bin"));
-        var realtime = new RealtimeClient(() => _credentialStore.Load(), _settings.Provider ?? new ProviderSettings(), pushToTalk);
-        _realtimePushToTalk = pushToTalk;
-        _realtimeTranscript.Reset();
-        _realtimeTranscriptRows.Clear();
-        var generation = _generation;
-        realtime.Received += value => Realtime_OnReceived(realtime, generation, value);
-        _realtime = realtime;
-        return _realtime;
     }
 
     private AudioSession CreateAudio(AudioUploadQueue? uploads = null, long? generation = null)
@@ -1801,9 +2002,7 @@ public partial class MainWindow : Window
                 {
                     return;
                 }
-                StopListening();
-                ListeningStatus.Text = "Audio paused. Typing remains available; activate Talk to retry.";
-                StatusText.Text = message;
+                FailVoiceSession(message, "Audio paused. Typing remains available; activate Talk to retry.");
             });
         }
         catch (InvalidOperationException) { /* Dispatcher shutdown has already stopped the session. */ }
@@ -1869,6 +2068,8 @@ public partial class MainWindow : Window
                     return;
                 }
                 ObserveTalkEvent(realtimeEvent);
+                ObserveSleepAfterReply(source, realtimeEvent);
+                ObserveReplyAudio(realtimeEvent);
                 switch (realtimeEvent.Kind)
                 {
                     case "input_audio_buffer.speech_started":
@@ -1877,6 +2078,7 @@ public partial class MainWindow : Window
                         ListeningStatus.Text = realtimeEvent.Kind.EndsWith("started", StringComparison.Ordinal)
                             ? "Listening…"
                             : "Thinking…";
+                        SetFace(_faceInputs with { Thinking = !realtimeEvent.Kind.EndsWith("started", StringComparison.Ordinal), Caption = null });
                         break;
                     case "conversation.item.input_audio_transcription.delta":
                     case "conversation.item.input_audio_transcription.completed":
@@ -1888,20 +2090,21 @@ public partial class MainWindow : Window
                         if (realtimeEvent.Kind == "conversation.item.input_audio_transcription.completed"
                             && !string.IsNullOrWhiteSpace(realtimeEvent.Text))
                         {
-                            _voiceTaskAuthorized = LooksLikeExplicitTask(realtimeEvent.Text);
+                            var spokenIntent = RequestIntent.Classify(realtimeEvent.Text);
+                            _voiceTaskAuthorized = spokenIntent == RequestKind.Task;
+                            if (spokenIntent == RequestKind.Undo)
+                            {
+                                await HandleVoiceUndoAsync(source);
+                            }
                         }
                         break;
                     case "response.output_audio.delta":
+                        // Moment refreshed by every audio delta so an error/disconnect before response.done
+                        // cannot leave the notch stuck on Responding.
+                        SetFace(_faceInputs with { Thinking = false, Responding = true }, TimeSpan.FromSeconds(4), FaceMomentKind.Responding);
                         if (realtimeEvent.Audio is not null && SpeechMute.IsChecked != true)
                         {
-                            try
-                            {
-                                (_audio ??= CreateAudio()).Play(realtimeEvent.Audio);
-                            }
-                            catch (Exception ex) when (ex is InvalidOperationException)
-                            {
-                                StatusText.Text = SanitizedError(ex, "Spoken reply is unavailable; text remains visible.");
-                            }
+                            PlayReplyAudio(realtimeEvent.Audio);
                         }
                         break;
                     case "response.function_call_arguments.done":
@@ -1909,9 +2112,15 @@ public partial class MainWindow : Window
                         break;
                     case "response.done":
                         StatusText.Text = realtimeEvent.Text ?? "Reply complete. Text and spoken output share the same turn.";
+                        RecoverSilentReply(source, generation);
+                        var remainingPlayback = TimeSpan.FromMilliseconds(
+                            Interlocked.Read(ref _playbackUntilMs) - Environment.TickCount64);
+                        SetFace(_faceInputs with { Thinking = _realtimeToolsInFlight > 0 },
+                            FaceMoments.AfterReplyDone(remainingPlayback), FaceMomentKind.Responding);
                         break;
                     case "disconnect":
                     case "error":
+                        AbortHoldToTalk();
                         StopListening();
                         if (_focus is { Snapshot.Status: Boo.Core.FocusStatus.Running })
                         {
@@ -1919,8 +2128,12 @@ public partial class MainWindow : Window
                             _focusTimer.Stop();
                             StopFocusMonitoring();
                             SaveFocusSnapshot();
+                            SetFace(WithFocusFace(_faceInputs));
                         }
-                        StatusText.Text = "Realtime connection stopped; typing remains available. Activate Talk to retry.";
+                        StatusText.Text = realtimeEvent.Kind == "error" && realtimeEvent.Text is { Length: > 0 } errorText
+                                          && errorText != RealtimeProtocol.GenericErrorText
+                            ? errorText // classified and body-free, e.g. quota used up or key rejected
+                            : "Realtime connection stopped; typing remains available. Activate Talk to retry.";
                         break;
                     default:
                         ListeningStatus.Text = $"Realtime: {realtimeEvent.Kind}";
@@ -1961,7 +2174,13 @@ public partial class MainWindow : Window
         }
 
         var lease = _requestLease!;
+        if (await DeclineRealtimeToolDuringUndoAsync(realtime, realtimeEvent.ItemId, lease))
+        {
+            return;
+        }
         var activity = _captureActivities.CreateOperation();
+        _realtimeToolsInFlight++;
+        SetFace(_faceInputs with { Thinking = true });
         try
         {
             var frame = await CaptureForRequestAsync(lease, activity);
@@ -1996,14 +2215,19 @@ public partial class MainWindow : Window
             {
                 return;
             }
-            RenderReply(reply, lease.Generation, frame, explicitTask, controls);
-            if (explicitTask && reply.Actions.Count > 0)
+            if (await DeclineRealtimeToolDuringUndoAsync(realtime, realtimeEvent.ItemId, lease))
+            {
+                return;
+            }
+            var offered = RenderReply(reply, lease.Generation, frame, explicitTask, controls, mode == "research");
+            var result = ActionPolicy.RealtimeToolResult(offered, reply.Actions, reply.Text, explicitTask);
+            if (result is null)
             {
                 _pendingRealtimeCallId = realtimeEvent.ItemId;
             }
             else
             {
-                await realtime.CompleteToolAsync(realtimeEvent.ItemId, reply.Text, lease.Token);
+                await realtime.CompleteToolAsync(realtimeEvent.ItemId, result, lease.Token);
             }
         }
         catch (Exception ex) when (ex is ResponseTimeoutException or OperationCanceledException or HttpRequestException or InvalidOperationException)
@@ -2026,6 +2250,10 @@ public partial class MainWindow : Window
         finally
         {
             EndCaptureActivity(activity);
+            if (_realtimeToolsInFlight > 0)
+            {
+                _realtimeToolsInFlight--;
+            }
         }
     }
 
@@ -2063,16 +2291,6 @@ public partial class MainWindow : Window
         {
             StatusText.Text = "Realtime action result could not be returned; the local outcome remains visible.";
         }
-    }
-
-    private void AppendTranscript(string speaker, string text)
-    {
-        if (text.Length == 0)
-        {
-            return;
-        }
-        _transcript.Add(new TranscriptLine(speaker, text));
-        TranscriptScroll.ScrollToEnd();
     }
 
     private void AppendSourceLink(SourceLink source)
@@ -2113,54 +2331,6 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void ApplyRealtimeTranscript(RealtimeEvent value)
-    {
-        var update = _realtimeTranscript.Apply(value);
-        if (update is null)
-        {
-            return;
-        }
-        if (update.Text.Length == 0 && value.Kind is not
-            ("conversation.item.input_audio_transcription.completed" or
-             "response.output_audio_transcript.done" or "response.output_text.done"))
-        {
-            return;
-        }
-
-        var key = (update.ItemId, update.ContentIndex, update.Speaker);
-        if (_realtimeTranscriptRows.TryGetValue(key, out var index))
-        {
-            if (update.Text.Length == 0)
-            {
-                RemoveRealtimeTranscriptRow(key, index);
-            }
-            else
-            {
-                _transcript[index] = new TranscriptLine(update.Speaker, update.Text);
-            }
-        }
-        else if (update.Text.Length > 0)
-        {
-            _realtimeTranscriptRows.Add(key, _transcript.Count);
-            AppendTranscript(update.Speaker, update.Text);
-            return;
-        }
-        TranscriptScroll.ScrollToEnd();
-    }
-
-    private void RemoveRealtimeTranscriptRow((string ItemId, int ContentIndex, string Speaker) key, int index)
-    {
-        _transcript.RemoveAt(index);
-        _realtimeTranscriptRows.Remove(key);
-        foreach (var laterKey in _realtimeTranscriptRows.Keys.ToArray())
-        {
-            if (_realtimeTranscriptRows[laterKey] > index)
-            {
-                _realtimeTranscriptRows[laterKey]--;
-            }
-        }
-    }
-
     private void ClearAnnotations()
     {
         foreach (var annotation in _annotationWindows.ToArray())
@@ -2191,38 +2361,23 @@ public partial class MainWindow : Window
         return handles;
     }
 
-    private static bool LooksLikeResearch(string text)
-    {
-        return text.StartsWith("find ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("search ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("research ", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool LooksLikeExplicitTask(string text)
-    {
-        return text.StartsWith("task ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("please open ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("open ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("please create ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("create ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("type ", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("click ", StringComparison.OrdinalIgnoreCase);
-    }
-
     private static string SanitizedError(Exception ex, string fallback)
     {
         return ex switch
         {
             ResponseTimeoutException timeout => timeout.Message,
             InvalidOperationException { Message: ResponseInterruptedMessage } => ResponseInterruptedMessage,
+            // Thrown by the provider clients when no key is saved; matched exactly per vendor, never shown raw.
+            InvalidOperationException { Message: var m } when AiProviders.ProviderOfMissingCredentialMessage(m) is { } p =>
+                $"No {AiProviders.DisplayName(p)} key yet. Add it in Settings, then try again.",
             OperationCanceledException => "Stopped safely.",
             UnauthorizedAccessException => "Access was denied. Check the selected target or permission.",
-            HttpRequestException => "Provider connection failed. Check network and protected setup.",
+            ProviderException provider => provider.Failure.UserMessage,
+            HttpRequestException http => ProviderFailureClassifier.FromException(http)?.UserMessage
+                                         ?? "Provider connection failed. Check network and protected setup.",
             _ => fallback
         };
     }
-
-    private sealed record TranscriptLine(string Speaker, string Text);
 
     private sealed class NativeWindowOwner : Forms.IWin32Window
     {
@@ -2233,6 +2388,19 @@ public partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeWindowRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out NativeWindowRect rect);
 
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;

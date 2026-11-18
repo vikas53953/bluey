@@ -1,7 +1,7 @@
 # Capture, target, and geometry build receipt
 
 Date: 2026-11-07  
-Worktree: `C:\Users\vikasmit\.codex\worktrees\boo-capture-geometry\blue--fo`  
+Worktree: `%USERPROFILE%\.codex\worktrees\boo-capture-geometry\blue--fo`  
 Base ref: `b2b515bf7023ac665a2c4f3d159452a6df5c0389`  
 SDK: `.dotnet/dotnet.exe`, pinned by `global.json` to .NET `10.0.403`
 

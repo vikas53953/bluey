@@ -16,8 +16,8 @@ Root's canonical Release solution build completed with zero warnings/errors.
 The Release tests passed 62 core cases and 22 integration cases; one explicit
 host-dependent reparse fixture remains skipped. Receipts:
 
-- `TestResults/vikasmit_VIKASMIT_2026-11-07_10_31_03_net10.0.trx`
-- `TestResults/vikasmit_VIKASMIT_2026-11-07_10_31_05_net10.0.trx`
+- `TestResults/<user>_<machine>_2026-11-07_10_31_03_net10.0.trx`
+- `TestResults/<user>_<machine>_2026-11-07_10_31_05_net10.0.trx`
 
 Oracle revision 3 verifies 23 files. The full native matrix, live app demos,
 accessibility, real microphone/speaker behavior, performance distributions,

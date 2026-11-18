@@ -75,6 +75,52 @@ public static class ActionPolicy
         return new PermissionDecision(PermissionVerdict.Allowed, "The exact action has a matching approval.");
     }
 
+    /// <summary>
+    /// Screen actions that only make sense against something Boo observed. When a request carried no captured
+    /// frame, no control observation exists to bind them, so they must never reach the approval preview.
+    /// </summary>
+    public static bool RequiresScreenObservation(string actionName) =>
+        actionName is "click" or "type_text";
+
+    /// <summary>
+    /// Drops click and type_text proposals when <paramref name="controls"/> is null, keeping every other action
+    /// in its original order. A task that never needed the screen (files, search, URLs, apps) is unaffected.
+    /// </summary>
+    public static IReadOnlyList<ToolRequest> WithoutUnobservedScreenActions(
+        IReadOnlyList<ToolRequest> actions, ControlObservation? controls)
+    {
+        ArgumentNullException.ThrowIfNull(actions);
+        if (controls is not null || actions.Count == 0)
+        {
+            return actions;
+        }
+
+        return actions.Where(action => !RequiresScreenObservation(action.Name)).ToArray();
+    }
+
+    /// <summary>The voice function-call result when a task proposed only screen actions and no observation backed them.</summary>
+    public const string UnobservedScreenActionRefusal =
+        "Boo proposed a screen action, but no screen observation backs it, so nothing was offered. Explain without taking an action.";
+
+    /// <summary>
+    /// The function-call result a voice task returns as soon as its reply is rendered: null while an action is
+    /// offered (the result then follows approval, cancel or stop), <see cref="UnobservedScreenActionRefusal"/> when the
+    /// task proposed actions but <see cref="WithoutUnobservedScreenActions"/> left nothing to offer, otherwise the
+    /// reply text. Deciding on the offered action rather than on the proposed list is what keeps a filtered-out
+    /// reply from waiting forever for an approval that no control can give.
+    /// </summary>
+    public static string? RealtimeToolResult(ToolRequest? offeredAction, IReadOnlyList<ToolRequest> proposedActions, string replyText, bool explicitTask)
+    {
+        ArgumentNullException.ThrowIfNull(proposedActions);
+        ArgumentNullException.ThrowIfNull(replyText);
+        if (offeredAction is not null)
+        {
+            return null;
+        }
+
+        return explicitTask && proposedActions.Count > 0 ? UnobservedScreenActionRefusal : replyText;
+    }
+
     public static ApprovalTicket Approve(ToolRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -83,16 +129,28 @@ public static class ActionPolicy
 
     internal static bool IsSafeHttpUrl(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsControl) ||
+        if (string.IsNullOrWhiteSpace(value) || value.Any(IsUnsafeUrlCharacter) ||
             !Uri.TryCreate(value, UriKind.Absolute, out var uri))
         {
             return false;
         }
 
+        // "https://bank.example@evil.test" shows a trusted name on the approval
+        // card but opens a different host, so user-info URLs are never offered.
         return (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
                 uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) &&
-            !string.IsNullOrWhiteSpace(uri.Host);
+            !string.IsNullOrWhiteSpace(uri.Host) &&
+            string.IsNullOrEmpty(uri.UserInfo);
     }
+
+    /// <summary>
+    /// Control characters, every Unicode whitespace (U+2028 line separator, U+00A0, ...) and invisible format
+    /// characters (U+200B zero width space, U+FEFF, bidi overrides; the shared <see cref="InvisibleCharacters"/> policy)
+    /// are never part of a URL Boo offers to open:
+    /// Uri accepts some of them, and each can make the approval card show a different address than it opens.
+    /// </summary>
+    internal static bool IsUnsafeUrlCharacter(char character) =>
+        char.IsWhiteSpace(character) || char.IsSurrogate(character) || InvisibleCharacters.IsHidden(character);
 
     internal static string ComputeDigest(ToolRequest request)
     {
@@ -130,6 +188,24 @@ public static class ActionPolicy
 
 public static class ScopedFiles
 {
+    // Characters Windows does not allow in a file or folder name (':' is refused earlier with its own message).
+    private static readonly char[] WindowsForbiddenNameCharacters =
+        [.. Enumerable.Range(0, 32).Select(code => (char)code), '"', '<', '>', '|', '*', '?'];
+
+    // DOS device names. Windows maps them to a device in any folder and with any extension.
+    private static readonly HashSet<string> WindowsDeviceNames = new(
+        new[] { "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$" }
+            .Concat(new[] { "COM", "LPT" }.SelectMany(port =>
+                "0123456789¹²³".Select(digit => port + digit))),
+        StringComparer.OrdinalIgnoreCase);
+
+    private static bool IsWindowsDeviceName(string segment)
+    {
+        var dot = segment.IndexOf('.', StringComparison.Ordinal);
+        var stem = (dot >= 0 ? segment[..dot] : segment).TrimEnd(' ');
+        return WindowsDeviceNames.Contains(stem);
+    }
+
     public static string Resolve(string root, string relativePath)
     {
         if (string.IsNullOrWhiteSpace(root))
@@ -153,6 +229,28 @@ public static class ScopedFiles
             throw new ArgumentException("Traversal and empty file paths are not allowed.", nameof(relativePath));
         }
 
+        // Windows rewrites some names when it opens them, so the file it opens would not be the one
+        // the approval card names: trailing dots and spaces are dropped ("notes." opens "notes"),
+        // DOS device names open a device ("nul.txt"), and wildcards and control characters are not
+        // file names at all. Refuse every such segment, whatever platform the check runs on.
+        foreach (var segment in segments)
+        {
+            if (segment.EndsWith('.') || segment.EndsWith(' '))
+            {
+                throw new ArgumentException("A file or folder name may not end with a dot or a space; Windows would open a different name.", nameof(relativePath));
+            }
+
+            if (segment.IndexOfAny(WindowsForbiddenNameCharacters) >= 0)
+            {
+                throw new ArgumentException("The file path contains a character Windows does not allow in a name.", nameof(relativePath));
+            }
+
+            if (IsWindowsDeviceName(segment))
+            {
+                throw new ArgumentException("The file path names a Windows device, not a file.", nameof(relativePath));
+            }
+        }
+
         var rootFull = Path.GetFullPath(root);
         if (!Directory.Exists(rootFull))
         {
@@ -170,6 +268,23 @@ public static class ScopedFiles
         if (!candidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
         {
             throw new UnauthorizedAccessException("The file path escapes the selected root.");
+        }
+
+        // Windows path normalisation drops trailing dots and spaces from a
+        // segment, so "..." or "sub\..." collapse to the root (or to a parent
+        // of the requested name) even though no segment was "." or "..".
+        // A scoped path must name something inside the root, never the root.
+        if (candidate.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Length < rootPrefix.Length)
+        {
+            throw new ArgumentException("The file path resolves to the selected root itself.", nameof(relativePath));
+        }
+
+        // Backstop for the whole class: after normalisation the path must name exactly the
+        // requested segments. Any other rewrite the checks above missed is refused here.
+        var requested = rootPrefix + string.Join(Path.DirectorySeparatorChar, segments);
+        if (!string.Equals(candidate, requested, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("The file path would open a different name than the one requested.", nameof(relativePath));
         }
 
         // Walk every existing component.  This catches directory junctions,

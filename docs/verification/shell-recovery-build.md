@@ -1,7 +1,7 @@
 # Shell failure recovery builder receipt
 
 Date: 2026-11-07  
-Worktree: `C:\Users\vikasmit\.codex\worktrees\boo-shell-recovery-build\blue--fo`  
+Worktree: `%USERPROFILE%\.codex\worktrees\boo-shell-recovery-build\blue--fo`  
 Base: `e7047727fbdd59c854b375792797559a213db3cd`
 
 ## Scope delivered

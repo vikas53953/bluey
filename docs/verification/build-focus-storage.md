@@ -2,7 +2,7 @@
 
 ## Scope
 
-Builder worktree: `C:\Users\vikasmit\.codex\worktrees\boo-focus-storage\blue--fo`
+Builder worktree: `%USERPROFILE%\.codex\worktrees\boo-focus-storage\blue--fo`
 
 Base revision: `b2b515b` (detached managed worktree). The implementation is
 limited to `src/Boo.Core/FocusSession.cs`, `src/Boo.Storage/SessionStore.cs`,
@@ -25,7 +25,7 @@ post-implementation run is the authoritative storage result below.
 
 ## GREEN evidence
 
-The wrapper used the canonical SDK `C:\Users\vikasmit\Downloads\blue--fo\.dotnet\dotnet.exe`.
+The wrapper used the canonical SDK `%USERPROFILE%\Downloads\blue--fo\.dotnet\dotnet.exe`.
 
 ```text
 python scripts/test_oracle.py

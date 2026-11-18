@@ -1,0 +1,28 @@
+{
+  "bypass": "a NuGet MSBuild SDK (<Sdk Name=... Version=...>) adds build code at evaluation (PR #32 bypass)",
+  "builds": [
+    {
+      "label": "build",
+      "args": [
+        "build",
+        "App/App.csproj",
+        "-c",
+        "Release"
+      ]
+    }
+  ],
+  "projects": [
+    "App/App.csproj"
+  ],
+  "visible": [
+    {
+      "label": "build",
+      "project": "App/App.csproj",
+      "field": "imports",
+      "contains": "<nuget>/microsoft.build.artifacts/6.1.63/"
+    }
+  ],
+  "check": {
+    "result": "report"
+  }
+}

@@ -30,15 +30,15 @@ Root verification after integration:
 - `ActionPreviewTests`: 1 passed in Debug; initial RED is retained in
   `action-preview-red.md`.
 - `CaptureDeadlineTests`: 1 passed in Release;
-  `TestResults/vikasmit_VIKASMIT_2026-11-07_11_36_52_net10.0.trx`.
+  `TestResults/<user>_<machine>_2026-11-07_11_36_52_net10.0.trx`.
 - `Boo.App` Release build: zero warnings and errors after removing an
   unsupported non-WPF accessibility property identified by the compiler.
 - Supplemental independent tests: 15 preview/resolver cases and nine capture
   lifecycle cases passed; both authors explicitly released ownership.
 - Oracle revision 7 freezes their two new files, preserving every prior hash.
 - Full Release suite: 118 passed, one unchanged host-dependent reparse fixture
-  skip. Results are `TestResults/vikasmit_VIKASMIT_2026-11-07_11_42_15_net10.0.trx`
-  and `TestResults/vikasmit_VIKASMIT_2026-11-07_11_42_17_net10.0.trx`.
+  skip. Results are `TestResults/<user>_<machine>_2026-11-07_11_42_15_net10.0.trx`
+  and `TestResults/<user>_<machine>_2026-11-07_11_42_17_net10.0.trx`.
 - Independent source review and a new exact packaged diagnostic check are
   pending at this checkpoint.
 

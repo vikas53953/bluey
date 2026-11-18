@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Performance budget tests for the published Boo.exe (FlaUI / UI Automation + BOO_PERF_DIAG counters).
+    Deliberately NOT in Boo.sln (like Boo.Ui.Tests): they need a real interactive Windows desktop and a
+    published app, so CI builds and runs them in their own step after "Publish app".
+    Point BOO_UI_EXE at the Boo.exe to test (default: <repo>/artifacts/ci/Boo.exe).
+    Results (perf-results.json / perf-results.md / diag.json / reveal.png) go to
+    <BOO_UI_ARTIFACTS>/perf (default: <test output>/perf-artifacts/perf).
+    Budgets come from budgets.json next to the test assembly, or the file named by BOO_PERF_BUDGETS.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
+    <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
+    <!-- FlaUI 4.0.0 pulls System.Drawing.Common 5.0.2 (GHSA-rxg9-xrhp-64gj, NU1904); pin a patched version. -->
+    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="budgets.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

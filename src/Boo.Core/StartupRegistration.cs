@@ -50,6 +50,29 @@ public static class StartupRegistration
         return "\"" + exePath + "\" " + BackgroundArgument;
     }
 
+    /// <summary>
+    /// Returns a plain reason when <paramref name="exePath"/> is a poor start-with-Windows target,
+    /// otherwise null. A copy run from the temp folder (for example Boo.exe opened straight from
+    /// inside the ZIP) disappears or can be replaced by anything else that writes to %TEMP%, so the
+    /// Run key must not point there.
+    /// </summary>
+    public static string? UnstableLocationReason(string exePath, string tempDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(exePath))
+            return "Boo could not find its own program file.";
+        if (!Path.IsPathFullyQualified(exePath))
+            return "Boo's program path is not a full path.";
+        if (string.IsNullOrWhiteSpace(tempDirectory))
+            return null;
+
+        var exe = Path.GetFullPath(exePath);
+        var temp = Path.GetFullPath(tempDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        return exe.StartsWith(temp, StringComparison.OrdinalIgnoreCase)
+            ? "Boo is running from a temporary folder (probably straight from the ZIP). Extract the ZIP to a folder first, then turn on Start with Windows."
+            : null;
+    }
+
     /// <summary>Computes the change needed given the current Run value (null when absent).</summary>
     public static StartupChange Plan(bool startWithWindows, string exePath, string? currentValue)
     {

@@ -26,7 +26,7 @@ Result: succeeded against the canonical pinned SDK/cache.
 
 Result: `Passed: 1, Failed: 0, Skipped: 0, Total: 1`.
 The test held backend cleanup after deadline cancellation and observed the
-Raw result: `TestResults/vikasmit_VIKASMIT_2026-11-07_11_31_55_net10.0.trx`.
+Raw result: `TestResults/<user>_<machine>_2026-11-07_11_31_55_net10.0.trx`.
 
 ```powershell
 ./scripts/build.ps1 -Action build -Configuration Release -NoRestore

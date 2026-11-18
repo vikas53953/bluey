@@ -13,3 +13,5 @@ artifacts/
 docs/preview/boo/state/
 *.user
 *.suo
+__pycache__/
+*.pyc

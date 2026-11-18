@@ -13,7 +13,7 @@ This is a bounded startup observation, not a typing or acceptance result.
   `artifacts/candidate11/Boo.exe` before replacement. Only that process was
   stopped. Candidate12 was launched with `ProcessStartInfo`, exact executable
   path, workspace working directory, `UseShellExecute=false`, and
-  `BOO_DATA_DIR=C:\Users\vikasmit\Downloads\blue--fo\artifacts\qa-profile-candidate1`.
+  `BOO_DATA_DIR=%USERPROFILE%\Downloads\blue--fo\artifacts\qa-profile-candidate1`.
   No `WindowStyle` override was supplied.
 - The synthetic fixture PID `16996` was freshly returned and activated. Its
   independent accessibility read was

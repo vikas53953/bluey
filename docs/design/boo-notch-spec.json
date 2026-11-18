@@ -184,6 +184,68 @@
           26
         ]
       }
+    },
+    "D": {
+      "name": "Living ink",
+      "sub": "ink-blot pocket, cream eyes (picked 2026-11-12)",
+      "shape": {
+        "bottomRadius": 0,
+        "shoulder": 0,
+        "grow": "sideways",
+        "centered": false
+      },
+      "eye": {
+        "kind": "ink",
+        "w": 32,
+        "h": 32,
+        "pupil": 14,
+        "glint": 9,
+        "gap": 16,
+        "gazeX": 6,
+        "gazeY": 5
+      },
+      "sizes": {
+        "hidden": [
+          156,
+          58
+        ],
+        "hover": [
+          156,
+          58
+        ],
+        "idle": [
+          156,
+          58
+        ],
+        "listening": [
+          200,
+          62
+        ],
+        "thinking": [
+          120,
+          68
+        ],
+        "responding": [
+          360,
+          142
+        ],
+        "capture": [
+          200,
+          58
+        ],
+        "nudge": [
+          360,
+          154
+        ],
+        "paused": [
+          124,
+          50
+        ],
+        "happy": [
+          150,
+          50
+        ]
+      }
     }
   },
   "hoverStrip": [
@@ -227,8 +289,8 @@
     "appOpenMs": 280
   },
   "chosen": {
-    "face": "B",
-    "shape": "HeyClicky pocket (10 px shoulders)",
+    "face": "D",
+    "shape": "Living ink blot (vector path, morphs between moods; see src/Boo.Core/LivingInk.cs)",
     "typeface": {
       "family": "Nunito",
       "weights": [
@@ -254,6 +316,6 @@
       "userToggle": "Settings > Sound, default on",
       "spec": "880 Hz then 1320 Hz sine, 90 ms each, 40 ms gap, gain 0.12"
     },
-    "decidedBy": "Face picked by Vikas 2026-11-08 16:08; typeface and chirp defaulted by design thread while Vikas away (he asked for no blocking questions)"
+    "decidedBy": "Living ink picked by Vikas 2026-11-12 (bluey-design-assets/living-ink/LIVING_INK_SPEC.md). Earlier: face B picked 2026-11-08 16:08; typeface and chirp defaulted by design thread"
   }
 }

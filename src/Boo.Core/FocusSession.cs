@@ -6,7 +6,7 @@ public sealed class FocusSession
     private const double MaximumDuration = 14_400;
     private readonly List<FocusCheck> _checks = new();
     private readonly Guid _id = Guid.NewGuid();
-    private readonly DateTimeOffset _startedAt = DateTimeOffset.UtcNow;
+    private readonly DateTimeOffset _startedAt;
     private string _task;
     private double _duration;
     private double _elapsed;
@@ -15,8 +15,9 @@ public sealed class FocusSession
     private bool _developerMode;
     private bool _usedDeveloperMode;
 
-    public FocusSession(string task, double duration = 1800, bool developerMode = false)
+    public FocusSession(string task, double duration = 1800, bool developerMode = false, TimeProvider? clock = null)
     {
+        _startedAt = (clock ?? TimeProvider.System).GetUtcNow();
         ArgumentNullException.ThrowIfNull(task);
         _task = task[..Math.Min(500, task.Length)];
         _duration = double.IsNaN(duration)

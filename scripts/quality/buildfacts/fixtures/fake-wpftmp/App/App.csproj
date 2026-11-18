@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The bypass: an ordinary project outside the solution, named like WPF's temporary markup project so a gate
+         that exempts any *_wpftmp.csproj lets its unjudged Extra.dll ship. -->
+    <ProjectReference Include="../Extra/Extra_wpftmp.csproj" />
+  </ItemGroup>
+</Project>

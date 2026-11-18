@@ -16,7 +16,13 @@ public sealed class ChirpPlayer
     private readonly ChirpPolicy _policy = new();
     private readonly Func<DateTimeOffset> _clock;
 
-    public ChirpPlayer(Func<DateTimeOffset>? clock = null) => _clock = clock ?? (() => DateTimeOffset.UtcNow);
+    public ChirpPlayer(Func<DateTimeOffset>? clock = null) => _clock = clock ?? TimeProvider.System.GetUtcNow;
+
+    public ChirpPlayer(TimeProvider clock)
+    {
+        ArgumentNullException.ThrowIfNull(clock);
+        _clock = clock.GetUtcNow;
+    }
 
     public bool PlayNudge(bool chirpsEnabled, bool microphoneListening) =>
         Play(ChirpKind.Nudge, chirpsEnabled, microphoneListening);

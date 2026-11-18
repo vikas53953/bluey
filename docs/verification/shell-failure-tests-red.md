@@ -38,7 +38,7 @@ passed. This is the required RED state for the known directory-path defect;
 the missing-parent and exclusive-lock behaviors already pass against this
 baseline.
 
-Raw TRX: `TestResults/vikasmit_VIKASMIT_2026-11-07_20_17_25_net10.0.trx`
+Raw TRX: `TestResults/<user>_<machine>_2026-11-07_20_17_25_net10.0.trx`
 
 Observed test outcomes in that TRX:
 
@@ -62,5 +62,5 @@ directory and is bound to the baseline SHA above. It must not be reused as
 post-repair evidence.
 
 Root reran the same Release filter in the canonical checkout before any repair:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_20_18_43_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_20_18_43_net10.0.trx`.
 It independently reproduced the same one failure and two passes, exit code 1.

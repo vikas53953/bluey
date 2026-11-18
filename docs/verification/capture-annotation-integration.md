@@ -6,9 +6,9 @@ oracle revision 11 (34 files). Root's Release suite passed 168 tests, with one
 unchanged host-dependent reparse-fixture skip:
 
 - Core: 91 passes, one skip,
-  `TestResults/vikasmit_VIKASMIT_2026-11-07_13_19_32_net10.0.trx`.
+  `TestResults/<user>_<machine>_2026-11-07_13_19_32_net10.0.trx`.
 - Integration: 77 passes,
-  `TestResults/vikasmit_VIKASMIT_2026-11-07_13_19_36_net10.0.trx`.
+  `TestResults/<user>_<machine>_2026-11-07_13_19_36_net10.0.trx`.
 
 Each typed request, realtime screen-help invocation, and focus check owns its
 capture activity. The indicator starts before native capture invocation,

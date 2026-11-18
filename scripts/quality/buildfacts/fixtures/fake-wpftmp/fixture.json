@@ -1,0 +1,48 @@
+{
+  "bypass": "an ordinary project outside the solution named *_wpftmp.csproj ships its unjudged assembly (PR #37 review)",
+  "builds": [
+    {
+      "label": "build",
+      "args": [
+        "build",
+        "Fix.slnx",
+        "-c",
+        "Release"
+      ]
+    },
+    {
+      "label": "publish",
+      "args": [
+        "publish",
+        "App/App.csproj",
+        "-c",
+        "Release",
+        "-o",
+        "out"
+      ]
+    }
+  ],
+  "projects": [
+    "App/App.csproj"
+  ],
+  "publishDir": "out",
+  "visible": [
+    {
+      "label": "build",
+      "project": "Extra/Extra_wpftmp.csproj",
+      "field": "csc.output.path",
+      "contains": "Extra/obj/"
+    },
+    {
+      "label": "publish",
+      "field": "copies.destination",
+      "contains": "out/Extra.dll"
+    }
+  ],
+  "check": {
+    "result": "fail",
+    "mustInclude": [
+      "Extra/Extra_wpftmp.csproj was compiled but is not a project of the solution"
+    ]
+  }
+}

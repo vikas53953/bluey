@@ -1,0 +1,106 @@
+name: perf-idle-diag
+
+# Issue #124 diagnostic, measures only: launches the published Boo.exe several times and records, once a second,
+# the CPU the perf budget test sees next to the probe's own split (user/kernel, JIT, probe writes, GC).
+# GitHub-hosted only, no secrets, no AI, nothing paid. Every attempt's artifact is kept (one per run attempt).
+on:
+  workflow_dispatch:
+    inputs:
+      launches:
+        description: Boo launches per job
+        default: '10'
+  pull_request:
+    paths:
+      - .github/workflows/perf-idle-diag.yml
+      - scripts/perf/**
+      - src/Boo.App/PerfDiagnostics.cs
+      - src/Boo.App/Boo.App.csproj
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # Diagnostic arms (environment for the measured Boo only, never a product setting):
+        # shipped = as published (TieredPGO off since #124); pgo-on = the earlier shipped setting, kept as the red
+        # comparison; tc-off = no background re-compilation at all (the floor: Boo's own idle cost).
+        include:
+          - arm: shipped
+            booenv: ''
+          - arm: pgo-on
+            booenv: 'DOTNET_TieredPGO=1'
+          - arm: tc-off
+            booenv: 'DOTNET_TieredCompilation=0'
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The key scan's own self-test needs PyYAML (pinned, hash-checked; same file windows-ci installs).
+      - name: CI Python packages
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --require-hashes --only-binary=:all: -r scripts/ci/requirements-ci.txt
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Publish Boo.exe (same command as windows-ci)
+        run: dotnet publish src/Boo.App/Boo.App.csproj -c Release -r win-x64 --self-contained true -o artifacts/ci
+
+      - name: Idle CPU samples
+        shell: pwsh
+        env:
+          LAUNCHES: ${{ github.event.inputs.launches || '10' }}
+          ARM_ENV: ${{ matrix.booenv }}
+        run: ./scripts/perf/idle_diag.ps1 -ExePath artifacts/ci/Boo.exe -OutDir artifacts/perf-diag -Launches ([int]$env:LAUNCHES) -BooEnv @($env:ARM_ENV)
+
+      # One command per step (Codex review BLOCK on 5a3922b): --strict failing must fail the job, never be hidden.
+      - name: Summary (--strict, every launch must be measurable)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          LAUNCHES: ${{ github.event.inputs.launches || '10' }}
+        run: python -I scripts/perf/idle_diag_summary.py artifacts/perf-diag --out artifacts/perf-diag/summary.md --strict --expect-launches $env:LAUNCHES
+
+      - name: Summary to the run page
+        if: ${{ !cancelled() && hashFiles('artifacts/perf-diag/summary.md') != '' }}
+        shell: pwsh
+        run: Get-Content artifacts/perf-diag/summary.md | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+
+      # BOO-SAFE-002 (docs/quality/RULES.md): scan exactly what the next step uploads. A file with a key-shaped string
+      # (or a real secret) is deleted and the job fails. The upload runs ONLY if this step reports safe=true
+      # (generated from scripts/quality/key_scan.py; --check-workflows rejects any edit).
+      - name: Key scan before upload (diagnostic samples)
+        id: keyscan_artifacts_perf_diag
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $rc = 98
+          try { python -I scripts/quality/key_scan.py --preflight --delete artifacts/perf-diag; $rc = $LASTEXITCODE } catch { $rc = 99 }
+          if ($rc -eq 0 -or $rc -eq 10) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'safe=true' }
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -ne 10) { Remove-Item -LiteralPath 'artifacts/perf-diag' -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rc -ne 10 -and (Test-Path -LiteralPath 'artifacts/perf-diag')) { '::error::BOO-SAFE-002 the upload path could not be emptied after a failed key scan' }
+          exit 1
+
+      - name: Upload diagnostic samples
+        if: ${{ !cancelled() && steps.keyscan_artifacts_perf_diag.outputs.safe == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 30
+          name: perf-idle-diag-${{ matrix.arm }}-attempt-${{ github.run_attempt }}
+          path: artifacts/perf-diag
+          if-no-files-found: error

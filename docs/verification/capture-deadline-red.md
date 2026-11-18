@@ -31,7 +31,7 @@ Failed: 1, Passed: 0, Skipped: 0, Total: 1
 ```
 
 The command exited with code `1`. Raw test results:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_11_24_42_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_11_24_42_net10.0.trx`.
 
 This is genuine RED evidence for the missing injected capture lifetime and
 deadline behavior. No production, existing-test, contract, or manifest files

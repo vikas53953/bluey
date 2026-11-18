@@ -27,7 +27,7 @@ Focused Release verification:
 ```
 
 Passed: 24, skipped: 0, failed: 0. TRX:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_14_09_09_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_14_09_09_net10.0.trx`.
 
 Core suite and oracle verification:
 
@@ -38,11 +38,11 @@ python scripts/test_oracle.py
 
 The full Core suite passed 115 tests with 1 environment-dependent skip and 0
 failures. TRX:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_14_09_21_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_14_09_21_net10.0.trx`.
 The oracle reported `ORACLE_VERIFIED revision 12 35 files`.
 
 Root integration used the builder's exact file bytes, then repeated the Core
 suite: 115 passed, 1 unchanged host-dependent skip, 0 failed. Canonical TRX:
-`TestResults/vikasmit_VIKASMIT_2026-11-07_14_11_03_net10.0.trx`.
+`TestResults/<user>_<machine>_2026-11-07_14_11_03_net10.0.trx`.
 Oracle revision 12 verified unchanged. Provider and native integration are
 separate work; this is not desktop acceptance.

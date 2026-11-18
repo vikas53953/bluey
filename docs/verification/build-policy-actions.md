@@ -1,6 +1,6 @@
 # Boo policy/actions builder receipt
 
-Worktree: `C:\Users\vikasmit\.codex\worktrees\boo-policy-actions\blue--fo`
+Worktree: `%USERPROFILE%\.codex\worktrees\boo-policy-actions\blue--fo`
 at detached ref `b2b515b` (`b2b515bf7023ac665a2c4f3d159452a6df5c0389`).
 
 ## Changed files
