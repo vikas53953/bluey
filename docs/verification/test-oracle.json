@@ -1,5 +1,5 @@
 {
-  "revision": 43,
+  "revision": 48,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -16,6 +16,9 @@
     "tests/Boo.App.Tests/FocusAcknowledgmentOrderTests.cs": "2fc661d843c9bc2531fcb33cb524639521c64155e7953de9302ff1ba6a7b597e",
     "tests/Boo.App.Tests/IncidentalActionRenderTests.cs": "7c32c43bafa9872ced552bef27def444a4c63a0fa62808267db6e4444b004cb8",
     "tests/Boo.App.Tests/RenderAcknowledgmentTests.cs": "79b6af2ac9fbe64e1f728d69a7f8cf0d85364ce4222b342fdde75737074a8bc1",
+    "tests/Boo.App.Tests/SilentReplyLifecycleTests.cs": "3ff55e609ac9a81c4ef22362542aebda9abcde7dca727085a080a7c6f419cfdb",
+    "tests/Boo.App.Tests/SilentReplyStopTests.cs": "c7b93cccde8e2e8711bca89466eeddde4a105216eb525d68dfd8fef8cf043e51",
+    "tests/Boo.App.Tests/SilentReplyWiringTests.cs": "052856c41e85b7381f673f815be4724baf18785d0376ffa547f7c494ef958bc8",
     "tests/Boo.App.Tests/xunit.runner.json": "0687debec01ca65c8454c093d34e60f517cef6156c99c4d8bedc9417a19338d0",
     "tests/Boo.Architecture.Tests/ArchitectureRuleTests.cs": "50c7561b8c6ce94f879102b86c461ec200b4c53a0d8f3e792000213fb279f591",
     "tests/Boo.Architecture.Tests/Boo.Architecture.Tests.csproj": "8587ecb45245fa2141bed6746514e6097653c2751ffcd1a878b06ff2b5665029",
@@ -93,6 +96,8 @@
     "tests/Boo.Core.Tests/SettingsDefaultsTests.cs": "b867d27a146e068ef5364cd449f0b01903ee00c83ef40541190496e5162d8d8a",
     "tests/Boo.Core.Tests/SettingsRoundTripTests.cs": "d9ad8cb8dfa7aa99016997271a045de0af9e91faf7ea7e8597d713b675f25095",
     "tests/Boo.Core.Tests/ShortcutStatusTests.cs": "fe065ecb9bf3b10124516db983f741afe36b88dd9e770f07a6fb87fd538d8356",
+    "tests/Boo.Core.Tests/SilentReplyRecoveryEdgeTests.cs": "3efd013a843308b4f32cee459ebfdf70069273e1166ea790262674fcb9952559",
+    "tests/Boo.Core.Tests/SilentReplyRecoveryTests.cs": "96ce86489b63fb3f14150097dc575f69bf41f8126a2cd561931b45c07c0be01d",
     "tests/Boo.Core.Tests/StartupRegistrationTests.cs": "dcd5b440b8191dd0adfb49e700e5c53ca45a42aa8e5814d809de997e86ebf64a",
     "tests/Boo.Core.Tests/TestThreadPool.cs": "9aee9db37060b844fc341d9a202b11c064a61e95a17dbd6f94cf961ddbc4f52f",
     "tests/Boo.Core.Tests/TypeTextInvisibleCharacterTests.cs": "b97367e6b0abd1bffecf139b78c7852939d8bfb06a7da4929bfb66d7ec9ac8ab",
@@ -164,6 +169,8 @@
     "tests/Boo.Providers.Tests/ProviderTestKit.cs": "1cc496f2a7a3e94b9dca7c29e7640054c46d2994080e4c82c59340e383f9376f",
     "tests/Boo.Providers.Tests/ResponsesResultShapeTests.cs": "f9bd5f1477847d7bff7c9b514fa5986cfffd297d2a2fab2a37101b6a12edc898",
     "tests/Boo.Providers.Tests/SmokeTests.cs": "612081b6ffe0ec94ddad95aff43e5c33ab6e353039650a2360b9f0e54866f0b4",
+    "tests/Boo.Providers.Tests/SpeechClientBodyDeadlineTests.cs": "f67064d2675f65cce545e0df6a47b24d059d0247573273b0bc48dab9c61d54a8",
+    "tests/Boo.Providers.Tests/SpeechClientTests.cs": "2cf14827a6057fcca170f8e5ec1e86796bb5a727903667e7e4a91a9bd665bd18",
     "tests/Boo.Providers.Tests/StructuredReplyFuzzTests.cs": "611ba9f0013fe1587ba5ef762fec7d8c8d7ed4333d633409e07d1f7ce325b905",
     "tests/Boo.Ui.Tests/Boo.Ui.Tests.csproj": "1f2bc76c58ebe16aee50f459b595afe8ae2c3201f412eae3aa80bfa6beb96ada",
     "tests/Boo.Ui.Tests/BooAppFixture.cs": "a1014e3386411a12944425fc931b099ce824863622971c5e80d04b1db740fee1",
@@ -181,13 +188,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-42.json",
-  "previousManifestSha256": "76ac533dc4cff81f8483860177274027a3168ab8250cc03a6f2ffbd588b51989",
-  "revisionReason": "PR #182: IncidentalActionRenderTests (MainWindow shows the exact acknowledgment for a plain question's action, never for a task; mutations M03, M04)",
+  "previousManifest": "docs/verification/test-oracle-history/revision-47.json",
+  "previousManifestSha256": "89616c57b0ec0444024a9b8ece459ca05e317e46d9dac8239f0215ac28eea519",
+  "revisionReason": "PR #186 review P2: speech body deadline after headers (stalled and dripping body)",
   "addedFiles": [
-    "tests/Boo.App.Tests/IncidentalActionRenderTests.cs"
+    "tests/Boo.Providers.Tests/SpeechClientBodyDeadlineTests.cs"
   ],
-  "revisionCommit": "758ce6c31aac61365bf35af5dc3d3f3acddde183",
+  "revisionCommit": "3cf25ad60f38d2cbc0f6ad51ec221552dfd8ed0f",
   "changedFiles": [],
   "removedFiles": []
 }

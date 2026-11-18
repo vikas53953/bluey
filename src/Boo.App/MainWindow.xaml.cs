@@ -889,6 +889,7 @@ public partial class MainWindow : Window
     private void StopListening()
     {
         var hadVoiceSession = _listening || _realtimeConnected || _audioUploads is not null || _realtime is not null;
+        CancelPendingRecovery();
         DiscardPushToTalkUplink();
         StopAudioUploads();
         try
@@ -2068,6 +2069,7 @@ public partial class MainWindow : Window
                 }
                 ObserveTalkEvent(realtimeEvent);
                 ObserveSleepAfterReply(source, realtimeEvent);
+                ObserveReplyAudio(realtimeEvent);
                 switch (realtimeEvent.Kind)
                 {
                     case "input_audio_buffer.speech_started":
@@ -2102,14 +2104,7 @@ public partial class MainWindow : Window
                         SetFace(_faceInputs with { Thinking = false, Responding = true }, TimeSpan.FromSeconds(4), FaceMomentKind.Responding);
                         if (realtimeEvent.Audio is not null && SpeechMute.IsChecked != true)
                         {
-                            try
-                            {
-                                (_audio ??= CreateAudio()).Play(realtimeEvent.Audio);
-                            }
-                            catch (Exception ex) when (ex is InvalidOperationException)
-                            {
-                                StatusText.Text = SanitizedError(ex, "Spoken reply is unavailable; text remains visible.");
-                            }
+                            PlayReplyAudio(realtimeEvent.Audio);
                         }
                         break;
                     case "response.function_call_arguments.done":
@@ -2117,6 +2112,7 @@ public partial class MainWindow : Window
                         break;
                     case "response.done":
                         StatusText.Text = realtimeEvent.Text ?? "Reply complete. Text and spoken output share the same turn.";
+                        RecoverSilentReply(source, generation);
                         var remainingPlayback = TimeSpan.FromMilliseconds(
                             Interlocked.Read(ref _playbackUntilMs) - Environment.TickCount64);
                         SetFace(_faceInputs with { Thinking = _realtimeToolsInFlight > 0 },

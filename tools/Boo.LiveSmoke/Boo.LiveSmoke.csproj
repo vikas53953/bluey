@@ -35,6 +35,7 @@
     <None Include="Voice/answer-five-real-speech.wav" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Voice/answer-silent-from-provider.wav" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Voice/answer-silent-from-provider-177.wav" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Voice/answer-soft-five-177a.wav" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

@@ -13,6 +13,7 @@ public sealed class HostedVoiceAudio : IDisposable
     private readonly string _evidence;
     private readonly object _gate = new();
     private System.Threading.Timer? _capture, _playback;
+    private BufferedWaveProvider? _buffer;
     private long _inputBytes, _renderedBytes, _nonzeroBytes;
     private int _starts, _offset;
     private bool _disposed;
@@ -60,6 +61,7 @@ public sealed class HostedVoiceAudio : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            _buffer = buffer;
             _playback = new System.Threading.Timer(_ =>
             {
                 lock (_gate)
@@ -75,6 +77,11 @@ public sealed class HostedVoiceAudio : IDisposable
         }
     }
     public void StopCapture() { lock (_gate) { _capture?.Dispose(); _capture = null; } }
+    /// <summary>
+    /// Appends one receipt line: bytes captured, bytes consumed and how many were non-zero, PCM still queued in Boo's
+    /// playback buffer (bufferedBytes) and a monotonic clock (atMs), which is what a Stop proof needs (PR #186 review).
+    /// Dispose writes a final line, so what was still queued when Boo closed this device is on record.
+    /// </summary>
     private void Save()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_evidence))!);
@@ -82,6 +89,7 @@ public sealed class HostedVoiceAudio : IDisposable
         {
             inputBytes = _inputBytes, renderedBytes = _renderedBytes, nonzeroBytes = _nonzeroBytes,
             captureStarts = _starts, expectedInputBytes = _pcm.Length,
+            bufferedBytes = _buffer?.BufferedBytes ?? 0, atMs = Environment.TickCount64,
             output = "virtual BufferedWaveProvider consumer; physical speakers UNVERIFIED"
         }) + "\n");
     }
@@ -90,10 +98,11 @@ public sealed class HostedVoiceAudio : IDisposable
         lock (_gate)
         {
             if (_disposed) return;
-            _disposed = true;
             StopCapture();
             _playback?.Dispose();
             _playback = null;
+            Save();
+            _disposed = true;
         }
     }
 }

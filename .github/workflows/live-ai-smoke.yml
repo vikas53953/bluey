@@ -163,7 +163,8 @@ jobs:
           OPENAI_KEY: ${{ secrets.BOO_LIVE_OPENAI_KEY }}
           TEXT_PROVIDER: ${{ inputs.text_provider || 'openai' }}
         run: |
-          $models = @($env:BOO_LIVE_REALTIME_MODEL, $env:BOO_LIVE_TRANSCRIBE_MODEL)
+          # gpt-4o-mini-tts: the text-to-speech Boo uses to read a silent spoken reply aloud (#177, SpeechClient.DefaultModel).
+          $models = @($env:BOO_LIVE_REALTIME_MODEL, $env:BOO_LIVE_TRANSCRIBE_MODEL, 'gpt-4o-mini-tts')
           if ($env:TEXT_PROVIDER -eq 'openai' -and $env:BOO_LIVE_MODEL) { $models += $env:BOO_LIVE_MODEL }
           $headers = @{ Authorization = "Bearer $($env:OPENAI_KEY.Trim())" }
           $bad = 0

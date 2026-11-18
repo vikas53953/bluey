@@ -1,11 +1,16 @@
 namespace Boo.Core;
 
 /// <summary>Auditable, opt-in CI audio-device configuration. Host variables are policy signals, not attestation.</summary>
-public sealed record HostedVoiceOptions(string Input, string Evidence, string TranscriptionModel, bool ToolTurn = false)
+public sealed record HostedVoiceOptions(string Input, string Evidence, string TranscriptionModel, bool ToolTurn = false, bool SilentReply = false)
 {
     public const string InputVariable = "BOO_QA_VOICE_INPUT";
     /// <summary>Exactly "1" lets the bounded session spend one forced screen_help call plus its spoken follow-up (two responses) instead of one plain response.</summary>
     public const string ToolTurnVariable = "BOO_QA_VOICE_TOOL_TURN";
+    /// <summary>
+    /// Exactly "1" injects issue #177's provider fault: every reply audio chunk is replaced by digital silence of the same
+    /// length while the transcript stays as sent. It only removes a capability (sound), and only with the hosted QA devices.
+    /// </summary>
+    public const string SilentReplyVariable = "BOO_QA_VOICE_SILENT_REPLY";
     public static HostedVoiceOptions? FromEnvironment() => Read(RuntimeEnvironment.Read, OperatingSystem.IsWindows());
 
     public static HostedVoiceOptions? Read(Func<string, string?> read, bool windows)
@@ -18,6 +23,7 @@ public sealed record HostedVoiceOptions(string Input, string Evidence, string Tr
         if (string.IsNullOrWhiteSpace(evidence)) throw new InvalidOperationException("QA voice evidence path missing.");
         var model = read("BOO_QA_VOICE_TRANSCRIBE_MODEL") ?? "gpt-4o-mini-transcribe";
         if (!AiProviders.IsValidModelId(model)) throw new InvalidOperationException("Invalid QA transcription model.");
-        return new HostedVoiceOptions(input, evidence, model, ToolTurn: read(ToolTurnVariable) == "1");
+        return new HostedVoiceOptions(input, evidence, model, ToolTurn: read(ToolTurnVariable) == "1",
+            SilentReply: read(SilentReplyVariable) == "1");
     }
 }
