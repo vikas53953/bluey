@@ -3,14 +3,14 @@ title: Boo Batch 1 (MVP) test script, for Vikas on his own PC
 type: verification
 date: 2026-11-18
 status: DRAFT, not run
-covers: typing, voice, screen pointer, Stop (incl. #185 right-click "Stopped" and #186 silent-reply recovery, both merged)
+covers: typing, hold-to-talk voice, screen pointer, Stop (incl. #185 right-click "Stopped" and #186 silent-reply recovery, both merged)
 checked_against: lane/face 18fa787 (after #185 and #186 merged), 18 Nov 2026
 time: about 15 minutes
 ---
 
 # Boo Batch 1 test script
 
-Fourteen steps. Do each one, compare with **You should see**, tick PASS or FAIL. If a step fails, write one line about
+Thirteen steps. Do each one, compare with **You should see**, tick PASS or FAIL. If a step fails, write one line about
 what you saw and carry on. Every label and message below is copied from Boo's code on `lane/face` at 18fa787, which
 already includes #185 (every Stop shows "Stopped" on the notch) and #186 (Boo reads a silent voice answer aloud). Use a
 test build made from that commit or later.
@@ -33,13 +33,12 @@ test build made from that commit or later.
 | 5 | **Typing.** Press **Ctrl+Alt+B**. In **Ask Boo** type `What is the capital of France?` and press **Send** (or Ctrl+Enter). | A real answer appears in **Conversation** within a few seconds, and it says **Paris**. | ☐ PASS ☐ FAIL |
 | 6 | **Voice, hold to talk.** **Hold Ctrl+Alt+Space**, say "What is two plus three?", then let go. | While you hold: **"Listening… release to send."** under Talk, and the notch widens with listening bars. After you let go you **hear** one spoken answer that says **five**, and the same text appears in **Conversation**. | ☐ PASS ☐ FAIL |
 | 7 | Tap Ctrl+Alt+Space very quickly (a fifth of a second). | Nothing is sent, no answer. Under Talk: **"Hold to talk"**. | ☐ PASS ☐ FAIL |
-| 8 | **Voice, Talk button.** Press **Talk**. Say "I'm planning a firewall change window", wait for the answer, then say "What should I check first?". Then press **Stop talk**. | After Talk: the button reads **Stop talk** and the line under it says **"Listening… press Stop talk or the global Stop to interrupt."** The second answer follows on from the first (it remembers). After Stop talk: the button reads **Talk** and the line says **"Microphone idle. Activate Talk when you want to speak."** | ☐ PASS ☐ FAIL |
-| 9 | **If Boo's voice goes quiet** (watch for this during steps 6, 8, 12 and 13; you cannot cause it on purpose): the answer text shows but you hear nothing. | Within a few seconds Boo **reads the answer aloud** itself. While it reads, the status line says **"OpenAI's voice reply came back silent, so Boo is reading the answer aloud."**; afterwards it says **"OpenAI's voice reply came back silent; Boo read the answer aloud."** FAIL if you hear nothing and the status line says **"Spoken reply is unavailable; text remains visible."** If it never happened, tick **not seen**. | ☐ PASS ☐ FAIL ☐ not seen |
-| 10 | **Pointer.** Open a web page with a search box on the chosen screen. Press **Ctrl+Alt+B**, type `Explain this page and point at the search box`, press **Send**, then straight away close Boo's window with **×** and click once on the web page's title bar. Wait. | A **blue pointer** flies to the search box, then a **peach-coloured ring** is drawn around it. The pointer tip is on the box, not off to one side. Re-open Boo (Ctrl+Alt+B): the status line says **"Screen explanation is shown. Marks are click-through and tied to this observation."** | ☐ PASS ☐ FAIL |
-| 11 | Do step 10 again, and while the ring is showing, **scroll** the page. | Pointer and ring disappear at once. | ☐ PASS ☐ FAIL |
-| 12 | **Stop by keyboard.** Hold Ctrl+Alt+Space, say "Tell me a short story", let go. While Boo is speaking press **Ctrl+Alt+F12**. | Speech stops at once. The notch shows **"Stopped"** for about 1.6 seconds. In Boo's window, under Talk: **"Microphone stopped. Screen activity is shown in the sharing indicator."** | ☐ PASS ☐ FAIL |
-| 13 | **Stop by right-click on the notch** (new in this batch, #185). Ask for another story the same way. While Boo is speaking, move the mouse to the top centre so the notch shows, and **right-click** it. | No menu opens. Speech stops at once and the notch shows **"Stopped"** for about 1.6 seconds, the same as step 12. | ☐ PASS ☐ FAIL |
-| 14 | **Stop from the tray and the window.** Ask for another story. While Boo speaks, right-click the tray icon and choose **Stop (Ctrl+Alt+F12)**. Then ask once more, open Boo's window and press its **Stop** button (top right). | Both times: speech stops at once and the notch shows **"Stopped"**. The tray menu lists **Show Boo (Ctrl+Alt+B)**, **Stop (Ctrl+Alt+F12)**, **Settings**, **Quit**. | ☐ PASS ☐ FAIL |
+| 8 | **If Boo's voice goes quiet** (watch for this during steps 6, 11 and 12; you cannot cause it on purpose): the answer text shows but you hear nothing. | Within a few seconds Boo **reads the answer aloud** itself. While it reads, the status line says **"OpenAI's voice reply came back silent, so Boo is reading the answer aloud."**; afterwards it says **"OpenAI's voice reply came back silent; Boo read the answer aloud."** FAIL if you hear nothing and the status line says **"Spoken reply is unavailable; text remains visible."** If it never happened, tick **not seen**. | ☐ PASS ☐ FAIL ☐ not seen |
+| 9 | **Pointer.** Open a web page with a search box on the chosen screen. Press **Ctrl+Alt+B**, type `Explain this page and point at the search box`, press **Send**, then straight away close Boo's window with **×** and click once on the web page's title bar. Wait. | A **blue pointer** flies to the search box, then a **peach-coloured ring** is drawn around it. The pointer tip is on the box, not off to one side. Re-open Boo (Ctrl+Alt+B): the status line says **"Screen explanation is shown. Marks are click-through and tied to this observation."** | ☐ PASS ☐ FAIL |
+| 10 | Do step 9 again, and while the ring is showing, **scroll** the page. | Pointer and ring disappear at once. | ☐ PASS ☐ FAIL |
+| 11 | **Stop by keyboard.** Hold Ctrl+Alt+Space, say "Tell me a short story", let go. While Boo is speaking press **Ctrl+Alt+F12**. | Speech stops at once. The notch shows **"Stopped"** for about 1.6 seconds. In Boo's window, under Talk: **"Microphone stopped. Screen activity is shown in the sharing indicator."** | ☐ PASS ☐ FAIL |
+| 12 | **Stop by right-click on the notch** (new in this batch, #185). Ask for another story the same way. While Boo is speaking, move the mouse to the top centre so the notch shows, and **right-click** it. | No menu opens. Speech stops at once and the notch shows **"Stopped"** for about 1.6 seconds, the same as step 11. | ☐ PASS ☐ FAIL |
+| 13 | **Stop from the tray and the window.** Ask for another story. While Boo speaks, right-click the tray icon and choose **Stop (Ctrl+Alt+F12)**. Then ask once more, open Boo's window and press its **Stop** button (top right). | Both times: speech stops at once and the notch shows **"Stopped"**. The tray menu lists **Show Boo (Ctrl+Alt+B)**, **Stop (Ctrl+Alt+F12)**, **Settings**, **Quit**. | ☐ PASS ☐ FAIL |
 
 If a shortcut is taken by another app, the notch shows **"Shortcut busy: use tray"** and the tray menu label loses its
 shortcut; use the tray **Stop** instead and note it.
@@ -49,7 +48,7 @@ shortcut; use the tray **Stop** instead and note it.
 ```
 Build: ______   Windows: ______   Display scaling: ____%
 Steps failed (number + one line each):
-Step 9 (silent voice): seen / not seen
+Step 8 (silent voice): seen / not seen
 Overall: BATCH 1 OK / NOT YET
 ```
 
