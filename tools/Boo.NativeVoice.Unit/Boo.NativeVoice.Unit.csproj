@@ -9,6 +9,7 @@
     <Compile Include="../../src/Boo.Windows/AudioSession.cs" Link="AudioSession.cs" />
     <Compile Include="../../src/Boo.Windows/HostedVoiceAudio.cs" Link="HostedVoiceAudio.cs" />
     <Compile Include="../Boo.NativeVoice/VoiceTurnOutcome.cs" Link="VoiceTurnOutcome.cs" />
+    <Compile Include="../Boo.NativeVoice/RecoveredStopCheck.cs" Link="RecoveredStopCheck.cs" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

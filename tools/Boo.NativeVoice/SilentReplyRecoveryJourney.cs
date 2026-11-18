@@ -37,17 +37,16 @@ public sealed class SilentReplyVoiceFixture : BooAppFixture
 /// 1. The realtime reply plays as silence: no non-zero byte reaches the virtual output before Boo's recovery status.
 /// 2. Boo recovers: the status says the reply came back silent and Boo is reading it aloud, and real OpenAI
 ///    text-to-speech is consumed by the virtual output device (non-zero bytes grow).
-/// 3. Ctrl+Alt+F12 inside the first half second of that audible recovered speech stops it at once: at most 0.2 s more
-///    of it is consumed afterwards, and the panel says the microphone stopped.
+/// 3. Ctrl+Alt+F12 within 0.5 s of the recovered speech becoming audible, while at least 0.5 s of it is still queued in
+///    Boo's playback buffer (a Stop after the speech ended fails as TEST SETUP), drops it at once: a fresh receipt shows
+///    the queue empty and at most 0.2 s more consumed (RecoveredStopCheck, PCM bytes and a monotonic clock), and the panel
+///    says the microphone stopped.
 /// The output is Boo's hosted virtual device (HostedVoiceAudio): it reads Boo's real playback buffer at real-time pace.
 /// Physical speakers stay UNVERIFIED.
 /// </summary>
 public sealed class SilentReplyRecoveryJourney : IClassFixture<SilentReplyVoiceFixture>
 {
     private const string SilentStatusPrefix = "OpenAI's voice reply came back silent";
-    private const int BytesPerSecond = 48000;           // 24 kHz, 16-bit, mono
-    private const long StopWithin = BytesPerSecond / 2;  // Stop is pressed inside the first 0.5 s of audible recovered speech
-    private const long PlayedAfterStopLimit = BytesPerSecond / 5; // at most 0.2 s more after Stop
 
     private readonly SilentReplyVoiceFixture _boo;
     public SilentReplyRecoveryJourney(SilentReplyVoiceFixture boo) => _boo = boo;
@@ -68,26 +67,30 @@ public sealed class SilentReplyRecoveryJourney : IClassFixture<SilentReplyVoiceF
             var audible = Poll(() =>
             {
                 Observe(panel, statuses);
-                var (_, nonzero) = Device();
+                var nonzero = Nonzero();
                 if (nonzeroAtRecoveryStatus < 0 && statuses.LastOrDefault()?.StartsWith(SilentStatusPrefix, StringComparison.Ordinal) == true)
                     nonzeroAtRecoveryStatus = nonzero;
                 return nonzeroAtRecoveryStatus >= 0 && nonzero > nonzeroAtRecoveryStatus;
             }, TimeSpan.FromSeconds(60));
-            var (renderedAtAudible, nonzeroAtAudible) = Device();
-            log.AppendLine($"recoveryStatusSeen={nonzeroAtRecoveryStatus >= 0} nonzeroAtRecoveryStatus={nonzeroAtRecoveryStatus} audible={audible} renderedAtAudible={renderedAtAudible} nonzeroAtAudible={nonzeroAtAudible}");
+            var audibleAt = System.Diagnostics.Stopwatch.StartNew();
+            log.AppendLine($"recoveryStatusSeen={nonzeroAtRecoveryStatus >= 0} nonzeroAtRecoveryStatus={nonzeroAtRecoveryStatus} audible={audible} atAudible: {Receipt()}");
             Assert.True(nonzeroAtRecoveryStatus >= 0, $"Boo never said the reply came back silent (no recovery). Statuses: {string.Join(" > ", statuses)}");
             Assert.Equal(0, nonzeroAtRecoveryStatus); // the realtime reply itself played as pure silence
             Assert.True(audible, "Boo said it was reading the answer aloud, but no recovered speech reached the output device.");
 
-            // 3: Stop during the recovered speech.
+            // 3: Stop while recovered speech is still queued (receipt read right before the key press; fails closed when the
+            // speech already ended), then a fresh receipt must show the queue dropped. PCM bytes and the monotonic clock only.
+            var beforeStop = Receipt();
+            var msToStop = audibleAt.ElapsedMilliseconds;
             Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.ALT, VirtualKeyShort.F12);
-            var (_, nonzeroAtStop) = Device();
             Thread.Sleep(1500);
-            var (renderedAfter, nonzeroAfter) = Device();
+            var afterStop = Receipt();
             Observe(panel, statuses);
             var listening = BooAppFixture.SafeName(panel.FindFirstDescendant(cf => cf.ByAutomationId("ListeningStatus"))!);
             var rows = Rows(panel);
-            log.AppendLine($"nonzeroAtStop={nonzeroAtStop} nonzeroAfter1.5s={nonzeroAfter} renderedAfter={renderedAfter} playedAfterStop={nonzeroAfter - nonzeroAtStop}");
+            log.AppendLine($"msFromAudibleToStop={msToStop}");
+            log.AppendLine($"beforeStop: {beforeStop}");
+            log.AppendLine($"afterStop (1.5 s later): {afterStop}");
             log.AppendLine($"listening='{listening}'");
             log.AppendLine($"rows={string.Join(" | ", rows)}");
             log.AppendLine($"statuses={string.Join(" > ", statuses)}");
@@ -96,10 +99,9 @@ public sealed class SilentReplyRecoveryJourney : IClassFixture<SilentReplyVoiceF
             _boo.WriteObservation("silent-reply-recovery", log.ToString());
 
             Assert.Contains(rows, s => s.StartsWith("Boo: ", StringComparison.Ordinal) && Regex.IsMatch(s, @"\b(five|5)\b", RegexOptions.IgnoreCase));
-            Assert.True(nonzeroAtStop - nonzeroAtRecoveryStatus <= StopWithin,
-                $"TEST SETUP: Stop was pressed too late ({nonzeroAtStop} non-zero bytes into the recovered speech), so it would not prove anything.");
-            Assert.True(nonzeroAfter - nonzeroAtStop <= PlayedAfterStopLimit,
-                $"Recovered speech kept playing after Ctrl+Alt+F12: {nonzeroAfter - nonzeroAtStop} more non-zero bytes in 1.5 s.");
+            Assert.True(msToStop <= 500, $"TEST SETUP: Stop was pressed {msToStop} ms after the recovered speech became audible (limit 500 ms).");
+            Assert.Null(RecoveredStopCheck.PreconditionFailure(beforeStop));
+            Assert.Null(RecoveredStopCheck.InterruptionFailure(beforeStop!, afterStop));
             Assert.StartsWith("Microphone stopped.", listening, StringComparison.Ordinal);
         }
         catch (Exception ex)
@@ -160,12 +162,9 @@ public sealed class SilentReplyRecoveryJourney : IClassFixture<SilentReplyVoiceF
         if (statuses.Count == 0 || statuses[^1] != s) statuses.Add(s);
     }
 
-    private static (long Rendered, long Nonzero) Device()
-    {
-        using var doc = Last();
-        return doc is null ? (0, 0)
-            : (doc.RootElement.GetProperty("renderedBytes").GetInt64(), doc.RootElement.GetProperty("nonzeroBytes").GetInt64());
-    }
+    private static PlaybackReceipt? Receipt() => PlaybackReceipt.ReadLast(Environment.GetEnvironmentVariable("BOO_QA_VOICE_EVIDENCE")!);
+
+    private static long Nonzero() => Receipt()?.NonzeroBytes ?? 0;
 
     /// <summary>The last complete line of this fixture's device receipt (read from the end; the file grows every 20 ms).</summary>
     private static JsonDocument? Last()
