@@ -23,6 +23,15 @@
         <SolidColorBrush x:Key="BooInput" Color="#29292D" />
         <SolidColorBrush x:Key="BooNotchBody" Color="#000000" />
         <SolidColorBrush x:Key="BooNotchEyes" Color="#FFFFFF" />
+        <!-- Hanging panel (round 3): the sheet, its cards, the view pill and the chat bubbles. High Contrast remaps
+             them in App.xaml.cs (ApplyThemeResources) like the brushes above. -->
+        <SolidColorBrush x:Key="BooSheet" Color="#141416" />
+        <SolidColorBrush x:Key="BooCard" Color="#242428" />
+        <SolidColorBrush x:Key="BooCardBorder" Color="#2C2C31" />
+        <SolidColorBrush x:Key="BooPill" Color="#222226" />
+        <SolidColorBrush x:Key="BooBubbleYou" Color="#F7F4EE" />
+        <SolidColorBrush x:Key="BooBubbleYouText" Color="#0C0A09" />
+        <SolidColorBrush x:Key="BooBubbleYouMuted" Color="#7A746C" />
         <!-- Keyboard focus ring (WCAG 2.4.7/2.4.11): a 2 px accent outline, drawn only for keyboard focus.
              BooAccent maps to SystemColors.Highlight under High Contrast, so the ring follows the user's theme. -->
         <Style x:Key="BooFocusVisual">
@@ -125,6 +134,107 @@
                     <Setter Property="BorderBrush" Value="{DynamicResource BooAccent}" />
                 </Trigger>
             </Style.Triggers>
+        </Style>
+        <!-- Panel chrome (round 3). Tab buttons: 28 px round icon buttons in the view pill and the top-right corner;
+             the active view's button is filled (MainWindow.Panel.cs sets Tag="Active"). -->
+        <Style x:Key="BooTabButton" TargetType="{x:Type Button}">
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="True" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource BooFocusVisual}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="11">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource BooPanelRaised}" />
+                </Trigger>
+                <Trigger Property="Tag" Value="Active">
+                    <Setter Property="Background" Value="{DynamicResource BooBorder}" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.45" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <!-- The one filled (cream) button per view: Talk, Start now, Approve, Save settings. -->
+        <Style x:Key="BooPrimaryButton" TargetType="{x:Type Button}" BasedOn="{StaticResource BooButton}">
+            <Setter Property="Background" Value="{DynamicResource BooBubbleYou}" />
+            <Setter Property="Foreground" Value="{DynamicResource BooBubbleYouText}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BooBubbleYou}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource BooText}" />
+                </Trigger>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="{DynamicResource BooAccent}" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.45" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <!-- Settings sidebar entries. -->
+        <Style x:Key="BooNavButton" TargetType="{x:Type Button}">
+            <Setter Property="Foreground" Value="{DynamicResource BooText}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="FontFamily" Value="{StaticResource BooFont}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="Margin" Value="0,0,0,2" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource BooFocusVisual}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="9" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center" RecognizesAccessKey="True" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource BooPanelRaised}" />
+                </Trigger>
+                <Trigger Property="Tag" Value="Active">
+                    <Setter Property="Background" Value="{DynamicResource BooPanelRaised}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <!-- Settings group label (small, bold; the UIA name is the text itself) and the rounded card under it. -->
+        <Style x:Key="BooGroupLabel" TargetType="{x:Type TextBlock}">
+            <Setter Property="Foreground" Value="{DynamicResource BooMuted}" />
+            <Setter Property="FontFamily" Value="{StaticResource BooFont}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Margin" Value="2,6,0,4" />
+        </Style>
+        <Style x:Key="BooGroupCard" TargetType="{x:Type Border}">
+            <Setter Property="Background" Value="{DynamicResource BooCard}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BooCardBorder}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+        <Style x:Key="BooFieldLabel" TargetType="{x:Type TextBlock}">
+            <Setter Property="Foreground" Value="{DynamicResource BooMuted}" />
+            <Setter Property="FontFamily" Value="{StaticResource BooFont}" />
+            <Setter Property="FontSize" Value="11" />
         </Style>
         <Style x:Key="BooLabel" TargetType="{x:Type TextBlock}">
             <Setter Property="Foreground" Value="{DynamicResource BooText}" />

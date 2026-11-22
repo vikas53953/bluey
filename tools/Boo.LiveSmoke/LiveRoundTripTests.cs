@@ -132,7 +132,7 @@ public sealed class LiveRoundTripTests : IClassFixture<LiveAppFixture>
         text is null ? "<none>" : text.Length <= max ? text : text[..max] + "...";
 
     private static AutomationElement? TryFind(Window panel, string automationId) =>
-        panel.FindFirstDescendant(cf => cf.ByAutomationId(automationId));
+        PanelViews.FindInView(panel, automationId);
 
     private AutomationElement Find(Window panel, string automationId) =>
         _boo.WaitFor(() => TryFind(panel, automationId), UiTimeout, $"element '{automationId}'");

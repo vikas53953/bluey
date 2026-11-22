@@ -39,6 +39,7 @@ public partial class MainWindow
     private void RenderSources(AssistantReply reply, bool research)
     {
         SourceLinksList.Children.Clear();
+        SourcesLabel.Visibility = Visibility.Collapsed;
         IReadOnlyList<SourceLink> sources = reply.Sources;
         if (research)
         {

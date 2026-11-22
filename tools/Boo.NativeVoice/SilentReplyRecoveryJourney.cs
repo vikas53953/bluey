@@ -86,7 +86,7 @@ public sealed class SilentReplyRecoveryJourney : IClassFixture<SilentReplyVoiceF
             Thread.Sleep(1500);
             var afterStop = Receipt();
             Observe(panel, statuses);
-            var listening = BooAppFixture.SafeName(panel.FindFirstDescendant(cf => cf.ByAutomationId("ListeningStatus"))!);
+            var listening = BooAppFixture.SafeName(PanelViews.FindInView(panel, "ListeningStatus")!);
             var rows = Rows(panel);
             log.AppendLine($"msFromAudibleToStop={msToStop}");
             log.AppendLine($"beforeStop: {beforeStop}");
@@ -153,12 +153,12 @@ public sealed class SilentReplyRecoveryJourney : IClassFixture<SilentReplyVoiceF
         return false;
     }
 
-    private static string[] Rows(Window panel) => panel.FindFirstDescendant(cf => cf.ByAutomationId("TranscriptList"))!
+    private static string[] Rows(Window panel) => PanelViews.FindInView(panel, "TranscriptList")!
         .FindAllChildren(cf => cf.ByControlType(ControlType.ListItem)).Select(BooAppFixture.SafeName).ToArray();
 
     private static void Observe(Window panel, List<string> statuses)
     {
-        var s = BooAppFixture.SafeName(panel.FindFirstDescendant(cf => cf.ByAutomationId("StatusText"))!);
+        var s = BooAppFixture.SafeName(PanelViews.FindInView(panel, "StatusText")!);
         if (statuses.Count == 0 || statuses[^1] != s) statuses.Add(s);
     }
 

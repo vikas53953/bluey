@@ -64,6 +64,8 @@ public partial class NotchWindow : Window
     private readonly CaptionReveal _captionReveal;
     private readonly PressHoldTracker _press = new();
     private readonly DispatcherTimer _holdTimer;
+    private TimeSpan? _hoverOpenAt;
+    private readonly Action? _onHoverOpenPanel;
     private readonly Rectangle[] _speakingBars = new Rectangle[LivingInk.BarCount];
     private readonly Ellipse[] _thinkDots = new Ellipse[LivingInk.ThinkDotSizes.Count];
     private readonly Ellipse[] _blooms = new Ellipse[LivingInk.Blooms.Count];
@@ -129,6 +131,15 @@ public partial class NotchWindow : Window
     /// </summary>
     public event Action<bool>? EyesHeldChanged;
 
+    /// <summary>True while the pointer is over the notch window (the hover strip or the face); false when it leaves.</summary>
+    public event Action<bool>? PointerOverChanged;
+
+    /// <summary>
+    /// How long the pointer rests on the notch before the panel drops (round 3, like HeyClicky's hover-to-open). Long
+    /// enough that a pointer crossing the strip on its way to a browser tab does not open it; short enough to feel direct.
+    /// </summary>
+    public static readonly TimeSpan HoverOpenDelay = TimeSpan.FromMilliseconds(350);
+
     /// <summary>Nudge caption actions: false = "Back to it" (dismiss), true = "5 min break".</summary>
     public event Action<bool>? NudgeActionChosen;
 
@@ -155,9 +166,10 @@ public partial class NotchWindow : Window
 
     public NotchWindow(Action onOpenPanel, Action onStop, Func<DisplayInfo?> selectedDisplay,
         NotchAppearance appearance, Action onDisplayLayoutChanged, Func<double>? verticalOffset = null,
-        Func<bool>? appReducedMotion = null)
+        Func<bool>? appReducedMotion = null, Action? onHoverOpenPanel = null)
     {
         _onOpenPanel = onOpenPanel;
+        _onHoverOpenPanel = onHoverOpenPanel;
         _onStop = onStop;
         _selectedDisplay = selectedDisplay;
         _onDisplayLayoutChanged = onDisplayLayoutChanged;
@@ -662,6 +674,7 @@ public partial class NotchWindow : Window
         }
 
         ApplyReveal(phase, now);
+        OpenPanelAfterHoverDwell(now);
         if (_state != NotchFaceState.Hidden)
         {
             DrawInk(now, _motion.Tick(now, PointerFromBodyCentre()));
@@ -1372,19 +1385,54 @@ public partial class NotchWindow : Window
         _hovered = true;
         _timeline.PointerEntered(_clock.Elapsed);
         Recompute();
+        PointerOverChanged?.Invoke(true);
+        _hoverOpenAt = _onHoverOpenPanel is null ? null : _clock.Elapsed + HoverOpenDelay;
     }
 
     private void NotchWindow_OnMouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
     {
         _hovered = false;
+        _hoverOpenAt = null;
         _timeline.PointerLeft(_clock.Elapsed);
         Recompute();
+        PointerOverChanged?.Invoke(false);
+    }
+
+    /// <summary>
+    /// Runs on the frame loop (the face is awake while hovered, so frames are already flowing): once the pointer has
+    /// rested on the notch for <see cref="HoverOpenDelay"/>, still hovering, not mid-press (a press-and-hold on the
+    /// eyes is talk, not open) and with the face awake, the panel drops.
+    /// </summary>
+    private void OpenPanelAfterHoverDwell(TimeSpan now)
+    {
+        if (_hoverOpenAt is not { } openAt || now < openAt)
+        {
+            return;
+        }
+        _hoverOpenAt = null;
+        if (_hovered && !_press.IsPressed && _state != NotchFaceState.Hidden)
+        {
+            CaptureExternalTarget();
+            _onHoverOpenPanel?.Invoke();
+        }
     }
 
     private void NotchSurface_OnMouseRightButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         _onStop();
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// Puts the notch back on top of the other topmost windows (the hanging panel is shown after it and would cover
+    /// the eyes). No move, no size, no activation.
+    /// </summary>
+    public void RaiseAbovePanel()
+    {
+        if (_handle != IntPtr.Zero)
+        {
+            SetWindowPos(_handle, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
+        }
     }
 
     /// <summary>
@@ -1690,6 +1738,9 @@ public partial class NotchWindow : Window
 
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private static readonly IntPtr HwndTopmost = new(-1);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
