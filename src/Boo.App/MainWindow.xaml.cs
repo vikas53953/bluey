@@ -142,7 +142,8 @@ public partial class MainWindow : Window
         SystemParameters.StaticPropertyChanged += SystemParameters_OnStaticPropertyChanged;
         Closed += (_, _) => SystemParameters.StaticPropertyChanged -= SystemParameters_OnStaticPropertyChanged;
         Closed += (_, _) => DisposeShell();
-        IsVisibleChanged += (_, _) => SetFace(_faceInputs with { PanelOpen = IsVisible });
+        IsVisibleChanged += (_, _) => SetFace(_faceInputs with { PanelOpen = PanelIsOpen });
+        StateChanged += (_, _) => SetFace(_faceInputs with { PanelOpen = PanelIsOpen });
     }
 
 
@@ -155,6 +156,9 @@ public partial class MainWindow : Window
         System.Windows.Automation.AutomationProperties.SetItemStatus(this, "rendered");
 
     public DisplayInfo? SelectedDisplay => _selectedDisplay;
+
+    /// <summary>The panel is on screen: shown and not minimised. Feeds the notch status word (no focus clock while open).</summary>
+    private bool PanelIsOpen => IsVisible && WindowState != WindowState.Minimized;
     public double VerticalOffset => OffsetSlider.Value;
     public NotchAppearance CurrentAppearance => _appearance;
 
@@ -1550,7 +1554,7 @@ public partial class MainWindow : Window
         var remaining = Math.Max(0, _focus.Remaining);
         FocusTimer.Text = TimeSpan.FromSeconds(remaining).ToString(@"mm\:ss");
         var running = _focus.Snapshot.Status == Boo.Core.FocusStatus.Running;
-        SetFace(_faceInputs with { FocusRemainingSeconds = running ? (int)Math.Ceiling(remaining) : null });
+        SetFace(_faceInputs with { FocusRemainingSeconds = running ? (int)Math.Floor(remaining) : null });
     }
 
     private void SaveSettingsButton_OnClick(object sender, RoutedEventArgs e)
