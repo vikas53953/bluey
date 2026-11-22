@@ -72,7 +72,7 @@ public partial class MainWindow
             StatusText.Text = stopped;
         }
         UpdateCaptureIndicator();
-        SetFace(new FaceInputs(FocusPaused: _focus is { Snapshot.Status: Boo.Core.FocusStatus.Paused }));
+        SetFace(new FaceInputs(FocusPaused: _focus is { Snapshot.Status: Boo.Core.FocusStatus.Paused }, PanelOpen: PanelIsOpen));
     }
 
     /// <summary>

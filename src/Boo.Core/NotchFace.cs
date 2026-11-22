@@ -4,6 +4,8 @@ namespace Boo.Core;
 /// Inputs that decide the face state. Revealed = notch is out (hover or pinned);
 /// Hovered = pointer is over the notch/strip; UserHidden = user asked Boo to hide.
 /// Caption = text typed into the notch while Responding / Nudge (never drawn on the collapsed notch); it does not affect the state.
+/// PanelOpen = the hanging panel is showing; FocusRemainingSeconds = seconds left in a RUNNING focus session (null otherwise).
+/// Both feed the status word beside the eyes (<see cref="NotchStatusWord"/>) and do not affect the state.
 /// </summary>
 public sealed record FaceInputs(
     bool Revealed = false,
@@ -16,7 +18,9 @@ public sealed record FaceInputs(
     bool FocusPaused = false,
     bool Happy = false,
     bool UserHidden = false,
-    string? Caption = null);
+    string? Caption = null,
+    bool PanelOpen = false,
+    int? FocusRemainingSeconds = null);
 
 /// <summary>
 /// Priority (highest first): Capture > Listening > Responding > Thinking > Nudge > Happy > Paused > Hover > Idle > Hidden.

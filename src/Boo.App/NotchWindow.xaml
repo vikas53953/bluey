@@ -11,7 +11,7 @@
         Face lane (U1/U2), Living ink look (2026-11-12). Sizes come from docs/design/boo-notch-spec.json
         (embedded resource, chosen face D); shapes, moods and motion from Boo.Core LivingInk. Fully transparent pixels are click-through at the OS level,
         so the window can stay at its maximum size: only the hover strip (alpha 1/255), the pocket
-        and the disclosure catch the pointer. No text is drawn on the collapsed notch.
+        and the disclosure catch the pointer. The only text on the resting notch is the status word (focus time left).
     -->
     <Canvas x:Name="Root" ClipToBounds="True">
         <!-- Invisible hover strip (spec hoverStrip, DIP) at the top centre. -->
@@ -74,6 +74,15 @@
                     <Border x:Name="StopSquareInner" Width="7" Height="7" CornerRadius="1.5"
                             HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
+
+                <!-- Status word (round 3, like HeyClicky's bar): "Listening", "Thinking…" or the focus time left (mm:ss),
+                     right of the eyes in the trail slot. Built from NotchStatusWord; UI Automation reads it by Name. -->
+                <TextBlock x:Name="StatusWord" Visibility="Collapsed" FontFamily="{StaticResource BooFont}"
+                           FontSize="13" FontWeight="SemiBold" LineHeight="18" LineStackingStrategy="BlockLineHeight"
+                           TextWrapping="NoWrap" Opacity="0.92" IsHitTestVisible="False"
+                           AutomationProperties.AutomationId="NotchStatusWord"
+                           AutomationProperties.HelpText="What Boo is doing right now, or the focus time left"
+                           AutomationProperties.LiveSetting="Polite" />
 
                 <!-- Caption (responding / nudge only): typed in, Nunito 13/18, never on the collapsed notch. -->
                 <TextBlock x:Name="Caption" Visibility="Collapsed" FontFamily="{StaticResource BooFont}"
