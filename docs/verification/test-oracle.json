@@ -1,5 +1,5 @@
 {
-  "revision": 49,
+  "revision": 50,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -74,6 +74,7 @@
     "tests/Boo.Core.Tests/NotchFaceGeometryTests.cs": "16d87b6bd7380910490cfa6513663bc83096c2a79d4151556a4afbea89a3f9f0",
     "tests/Boo.Core.Tests/NotchLayoutTests.cs": "08b9fb2bd60bac708093c203b0fe7b28e0b0da57062601fbacf2bb7391915c0c",
     "tests/Boo.Core.Tests/NotchLifecycleTests.cs": "3a77b006324dbe6e8bdbf151419df161253493fbb487b2e34495b4614bb62cc3",
+    "tests/Boo.Core.Tests/NotchStatusWordTests.cs": "49d6b0c3d97ed48792b24b12431bb026ceab67adf3332483cb8a5b6c381b6528",
     "tests/Boo.Core.Tests/OcrNudgeTargetMatcherTests.cs": "16fda5c38efedac9b863cb0b45ef1dd68115ead6ce3be5230e2e92bcf1974236",
     "tests/Boo.Core.Tests/OpenUrlInvisibleCharacterTests.cs": "adab134f36113c2759f0d5ec72ef3b086339c1b80836f04647c9ef97b8cfa942",
     "tests/Boo.Core.Tests/ParityMotionTests.cs": "a25acc807a997524b2b37310a0aab58567de114b484b7c829e3e2356f5dcf745",
@@ -176,6 +177,7 @@
     "tests/Boo.Ui.Tests/BooAppFixture.cs": "d462ff1525b7c38e22c2d6d6dd47f8d9a6a691bbb2ddf998c5e07add13a63aa7",
     "tests/Boo.Ui.Tests/BooSmokeTests.Accessibility.cs": "8c788d23767137f71950c125f3f3e3b0f2da8b3ef83a9278b38a8d6bb5106396",
     "tests/Boo.Ui.Tests/BooSmokeTests.Hardening.cs": "66dedf2e39dd9ee3299b64a622f4e22c52344d9ee40106e7dc75f235a7d66e8f",
+    "tests/Boo.Ui.Tests/BooSmokeTests.StatusWords.cs": "c3a21ed84932332cf48ef42194a592f27200ca38c2d7055934d00629c12fedf8",
     "tests/Boo.Ui.Tests/BooSmokeTests.U8.cs": "17851cdf564b55372185a097f15c2992d9321c4368a36e1ca9a6d0ad9a7d0d47",
     "tests/Boo.Ui.Tests/BooSmokeTests.cs": "c42d4ff70d0436d2d96a5feefdcc4818420725cc1e12fa8ccfaea6976056de6b",
     "tests/Boo.Ui.Tests/CorruptDataStartupTests.cs": "3acc133d600ee0a459cbda26c2df3fae64e9410cc4bcfa2b43b1eac16d3733c9",
@@ -188,22 +190,14 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-48.json",
-  "previousManifestSha256": "fa6f151d406568342c93c0230bf38623b0ad9330eba6a0ed47174e11bb2af032",
-  "revisionReason": "Round 3 hanging panel (PR #189, approved by Vikas 22 Nov 2026 17:57 UTC): the companion window has three views and only the open view is in the UI Automation tree, so the test drivers' TryFind goes through BooAppFixture.FindInView, which opens the view that holds the control; no assertion changed. acceptance-presence-window.md rows NAT-P-004, -012, -013 now describe the panel instead of the old full window.",
-  "addedFiles": [],
-  "revisionCommit": "82c74b938b7264eae74bcb04a7c8789c56c0a50c",
-  "changedFiles": [
-    "docs/verification/acceptance-presence-window.md",
-    "tests/Boo.Demo.Tests/BooAppFixture.cs",
-    "tests/Boo.Demo.Tests/DemoTests.cs",
-    "tests/Boo.Demo.Tests/FieldUndoDemoTests.cs",
-    "tests/Boo.Demo.Tests/HiddenTextApprovalCardDemoTests.cs",
-    "tests/Boo.Demo.Tests/UnobservedScreenActionDemoTests.cs",
-    "tests/Boo.Demo.Tests/UnobservedScreenActionVoiceDemoTests.cs",
-    "tests/Boo.Ui.Tests/BooAppFixture.cs",
-    "tests/Boo.Ui.Tests/BooSmokeTests.cs",
-    "tests/Boo.Ui.Tests/CorruptDataStartupTests.cs"
+  "previousManifest": "docs/verification/test-oracle-history/revision-49.json",
+  "previousManifestSha256": "f158e6b92694703e97c2d47aef3e01d56c30e16f83a3817f82da2b95693513c4",
+  "revisionReason": "Round 3 notch status word: new Core rules tests and ui smoke step 15, written before the implementation (PR stacked on #189)",
+  "addedFiles": [
+    "tests/Boo.Core.Tests/NotchStatusWordTests.cs",
+    "tests/Boo.Ui.Tests/BooSmokeTests.StatusWords.cs"
   ],
+  "revisionCommit": "57611c9c23c88865b5410d307d16cad31383a08e",
+  "changedFiles": [],
   "removedFiles": []
 }

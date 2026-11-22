@@ -38,6 +38,7 @@ journeys, all on the real `Boo.exe`:
 | **Research** with source links | `LiveJourneyTests.J4_Research_ShowsRealSourceLinks` | demo-ci step 3 (mock) |
 | Permissioned **Apply / Undo** | `LiveJourneyTests.J5_ApplyThenUndo_OnlyAfterApproval` | demo-ci step 2 (mock) |
 | **25-minute focus** session | `LiveJourneyTests.J6_FocusSession_25Minutes_OnTheDeveloperModeClock` | runbook 11 (real-time, manual) |
+| **Status word beside the eyes** (focus time left when the panel is closed, "Thinking…" while an answer runs) | `LiveJourneyTests.J8_NotchShowsTheStatusWord_FocusTimeWhenClosed_ThinkingWhileAnswering` | ui smoke step 15 (every push, no key) |
 
 About the 25 minutes: Boo already has a test clock, **Developer Mode** (focus time runs 4x, a check every 10 s). The
 live journey runs a real 25-minute session on that clock: about 375 real seconds, with real AI focus checks. No new
