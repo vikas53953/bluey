@@ -119,7 +119,7 @@ public partial class MainWindow
         }
     }
 
-    private void Panel_OnMouseLeave(object sender, MouseEventArgs e) => FoldIfPointerOutside();
+    private void Panel_OnMouseLeave(object sender, System.Windows.Input.MouseEventArgs e) => FoldIfPointerOutside();
 
     /// <summary>Like HeyClicky: a click somewhere else closes a panel the hover opened. A panel opened on purpose stays.</summary>
     private void Panel_OnDeactivated(object? sender, EventArgs e)
