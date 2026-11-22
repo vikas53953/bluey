@@ -1,5 +1,5 @@
 {
-  "revision": 51,
+  "revision": 52,
   "baselineCommit": "5a57e6c0744553e45b6dd706cbdc3ac833fb8330",
   "hashFormat": "SHA-256 of UTF-8 text, BOM removed, CRLF normalized to LF",
   "files": {
@@ -74,7 +74,7 @@
     "tests/Boo.Core.Tests/NotchFaceGeometryTests.cs": "16d87b6bd7380910490cfa6513663bc83096c2a79d4151556a4afbea89a3f9f0",
     "tests/Boo.Core.Tests/NotchLayoutTests.cs": "08b9fb2bd60bac708093c203b0fe7b28e0b0da57062601fbacf2bb7391915c0c",
     "tests/Boo.Core.Tests/NotchLifecycleTests.cs": "3a77b006324dbe6e8bdbf151419df161253493fbb487b2e34495b4614bb62cc3",
-    "tests/Boo.Core.Tests/NotchStatusWordOnInkTests.cs": "c08893478ff28757a59f4e597a1ac2a751268ea9853fef2a0c68e291f51218a9",
+    "tests/Boo.Core.Tests/NotchStatusWordOnInkTests.cs": "508c687edeca2011c5c9ad562558b8ac2fc6756ea693302962a38f961fd49137",
     "tests/Boo.Core.Tests/NotchStatusWordTests.cs": "49d6b0c3d97ed48792b24b12431bb026ceab67adf3332483cb8a5b6c381b6528",
     "tests/Boo.Core.Tests/OcrNudgeTargetMatcherTests.cs": "16fda5c38efedac9b863cb0b45ef1dd68115ead6ce3be5230e2e92bcf1974236",
     "tests/Boo.Core.Tests/OpenUrlInvisibleCharacterTests.cs": "adab134f36113c2759f0d5ec72ef3b086339c1b80836f04647c9ef97b8cfa942",
@@ -191,13 +191,13 @@
     "tests/fixtures/native/Boo.QaWorkspace/MainWindow.xaml.cs": "158a06f9f36e68890a4dfc4d9eff8dd88917e6d8e1fe1e7a5c37e7b295096b0d",
     "tests/fixtures/native/design-workspace/index.html": "88a1d220386b091e4fd00960e9f05f81644f5017ce57c87fd463e51f3a4713dd"
   },
-  "previousManifest": "docs/verification/test-oracle-history/revision-50.json",
-  "previousManifestSha256": "45039a95f7a5967b098620bf4754a5fa2a6097a7282d6d2bcf2d71f3a4856e48",
-  "revisionReason": "Review follow-up for PR #190: new on-ink geometry test for the notch status word (new file only)",
-  "addedFiles": [
+  "previousManifest": "docs/verification/test-oracle-history/revision-51.json",
+  "previousManifestSha256": "e3e099a3b3a1a3cbf67b228a9ec87d1d7dece02cc3c6defd8562b89bd650ce2c",
+  "revisionReason": "PR #190 review follow-up: NotchStatusWordOnInkTests (added in this PR at revision 51) replaced its corner-biased BottomUnder check with InkBlot.Contains samples of the word line; the file never existed on the base branch",
+  "addedFiles": [],
+  "revisionCommit": "bd0692d84e3c5794577a2bc9233843323b1076ba",
+  "changedFiles": [
     "tests/Boo.Core.Tests/NotchStatusWordOnInkTests.cs"
   ],
-  "revisionCommit": "d5b40f82827509797ef43bdb3677d755ad53d382",
-  "changedFiles": [],
   "removedFiles": []
 }
