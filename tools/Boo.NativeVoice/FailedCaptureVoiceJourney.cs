@@ -48,11 +48,11 @@ public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoice
         {
             _boo.WaitForNotch(TimeSpan.FromSeconds(30));
             var panel = _boo.EnsurePanel();
-            var input = panel.FindFirstDescendant(cf => cf.ByAutomationId("InputBox"))!.AsTextBox();
+            var input = PanelViews.FindInView(panel, "InputBox")!.AsTextBox();
             input.Text = Prompt;
             Assert.True(BooAppFixture.WaitUntil(() => string.Equals(input.Text, Prompt, StringComparison.OrdinalIgnoreCase), TimeSpan.FromSeconds(10)),
                 $"TEST SETUP: could not type the task; the box reads '{input.Text}'.");
-            panel.FindFirstDescendant(cf => cf.ByAutomationId("SendButton"))!.AsButton().Invoke();
+            PanelViews.FindInView(panel, "SendButton")!.AsButton().Invoke();
 
             var started = DateTime.UtcNow;
             var outcome = VoiceTurnOutcome.Kind.NotEnded;
@@ -67,7 +67,7 @@ public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoice
                     if (!cancelled && !IsScreenAction(preview))
                     {
                         _boo.CaptureScreen("fail-closed-offered");
-                        panel.FindFirstDescendant(cf => cf.ByAutomationId("CancelButton"))!.AsButton().Invoke();
+                        PanelViews.FindInView(panel, "CancelButton")!.AsButton().Invoke();
                         cancelled = true;
                     }
                 }
@@ -135,7 +135,7 @@ public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoice
     {
         try
         {
-            var preview = panel.FindFirstDescendant(cf => cf.ByAutomationId("ActionPreview"));
+            var preview = PanelViews.FindInView(panel, "ActionPreview");
             if (preview is null || preview.IsOffscreen || preview.BoundingRectangle.Width <= 0) return null;
             return NameOfId(panel, "ActionPreviewText");
         }
@@ -169,7 +169,7 @@ public sealed class FailedCaptureVoiceJourney : IClassFixture<FailedCaptureVoice
         }
     }
 
-    private static string[] Rows(Window panel) => panel.FindFirstDescendant(cf => cf.ByAutomationId("TranscriptList")) is { } list
+    private static string[] Rows(Window panel) => PanelViews.FindInView(panel, "TranscriptList") is { } list
         ? list.FindAllChildren(cf => cf.ByControlType(ControlType.ListItem)).Select(BooAppFixture.SafeName).ToArray()
         : Array.Empty<string>();
 

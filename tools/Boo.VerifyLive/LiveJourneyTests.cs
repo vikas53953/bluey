@@ -19,7 +19,7 @@ namespace Boo.VerifyLive;
 /// Steps run in order on the same app (see .claude/skills/verify-boo/SKILL.md and docs/FEATURE_MAP.md):
 /// 0 notch wake by hotkey  1 notch wake by hover  2 typed chat with a real reply  3 screen explain, pointer + ring on a
 /// known target window  4 research with source links  5 permissioned Apply then Undo of a file  6 a 25-minute focus
-/// session on the existing Developer Mode clock (4x).
+/// session on the existing Developer Mode clock (4x)  7 hover opens the hanging panel and it folds when the pointer leaves.
 /// Every step writes screenshots (jN-*.png) and observations (jN-*.txt) under BOO_UI_ARTIFACTS and asserts on live UI
 /// Automation state, pixels or files, never on Boo's own claim alone. A step that cannot prove its feature fails; it
 /// never skips.
@@ -566,8 +566,51 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
         }
     }
 
+    [Fact, Step(7)]
+    public void J7_HoverOpensThePanel_AndItFoldsWhenThePointerLeaves()
+    {
+        Evidence("j7-hover-panel", () =>
+        {
+            // Round 3 (hanging panel): resting the pointer on the notch drops the panel without taking the keyboard
+            // from the app in front; moving the pointer off both the notch and the panel folds it away again.
+            if (_boo.FindPanel() is { } open)
+            {
+                Find(open, "CloseButton").AsButton().Invoke();
+                Assert.True(BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, UiTimeout), "Close did not hide the panel.");
+            }
+
+            var rect = _boo.WaitForNotch(UiTimeout).BoundingRectangle;
+            var hover = new Point(rect.Left + rect.Width / 2, rect.Top + 2);
+            var away = new Point(hover.X, hover.Y + 300);
+            Mouse.MoveTo(away);
+            Assert.True(BooAppFixture.WaitUntil(() => NotchState() == "Hidden", RestTimeout),
+                $"The notch did not rest in 'Hidden' before hovering. ItemStatus: '{NotchState()}'.");
+
+            Mouse.MoveTo(hover);
+            var clock = Stopwatch.StartNew();
+            var opened = BooAppFixture.WaitUntil(() => _boo.FindPanel() is not null, TimeSpan.FromSeconds(3));
+            var openMs = clock.ElapsedMilliseconds;
+            var panel = _boo.FindPanel();
+            var view = panel is null ? string.Empty : PanelViews.OpenView(panel);
+            _boo.CaptureScreen("j7-hover-opened");
+
+            Mouse.MoveTo(away);
+            clock.Restart();
+            var folded = BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, TimeSpan.FromSeconds(3));
+            var foldMs = clock.ElapsedMilliseconds;
+            var rested = BooAppFixture.WaitUntil(() => NotchState() == "Hidden", RetractTimeout);
+            _boo.CaptureScreen("j7-after-leave");
+            _boo.WriteObservation("j7-hover-panel",
+                $"notch={rect} hover={hover} opened={opened} openMs={openMs} view='{view}' folded={folded} foldMs={foldMs} rested={rested} state='{NotchState()}'");
+
+            Assert.True(opened, $"Resting the pointer on the notch at {hover} did not open the panel within 3 s.");
+            Assert.True(folded, "The hover-opened panel did not fold within 3 s of the pointer leaving the notch.");
+            Assert.True(rested, $"The notch did not return to 'Hidden' after the panel folded. ItemStatus: '{NotchState()}'.");
+        });
+    }
+
     private static AutomationElement? TryFind(Window panel, string automationId) =>
-        panel.FindFirstDescendant(cf => cf.ByAutomationId(automationId));
+        PanelViews.FindInView(panel, automationId);
 
     private AutomationElement Find(Window panel, string automationId) =>
         _boo.WaitFor(() => TryFind(panel, automationId), UiTimeout, $"element '{automationId}'");

@@ -143,11 +143,11 @@ public sealed class NativeVoiceJourney : IClassFixture<NativeVoiceFixture>
         && Regex.IsMatch(s, @"two|2", RegexOptions.IgnoreCase)
         && Regex.IsMatch(s, @"three|3", RegexOptions.IgnoreCase);
     private static bool Five(string s) => Regex.IsMatch(s, @"\b(five|5)\b", RegexOptions.IgnoreCase);
-    private static string[] Rows(Window panel) => panel.FindFirstDescendant(cf => cf.ByAutomationId("TranscriptList"))!
+    private static string[] Rows(Window panel) => PanelViews.FindInView(panel, "TranscriptList")!
         .FindAllChildren(cf => cf.ByControlType(ControlType.ListItem)).Select(BooAppFixture.SafeName).ToArray();
     private static void Observe(Window panel, List<string> statuses)
     {
-        var s = BooAppFixture.SafeName(panel.FindFirstDescendant(cf => cf.ByAutomationId("StatusText"))!);
+        var s = BooAppFixture.SafeName(PanelViews.FindInView(panel, "StatusText")!);
         if (statuses.Count == 0 || statuses[^1] != s) statuses.Add(s);
     }
     private static JsonDocument? Device()

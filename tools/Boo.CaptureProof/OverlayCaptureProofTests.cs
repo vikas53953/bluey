@@ -172,7 +172,7 @@ public sealed class OverlayCaptureProofTests : IClassFixture<ProofAppFixture>
         TryFind(panel, automationId) ?? throw new InvalidOperationException($"No element '{automationId}' in Boo's panel.");
 
     private static AutomationElement? TryFind(Window panel, string automationId) =>
-        panel.FindFirstDescendant(cf => cf.ByAutomationId(automationId));
+        PanelViews.FindInView(panel, automationId);
 }
 
 /// <summary>A borderless, non-topmost window filling the primary screen with one colour, on its own UI thread.</summary>

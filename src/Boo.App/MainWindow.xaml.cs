@@ -272,7 +272,7 @@ public partial class MainWindow : Window
 
     public void ShowSettings()
     {
-        SettingsSection.Visibility = Visibility.Visible;
+        ShowView(PanelView.Settings);
         if (IsVisible)
         {
             DisplayBox.Focus();
@@ -322,7 +322,8 @@ public partial class MainWindow : Window
     {
         ApplyTextScale();
         PrepareInitialPlacement();
-        InputBox.Focus();
+        ShowView(_view);
+        FocusViewAnchor(_view);
     }
 
     private void Window_OnSourceInitialized(object? sender, EventArgs e)
@@ -344,19 +345,12 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// The panel no longer draws its own eyes (round 3: the real notch eyes sit over the top bar), so the saved
+    /// appearance only reaches the notch through onAppearanceChanged. Kept as the one hook for High Contrast changes.
+    /// </summary>
     private void ApplyAppearanceToHeader()
     {
-        if (SystemParameters.HighContrast)
-        {
-            HeaderBody.Background = MediaSystemColors.WindowBrush;
-            HeaderLeftEye.Fill = MediaSystemColors.WindowTextBrush;
-            HeaderRightEye.Fill = MediaSystemColors.WindowTextBrush;
-            return;
-        }
-
-        HeaderBody.Background = ToBrush(_appearance.BodyColor, System.Windows.Media.Brushes.Black);
-        HeaderLeftEye.Fill = ToBrush(_appearance.EyeColor, System.Windows.Media.Brushes.White);
-        HeaderRightEye.Fill = ToBrush(_appearance.EyeColor, System.Windows.Media.Brushes.White);
     }
 
     private static System.Windows.Media.Brush ToBrush(string value, System.Windows.Media.Brush fallback)
@@ -548,8 +542,11 @@ public partial class MainWindow : Window
             Height = Math.Min(Height, maxHeightDip);
         }
 
-        var placement = MonitorLayout.CenterInWorkArea(
-            new RectD(work.Left, work.Top, work.Width, work.Height), Width, Height, scale).PhysicalBounds;
+        var placement = _mode == PanelMode.Docked
+            ? DockedPlacement(new RectD(screen.Bounds.Left, screen.Bounds.Top, screen.Bounds.Width, screen.Bounds.Height),
+                scale, OffsetSlider.Value, Width, Height)
+            : MonitorLayout.CenterInWorkArea(
+                new RectD(work.Left, work.Top, work.Width, work.Height), Width, Height, scale).PhysicalBounds;
         var handle = new WindowInteropHelper(this).Handle;
         if (handle == IntPtr.Zero || WindowState == WindowState.Maximized)
         {
@@ -1818,6 +1815,7 @@ public partial class MainWindow : Window
         _ = CompletePendingRealtimeToolAsync("A newer request superseded this action.");
         _pendingRealtimeCallId = null;
         SourceLinksList.Children.Clear();
+        SourcesLabel.Visibility = Visibility.Collapsed;
         ClearSourceStatus();
         return _requestLease;
     }
@@ -2317,6 +2315,7 @@ public partial class MainWindow : Window
         link.RequestNavigate += SourceLink_OnRequestNavigate;
         line.Inlines.Add(link);
         SourceLinksList.Children.Add(line);
+        SourcesLabel.Visibility = Visibility.Visible;
     }
 
     private static void SourceLink_OnRequestNavigate(object sender, RequestNavigateEventArgs e)

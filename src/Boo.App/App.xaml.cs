@@ -27,7 +27,6 @@ public partial class App : System.Windows.Application
     private Forms.NotifyIcon? _tray;
     private string _dataDirectory = string.Empty;
     private bool _ownsMutex;
-    private bool _hasShownPanel;
     private WindowState _restorePanelState = WindowState.Normal;
     private readonly Boo.Core.CrashLoopGuard _crashGuard = new(maxRecoveries: 5, window: TimeSpan.FromMinutes(1));
     private Boo.Storage.CrashLogStore? _crashLog;
@@ -79,6 +78,7 @@ public partial class App : System.Windows.Application
         _notch = new NotchWindow(
             onOpenPanel: () => OpenPanel(false),
             onStop: StopAll,
+            onHoverOpenPanel: () => OpenPanel(settings: false, fromHover: true),
             selectedDisplay: () => _panel?.SelectedDisplay,
             appearance: _panel.CurrentAppearance,
             onDisplayLayoutChanged: () => _panel?.RefreshSelectedDisplay(),
@@ -87,6 +87,7 @@ public partial class App : System.Windows.Application
         _panel.FaceInputsChanged += OnFaceInputsChanged;
         _notch.EyesHeldChanged += held => _panel?.SetEyesHeld(held);
         _notch.NudgeActionChosen += takeBreak => _panel?.HandleNudgeAction(takeBreak);
+        _notch.PointerOverChanged += over => _panel?.NotchPointerOverChanged(over);
         _notch.ShowNotch();
         _perf = PerfDiagnostics.TryStart(_notch, _timeProvider); // only when BOO_PERF_DIAG is set (perf tests)
 
@@ -105,13 +106,22 @@ public partial class App : System.Windows.Application
         _startupComplete = true;
     }
 
-    internal void OpenPanel(bool settings)
+    /// <summary>
+    /// Opens the hanging panel. A deliberate open (Ctrl+Alt+B, tray, a click on the eyes) activates it and keeps it up;
+    /// a hover open (round 3, like HeyClicky) shows it without taking focus and lets it fold when the pointer leaves.
+    /// </summary>
+    internal void OpenPanel(bool settings, bool fromHover = false)
     {
         if (_panel is null)
         {
             _panel = CreatePanel();
             _panel.InitializeBeforeNotch();
             RefreshShortcutStatus(announce: false);
+        }
+
+        if (fromHover && _panel.IsVisible)
+        {
+            return; // already up (opened on purpose, or by an earlier hover): nothing to do
         }
 
         if (_panel.WindowState == WindowState.Minimized)
@@ -126,20 +136,17 @@ public partial class App : System.Windows.Application
 
         if (!_panel.IsVisible)
         {
-            if (!_hasShownPanel)
-            {
-                _panel.PrepareInitialPlacement();
-                _panel.WindowState = WindowState.Maximized;
-                _restorePanelState = WindowState.Maximized;
-                _hasShownPanel = true;
-            }
+            _panel.PrepareInitialPlacement();
+            _panel.PrepareShow(fromHover);
             _panel.Show();
         }
         else
         {
+            _panel.KeepOpen();
             _panel.Activate();
         }
         _panel.RefreshSelectedDisplay();
+        _notch?.RaiseAbovePanel(); // the eyes sit over the panel's top bar, never under it
     }
 
     private MainWindow CreatePanel()
@@ -457,6 +464,14 @@ public partial class App : System.Windows.Application
         SetThemeBrush("BooInput", highContrast ? MediaSystemColors.WindowColor : MediaColor.FromRgb(0x29, 0x29, 0x2D));
         SetThemeBrush("BooNotchBody", highContrast ? MediaSystemColors.WindowColor : MediaColor.FromRgb(0x00, 0x00, 0x00));
         SetThemeBrush("BooNotchEyes", highContrast ? MediaSystemColors.WindowTextColor : MediaColor.FromRgb(0xFF, 0xFF, 0xFF));
+        // Hanging panel (round 3).
+        SetThemeBrush("BooSheet", highContrast ? MediaSystemColors.WindowColor : MediaColor.FromRgb(0x14, 0x14, 0x16));
+        SetThemeBrush("BooCard", highContrast ? MediaSystemColors.WindowColor : MediaColor.FromRgb(0x24, 0x24, 0x28));
+        SetThemeBrush("BooCardBorder", highContrast ? MediaSystemColors.ActiveBorderColor : MediaColor.FromRgb(0x2C, 0x2C, 0x31));
+        SetThemeBrush("BooPill", highContrast ? MediaSystemColors.ControlColor : MediaColor.FromRgb(0x22, 0x22, 0x26));
+        SetThemeBrush("BooBubbleYou", highContrast ? MediaSystemColors.HighlightColor : MediaColor.FromRgb(0xF7, 0xF4, 0xEE));
+        SetThemeBrush("BooBubbleYouText", highContrast ? MediaSystemColors.HighlightTextColor : MediaColor.FromRgb(0x0C, 0x0A, 0x09));
+        SetThemeBrush("BooBubbleYouMuted", highContrast ? MediaSystemColors.HighlightTextColor : MediaColor.FromRgb(0x7A, 0x74, 0x6C));
     }
 
     private void SetThemeBrush(string key, MediaColor color)

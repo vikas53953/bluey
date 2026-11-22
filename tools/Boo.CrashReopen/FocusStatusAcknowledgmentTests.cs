@@ -355,7 +355,7 @@ public sealed class FocusAckDriver
     }
 
     public string Status() =>
-        Panel.FindFirstDescendant(cf => cf.ByAutomationId("FocusStatus")) is { } e ? BooAppFixture.SafeName(e) : string.Empty;
+        PanelViews.FindInView(Panel, "FocusStatus") is { } e ? BooAppFixture.SafeName(e) : string.Empty;
 
     public string WaitStatus(Func<string, bool> done, string what)
     {
@@ -491,7 +491,7 @@ public sealed class FocusAckDriver
     }
 
     /// <summary>An element of the focus panel by automation id, or null when it is not there.</summary>
-    public AutomationElement? PanelElement(string id) => Panel.FindFirstDescendant(cf => cf.ByAutomationId(id));
+    public AutomationElement? PanelElement(string id) => PanelViews.FindInView(Panel, id);
 
     public void Capture(string name) => _boo.CaptureScreen(name);
 
@@ -502,7 +502,7 @@ public sealed class FocusAckDriver
     }
 
     private AutomationElement Element(string id) =>
-        _boo.WaitFor(() => Panel.FindFirstDescendant(cf => cf.ByAutomationId(id)), Ui, $"element '{id}'");
+        _boo.WaitFor(() => PanelViews.FindInView(Panel, id), Ui, $"element '{id}'");
 
     private sealed class Release(Action release) : IDisposable
     {

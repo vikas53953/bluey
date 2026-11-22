@@ -182,8 +182,8 @@ public sealed class FocusSaveLockedDiskTests : IClassFixture<LockedDiskFixture>
     }
 
     private AutomationElement Element(Window panel, string id) =>
-        _boo.WaitFor(() => panel.FindFirstDescendant(cf => cf.ByAutomationId(id)), Ui, $"element '{id}'");
+        _boo.WaitFor(() => PanelViews.FindInView(panel, id), Ui, $"element '{id}'");
 
     private static string Name(Window panel, string id) =>
-        panel.FindFirstDescendant(cf => cf.ByAutomationId(id)) is { } e ? BooAppFixture.SafeName(e) : string.Empty;
+        PanelViews.FindInView(panel, id) is { } e ? BooAppFixture.SafeName(e) : string.Empty;
 }

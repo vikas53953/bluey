@@ -12,8 +12,8 @@ namespace Boo.App;
 public partial class MainWindow
 {
     // The XAML MinWidth/MinHeight at 100% text size.
-    private const double BaseMinWidth = 760;
-    private const double BaseMinHeight = 520;
+    private const double BaseMinWidth = DockedWidth;
+    private const double BaseMinHeight = DockedHeight;
 
     private double _appliedTextScale = 1.0;
     private bool _textScaleWatched;
@@ -64,69 +64,46 @@ public partial class MainWindow
         {
             Height = MinHeight;
         }
+        ApplyPanelSize();
     }
 
     /// <summary>
-    /// F6 / Shift+F6 cycle the keyboard focus between the three regions (Ask, Focus, Settings), the same
-    /// convention as Explorer and browsers, so a keyboard user does not have to Tab through every control.
+    /// F6 / Shift+F6 cycle the keyboard focus between the three views (Chat, Home, Settings), the same convention as
+    /// Explorer and browsers, so a keyboard user does not have to Tab through every control. Ctrl+1/2/3 jump to a view.
     /// </summary>
     private void Window_OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        if (Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            var direct = e.Key switch
+            {
+                Key.D1 or Key.NumPad1 => PanelView.Home,
+                Key.D2 or Key.NumPad2 => PanelView.Chat,
+                Key.D3 or Key.NumPad3 => PanelView.Settings,
+                _ => (PanelView?)null,
+            };
+            if (direct is { } view)
+            {
+                ShowView(view);
+                FocusViewAnchor(view);
+                e.Handled = true;
+                return;
+            }
+        }
+
         if (e.Key != Key.F6 || (Keyboard.Modifiers & ~ModifierKeys.Shift) != ModifierKeys.None)
         {
             return;
         }
 
-        var regions = new IInputElement[] { InputBox, FocusTaskBox, DisplayBox };
-        var current = -1;
-        for (var i = 0; i < regions.Length; i++)
-        {
-            if (regions[i] is DependencyObject region && IsFocusWithinRegion(region))
-            {
-                current = i;
-                break;
-            }
-        }
-
+        var order = new[] { PanelView.Chat, PanelView.Home, PanelView.Settings };
+        var current = Array.IndexOf(order, _view);
         var backwards = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
         var next = current < 0
-            ? (backwards ? regions.Length - 1 : 0)
-            : (current + (backwards ? regions.Length - 1 : 1)) % regions.Length;
-
-        var target = regions[next];
-        (target as FrameworkElement)?.BringIntoView();
-        target.Focus();
-        Keyboard.Focus(target);
+            ? (backwards ? order.Length - 1 : 0)
+            : (current + (backwards ? order.Length - 1 : 1)) % order.Length;
+        ShowView(order[next]);
+        FocusViewAnchor(order[next]);
         e.Handled = true;
-    }
-
-    /// <summary>True when keyboard focus is inside the section (BooSection) that holds <paramref name="anchor"/>.</summary>
-    private static bool IsFocusWithinRegion(DependencyObject anchor)
-    {
-        var focused = Keyboard.FocusedElement as DependencyObject;
-        if (focused is null)
-        {
-            return false;
-        }
-        var section = FindSection(anchor);
-        if (section is null)
-        {
-            return ReferenceEquals(focused, anchor);
-        }
-        return section.IsKeyboardFocusWithin;
-    }
-
-    private static Boo.App.Controls.BooSection? FindSection(DependencyObject element)
-    {
-        var node = element;
-        while (node is not null)
-        {
-            if (node is Boo.App.Controls.BooSection section)
-            {
-                return section;
-            }
-            node = VisualTreeHelper.GetParent(node) ?? LogicalTreeHelper.GetParent(node);
-        }
-        return null;
     }
 }
