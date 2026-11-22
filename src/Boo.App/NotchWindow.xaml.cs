@@ -64,7 +64,7 @@ public partial class NotchWindow : Window
     private readonly CaptionReveal _captionReveal;
     private readonly PressHoldTracker _press = new();
     private readonly DispatcherTimer _holdTimer;
-    private readonly DispatcherTimer _hoverOpenTimer;
+    private TimeSpan? _hoverOpenAt;
     private readonly Action? _onHoverOpenPanel;
     private readonly Rectangle[] _speakingBars = new Rectangle[LivingInk.BarCount];
     private readonly Ellipse[] _thinkDots = new Ellipse[LivingInk.ThinkDotSizes.Count];
@@ -171,8 +171,6 @@ public partial class NotchWindow : Window
         _onOpenPanel = onOpenPanel;
         _onHoverOpenPanel = onHoverOpenPanel;
         _onStop = onStop;
-        _hoverOpenTimer = new DispatcherTimer(DispatcherPriority.Input) { Interval = HoverOpenDelay };
-        _hoverOpenTimer.Tick += HoverOpenTimer_OnTick;
         _selectedDisplay = selectedDisplay;
         _onDisplayLayoutChanged = onDisplayLayoutChanged;
         _verticalOffset = verticalOffset ?? (() => 0d);
@@ -232,7 +230,6 @@ public partial class NotchWindow : Window
         {
             StopRendering();
             _holdTimer.Stop();
-            _hoverOpenTimer.Stop();
             _flashTimer?.Stop();
             if (_press.Cancel())
             {
@@ -677,6 +674,7 @@ public partial class NotchWindow : Window
         }
 
         ApplyReveal(phase, now);
+        OpenPanelAfterHoverDwell(now);
         if (_state != NotchFaceState.Hidden)
         {
             DrawInk(now, _motion.Tick(now, PointerFromBodyCentre()));
@@ -1388,26 +1386,30 @@ public partial class NotchWindow : Window
         _timeline.PointerEntered(_clock.Elapsed);
         Recompute();
         PointerOverChanged?.Invoke(true);
-        if (_onHoverOpenPanel is not null)
-        {
-            _hoverOpenTimer.Stop();
-            _hoverOpenTimer.Start();
-        }
+        _hoverOpenAt = _onHoverOpenPanel is null ? null : _clock.Elapsed + HoverOpenDelay;
     }
 
     private void NotchWindow_OnMouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
     {
         _hovered = false;
-        _hoverOpenTimer.Stop();
+        _hoverOpenAt = null;
         _timeline.PointerLeft(_clock.Elapsed);
         Recompute();
         PointerOverChanged?.Invoke(false);
     }
 
-    private void HoverOpenTimer_OnTick(object? sender, EventArgs e)
+    /// <summary>
+    /// Runs on the frame loop (the face is awake while hovered, so frames are already flowing): once the pointer has
+    /// rested on the notch for <see cref="HoverOpenDelay"/>, still hovering, not mid-press (a press-and-hold on the
+    /// eyes is talk, not open) and with the face awake, the panel drops.
+    /// </summary>
+    private void OpenPanelAfterHoverDwell(TimeSpan now)
     {
-        _hoverOpenTimer.Stop();
-        // Still hovering, not mid-press (a press-and-hold on the eyes is talk, not open), face awake: drop the panel.
+        if (_hoverOpenAt is not { } openAt || now < openAt)
+        {
+            return;
+        }
+        _hoverOpenAt = null;
         if (_hovered && !_press.IsPressed && _state != NotchFaceState.Hidden)
         {
             CaptureExternalTarget();

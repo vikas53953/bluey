@@ -105,6 +105,88 @@ public class BooAppFixture : IDisposable
     public Window WaitForNotch(TimeSpan timeout) =>
         WaitFor(FindNotch, timeout, "the Boo launcher (notch) window to appear");
 
+    // ------------------------------------------------------------------ views (round 3: the hanging panel)
+
+    /// <summary>The tab buttons of the three views, in the order the driver tries them.</summary>
+    private static readonly string[] ViewTabButtons = { "ChatTabButton", "HomeTabButton", "SettingsTabButton" };
+
+    /// <summary>
+    /// The companion window is a panel with three views (Home, Chat, Settings) and only the open view's controls are in
+    /// the UI Automation control view. Looks for the control in the open view first; when it is not there, opens the
+    /// other views one at a time through their tab buttons and looks again. The view that holds the control stays
+    /// open. When no view holds it, the view that was open is put back and null is returned, so "the element is not
+    /// there" keeps its meaning (a collapsed validation message or a cleared Review action).
+    /// </summary>
+    public static AutomationElement? FindInView(Window panel, string automationId)
+    {
+        if (panel.FindFirstDescendant(cf => cf.ByAutomationId(automationId)) is { } here)
+        {
+            return here;
+        }
+
+        var openView = OpenViewTab(panel);
+        foreach (var tab in ViewTabButtons)
+        {
+            if (string.Equals(tab, openView, StringComparison.Ordinal) || !ShowViewTab(panel, tab))
+            {
+                continue;
+            }
+            var deadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(400);
+            do
+            {
+                if (panel.FindFirstDescendant(cf => cf.ByAutomationId(automationId)) is { } found)
+                {
+                    return found;
+                }
+                Thread.Sleep(40);
+            }
+            while (DateTime.UtcNow < deadline);
+        }
+
+        if (openView is not null)
+        {
+            ShowViewTab(panel, openView);
+        }
+        return null;
+    }
+
+    /// <summary>Opens a view by its tab button ("HomeTabButton", "ChatTabButton", "SettingsTabButton"); false when the button is missing.</summary>
+    public static bool ShowViewTab(Window panel, string tabButtonId)
+    {
+        try
+        {
+            if (panel.FindFirstDescendant(cf => cf.ByAutomationId(tabButtonId)) is not { } button)
+            {
+                return false;
+            }
+            button.AsButton().Invoke();
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The tab button of the view that is open now, read from the window's HelpText ("Home", "Chat", "Settings").</summary>
+    private static string? OpenViewTab(Window panel)
+    {
+        try
+        {
+            return panel.Properties.HelpText.ValueOrDefault switch
+            {
+                "Home" => "HomeTabButton",
+                "Chat" => "ChatTabButton",
+                "Settings" => "SettingsTabButton",
+                _ => null,
+            };
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     public static void PressOpenShortcut() =>
         Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.ALT, VirtualKeyShort.KEY_B);
 

@@ -87,7 +87,13 @@ public partial class App : System.Windows.Application
         _panel.FaceInputsChanged += OnFaceInputsChanged;
         _notch.EyesHeldChanged += held => _panel?.SetEyesHeld(held);
         _notch.NudgeActionChosen += takeBreak => _panel?.HandleNudgeAction(takeBreak);
-        _notch.PointerOverChanged += over => _panel?.NotchPointerOverChanged(over);
+        _notch.PointerOverChanged += over =>
+        {
+            if (!over)
+            {
+                _panel?.FoldIfPointerOutside();
+            }
+        };
         _notch.ShowNotch();
         _perf = PerfDiagnostics.TryStart(_notch, _timeProvider); // only when BOO_PERF_DIAG is set (perf tests)
 
@@ -121,7 +127,7 @@ public partial class App : System.Windows.Application
 
         if (fromHover && _panel.IsVisible)
         {
-            return; // already up (opened on purpose, or by an earlier hover): nothing to do
+            return;
         }
 
         if (_panel.WindowState == WindowState.Minimized)
@@ -146,7 +152,7 @@ public partial class App : System.Windows.Application
             _panel.Activate();
         }
         _panel.RefreshSelectedDisplay();
-        _notch?.RaiseAbovePanel(); // the eyes sit over the panel's top bar, never under it
+        _notch?.RaiseAbovePanel();
     }
 
     private MainWindow CreatePanel()
@@ -464,7 +470,6 @@ public partial class App : System.Windows.Application
         SetThemeBrush("BooInput", highContrast ? MediaSystemColors.WindowColor : MediaColor.FromRgb(0x29, 0x29, 0x2D));
         SetThemeBrush("BooNotchBody", highContrast ? MediaSystemColors.WindowColor : MediaColor.FromRgb(0x00, 0x00, 0x00));
         SetThemeBrush("BooNotchEyes", highContrast ? MediaSystemColors.WindowTextColor : MediaColor.FromRgb(0xFF, 0xFF, 0xFF));
-        // Hanging panel (round 3).
         SetThemeBrush("BooSheet", highContrast ? MediaSystemColors.WindowColor : MediaColor.FromRgb(0x14, 0x14, 0x16));
         SetThemeBrush("BooCard", highContrast ? MediaSystemColors.WindowColor : MediaColor.FromRgb(0x24, 0x24, 0x28));
         SetThemeBrush("BooCardBorder", highContrast ? MediaSystemColors.ActiveBorderColor : MediaColor.FromRgb(0x2C, 0x2C, 0x31));

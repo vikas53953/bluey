@@ -1,8 +1,8 @@
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Threading;
 using Boo.Core;
 
 namespace Boo.App;
@@ -21,7 +21,7 @@ public enum PanelMode { Docked, Windowed }
 /// </summary>
 public partial class MainWindow
 {
-    // Docked sizes in DIP, measured from HeyClicky 1.1.6 (406 x 310 panel, 620 x 500 settings) and rounded to Boo's grid.
+    /// <summary>Docked sizes in DIP, measured from HeyClicky 1.1.6 (406 x 310 panel, 620 x 500 settings) and rounded to Boo's grid.</summary>
     internal const double DockedWidth = 420;
     internal const double DockedHeight = 330;
     internal const double SettingsDockedWidth = 640;
@@ -29,14 +29,9 @@ public partial class MainWindow
     internal const double WindowedWidth = 760;
     internal const double WindowedHeight = 520;
 
-    /// <summary>How long the pointer may be off both the notch and the panel before a hover-opened panel folds away.</summary>
-    internal static readonly TimeSpan HoverCloseDelay = TimeSpan.FromMilliseconds(400);
-
     private PanelView _view = PanelView.Home;
     private PanelMode _mode = PanelMode.Docked;
     private bool _openedByHover;
-    private bool _notchPointerOver;
-    private DispatcherTimer? _hoverCloseTimer;
     private Rect? _windowedBounds;
 
     /// <summary>The view showing now.</summary>
@@ -61,7 +56,6 @@ public partial class MainWindow
         HomeTabButton.Tag = view == PanelView.Home ? "Active" : null;
         ChatTabButton.Tag = view == PanelView.Chat ? "Active" : null;
         SettingsTabButton.Tag = view == PanelView.Settings ? "Active" : null;
-        // UI Automation: the window's HelpText names the open view ("Home", "Chat", "Settings").
         AutomationProperties.SetHelpText(this, view.ToString());
         if (view == PanelView.Home)
         {
@@ -87,12 +81,13 @@ public partial class MainWindow
         Keyboard.Focus(anchor);
     }
 
-    /// <summary>Called by App before Show(): Ctrl+Alt+B, the tray and a click on the eyes activate the panel.</summary>
+    /// <summary>
+    /// Called by App before Show(). Ctrl+Alt+B, the tray and a click on the eyes activate the panel; a hover never
+    /// takes the keyboard from the app the user is working in, so a hover open shows it without activating.
+    /// </summary>
     public void PrepareShow(bool fromHover)
     {
         _openedByHover = fromHover;
-        _hoverCloseTimer?.Stop();
-        // A hover never takes the keyboard from the app the user is working in; a deliberate open does.
         ShowActivated = !fromHover;
         if (_mode == PanelMode.Docked)
         {
@@ -102,65 +97,38 @@ public partial class MainWindow
     }
 
     /// <summary>A deliberate open (hotkey, click) after a hover-open keeps the panel up when the pointer leaves.</summary>
-    public void KeepOpen()
-    {
-        _openedByHover = false;
-        _hoverCloseTimer?.Stop();
-    }
+    public void KeepOpen() => _openedByHover = false;
 
-    /// <summary>App forwards the notch's pointer state so a hover-opened panel knows when the pointer has left both.</summary>
-    public void NotchPointerOverChanged(bool over)
+    /// <summary>
+    /// Folds a hover-opened panel once the pointer is off both windows. The notch sits over the panel's top bar, so a
+    /// pointer that left one window but is still inside the panel's rectangle has only crossed to the other; the
+    /// panel's MouseLeave and the notch's PointerOverChanged(false) both land here, and no timer is needed.
+    /// </summary>
+    public void FoldIfPointerOutside()
     {
-        _notchPointerOver = over;
-        if (over)
-        {
-            _hoverCloseTimer?.Stop();
-        }
-        else
-        {
-            ArmHoverClose();
-        }
-    }
-
-    private void ArmHoverClose()
-    {
-        if (!_openedByHover || !IsVisible || IsMouseOver || _notchPointerOver)
+        if (!_openedByHover || !IsVisible || IsMouseOver || !GetCursorPos(out var cursor))
         {
             return;
         }
-        _hoverCloseTimer ??= CreateHoverCloseTimer();
-        _hoverCloseTimer.Stop();
-        _hoverCloseTimer.Start();
-    }
-
-    private DispatcherTimer CreateHoverCloseTimer()
-    {
-        var timer = new DispatcherTimer(DispatcherPriority.Input) { Interval = HoverCloseDelay };
-        timer.Tick += (_, _) =>
-        {
-            timer.Stop();
-            if (_openedByHover && IsVisible && !IsMouseOver && !_notchPointerOver)
-            {
-                _onClose();
-            }
-        };
-        return timer;
-    }
-
-    private void Panel_OnMouseEnter(object sender, MouseEventArgs e) => _hoverCloseTimer?.Stop();
-
-    private void Panel_OnMouseLeave(object sender, MouseEventArgs e) => ArmHoverClose();
-
-    private void Panel_OnDeactivated(object? sender, EventArgs e)
-    {
-        // Like HeyClicky: a click somewhere else closes a panel the hover opened. A panel opened on purpose stays.
-        if (_openedByHover && IsVisible && !IsMouseOver)
+        var topLeft = PointToScreen(new Point(0, 0));
+        var bottomRight = PointToScreen(new Point(ActualWidth, ActualHeight));
+        var inside = cursor.X >= topLeft.X && cursor.X < bottomRight.X && cursor.Y >= topLeft.Y && cursor.Y < bottomRight.Y;
+        if (!inside)
         {
             _onClose();
         }
     }
 
-    // ---------------------------------------------------------------- views
+    private void Panel_OnMouseLeave(object sender, MouseEventArgs e) => FoldIfPointerOutside();
+
+    /// <summary>Like HeyClicky: a click somewhere else closes a panel the hover opened. A panel opened on purpose stays.</summary>
+    private void Panel_OnDeactivated(object? sender, EventArgs e)
+    {
+        if (_openedByHover && IsVisible && !IsMouseOver)
+        {
+            _onClose();
+        }
+    }
 
     private void HomeTab_OnClick(object sender, RoutedEventArgs e) => ShowView(PanelView.Home);
 
@@ -208,8 +176,6 @@ public partial class MainWindow
         };
     }
 
-    // ---------------------------------------------------------------- docked / windowed
-
     private void OpenInWindowButton_OnClick(object sender, RoutedEventArgs e) =>
         SetMode(_mode == PanelMode.Docked ? PanelMode.Windowed : PanelMode.Docked);
 
@@ -241,7 +207,7 @@ public partial class MainWindow
             {
                 Width = WindowedWidth;
                 Height = WindowedHeight;
-                Top += 24; // drop it clear of the notch so the eyes stay visible
+                Top += 24;
             }
             AutomationProperties.SetItemStatus(PanelShell, "windowed");
             return;
@@ -302,7 +268,16 @@ public partial class MainWindow
         }
         catch (InvalidOperationException)
         {
-            // DragMove needs the button down; a release in between is harmless.
         }
     }
+
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCursorPos(out NativePoint point);
 }

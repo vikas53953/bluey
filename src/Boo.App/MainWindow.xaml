@@ -7,7 +7,7 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         FontFamily="{StaticResource BooFont}"
         KeyDown="Window_OnKeyDown" PreviewKeyDown="Window_OnPreviewKeyDown" Loaded="Window_OnLoaded" Closing="Window_OnClosing"
-        MouseEnter="Panel_OnMouseEnter" MouseLeave="Panel_OnMouseLeave" Deactivated="Panel_OnDeactivated">
+        MouseLeave="Panel_OnMouseLeave" Deactivated="Panel_OnDeactivated">
     <!--
         The hanging panel (round 3, 22 Nov 2026): one dark sheet that drops from the top edge under the notch, like
         HeyClicky's, with exactly three views: Home, Chat, Settings. The notch stays eyes-only; the panel's top bar

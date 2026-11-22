@@ -218,7 +218,7 @@ public sealed class UnobservedScreenActionVoiceDemoTests : IClassFixture<Faulted
     }
 
     private static AutomationElement? TryFind(Window panel, string automationId) =>
-        panel.FindFirstDescendant(cf => cf.ByAutomationId(automationId));
+        BooAppFixture.FindInView(panel, automationId);
 
     private AutomationElement Find(Window panel, string automationId) =>
         _boo.WaitFor(() => TryFind(panel, automationId), UiTimeout, $"element '{automationId}'");

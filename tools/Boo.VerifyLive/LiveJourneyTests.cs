@@ -594,14 +594,17 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             var view = panel is null ? string.Empty : PanelViews.OpenView(panel);
             _boo.CaptureScreen("j7-hover-opened");
 
-            Mouse.MoveTo(away);
+            // The panel hangs 330 DIP under the notch: leave through its bottom edge, well clear of both windows.
+            var panelBottom = panel?.BoundingRectangle.Bottom ?? (rect.Bottom + 330);
+            var below = new Point(hover.X, Math.Max(away.Y, panelBottom + 120));
+            Mouse.MoveTo(below);
             clock.Restart();
             var folded = BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, TimeSpan.FromSeconds(3));
             var foldMs = clock.ElapsedMilliseconds;
             var rested = BooAppFixture.WaitUntil(() => NotchState() == "Hidden", RetractTimeout);
             _boo.CaptureScreen("j7-after-leave");
             _boo.WriteObservation("j7-hover-panel",
-                $"notch={rect} hover={hover} opened={opened} openMs={openMs} view='{view}' folded={folded} foldMs={foldMs} rested={rested} state='{NotchState()}'");
+                $"notch={rect} hover={hover} below={below} opened={opened} openMs={openMs} view='{view}' folded={folded} foldMs={foldMs} rested={rested} state='{NotchState()}'");
 
             Assert.True(opened, $"Resting the pointer on the notch at {hover} did not open the panel within 3 s.");
             Assert.True(folded, "The hover-opened panel did not fold within 3 s of the pointer leaving the notch.");
