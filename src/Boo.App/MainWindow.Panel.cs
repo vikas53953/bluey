@@ -4,6 +4,8 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Boo.Core;
+using Button = System.Windows.Controls.Button;
+using Point = System.Windows.Point;
 
 namespace Boo.App;
 
