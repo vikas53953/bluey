@@ -301,16 +301,21 @@ public static class LivingInk
     public const double SidePadding = 18;
     public const double CaptionInsetX = 30;
 
+    /// <summary>Gap (DIP) between the eyes and a lead or trail slot (record dot, speaking bars, status word).</summary>
+    public const double SlotGap = 10;
+
     /// <summary>
     /// Living ink placement inside the body box: the eyes are centred in the top row (row = collapsed height), or centred
     /// between the lead and trail slots when those are used; the caption sits under the row and ends above the lobed
     /// lower band (0.42 × min(height, 64)) so text never runs off the ink. Eyes are lifted when the mood's blot is
-    /// shallow under them (sleepy, happy), so an eye never hangs over the blot's lower edge.
+    /// shallow under them (sleepy, happy), so an eye never hangs over the blot's lower edge. <paramref name="wordWidth"/>
+    /// (round 3 status word) widens the trail slot so the word sits right of the eyes.
     /// </summary>
-    public static NotchRowParts Place(NotchFaceSpec face, SizeD body, NotchFaceState state)
+    public static NotchRowParts Place(NotchFaceSpec face, SizeD body, NotchFaceState state, double wordWidth = 0)
     {
         ArgumentNullException.ThrowIfNull(face);
         var (lead, trail) = SlotWidths(state);
+        trail = Math.Max(trail, Math.Max(0, wordWidth));
         var row = Math.Min(face.SizeFor(NotchFaceState.Hover).Height, body.Height);
         var eye = face.Eye;
         var half = (eye.Width + eye.Gap) / 2;
@@ -323,8 +328,8 @@ public static class LivingInk
         }
         else
         {
-            var left = SidePadding + (lead > 0 ? lead + 10 : 0);
-            var right = body.Width - SidePadding - (trail > 0 ? trail + 10 : 0);
+            var left = SidePadding + (lead > 0 ? lead + SlotGap : 0);
+            var right = body.Width - SidePadding - (trail > 0 ? trail + SlotGap : 0);
             cx = (left + right) / 2;
         }
         var band = 0.42 * Math.Min(body.Height, 64);

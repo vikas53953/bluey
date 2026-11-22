@@ -142,6 +142,7 @@ public partial class MainWindow : Window
         SystemParameters.StaticPropertyChanged += SystemParameters_OnStaticPropertyChanged;
         Closed += (_, _) => SystemParameters.StaticPropertyChanged -= SystemParameters_OnStaticPropertyChanged;
         Closed += (_, _) => DisposeShell();
+        IsVisibleChanged += (_, _) => SetFace(_faceInputs with { PanelOpen = IsVisible });
     }
 
 
@@ -1543,10 +1544,13 @@ public partial class MainWindow : Window
         if (_focus is null)
         {
             FocusTimer.Text = "Not running";
+            SetFace(_faceInputs with { FocusRemainingSeconds = null });
             return;
         }
         var remaining = Math.Max(0, _focus.Remaining);
         FocusTimer.Text = TimeSpan.FromSeconds(remaining).ToString(@"mm\:ss");
+        var running = _focus.Snapshot.Status == Boo.Core.FocusStatus.Running;
+        SetFace(_faceInputs with { FocusRemainingSeconds = running ? (int)Math.Ceiling(remaining) : null });
     }
 
     private void SaveSettingsButton_OnClick(object sender, RoutedEventArgs e)

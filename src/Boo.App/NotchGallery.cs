@@ -16,7 +16,7 @@ internal static class NotchGallery
     private const double Scale = 2;
 
     /// <summary>One gallery still: state at time, optionally on a dark desktop or frozen inside the wake-up / celebrate.</summary>
-    private readonly record struct Shot(NotchFaceState State, int AtMs, string Name, bool Dark = false, int? WakeMs = null, int? CelebrateMs = null);
+    private readonly record struct Shot(NotchFaceState State, int AtMs, string Name, bool Dark = false, int? WakeMs = null, int? CelebrateMs = null, int? FocusSeconds = null);
 
     private static readonly Shot[] Frames =
     {
@@ -33,6 +33,8 @@ internal static class NotchGallery
         new(NotchFaceState.Idle, 2000, "10-dark-idle", Dark: true),
         new(NotchFaceState.Thinking, 2360, "11-dark-thinking", Dark: true),
         new(NotchFaceState.Responding, 2000, "12-dark-responding", Dark: true),
+        new(NotchFaceState.Idle, 2000, "13-idle-focus-time", FocusSeconds: 24 * 60 + 59),
+        new(NotchFaceState.Idle, 2000, "14-dark-focus-time", Dark: true, FocusSeconds: 7 * 60 + 5),
         // Wake-up (~520 ms): stain, bead, eyes shut, peek, blink, looks over.
         new(NotchFaceState.Idle, 2000, "20-wake-1-stain", WakeMs: 45),
         new(NotchFaceState.Idle, 2000, "21-wake-2-bead", WakeMs: 165),
@@ -52,7 +54,7 @@ internal static class NotchGallery
         var shots = new List<(string Name, BitmapSource Image)>();
         foreach (var shot in Frames)
         {
-            var image = notch.RenderGalleryFrame(shot.State, TimeSpan.FromMilliseconds(shot.AtMs), Scale, shot.Dark, shot.WakeMs, shot.CelebrateMs);
+            var image = notch.RenderGalleryFrame(shot.State, TimeSpan.FromMilliseconds(shot.AtMs), Scale, shot.Dark, shot.WakeMs, shot.CelebrateMs, shot.FocusSeconds);
             Save(image, Path.Combine(directory, shot.Name + ".png"));
             shots.Add((shot.Name, image));
         }

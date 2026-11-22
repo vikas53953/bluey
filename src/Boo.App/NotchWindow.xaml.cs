@@ -91,6 +91,10 @@ public partial class NotchWindow : Window
     private string _rawCaption = string.Empty; // full normalised caption as given; _caption is the drawn window of it
     private string _captionShown = string.Empty;
     private TimeSpan _captionStart;
+    private string? _word;
+    private string _wordTemplate = string.Empty;
+    private double _wordWidth;
+    private double _builtWordWidth;
     private FaceInputs _appInputs = new();
     private bool _hovered;
     private NotchFaceState _state = NotchFaceState.Hidden;
@@ -414,10 +418,11 @@ public partial class NotchWindow : Window
     /// <summary>
     /// Renders the notch in <paramref name="state"/> at time <paramref name="at"/> into a bitmap (no window shown).
     /// <paramref name="dark"/> draws on a dark desktop with the dark-theme rim; <paramref name="wakeMs"/> /
-    /// <paramref name="celebrateMs"/> freeze the wake-up / celebrate sequence that many ms after it started.
+    /// <paramref name="celebrateMs"/> freeze the wake-up / celebrate sequence that many ms after it started;
+    /// <paramref name="focusRemainingSeconds"/> shows the focus time left beside the eyes (round 3 status word).
     /// </summary>
     internal System.Windows.Media.Imaging.BitmapSource RenderGalleryFrame(NotchFaceState state, TimeSpan at, double scale,
-        bool dark = false, int? wakeMs = null, int? celebrateMs = null)
+        bool dark = false, int? wakeMs = null, int? celebrateMs = null, int? focusRemainingSeconds = null)
     {
         if (ReferenceEquals(Content, Root))
         {
@@ -427,6 +432,8 @@ public partial class NotchWindow : Window
         ApplyAppearance();
         _reducedMotion = false;
         _state = NotchFaceState.Hidden;
+        _appInputs = new FaceInputs(FocusRemainingSeconds: focusRemainingSeconds);
+        SetStatusWord(NotchStatusWord.For(_appInputs, state));
         if (state is NotchFaceState.Responding or NotchFaceState.Nudge)
         {
             _caption = state == NotchFaceState.Responding
@@ -467,7 +474,7 @@ public partial class NotchWindow : Window
         HoverStrip.Visibility = Visibility.Collapsed;
 
         var pad = 12d;
-        var reach = Math.Max(_sizeNow.Width, _face.SizeFor(state).Width);
+        var reach = Math.Max(_sizeNow.Width, TargetSize(state).Width);
         var left = BodyLeftDip(new SizeD(reach, 0)) - _face.Shape.Shoulder - pad - InkPadDip;
         var width = reach + 2 * (_face.Shape.Shoulder + pad + InkPadDip);
         var height = Math.Max(_sizeNow.Height, _face.SizeFor(state).Height) + pad + 16 + (ActiveDisclosure.Visibility == Visibility.Visible ? 44 : 0);
@@ -523,17 +530,70 @@ public partial class NotchWindow : Window
         };
 
         // Anything above Hidden without the pointer (capture, mic, thinking, nudge, ...) pins the notch out.
-        var pinned = FaceStateResolver.Resolve(app) != NotchFaceState.Hidden;
+        var resting = FaceStateResolver.Resolve(app);
+        var pinned = resting != NotchFaceState.Hidden || NotchStatusWord.Pins(NotchStatusWord.For(app, resting));
         _timeline.SetPinned(pinned, now);
 
         var phase = _timeline.PhaseAt(now);
         var state = FaceStateResolver.Resolve(app with { Revealed = phase != RevealPhase.Hidden, Hovered = _hovered });
+        var widened = SetStatusWord(NotchStatusWord.For(app, state));
         if (state != _state)
         {
             ApplyState(state, now);
         }
+        else if (widened)
+        {
+            RetargetBody(now, snap: _reducedMotion);
+        }
         UpdateDisclosure();
         EnsureRendering();
+    }
+
+    /// <summary>
+    /// Shows <paramref name="word"/> beside the eyes (or nothing). Returns true when the slot width changed, which is
+    /// judged on <see cref="NotchStatusWord.WidthTemplate"/> so a ticking clock never resizes the blot.
+    /// </summary>
+    private bool SetStatusWord(string? word)
+    {
+        if (!string.Equals(word, _word, StringComparison.Ordinal))
+        {
+            _word = word;
+            StatusWord.Text = word ?? string.Empty;
+            StatusWord.Visibility = word is null ? Visibility.Collapsed : Visibility.Visible;
+        }
+        var template = NotchStatusWord.WidthTemplate(word);
+        if (string.Equals(template, _wordTemplate, StringComparison.Ordinal))
+        {
+            return false;
+        }
+        _wordTemplate = template;
+        _wordWidth = template.Length == 0 ? 0 : MeasureWord(template);
+        return true;
+    }
+
+    /// <summary>Width (DIP) of <paramref name="text"/> in the status word's face, rounded up with a little air.</summary>
+    private double MeasureWord(string text)
+    {
+        var typeface = new Typeface(StatusWord.FontFamily, StatusWord.FontStyle, StatusWord.FontWeight, StatusWord.FontStretch);
+        var formatted = new FormattedText(text, System.Globalization.CultureInfo.CurrentUICulture, System.Windows.FlowDirection.LeftToRight,
+            typeface, StatusWord.FontSize, MediaBrushes.White, 1.0);
+        return Math.Ceiling(formatted.WidthIncludingTrailingWhitespace) + 2;
+    }
+
+    /// <summary>The body box for the current state: the spec size, widened when the eyes and the status word need it.</summary>
+    private SizeD TargetSize(NotchFaceState state) => NotchStatusWord.Fit(_face, state, _wordWidth);
+
+    /// <summary>Morphs the blot to the current target box without a state change (the word slot grew or went away).</summary>
+    private void RetargetBody(TimeSpan now, bool snap)
+    {
+        var target = TargetSize(_state);
+        _morph.Retarget(LivingInk.BlotFor(_state), InkEyePose.For(LivingInk.MoodFor(_state)), target, now, LivingInk.MorphMs(_state), snap);
+        if (snap)
+        {
+            _sizeNow = target;
+        }
+        _builtBlot = null;
+        LayoutBody(_sizeNow, _morph.Sample(now).Blot);
     }
 
     private void ApplyState(NotchFaceState state, TimeSpan now)
@@ -549,7 +609,7 @@ public partial class NotchWindow : Window
 
         // Living ink: morph blot, size and eyes toward the new mood. A new state always cuts the running morph
         // (it restarts from the pose on screen) and the wake-up; reduced motion and a fresh appearance jump to the end pose.
-        var target = _face.SizeFor(state);
+        var target = TargetSize(state);
         var snap = _reducedMotion || wasHidden;
         _morph.Retarget(LivingInk.BlotFor(state), InkEyePose.For(LivingInk.MoodFor(state)), target, now, LivingInk.MorphMs(state), snap);
         if (state == NotchFaceState.Hidden)
@@ -1055,7 +1115,7 @@ public partial class NotchWindow : Window
 
     private void LayoutBody(SizeD size, InkBlot blot)
     {
-        if (size == _builtSize && ReferenceEquals(blot, _builtBlot) && _state == _builtState)
+        if (size == _builtSize && ReferenceEquals(blot, _builtBlot) && _state == _builtState && _wordWidth == _builtWordWidth)
         {
             return; // nothing moved: no geometry, clip or layout work this frame
         }
@@ -1064,6 +1124,7 @@ public partial class NotchWindow : Window
         _builtSize = size;
         _builtBlot = blot;
         _builtState = _state;
+        _builtWordWidth = _wordWidth;
         Canvas.SetLeft(BodyPath, left);
         Canvas.SetTop(BodyPath, 0);
         Canvas.SetLeft(InkLayer, left);
@@ -1075,12 +1136,13 @@ public partial class NotchWindow : Window
         OpenButton.Width = size.Width;
         OpenButton.Height = size.Height;
 
-        _row = LivingInk.Place(_face, size, _state);
+        _row = LivingInk.Place(_face, size, _state, _wordWidth);
         _parts = new NotchFaceParts(_row.LeftEye, _row.RightEye, _row.Trail);
         PositionEye(_row.LeftEye, LeftEye, LeftBlink, LeftWhite, LeftPupil, LeftGlint, LeftLid, LeftHappy);
         PositionEye(_row.RightEye, RightEye, RightBlink, RightWhite, RightPupil, RightGlint, RightLid, RightHappy);
         _builtTopRadius = double.NaN; // eye outlines follow the new centres
         PositionIndicators();
+        PositionStatusWord();
         PositionCaption(left);
         // Studio ".clip{overflow:hidden}": caption and pills never draw outside the pocket while it resizes.
         var bodyClip = new RectangleGeometry(new Rect(0, 0, size.Width, size.Height));
@@ -1223,6 +1285,14 @@ public partial class NotchWindow : Window
         Canvas.SetTop(RecordDot, cy - 3.5);
         Canvas.SetLeft(StopSquare, _row.Trail.X);
         Canvas.SetTop(StopSquare, cy - 9);
+    }
+
+    /// <summary>The word sits in the trail slot, right of the eyes, its 18 DIP line centred on the eye row.</summary>
+    private void PositionStatusWord()
+    {
+        Canvas.SetLeft(StatusWord, _row.Trail.X);
+        Canvas.SetTop(StatusWord, _row.LeftEye.Y - 9);
+        StatusWord.Width = Math.Max(0, _row.Trail.Width);
     }
 
     private void PositionCaption(double bodyLeft)
@@ -1542,6 +1612,7 @@ public partial class NotchWindow : Window
             bar.Fill = eyes;
         }
         Caption.Foreground = eyes;
+        StatusWord.Foreground = eyes;
         StopSquareInner.Background = eyes;
         StopSquare.Background = WithAlpha(eyes, 0.16);
         // Studio pills: primary = eye colour with body-coloured text; secondary = eye colour at 14%.
