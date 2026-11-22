@@ -653,19 +653,28 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             Assert.True(BooAppFixture.WaitUntil(() => NameOfId(panel, "FocusStatus").StartsWith("Ended", StringComparison.Ordinal), UiTimeout),
                 $"Focus did not end: '{NameOfId(panel, "FocusStatus")}'");
 
-            // "Thinking…" beside the eyes while the real provider works on an answer.
+            // "Thinking…" beside the eyes while the real provider works on an answer. The face is set when the question is
+            // sent and cleared when the reply lands, so the test reads the notch as fast as UI Automation allows (no 200 ms
+            // poll sleep) and asks for a few sentences so even a fast provider takes more than one read.
             var before = BooRows(panel).Count;
             var seen = new List<string>();
-            Ask(panel, "Name one planet of the solar system. Answer with just the name.");
-            var thinking = BooAppFixture.WaitUntil(() =>
+            Ask(panel, "In about 120 words, explain how TCP congestion control decides how fast to send.");
+            var thinking = false;
+            var watch = Stopwatch.StartNew();
+            while (watch.Elapsed < AnswerTimeout)
             {
                 var word = NotchStatusWord();
                 if (word is not null && (seen.Count == 0 || seen[^1] != word)) seen.Add(word);
-                if (word == NotchStatusWordText.Thinking) _boo.CaptureScreen("j8-thinking-on-notch");
-                return word == NotchStatusWordText.Thinking;
-            }, AnswerTimeout);
+                if (word == NotchStatusWordText.Thinking)
+                {
+                    thinking = true;
+                    _boo.CaptureScreen("j8-thinking-on-notch");
+                    break;
+                }
+                if (BooRows(panel).Count > before) break;
+            }
             var reply = WaitForNewBooRow(panel, before);
-            _boo.WriteObservation("j8-thinking", $"wordsSeen={string.Join(">", seen)} thinking={thinking} reply='{Shorten(reply, 200)}'");
+            _boo.WriteObservation("j8-thinking", $"wordsSeen={string.Join(">", seen)} thinking={thinking} afterMs={watch.ElapsedMilliseconds} reply='{Shorten(reply, 200)}'");
             Assert.True(thinking, $"The notch never showed '{NotchStatusWordText.Thinking}' while the answer ran (words seen: {string.Join(" > ", seen)}).");
             Assert.True(BooAppFixture.WaitUntil(() => NotchStatusWord() is null, UiTimeout),
                 $"The notch still shows '{NotchStatusWord()}' after the answer arrived.");
