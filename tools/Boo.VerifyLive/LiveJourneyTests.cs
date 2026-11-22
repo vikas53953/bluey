@@ -20,6 +20,7 @@ namespace Boo.VerifyLive;
 /// 0 notch wake by hotkey  1 notch wake by hover  2 typed chat with a real reply  3 screen explain, pointer + ring on a
 /// known target window  4 research with source links  5 permissioned Apply then Undo of a file  6 a 25-minute focus
 /// session on the existing Developer Mode clock (4x)  7 hover opens the hanging panel and it folds when the pointer leaves.
+/// 8 the status word beside the eyes: focus time left while the panel is closed, "Thinking…" while an answer runs.
 /// Every step writes screenshots (jN-*.png) and observations (jN-*.txt) under BOO_UI_ARTIFACTS and asserts on live UI
 /// Automation state, pixels or files, never on Boo's own claim alone. A step that cannot prove its feature fails; it
 /// never skips.
@@ -610,6 +611,88 @@ public sealed class LiveJourneyTests : IClassFixture<LiveAppFixture>
             Assert.True(folded, "The hover-opened panel did not fold within 3 s of the pointer leaving the notch.");
             Assert.True(rested, $"The notch did not return to 'Hidden' after the panel folded. ItemStatus: '{NotchState()}'.");
         });
+    }
+
+    [Fact, Step(8)]
+    public void J8_NotchShowsTheStatusWord_FocusTimeWhenClosed_ThinkingWhileAnswering()
+    {
+        Evidence("j8-status-word", () =>
+        {
+            // Round 3 status word (Sprint 1 pick 4): the time left in a running focus session sits beside the eyes while
+            // the panel is closed and ticks down; it is gone once the panel opens; "Thinking…" shows while an answer runs.
+            var panel = _boo.EnsurePanel();
+            EnsureDisplaySelected(panel);
+            var clockPattern = new System.Text.RegularExpressions.Regex("^[0-9]{2,}:[0-9]{2}$");
+
+            Find(panel, "DeveloperModeBox").AsCheckBox().IsChecked = false;
+            SetText(panel, "FocusTaskBox", "Read the notch clock");
+            SetText(panel, "FocusDurationBox", "5");
+            Find(panel, "FocusStartButton").AsButton().Invoke();
+            Assert.True(BooAppFixture.WaitUntil(() => NameOfId(panel, "FocusStatus").StartsWith("Running", StringComparison.Ordinal), UiTimeout),
+                $"Focus did not start: '{NameOfId(panel, "FocusStatus")}'");
+            Assert.True(BooAppFixture.WaitUntil(() => NotchStatusWord() is null, UiTimeout),
+                $"The notch showed '{NotchStatusWord()}' while the panel was open; the focus time belongs to the closed-panel notch only.");
+
+            Find(panel, "CloseButton").AsButton().Invoke();
+            Assert.True(BooAppFixture.WaitUntil(() => _boo.FindPanel() is null, UiTimeout), "TEST SETUP: Boo's panel did not hide.");
+            string? first = null;
+            var shown = BooAppFixture.WaitUntil(() => (first = NotchStatusWord()) is { } w && clockPattern.IsMatch(w), UiTimeout);
+            _boo.CaptureScreen("j8-focus-time-on-notch");
+            string? second = null;
+            var ticked = shown && BooAppFixture.WaitUntil(() => (second = NotchStatusWord()) is { } w && clockPattern.IsMatch(w) && w != first, TimeSpan.FromSeconds(4));
+            _boo.WriteObservation("j8-focus-time", $"first='{first}' second='{second}' shown={shown} ticked={ticked} state='{NotchState()}'");
+            Assert.True(shown, $"The notch did not show the focus time (mm:ss) beside the eyes; it shows '{first ?? "(nothing)"}'.");
+            Assert.True(ticked, $"The notch clock stayed at '{first}' for 4 s; it should tick down every second (now '{second}').");
+            Assert.True(string.CompareOrdinal(second, first) < 0, $"The notch clock went from '{first}' to '{second}'; the time left must count down.");
+
+            BooAppFixture.PressOpenShortcut();
+            panel = _boo.WaitForPanel(UiTimeout);
+            Assert.True(BooAppFixture.WaitUntil(() => NotchStatusWord() is null, UiTimeout),
+                $"Opening the panel did not clear the notch word; it still shows '{NotchStatusWord()}'.");
+            Find(panel, "FocusEndButton").AsButton().Invoke();
+            Assert.True(BooAppFixture.WaitUntil(() => NameOfId(panel, "FocusStatus").StartsWith("Ended", StringComparison.Ordinal), UiTimeout),
+                $"Focus did not end: '{NameOfId(panel, "FocusStatus")}'");
+
+            // "Thinking…" beside the eyes while the real provider works on an answer.
+            var before = BooRows(panel).Count;
+            var seen = new List<string>();
+            Ask(panel, "Name one planet of the solar system. Answer with just the name.");
+            var thinking = BooAppFixture.WaitUntil(() =>
+            {
+                var word = NotchStatusWord();
+                if (word is not null && (seen.Count == 0 || seen[^1] != word)) seen.Add(word);
+                if (word == NotchStatusWordText.Thinking) _boo.CaptureScreen("j8-thinking-on-notch");
+                return word == NotchStatusWordText.Thinking;
+            }, AnswerTimeout);
+            var reply = WaitForNewBooRow(panel, before);
+            _boo.WriteObservation("j8-thinking", $"wordsSeen={string.Join(">", seen)} thinking={thinking} reply='{Shorten(reply, 200)}'");
+            Assert.True(thinking, $"The notch never showed '{NotchStatusWordText.Thinking}' while the answer ran (words seen: {string.Join(" > ", seen)}).");
+            Assert.True(BooAppFixture.WaitUntil(() => NotchStatusWord() is null, UiTimeout),
+                $"The notch still shows '{NotchStatusWord()}' after the answer arrived.");
+        });
+    }
+
+    /// <summary>The status word beside the eyes (UIA Name of the NotchStatusWord text), or null when the notch shows none.</summary>
+    private string? NotchStatusWord()
+    {
+        try
+        {
+            var word = _boo.FindNotch()?.FindFirstDescendant(cf => cf.ByAutomationId(NotchStatusWordText.AutomationId));
+            if (word is null || word.IsOffscreen) return null;
+            var text = word.Name;
+            return string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+        }
+        catch (Exception ex) when (ex is FlaUI.Core.Exceptions.PropertyNotSupportedException or COMException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The words the notch may show (mirrors Boo.Core NotchStatusWord, which this tool references).</summary>
+    private static class NotchStatusWordText
+    {
+        public const string Thinking = Boo.Core.NotchStatusWord.Thinking;
+        public const string AutomationId = Boo.Core.NotchStatusWord.AutomationId;
     }
 
     private static AutomationElement? TryFind(Window panel, string automationId) =>
